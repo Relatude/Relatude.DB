@@ -2,13 +2,13 @@
 <package>
   <metadata>
     <id>Relatude.DB.Server</id>
-    <version>0.1.0</version>
+    <version>0.1.0-alpha</version>
     <authors>Ole Gulbrandsen</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="file">license.txt</license>
     <!-- <icon>icon.png</icon> -->
     <projectUrl>http://relatude.com/</projectUrl>
-    <description>Database engine and dba admin ui</description>
+    <description>Multimodel database engine. </description>
     <releaseNotes></releaseNotes>
     <copyright>$copyright$</copyright>
     <tags>Database ORM CMS</tags>

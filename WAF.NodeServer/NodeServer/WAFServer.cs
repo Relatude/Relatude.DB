@@ -13,7 +13,6 @@ public static partial class WAFServer {
     static void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
     static string _settingsFile = "waf.settings.json";
     static string _rootDataFolderPath = string.Empty;
-    static int _startCount = 0;
     static IIOProvider? _tempIO;
     static ISettingsLoader? _settingsLoader;
     static Dictionary<Guid, IIOProvider> _ios = [];

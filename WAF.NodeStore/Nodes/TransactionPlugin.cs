@@ -2,14 +2,13 @@
 using WAF.Common;
 using WAF.Datamodels;
 using WAF.Transactions;
-using static System.Formats.Asn1.AsnWriter;
 namespace WAF.Nodes;
 public class PropertyValuePair(Guid propertyId, object? oldValue, object? newValue) {
     public Guid PropertyId { get; } = propertyId;
     public object? OldValue { get; } = oldValue;
     public object? NewValue { get; } = newValue;
 }
-public class PropertyHelper<T>(NodeStore store, NodePropertyAction action, Transaction transaction) where T : notnull {
+public class PropertyHelper<T>(NodeStore store, Transaction transaction) where T : notnull {
     public Guid GetPropertyId(Expression<Func<T, object>> expression) => store.Mapper.GetProperty(expression).Id;
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
     public IEnumerable<T> GetNodes(Guid[]? nodeIds) {
@@ -126,7 +125,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     public void OnBefore(IdKey id, ActionBase action, Transaction transaction) {
         if (action is NodeAction nodeAction) OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Store, nodeAction));
         else if (action is NodePropertyAction nodePropertyAction)
-            OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Store, nodePropertyAction, transaction));
+            OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Store, transaction));
     }
     public void OnAfter(IdKey id, ActionBase action) {
         if (action is NodeAction nodeAction) OnAfterNodeAction(id, nodeAction.Operation);

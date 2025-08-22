@@ -2,7 +2,7 @@
 <package>
   <metadata>
     <id>Relatude.DB.Plugins.Lucene</id>
-    <version>0.1.0</version>
+    <version>0.1.0-alpha</version>
     <authors>Ole Gulbrandsen</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="file">license.txt</license>

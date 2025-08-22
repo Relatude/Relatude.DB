@@ -155,7 +155,7 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         var branch = _q.CreateBranch(expression, top);
         return new IncludeQueryOfNodes<TNode, TProperty>(_q, branch);
     }
-    public IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty[]>> expression, int? top = null) {
+    public IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty[]?>> expression, int? top = null) {
         var branch = _q.CreateBranch(expression, top);
         return new IncludeQueryOfNodes<TNode, TProperty>(_q, branch);
     }

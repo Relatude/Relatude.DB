@@ -10,6 +10,6 @@ app.MapGet("/", () => {
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 
-app.UseWAFDB("waf");
+app.UseRelatudeDB("waf");
 
 app.Run();
