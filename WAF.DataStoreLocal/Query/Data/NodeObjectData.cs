@@ -1,0 +1,75 @@
+﻿using WAF.Datamodels;
+using WAF.DataStores;
+using WAF.Serialization;
+using System.Text;
+using WAF.DataStores.Definitions;
+using WAF.Datamodels.Properties;
+
+namespace WAF.Query.Data;
+internal class NodeObjectData : IStoreNodeData {
+    public double DurationMs { get; set; }
+    INodeData _nodeData;
+    Definition _def;
+    Dictionary<string, Guid> _allPropertiesByName;
+    DataStoreLocal _db;
+    public IDataStore Store { get => _db; }
+    public NodeObjectData(DataStoreLocal db, INodeData nodeData, Definition def, Dictionary<string, Guid> allPropertiesByName) {
+        _db = db;
+        _nodeData = nodeData;
+        _allPropertiesByName = allPropertiesByName;
+        _def = def;
+    }
+    public INodeData NodeData { get => _nodeData; }
+    public int Count() {
+        throw new NotImplementedException();
+    }
+    public ICollectionData Filter(bool[] keep) {
+        throw new NotImplementedException();
+    }
+    public object? GetValue(string propertyName) {
+        if (_allPropertiesByName.TryGetValue(propertyName, out var propertyId)) {
+            if (_nodeData.TryGetValue(propertyId, out var value)) {
+                if (_db.QueryLogger.RecordingPropertyHits) _db.QueryLogger.RecordPropertyHit(propertyId);
+                return value;
+            } else {
+                var prop = _def.Datamodel.Properties[propertyId];
+                if (prop is RelationPropertyModel rp) return getRelated(rp);
+                throw new Exception($"Property {propertyName} not part of node object. ");
+            }
+        } else {
+            var parts = propertyName.Split('.');
+            if (parts.Length > 1) {
+                var value = GetValue(parts[0]);
+                var method = parts[1];
+                if (method == "Count" || method == "Length") {
+                    if (value is IEnumerable<object> e) return e.Cast<object>().Count();
+                    throw new Exception("Count method can only be called on IEnumerable properties. ");
+                }
+            } else {
+                // ID propertiy? // this should be more generalized later, what about the other named system props, should it be in datamodel? for faster lookup? ( enum ? )
+                var typeDef = _def.Datamodel.NodeTypes[_nodeData.NodeType];
+                if (propertyName == typeDef.NameOfPublicIdProperty) return _nodeData.Id;
+                else if (propertyName == typeDef.NameOfInternalIdProperty) return _nodeData.__Id;
+            }
+            throw new Exception($"Property {propertyName} could not be evaluated. ");
+        }
+    }
+    object? getRelated(RelationPropertyModel relProp) {
+        var relation = _def.Relations[relProp.RelationId];
+        var ids = relation.GetRelated(_nodeData.__Id, relProp.FromTargetToSource).ToArray();
+        var tos = _db._nodes.Get(ids).Select(n => new NodeDataWithRelations(n)).ToArray(); // heavy operation
+        var nodeTypes = _def.Datamodel.NodeTypes;
+        var result = new NodeObjectData[tos.Length];
+        for (var n = 0; n < tos.Length; n++) result[n] = new NodeObjectData(_db, tos[n], _def, _allPropertiesByName);
+        if (relProp.IsMany) return result;
+        if (tos.Length == 0) return null;
+        if (tos.Length == 1) return result[0];
+        throw new Exception("Multiple relation on property " + relProp.CodeName + " for node " + _nodeData.__Id + " is not allowed.");
+    }
+    public ObjectData ToObjectData() {
+        throw new NotImplementedException();
+    }
+    public void BuildTypeScriptTypeInfo(StringBuilder sb) {
+        throw new NotImplementedException();
+    }
+}

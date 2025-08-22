@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>Relatude.DB.Plugins.Sqlite</id>
+    <version>0.1.0</version>
+    <authors>Ole Gulbrandsen</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="file">license.txt</license>
+    <!-- <icon>icon.png</icon> -->
+    <projectUrl>http://relatude.com/</projectUrl>
+    <description>Plugin for SQLite text and value indexing</description>
+    <releaseNotes></releaseNotes>
+    <copyright>$copyright$</copyright>
+    <tags>Database ORM CMS</tags>
+    <dependencies>
+      <group targetFramework="net8.0">
+        <dependency id="Microsoft.Data.Sqlite" version="9.0.1" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="license.txt" target="" />
+    <file src="..\WAF.Sqlite\bin\Release\net8.0\WAF.Sqlite.dll" target="lib\net8.0" />
+  </files>
+</package>

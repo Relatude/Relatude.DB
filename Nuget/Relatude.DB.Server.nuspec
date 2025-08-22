@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>Relatude.DB.Server</id>
+    <version>0.1.0</version>
+    <authors>Ole Gulbrandsen</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="file">license.txt</license>
+    <!-- <icon>icon.png</icon> -->
+    <projectUrl>http://relatude.com/</projectUrl>
+    <description>Database engine and dba admin ui</description>
+    <releaseNotes></releaseNotes>
+    <copyright>$copyright$</copyright>
+    <tags>Database ORM CMS</tags>
+    <dependencies>
+      <group targetFramework="net8.0">
+        <dependency id="Microsoft.CodeAnalysis.CSharp" version="4.14.0" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="license.txt" target="" />
+    <file src="..\WAF.Common\bin\Release\net8.0\WAF.Common.dll" target="lib\net8.0" />
+    <file src="..\WAF.DataStore\bin\Release\net8.0\WAF.DataStore.dll" target="lib\net8.0" />
+    <file src="..\WAF.DataStoreLocal\bin\Release\net8.0\WAF.DataStoreLocal.dll" target="lib\net8.0" />
+    <file src="..\WAF.DataStoreRemote\bin\Release\net8.0\WAF.DataStoreRemote.dll" target="lib\net8.0" />
+    <file src="..\WAF.NodeServer\bin\Release\net8.0\WAF.NodeServer.dll" target="lib\net8.0" />
+    <file src="..\WAF.FileStorage\bin\Release\net8.0\WAF.FileStorage.dll" target="lib\net8.0" />
+    <file src="..\WAF.IO\bin\Release\net8.0\WAF.IO.dll" target="lib\net8.0" />
+    <file src="..\WAF.Logger\bin\Release\net8.0\WAF.Logger.dll" target="lib\net8.0" />
+    <file src="..\WAF.Model\bin\Release\net8.0\WAF.Model.dll" target="lib\net8.0" />
+    <file src="..\WAF.NodeStore\bin\Release\net8.0\WAF.NodeStore.dll" target="lib\net8.0" />
+  </files>
+</package>
