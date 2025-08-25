@@ -1,9 +1,8 @@
 ﻿using WAF.IO;
 using WAF.Common;
 using System.Text;
-using WAF.LogSystem;
 
-namespace WAF.LogSystem;
+namespace WAF.Logging;
 // not threadsafe!
 internal class LogTextStream : IDisposable {
     FileResolution _res;

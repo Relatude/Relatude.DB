@@ -1,6 +1,4 @@
-﻿using WAF.LogSystem;
-
-namespace WAF.LogSystem;
+﻿namespace WAF.Logging;
 public class LogSettings {
     public string Key { get; set; } = string.Empty;
     public string FileNamePrefix { get; set; } = "log";

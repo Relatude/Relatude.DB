@@ -1,6 +1,5 @@
 ﻿using WAF.IO;
 using WAF.Common;
-using WAF.LogSystem;
 // Filestructure:
 // 1. 8 bytes marker
 // 2. 8 bytes first date
@@ -9,7 +8,7 @@ using WAF.LogSystem;
 // 5. 4 bytes length of data
 // 6. data
 // - > repeat 1-6
-namespace WAF.LogSystem;
+namespace WAF.Logging;
 internal class logRecordData {
     internal logRecordData(DateTime dtFirst, DateTime dtLast, byte[] records) {
         DtFirst = dtFirst;
@@ -215,7 +214,7 @@ internal class LogStream : IDisposable {
     }
 
     //string getStreamPrefix() => "log_" + _logName + "_" + _res.ToString().ToLower() + "_";
-    string getStreamPrefix() => (string.IsNullOrEmpty(_logPrefix) ? "" : (_logPrefix + _logNameDelim)) + _logName + _logNameDelim + _res.ToString().ToLower() + _logNameDelim;
+    string getStreamPrefix() => (string.IsNullOrEmpty(_logPrefix) ? "" : _logPrefix + _logNameDelim) + _logName + _logNameDelim + _res.ToString().ToLower() + _logNameDelim;
 
     string getStreamFileName(DateTime floored) {
         return (getStreamPrefix() + _res switch {

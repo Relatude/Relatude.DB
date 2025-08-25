@@ -1,7 +1,7 @@
 ﻿using WAF.Datamodels;
 using WAF.IO;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
+using WAF.Logging;
+using WAF.Logging.Statistics;
 using WAF.Query;
 
 namespace WAF.DataStores;

@@ -1,7 +1,6 @@
-﻿
-using WAF.Common;
+﻿using WAF.Common;
 
-namespace WAF.LogSystem.Statistics;
+namespace WAF.Logging.Statistics;
 class LookUpPool {
     static readonly Stack<byte[]> _pool = new();
     public static byte[] Get() {
@@ -80,7 +79,7 @@ public class HyperLogLog {
     public static uint getHashCode(string text) {
         uint hash = 0;
         for (int i = 0, l = text.Length; i < l; i++) {
-            hash += (uint)text[i];
+            hash += text[i];
             hash += hash << 10;
             hash ^= hash >> 6;
         }
@@ -93,19 +92,19 @@ public class HyperLogLog {
         double c = 0, E;
 
         for (var i = 0; i < mapSize; i++)
-            c += 1d / Math.Pow(2, (double)Lookup[i]);
+            c += 1d / Math.Pow(2, Lookup[i]);
 
         E = alpha_m * mapSize * mapSize / c;
 
         // Make corrections & smoothen things. 
-        if (E <= (5 / 2) * mapSize) {
+        if (E <= 5 / 2 * mapSize) {
             double V = 0;
             for (var i = 0; i < mapSize; i++)
                 if (Lookup[i] == 0) V++;
             if (V > 0)
                 E = mapSize * Math.Log(mapSize / V);
         } else
-            if (E > (1 / 30) * pow_2_32)
+            if (E > 1 / 30 * pow_2_32)
             E = -pow_2_32 * Math.Log(1 - E / pow_2_32);
         // Made corrections & smoothen things, or not. 
 

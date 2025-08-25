@@ -1,7 +1,7 @@
 ﻿using WAF.IO;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
-namespace WAF.LogSystem.Statistics;
+using WAF.Logging;
+
+namespace WAF.Logging.Statistics;
 public class StatisticsEstimatedUniqueCount : StatisticsBase<AggregatorProbabilisticCount, string> {
     public StatisticsEstimatedUniqueCount(StatisticsInfo info, DayOfWeek firstDayOfWeek, string key) : base(info, firstDayOfWeek, key) { }
     public override void RecordIfPossible(DateTime dtUtc, object value) {
@@ -22,7 +22,7 @@ public class AggregatorProbabilisticCount : ICondensable {
     int _condensedValueCount = -1;
     public void Record(string group) {
         if (_condensedValueCount > -1) throw new Exception("Cannot add values after condense. ");
-        if (_values == null) _values = new ();
+        if (_values == null) _values = new();
         _values.Add(group);
     }
     public int EstimateCount() {
@@ -37,7 +37,7 @@ public class AggregatorProbabilisticCount : ICondensable {
         var length = br.ReadInt32();
         if (length > 0) {
             var state = br.ReadBytes(length);
-            aggregator._values = new (state);
+            aggregator._values = new(state);
         } else {
             aggregator._values = null;
         }

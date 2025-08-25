@@ -112,12 +112,12 @@ namespace WAF.Common {
             s.Read(b, 0, 8);
             return BitConverter.ToDouble(b, 0);
         }
-        public static void WriteFloat(this Stream s, double v) {
-            s.Write(BitConverter.GetBytes(v), 0, 4);
+        public static void WriteFloat(this Stream s, float v) {
+            s.Write(BitConverter.GetBytes(v), 0, 2);
         }
-        public static double ReadFloat(this Stream s) {
-            byte[] b = new byte[4];
-            s.Read(b, 0, 4);
+        public static float ReadFloat(this Stream s) {
+            byte[] b = new byte[2];
+            s.Read(b, 0, 2);
             return BitConverter.ToSingle(b, 0);
         }
 

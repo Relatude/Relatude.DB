@@ -11,7 +11,7 @@ using WAF.Datamodels.Properties;
 using WAF.DataStores;
 using WAF.Demo;
 using WAF.IO;
-using WAF.LogSystem.Statistics;
+using WAF.Logging.Statistics;
 using WAF.Nodes;
 using WAF.NodeServer.Models;
 namespace WAF.NodeServer;

@@ -1,11 +1,7 @@
-﻿
-using WAF.IO;
+﻿using WAF.IO;
+using WAF.Logging;
 
-using WAF.LogSystem;
-
-using WAF.LogSystem.Statistics;
-
-namespace WAF.LogSystem.Statistics;
+namespace WAF.Logging.Statistics;
 
 // for example country of a request to record count and name of countries per interval
 public class StatisticsGroupCount : StatisticsBase<AggregatorGroupCount, string> {

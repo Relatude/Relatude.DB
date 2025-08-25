@@ -2,7 +2,7 @@
 <package>
   <metadata>
     <id>Relatude.DB.Plugins.Sqlite</id>
-    <version>0.1.0-alpha</version>
+    <version>0.1.0.1-alpha</version>
     <authors>Ole Gulbrandsen</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="file">license.txt</license>

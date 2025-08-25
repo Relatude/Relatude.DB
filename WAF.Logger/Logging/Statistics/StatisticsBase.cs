@@ -2,10 +2,9 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.ComponentModel.DataAnnotations;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
+using WAF.Logging;
 
-namespace WAF.LogSystem.Statistics;
+namespace WAF.Logging.Statistics;
 // Statistics is the class that holds the data
 // Aggregator calculates and stores the aggregates for each interval
 // The Interval holds the aggregator for one interval type

@@ -1,6 +1,4 @@
-﻿using WAF.LogSystem;
-
-namespace WAF.LogSystem;
+﻿namespace WAF.Logging;
 internal static class LogExtensions {
     public static DateTime Floor(this DateTime d, FileResolution res) {
         return res switch {

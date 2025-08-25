@@ -1,10 +1,8 @@
 ﻿using WAF.Hash.xxHash;
 using WAF.IO;
 using System.Text;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
 
-namespace WAF.LogSystem.Statistics;
+namespace WAF.Logging.Statistics;
 
 // for example per log entry
 public class StatisticsCount : StatisticsBase<int, bool> {
@@ -151,8 +149,8 @@ class CountSumAvgMinMax : StatisticsIntervalBase<AggregatorSumCountAverageMinMax
     protected override void Record(Interval<AggregatorSumCountAverageMinMax> interval, double recordValue) {
         interval.Value.RecordCount += 1;
         interval.Value.Sum += recordValue;
-        interval.Value.Min = Math.Min(interval.Value.Min ?? Double.MaxValue, recordValue);
-        interval.Value.Max = Math.Max(interval.Value.Max ?? Double.MinValue, recordValue);
+        interval.Value.Min = Math.Min(interval.Value.Min ?? double.MaxValue, recordValue);
+        interval.Value.Max = Math.Max(interval.Value.Max ?? double.MinValue, recordValue);
     }
     protected override AggregatorSumCountAverageMinMax DeserializeAggregator(byte[] bytes) {
         var res = new AggregatorSumCountAverageMinMax {
@@ -160,8 +158,7 @@ class CountSumAvgMinMax : StatisticsIntervalBase<AggregatorSumCountAverageMinMax
             RecordCount = BitConverter.ToInt32(bytes, 8),
         };
 
-        if (res.RecordCount > 0)
-        {
+        if (res.RecordCount > 0) {
             res.Min = BitConverter.ToDouble(bytes, 12);
             res.Max = BitConverter.ToDouble(bytes, 20);
         }
@@ -172,8 +169,7 @@ class CountSumAvgMinMax : StatisticsIntervalBase<AggregatorSumCountAverageMinMax
         var bytes = new byte[28];
         BitConverter.GetBytes(item.Sum).CopyTo(bytes, 0);
         BitConverter.GetBytes(item.RecordCount).CopyTo(bytes, 8);
-        if (item.RecordCount > 0)
-        {
+        if (item.RecordCount > 0) {
             BitConverter.GetBytes(item.Min ?? 0).CopyTo(bytes, 12);
             BitConverter.GetBytes(item.Max ?? 0).CopyTo(bytes, 20);
         }
@@ -206,7 +202,7 @@ public sealed class StatisticsAvgMinMax : StatisticsBase<AggregatorAvgMinMax, do
             _count = onlyWithValue.Sum(v => v.Value._count),
             _sum = onlyWithValue.Sum(v => v.Value._sum),
         });
-        
+
     }
 }
 public class AggregatorAvgMinMax {
@@ -218,8 +214,8 @@ public class AggregatorAvgMinMax {
     public void Record(double value) {
         _count += 1;
         _sum += value;
-        Min = Math.Min(Min ?? Double.MaxValue, value);
-        Max = Math.Max(Max ?? Double.MinValue, value);
+        Min = Math.Min(Min ?? double.MaxValue, value);
+        Max = Math.Max(Max ?? double.MinValue, value);
     }
     internal static AggregatorAvgMinMax DeSerialize(byte[] bytes) {
         var res = new AggregatorAvgMinMax {
@@ -227,18 +223,16 @@ public class AggregatorAvgMinMax {
             _sum = BitConverter.ToDouble(bytes, 20),
         };
 
-        if (res._count > 0)
-        {
+        if (res._count > 0) {
             res.Min = BitConverter.ToDouble(bytes, 0);
             res.Max = BitConverter.ToDouble(bytes, 8);
         }
-        
+
         return res;
     }
     internal byte[] Serialize() {
         var bytes = new byte[28];
-        if (_count > 0)
-        {
+        if (_count > 0) {
             BitConverter.GetBytes(Min ?? 0).CopyTo(bytes, 0);
             BitConverter.GetBytes(Max ?? 0).CopyTo(bytes, 8);
         }

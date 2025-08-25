@@ -2,10 +2,9 @@
 using WAF.IO;
 using System.Text;
 using WAF.Common;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
+using WAF.Logging;
 
-namespace WAF.LogSystem.Statistics;
+namespace WAF.Logging.Statistics;
 
 // for example session ids to count unique sessions per interval, optimized with hash to reduce mem    
 public class StatisticsUniqueCount : StatisticsBase<AggregatorSmallUniqueCount, string> {

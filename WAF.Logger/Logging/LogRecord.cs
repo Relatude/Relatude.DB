@@ -1,4 +1,4 @@
-﻿namespace WAF.LogSystem;
+﻿namespace WAF.Logging;
 public class LogRecord {
     internal LogRecord(DateTime timeStamp, byte[] data) {
         TimeStamp = timeStamp;

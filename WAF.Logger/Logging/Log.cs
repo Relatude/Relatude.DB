@@ -1,9 +1,8 @@
 ﻿using WAF.IO;
 using System.Collections.ObjectModel;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
+using WAF.Logging.Statistics;
 
-namespace WAF.LogSystem;
+namespace WAF.Logging;
 // threadsafe
 internal class Log : IDisposable {
     object _lock = new();
@@ -25,7 +24,7 @@ internal class Log : IDisposable {
         _io = io;
         _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, _setting.FileNameExtension);
         _logTextStream = new LogTextStream(io, _setting.Key, _setting.FileInterval);
-        _statFileKey = (string.IsNullOrEmpty(_setting.FileNamePrefix) ? "" : (_setting.FileNamePrefix + _setting.FileNameDelimiter)) + _setting.Key + _setting.FileNameDelimiter + "statistics" + _setting.FileNameExtension;
+        _statFileKey = (string.IsNullOrEmpty(_setting.FileNamePrefix) ? "" : _setting.FileNamePrefix + _setting.FileNameDelimiter) + _setting.Key + _setting.FileNameDelimiter + "statistics" + _setting.FileNameExtension;
         loadAllStatistics();
     }
     void loadAllStatistics() {
@@ -483,7 +482,7 @@ internal class Log : IDisposable {
         lock (_lock) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsAvgMinMax>().FirstOrDefault();
-            var i = (cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc));
+            var i = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
             return i.Map(i => new AvgMinMax<double>(i.Average, i.Min, i.Max));
         }
     }
@@ -491,7 +490,7 @@ internal class Log : IDisposable {
         lock (_lock) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsCountSumAvgMinMax>().FirstOrDefault();
-            var i = (cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc));
+            var i = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
             return i.Map(i => new CountSumAvgMinMax<double>(i.RecordCount, i.Sum, i.Average, i.Min, i.Max));
         }
     }

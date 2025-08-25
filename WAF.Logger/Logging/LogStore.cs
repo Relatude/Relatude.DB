@@ -1,8 +1,7 @@
 ﻿using WAF.IO;
-using WAF.LogSystem;
-using WAF.LogSystem.Statistics;
+using WAF.Logging.Statistics;
 
-namespace WAF.LogSystem;
+namespace WAF.Logging;
 public class LogStore : IDisposable {
     readonly Dictionary<string, Log> _logs;
     IIOProvider _io;

@@ -155,9 +155,9 @@ public static class StopWords {
     public static bool Contains(char[] word) => stopWordsAsChars.Contains(word);
     public static bool Contains(string word) => stopWords.Contains(word);
 }
-public class TermSet(Term[] terms) {
+public class TermSet(SearchTerm[] terms) {
     public static TermSet Empty { get; } = new([]);
-    public Term[] Terms { get; } = terms;
+    public SearchTerm[] Terms { get; } = terms;
     public override string ToString() {
         if (Terms == null || Terms.Length == 0) return string.Empty;
         var sb = new StringBuilder();
@@ -171,7 +171,7 @@ public class TermSet(Term[] terms) {
         var cleaned = SearchUtil.Clean(text, minWordLength, maxWordLength); // leaves * ?
         if (string.IsNullOrEmpty(cleaned)) return Empty;
         var words = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var searches = new List<Term>();
+        var searches = new List<SearchTerm>();
         foreach (var word in words) {
             var fuzzy = word.Contains(SearchConst.FUZZY);
             var strippedWord = fuzzy ? word.Replace(SearchConst.FUZZY.ToString(), string.Empty) : word;
@@ -183,7 +183,7 @@ public class TermSet(Term[] terms) {
         return new TermSet([.. searches]);
     }
 }
-public class Term(string word, bool prefix, bool infix, bool fuzzy) {
+public class SearchTerm(string word, bool prefix, bool infix, bool fuzzy) {
     public string Word { get; } = word;
     public bool Prefix { get; } = prefix;
     public bool Infix { get; } = infix;
