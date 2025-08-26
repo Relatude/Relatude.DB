@@ -359,3 +359,4 @@ MigrationBackup/
 /WAF.ServerUI/.parcel-cache
 /WAF.Example/waf.data*
 /WAF.Example/waf.settings.json
+*.exe
