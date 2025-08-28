@@ -20,6 +20,7 @@ public static partial class WAFServer {
 
     public static event EventHandler<NodeStore>? OnStoreInit;
     public static event EventHandler<NodeStore>? OnStoreOpen;
+    public static event EventHandler<NodeStore>? OnStoreDispose;
 
     internal static string ApiUrlRoot { get; private set; } = string.Empty;
     internal static string ApiUrlPublic => ApiUrlRoot + "/auth/";
@@ -207,6 +208,15 @@ public static partial class WAFServer {
             startUpLog("Error occurred during OnStoreInit event: " + err.Message);
         }
     }
+    internal static void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+        if (nodeStoreContainer == null) return;
+        try {
+            OnStoreDispose?.Invoke(nodeStoreContainer, store);
+        } catch (Exception err) {
+            startUpLog("Error occurred during OnStoreDispose event: " + err.Message);
+        }
+    }
+
     public static bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
         lock (_ios) {
             if (_ios.TryGetValue(ioId, out io)) return true;

@@ -125,6 +125,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
         datastore = null;
         if (Store != null) {
             Store.Dispose();
+            WAFServer.RaiseEventStoreDispose(this, Store);
             Store = null;
             Datamodel = null;
         }

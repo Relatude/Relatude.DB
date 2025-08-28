@@ -360,3 +360,4 @@ MigrationBackup/
 /WAF.Example/waf.data*
 /WAF.Example/waf.settings.json
 *.exe
+/Secrets

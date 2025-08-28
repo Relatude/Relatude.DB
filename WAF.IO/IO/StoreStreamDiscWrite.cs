@@ -1,4 +1,5 @@
-﻿using WAF.Common;
+﻿using System.IO;
+using WAF.Common;
 
 namespace WAF.IO;
 public class StoreStreamDiscWrite : IAppendStream {
@@ -43,9 +44,9 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-            _checkSum.EvaluateChecksumIfRecording(data);
-            _stream.Write(data, 0, data.Length);
-            if (!_unflushed) _unflushed = true;
+        _checkSum.EvaluateChecksumIfRecording(data);
+        _stream.Write(data, 0, data.Length);
+        if (!_unflushed) _unflushed = true;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -58,10 +59,15 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-            if (!_unflushed) return;
-            if(_hasDisposed) return;
+        if (!_unflushed) return;
+        if (_hasDisposed) return;
+        if (_stream.CanRead == false) return; // stream is closed
+        try {
             _stream.Flush(true);
-            _unflushed = false;
+        } catch (ObjectDisposedException) {
+            // ignore, stream is closed
+        }
+        _unflushed = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -74,7 +80,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
             try {
 #endif
-                return _stream.Length;
+            return _stream.Length;
 #if DEBUG
             } finally {
                 _flagAccessing.Reset();
@@ -87,13 +93,13 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-            var length = _stream.Length;
-            if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
-            if (count > length - position) count = (int)(length - position);
-            long position1 = this._stream.Position;
-            _stream.Position = position;
-            _stream.Read(buffer, 0, count);
-            _stream.Position = position1;
+        var length = _stream.Length;
+        if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
+        if (count > length - position) count = (int)(length - position);
+        long position1 = this._stream.Position;
+        _stream.Position = position;
+        _stream.Read(buffer, 0, count);
+        _stream.Position = position1;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -109,11 +115,11 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-            if (_hasDisposed) return;
-            _stream.Dispose();
-            _disposeCallback();
-            _hasDisposed = true;
-            _unflushed = false;
+        if (_hasDisposed) return;
+        _hasDisposed = true;
+        _stream.Dispose();
+        _disposeCallback();
+        _unflushed = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
