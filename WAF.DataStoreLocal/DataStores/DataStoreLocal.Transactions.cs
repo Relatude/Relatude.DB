@@ -8,17 +8,17 @@ using WAF.Tasks;
 using WAF.Transactions;
 namespace WAF.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
-    public Task<long> ExecuteAsync(TransactionData transaction, bool flushToDisk = false) {
+    public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool flushToDisk = false) {
         return Task.FromResult(Execute(transaction, flushToDisk));
     }
-    public long Execute(TransactionData transaction, bool flushToDisk = false) {
-        if (transaction.Actions.Count == 0) return 0;
+    public TransactionResult Execute(TransactionData transaction, bool flushToDisk = false) {
+        if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_queryLogger.Enabled) {
             var sw = Stopwatch.StartNew();
             var transId = execute_withTransformOption(transaction, true, flushToDisk, out var primitiveActionCount);
             if (_queryLogger.Enabled) {
-                foreach (var a in transaction.Actions) _queryLogger.RecordAction(transId, a.OperationName(), a.ToString());
-                _queryLogger.RecordTransaction(transId, sw.Elapsed.TotalMilliseconds, transaction.Actions.Count, primitiveActionCount, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk);
+                foreach (var a in transaction.Actions) _queryLogger.RecordAction(transId.TransactionId, a.OperationName(), a.ToString());
+                _queryLogger.RecordTransaction(transId.TransactionId, sw.Elapsed.TotalMilliseconds, transaction.Actions.Count, primitiveActionCount, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk);
             }
             return transId;
         } else {
@@ -26,7 +26,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    long execute_withTransformOption(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
+    TransactionResult execute_withTransformOption(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
         _lock.EnterWriteLock();
         updateCurrentActivity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
@@ -36,9 +36,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 transaction.Timestamp = _log.NewTimestamp();
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
+            var resultingOperations = new ResultingOperation[transaction.Actions.Count];
             execute(transaction, transformValues, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk, out primitiveActionCount, newTasks);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value);
-            return transaction.Timestamp;
+            return new TransactionResult(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entiere transaction is cancelled and any changes have been rolled back
             LogError("Transaction Error. ", err);
@@ -98,7 +99,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 try {
                     transaction.InnerCallbackBeforeCommitting();
                 } catch (Exception err) {
-                    throw new ExceptionWithoutIntegrityLoss("Transaction callback failed: "+ err.Message, err);
+                    throw new ExceptionWithoutIntegrityLoss("Transaction callback failed: " + err.Message, err);
                 }
             }
             return executed;

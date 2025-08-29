@@ -23,8 +23,8 @@ public interface IDataStore {
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
 
-    Task<long> ExecuteAsync(TransactionData transaction, bool flushToDisk = false);
-    long Execute(TransactionData transaction, bool flushToDisk = false);
+    Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool flushToDisk = false);
+    TransactionResult Execute(TransactionData transaction, bool flushToDisk = false);
     Task<INodeData> GetAsync(Guid id);
     Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids);
     Task<INodeData> GetAsync(int id);

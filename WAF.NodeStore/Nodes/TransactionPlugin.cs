@@ -135,7 +135,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         if (action is NodeAction nodeAction) OnErrorNodeAction(id, nodeAction.Operation, error);
         else if (action is NodePropertyAction nodePropertyAction) OnErrorPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, error);
     }
-    // building up a cache to look up node types by one call, needed for performance while evaliting which nodes are relevant for a specific plugin
+    // building up a cache to look up node types by one call, needed for performance while evaluating which nodes are relevant for a specific plugin
     public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys) {
         if (action is NodeAction nodeAction) {
             if (nodeAction.Node is INodeData_NoNodeType) {
@@ -178,9 +178,8 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         return [];
     }
 
-    public virtual void OnBeforeNodeAction(IdKey nodeId, NodeOperation operation, Transaction transaction, NodeHelper<T> helper) {
-    }
-    public virtual void OnAfterNodeAction(IdKey nodeId, NodeOperation operation) { }
+    public virtual void OnBeforeNodeAction(IdKey nodeId, NodeOperation operation, Transaction transaction, NodeHelper<T> helper) { }
+    public virtual void OnAfterNodeAction(IdKey nodeId, NodeOperation operation) { }//, ResultingNodeOperation resultingOperation) { }
     public virtual void OnErrorNodeAction(IdKey nodeId, NodeOperation operation, Exception error) { }
 
     public virtual void OnBeforePropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, object[]? values, Transaction transaction, PropertyHelper<T> helper) { }
