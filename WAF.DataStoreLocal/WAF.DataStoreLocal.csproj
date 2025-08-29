@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 		<RootNamespace>WAF</RootNamespace>
 		<AllowUnsafeBlocks>False</AllowUnsafeBlocks>
-		<Version>0.1.0.2</Version>
+		<Version>0.1.0.6</Version>
 	</PropertyGroup>
 
 	<ItemGroup>

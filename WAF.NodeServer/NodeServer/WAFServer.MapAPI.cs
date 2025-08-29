@@ -141,7 +141,7 @@ public static partial class WAFServer {
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open(true));
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
-            if (_containers.Values.Count(c => c.IsOpen()) == 0) {
+            if (_containers.Values.Count(c => c.IsOpenOrOpening()) == 0) {
                 lock (_ios) _ios.Clear();
                 lock (_ais) {
                     foreach (var ai in _ais.Values) ai.Dispose();

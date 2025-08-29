@@ -22,10 +22,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
             return datastore.GetStatus();
         }
     }
-    public bool IsOpen() => Store != null;
+    public bool IsOpenOrOpening() => Store != null && (Store.State == DataStoreState.Open || Store.State == DataStoreState.Opening);
     public NodeStoreContainerSettings Settings => settings;
     public void ApplyNewSettings(NodeStoreContainerSettings newSettings, bool reopenIfOpen) {
-        var isOpen = IsOpen();
+        var isOpen = IsOpenOrOpening();
         CloseIfOpen();
         settings = newSettings;
         if (isOpen && reopenIfOpen) Open(false);
@@ -39,7 +39,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
     public void Open(bool ignoreErrors) {
         try {
-            if (IsOpen()) return;
+            if (IsOpenOrOpening()) return;
+            CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel(ignoreErrors);
             IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? WAFServer.GetIO(settings.IoDatabase.Value) : null;
