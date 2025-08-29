@@ -636,9 +636,9 @@ public class Transaction {
 
 
     public async Task<long> ExecuteAsync(bool flushToDisk = false) {
-        var stateId = await _store.ExecuteAsync(this, flushToDisk);
+        var result = await _store.ExecuteAsync(this, flushToDisk);
         _transactionData = new();
-        return stateId;
+        return result.TransactionId;
     }
     public long Execute(bool flushToDisk = false) {
         var stateId = _store.Execute(this, flushToDisk);

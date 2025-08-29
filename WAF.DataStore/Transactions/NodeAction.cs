@@ -9,12 +9,12 @@ public enum NodeOperation : byte {
     InsertIfNotExists, // insert a new node, do nothing if the node already exists
     DeleteOrFail, // delete a node, fail if the node does not exist
     Delete, // delete a node, not fail if the node does not exist
-    Update, // update a node, fail if the node does not exist, check if node is different before updating, much faster if not changed (no disk writes), slighly slower if changed due to unnecessary compare
-    ForceUpdate, // update a node, fail if the node does not exist, update even if node is the same ( faster if changed as no compare, much slower if not changed from disk writes
-    Upsert, // insert a new node or update an existing one, fail if the node does not exist, check if node is different before updating, much faster if not changed (no disk writes), slighly slower if changed due to unnecessary compare
-    ForceUpsert, // insert a new node or update an existing one, fail if the node does not exist, update even if node is the same ( faster if changed as no compare, much slower if not changed from disk writes
-    ChangeType, // change the type of a node, will fail if the node does not exist
-    ReIndex, // re-index a node, will not fail if the node does not exist
+    Update, // update a node, fail if the node does not exist, check if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
+    ForceUpdate, // update a node, fail if the node does not exist, update even if node is the same ( faster if changed as no compare, slower if not changed from disk writes
+    Upsert, // insert a new node or update an existing one, check if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
+    ForceUpsert, // insert a new node or update an existing one, update even if node is the same ( faster if changed as no compare, slower if not changed from disk writes
+    ChangeType, // change the type of a node, fail if node does not exist
+    ReIndex, // triggers a re-index of the node, will not fail if the node does not exist
 }
 public class NodeAction : ActionBase {
     public static NodeAction Insert(INodeData node) => new(NodeOperation.Insert, node);

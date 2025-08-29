@@ -10,6 +10,7 @@ using WAF.IO;
 using WAF.Query;
 using WAF.Query.Expressions;
 using WAF.Tasks;
+using WAF.Transactions;
 
 namespace WAF.Nodes;
 
@@ -54,12 +55,12 @@ public sealed class NodeStore : IDisposable {
         datastore.Log("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
-    public Task<long> InsertAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node), flushToDisk);
-    public Task<long> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes), flushToDisk);
-    public Task<long> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Update(node), flushToDisk);
-    public Task<long> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
+    public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node), flushToDisk);
+    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes), flushToDisk);
+    public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Update(node), flushToDisk);
+    public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
-    public Task<long> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
+    public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
     public IQueryOfNodes<object, object> Query() => new QueryOfNodes<object, object>(this);
     public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId) => new QueryOfNodes<object, object>(this, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
     public IQueryOfNodes<object, object> QueryType(string typeName) => new QueryOfNodes<object, object>(this, typeName);
@@ -252,7 +253,7 @@ public sealed class NodeStore : IDisposable {
             transaction.OnBeforeExecute();
             var result = Datastore.Execute(transaction._transactionData, flushToDisk);
             transaction.OnAfterExecute();
-            return result;
+            return result.TransactionId;
         } catch (Exception error) {
             transaction.OnErrorExecute(error);
             throw;
