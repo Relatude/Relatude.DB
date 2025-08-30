@@ -8,6 +8,7 @@ namespace WAF.Transactions {
         Collection = 3,
     }
     public abstract class ActionBase {
+        public int _index; // for internal use only, do not set
         public ActionBase(ActionTarget target) { ActionTarget = target; }
         public ActionTarget ActionTarget { get; }
         abstract public string OperationName();

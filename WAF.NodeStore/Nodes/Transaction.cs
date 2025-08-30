@@ -670,17 +670,19 @@ public class Transaction {
                 }
                 foreach (var id in ids) plugin.OnBefore(id, action, this);
             }
+            int i = 0;
+            foreach (var action in _transactionData.Actions) action._index = i++;
             if (actionNodeIds != null) {
                 if (_pluginNodeIds == null) _pluginNodeIds = [];
                 _pluginNodeIds.Add(new(plugin, actionNodeIds));
             }
         }
     }
-    internal void OnAfterExecute() {
+    internal void OnAfterExecute(TransactionResult result) {
         if (_pluginNodeIds == null) return; // no plugins, nothing to do
         foreach (var actionsByPlugins in _pluginNodeIds) {
             foreach (var idsByActions in actionsByPlugins.Item2) {
-                foreach (var id in idsByActions.Item2) actionsByPlugins.Item1.OnAfter(id, idsByActions.Item1);
+                foreach (var id in idsByActions.Item2) actionsByPlugins.Item1.OnAfter(id, idsByActions.Item1, result.ResultingOperations[idsByActions.Item1._index]);
             }
         }
     }

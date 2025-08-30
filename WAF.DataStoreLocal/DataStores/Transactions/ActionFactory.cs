@@ -3,7 +3,9 @@ using WAF.Tasks;
 using WAF.Transactions;
 namespace WAF.DataStores.Transactions;
 internal static class ActionFactory {
-    public static PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks) {
+    static ResultingOperation? _lastResultingOperation = null; // only possible as only one thread is using this at a time
+    public static PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, out ResultingOperation resultingOperation) {
+        _lastResultingOperation = ResultingOperation.None; // default
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
@@ -11,6 +13,7 @@ internal static class ActionFactory {
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             _ => throw new NotImplementedException(),
         };
+        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value; // only possible as only one thread is using this at a time
         try {
             return src.ToArray(); // force conversion of action first, then return the array
         } catch (Exception err) {
@@ -75,12 +78,14 @@ internal static class ActionFactory {
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeAction.Node);
                 }
                 break;
             case NodeOperation.InsertIfNotExists: {
                     if (nodeExists(db, nodeAction.Node)) yield break;
                     nodeAction.Operation = NodeOperation.Insert;
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
                     foreach (var a in toPrimitiveActions(db, nodeAction, transformValues, newTasks)) yield return a;
                 }
                 break;
@@ -89,6 +94,7 @@ internal static class ActionFactory {
                     var oldNode = db._nodes.Get(id);
                     // adding transactions to first remove any relation related to node,
                     // NB: important to not use "yield return" here as the values of the relation will change during the loop
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.DeleteNode;
                     List<PrimitiveRelationAction> _relRemoveOperations = [];
                     foreach (var r in db._definition.Relations.Values) {
                         foreach (var target in r.GetRelated(id, false).Enumerate()) {
@@ -106,6 +112,7 @@ internal static class ActionFactory {
                 break;
             case NodeOperation.Delete: { // delete if exists, otherwise do nothing
                     if (!nodeExists(db, nodeAction.Node)) yield break;
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.DeleteNode;
                     nodeAction.Operation = NodeOperation.DeleteOrFail;
                     foreach (var a in toPrimitiveActions(db, nodeAction, transformValues, newTasks)) yield return a;
                 }
@@ -114,6 +121,7 @@ internal static class ActionFactory {
                     var node = nodeAction.Node;
                     ensureIdAndGuid(db, node);
                     var oldNode = db._nodes.Get(node.__Id);
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
@@ -130,6 +138,7 @@ internal static class ActionFactory {
                     } else {
                         var oldNode = db._nodes.Get(node.__Id);
                         if (Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition)) {
+                            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                             if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                             Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
@@ -148,10 +157,12 @@ internal static class ActionFactory {
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                         Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node);
                     } else {
                         var oldNode = db._nodes.Get(node.__Id);
                         if (Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition)) {
+                            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                             if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                             Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
@@ -162,7 +173,13 @@ internal static class ActionFactory {
                 }
                 break;
             case NodeOperation.ForceUpsert: {
-                    nodeAction.Operation = nodeExists(db, nodeAction.Node) ? NodeOperation.ForceUpdate : NodeOperation.Insert;
+                    if (nodeExists(db, nodeAction.Node)) {
+                        nodeAction.Operation = NodeOperation.ForceUpdate;
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
+                    } else { 
+                        nodeAction.Operation = NodeOperation.Insert;
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
+                    }
                     foreach (var a in toPrimitiveActions(db, nodeAction, transformValues, newTasks)) yield return a;
                 }
                 break;
@@ -180,6 +197,7 @@ internal static class ActionFactory {
                     }
                     var oldNode = db._nodes.Get(uid);
                     var newNode = ((NodeData)oldNode).CopyWithNewNodeType(idNode.NodeType);
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                     if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, newNode, oldNode, transformValues);
@@ -256,6 +274,7 @@ internal static class ActionFactory {
                         for (var i = 0; i < a.PropertyIds.Length; i++) {
                             node.AddOrUpdate(a.PropertyIds[i], a.Values[i]);
                         }
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
                         yield break;
@@ -273,6 +292,7 @@ internal static class ActionFactory {
                             }
                         }
                         if (anyChanged) { // nothing changed, so no need to update
+                            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                             var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                             foreach (var action in actions) yield return action;
                         }
@@ -282,6 +302,7 @@ internal static class ActionFactory {
                         for (var i = 0; i < a.PropertyIds.Length; i++) {
                             node.RemoveIfPresent(a.PropertyIds[i]);
                         }
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
                         yield break;
@@ -296,6 +317,7 @@ internal static class ActionFactory {
                                 node.AddOrUpdate(a.PropertyIds[i], a.Values[i]);
                             }
                         }
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
                         yield break;
@@ -310,6 +332,7 @@ internal static class ActionFactory {
                                 node.AddOrUpdate(a.PropertyIds[i], a.Values[i]);
                             }
                         }
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
                         yield break;

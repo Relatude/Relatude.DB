@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
-            execute(transaction, transformValues, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk, out primitiveActionCount, newTasks);
+            execute(transaction, transformValues, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk, out primitiveActionCount, resultingOperations, newTasks);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value);
             return new TransactionResult(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
@@ -53,7 +53,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    void execute(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount, List<KeyValuePair<TaskData, string?>> newTasks) {
+    void execute(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount, ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks) {
         HashSet<Guid>? lockExcemptions = null;
         if (transaction.LockExcemptions != null) {
             if (!_nodeWriteLocks.LocksAreActive(transaction.LockExcemptions))
@@ -61,7 +61,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     string.Join(", ", transaction.LockExcemptions) + " are no longer active. ");
             lockExcemptions = new(transaction.LockExcemptions);
         }
-        var executed = executeActions(transaction, lockExcemptions, transformValues, newTasks); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
+        var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
         if (executed.Count == 0) {
             if (flushToDisk) _log.FlushToDisk();
@@ -77,7 +77,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceClearCache++;
         _noPrimitiveActionsInLogThatCanBeTruncated += executed.Count(a => a.Operation == PrimitiveOperation.Remove);
     }
-    List<PrimitiveActionBase> executeActions(TransactionData transaction, HashSet<Guid>? lockExcemptions, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks) {
+    List<PrimitiveActionBase> executeActions(TransactionData transaction, HashSet<Guid>? lockExcemptions, bool transformValues, ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks) {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
         try {
@@ -87,11 +87,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
                 updateCurrentActivity(100 * i++ / count);
-                foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks)) {
+                foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
                     if (anyLocks) validateLocks(a, lockExcemptions);
-                    // Console.WriteLine("Executing: " + a);
-                    executeAction(a); // safe errors might occur if constraints are violated ( typically for relations or unique value contraints )
+                    executeAction(a); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(a);
+                    resultingOperations[i - 1] = resultingOperation;
                 }
             }
             _guids.CommitNewIds();

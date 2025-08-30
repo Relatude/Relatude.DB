@@ -29,7 +29,7 @@ public static partial class WAFServer {
     static Dictionary<Guid, NodeStoreContainer> _containers = [];
     static NodeStoreContainer[] _containersToAutoOpen = [];
     static NodeStoreContainer? _defaultContainer = null;
-    public static bool DefaultStoreIsOpen() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
+    public static bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public static NodeStoreContainer? DefaultContainer => _defaultContainer;
     public static NodeStore DefaultStore => GetDefaultStoreAndWaitIfOpening();
     public static NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 120) {
