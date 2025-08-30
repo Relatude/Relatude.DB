@@ -21,7 +21,7 @@ public sealed partial class Transaction {
     class ActionsWithIds(ActionBase action, List<IdKey> ids) {
         public ActionBase Action = action;
         public List<IdKey> Ids = ids;
-    }    
+    }
     List<PluginWithActions>? _relevantPlugins;
     internal void PrepareRelevantPlugins() {
         if (_store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
@@ -60,13 +60,17 @@ public sealed partial class Transaction {
                 foreach (var id in actionAndId.Ids) pluginWithActions.Plugin.OnBefore(id, actionAndId.Action, this);
             }
         }
-
+        int i = 0;
+        foreach (var action in _transactionData.Actions) action._i = i++; // set action index for later reference
     }
-    internal void OnAfterExecute() {
+    internal void OnAfterExecute(TransactionResult result) {
         if (_relevantPlugins == null) return; // no plugins, nothing to do
         foreach (var pluginWithActions in _relevantPlugins) {
             foreach (var actionAndId in pluginWithActions.ActionsWithIds) {
-                foreach (var id in actionAndId.Ids) pluginWithActions.Plugin.OnAfter(id, actionAndId.Action);
+                foreach (var id in actionAndId.Ids) {
+                    var finalOperation = result.ResultingOperations[actionAndId.Action._i];
+                    pluginWithActions.Plugin.OnAfter(id, actionAndId.Action, finalOperation);
+                }
             }
         }
     }
@@ -78,4 +82,5 @@ public sealed partial class Transaction {
             }
         }
     }
+
 }

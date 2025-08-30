@@ -7,7 +7,7 @@ public enum ResultingOperation {
     ChangedProperty, // a property was changed, e.g. PropertyUpdate if different, Add, Multiply
 }
 public class TransactionResult(long id, ResultingOperation[] resultingOperations) {
-    public long TransactionId { get; set; } = id;
-    public ResultingOperation[] ResultingOperations { get; set; } = resultingOperations;
+    public long TransactionId { get; } = id;
+    public ResultingOperation[] ResultingOperations { get; } = resultingOperations;
     public static readonly TransactionResult Empty = new(0, []);
 }
