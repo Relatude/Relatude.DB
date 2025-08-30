@@ -99,7 +99,7 @@ public interface INodeTransactionPlugin : ITransactionPlugin {
     void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys);
     List<IdKey> GetRelevantNodeIds(ActionBase action, Dictionary<IdKey, Guid>? typeInfo);
     void OnBefore(IdKey id, ActionBase action, Transaction transaction);
-    void OnAfter(IdKey id, ActionBase action);
+    void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation);
     void OnAfterError(IdKey id, ActionBase action, Exception error);
 }
 public interface IRelationTransactionPlugin : IPlugin {
@@ -127,8 +127,8 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         else if (action is NodePropertyAction nodePropertyAction)
             OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Store, transaction));
     }
-    public void OnAfter(IdKey id, ActionBase action) {
-        if (action is NodeAction nodeAction) OnAfterNodeAction(id, nodeAction.Operation);
+    public void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation) {
+        if (action is NodeAction nodeAction) OnAfterNodeAction(id, nodeAction.Operation, resultingOperation);
         else if (action is NodePropertyAction nodePropertyAction) OnAfterPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation);
     }
     public void OnAfterError(IdKey id, ActionBase action, Exception error) {
@@ -179,7 +179,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     }
 
     public virtual void OnBeforeNodeAction(IdKey nodeId, NodeOperation operation, Transaction transaction, NodeHelper<T> helper) { }
-    public virtual void OnAfterNodeAction(IdKey nodeId, NodeOperation operation) { }//, ResultingNodeOperation resultingOperation) { }
+    public virtual void OnAfterNodeAction(IdKey nodeId, NodeOperation operation, ResultingOperation resultingOperation) { }
     public virtual void OnErrorNodeAction(IdKey nodeId, NodeOperation operation, Exception error) { }
 
     public virtual void OnBeforePropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, object[]? values, Transaction transaction, PropertyHelper<T> helper) { }

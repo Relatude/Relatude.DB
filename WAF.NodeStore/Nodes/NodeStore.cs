@@ -247,14 +247,15 @@ public sealed class NodeStore : IDisposable {
     public Task<long> ExecuteAsync(ActionModel[] actions, bool flushToDisk = false) {
         throw new NotImplementedException();
     }
-    public long Execute(Transaction transaction, bool flushToDisk = false) {
-        if (transaction.Count == 0) return 0;
+    public long Execute(Transaction transaction, bool flushToDisk = false) => ExecuteWithDetails(transaction, flushToDisk).TransactionId;
+    public TransactionResult ExecuteWithDetails(Transaction transaction, bool flushToDisk = false) {
+        if (transaction.Count == 0) return TransactionResult.Empty;
         try {
             transaction.PrepareRelevantPlugins();
             transaction.OnBeforeExecute();
             var result = Datastore.Execute(transaction._transactionData, flushToDisk);
-            transaction.OnAfterExecute();
-            return result.TransactionId;
+            transaction.OnAfterExecute(result);
+            return result;
         } catch (Exception error) {
             transaction.OnErrorExecute(error);
             throw;

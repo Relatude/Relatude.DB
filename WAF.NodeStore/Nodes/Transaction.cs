@@ -634,5 +634,65 @@ public sealed partial class Transaction {
         return this;
     }
 
+
+    public async Task<long> ExecuteAsync(bool flushToDisk = false) {
+        var result = await _store.ExecuteAsync(this, flushToDisk);
+        _transactionData = new();
+        return result.TransactionId;
+    }
+    public long Execute(bool flushToDisk = false) {
+        var stateId = _store.Execute(this, flushToDisk);
+        _transactionData = new();
+        return stateId;
+    }
+    List<Tuple<INodeTransactionPlugin, List<Tuple<ActionBase, List<IdKey>>>>>? _pluginNodeIds;
+
+    internal void OnBeforeExecute() {
+        if (_store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
+        List<IdKey>? needTypeInfo = null;
+        foreach (var plugin in _store.TransactionPlugins) {
+            foreach (var action in _transactionData.Actions) {
+                plugin.AddIdKeysThatNeedTypeInfo(action, ref needTypeInfo);
+            }
+        }
+        Dictionary<IdKey, Guid>? typeInfo = null;
+        if (needTypeInfo != null && needTypeInfo.Count > 0) {
+            typeInfo = _store.Datastore.GetNodeType(needTypeInfo);
+        }
+
+        foreach (var plugin in _store.TransactionPlugins) {
+            List<Tuple<ActionBase, List<IdKey>>>? actionNodeIds = null;
+            foreach (var action in _transactionData.Actions.ToArray()) { // ToArray() to allow transaction plugins to modify the actions list
+                var ids = plugin.GetRelevantNodeIds(action, typeInfo);
+                if (ids.Count > 0) {
+                    if (actionNodeIds == null) actionNodeIds = [];
+                    actionNodeIds.Add(new(action, ids));
+                }
+                foreach (var id in ids) plugin.OnBefore(id, action, this);
+            }
+            int i = 0;
+            foreach (var action in _transactionData.Actions) action._index = i++;
+            if (actionNodeIds != null) {
+                if (_pluginNodeIds == null) _pluginNodeIds = [];
+                _pluginNodeIds.Add(new(plugin, actionNodeIds));
+            }
+        }
+    }
+    internal void OnAfterExecute(TransactionResult result) {
+        if (_pluginNodeIds == null) return; // no plugins, nothing to do
+        foreach (var actionsByPlugins in _pluginNodeIds) {
+            foreach (var idsByActions in actionsByPlugins.Item2) {
+                foreach (var id in idsByActions.Item2) actionsByPlugins.Item1.OnAfter(id, idsByActions.Item1, result.ResultingOperations[idsByActions.Item1._index]);
+            }
+        }
+    }
+    internal void OnErrorExecute(Exception error) {
+        if (_pluginNodeIds == null) return; // no plugins, nothing to do
+        foreach (var actionsByPlugins in _pluginNodeIds) {
+            foreach (var idsByActions in actionsByPlugins.Item2) {
+                foreach (var id in idsByActions.Item2) actionsByPlugins.Item1.OnAfterError(id, idsByActions.Item1, error);
+            }
+        }
+    }
     public int Count => _transactionData.Actions.Count;
 }
