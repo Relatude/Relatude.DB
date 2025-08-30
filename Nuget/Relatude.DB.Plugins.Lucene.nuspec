@@ -1,27 +1,30 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <package>
-  <metadata>
-    <id>Relatude.DB.Plugins.Lucene</id>
-    <version>0.1.0.1-alpha</version>
-    <authors>Ole Gulbrandsen</authors>
-    <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <license type="file">license.txt</license>
-    <!-- <icon>icon.png</icon> -->
-    <projectUrl>http://relatude.com/</projectUrl>
-    <description>Plugin for Lucene text indexing</description>
-    <releaseNotes></releaseNotes>
-    <copyright>$copyright$</copyright>
-    <tags>Database ORM CMS</tags>
-    <dependencies>
-      <group targetFramework="net8.0">
-        <dependency id="Lucene.Net" version="4.8.0-beta00017" />
-        <dependency id="Lucene.Net.Analysis.Common" version="4.8.0-beta00017" />
-        <dependency id="Lucene.Net.QueryParser" version="4.8.0-beta00017" />
-      </group>
-    </dependencies>
-  </metadata>
-  <files>
-    <file src="license.txt" target="" />
-    <file src="..\WAF.Lucene\bin\Release\net8.0\WAF.Lucene.dll" target="lib\net8.0" />
-  </files>
+	<metadata>
+		<id>Relatude.DB.Plugins.Lucene</id>
+		<version>0.1.0.1-alpha</version>
+		<authors>Ole Gulbrandsen</authors>
+		<requireLicenseAcceptance>false</requireLicenseAcceptance>
+		<license type="file">license.txt</license>
+		<icon>icon.png</icon>
+		<readme>readme.md</readme>
+		<projectUrl>http://relatude.com/</projectUrl>
+		<description>Plugin for Lucene text indexing</description>
+		<releaseNotes></releaseNotes>
+		<copyright>$copyright$</copyright>
+		<tags>Database ORM CMS</tags>
+		<dependencies>
+			<group targetFramework="net8.0">
+				<dependency id="Lucene.Net" version="4.8.0-beta00017" />
+				<dependency id="Lucene.Net.Analysis.Common" version="4.8.0-beta00017" />
+				<dependency id="Lucene.Net.QueryParser" version="4.8.0-beta00017" />
+			</group>
+		</dependencies>
+	</metadata>
+	<files>
+		<file src="..\readme.md" target="readme.md" />
+		<file src="..\license.txt" target="license.txt" />
+		<file src="icon.png" target="" />
+		<file src="..\WAF.Lucene\bin\Release\net8.0\WAF.Lucene.dll" target="lib\net8.0" />
+	</files>
 </package>
