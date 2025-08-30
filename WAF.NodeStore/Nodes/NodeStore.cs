@@ -250,6 +250,7 @@ public sealed class NodeStore : IDisposable {
     public long Execute(Transaction transaction, bool flushToDisk = false) {
         if (transaction.Count == 0) return 0;
         try {
+            transaction.PrepareRelevantPlugins();
             transaction.OnBeforeExecute();
             var result = Datastore.Execute(transaction._transactionData, flushToDisk);
             transaction.OnAfterExecute();
