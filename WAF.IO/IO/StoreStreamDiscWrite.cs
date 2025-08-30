@@ -64,7 +64,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         if (_stream.CanRead == false) return; // stream is closed
         try {
             _stream.Flush(true);
-        } catch (ObjectDisposedException) {
+        } catch {
             // ignore, stream is closed
         }
         _unflushed = false;
