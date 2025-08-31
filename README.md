@@ -1,13 +1,15 @@
 ﻿# Relatude.DB
 
-**Relatude.DB** is an open-source, **C#-native database engine** designed to give you **one unified storage engine** with everything you need to build modern applications. It combines multiple database paradigms into a cohesive system — **one engine, one API**.  
-The database is best described as an **object-oriented graph database** with rich indexing and query capabilities.
+**Relatude.DB** is an open-source, **C#-native database engine** designed to give you **one unified storage engine** with everything you need to build modern applications. It combines multiple database paradigms into a one cohesive system. It is best described as an **object-oriented graph database** with rich indexing and query capabilities.
+
+
+
 
 ---
 
 ## Key Features
 
-### 🧩 Multiple Engines in One System
+### Multiple Engines in One System
 - **Object-Oriented Data Modeling** — model your domain naturally using classes and relationships.
 - **Graph Support** — first-class object relationships and graph queries.
 - **Full-Text Indexing** — BM25 ranking and fuzzy search.
@@ -16,7 +18,7 @@ The database is best described as an **object-oriented graph database** with ric
 
 ---
 
-### 💻 Simple, Powerful API
+### Simple, Powerful API
 - **Typed query expressions** in C# and TypeScript.
 - **String-based query API** for REST integrations.
 - **GraphQL endpoints** for frontend-friendly querying.
@@ -27,13 +29,13 @@ The database is best described as an **object-oriented graph database** with ric
 
 ---
 
-### 🌐 Cross-Platform Support
+### Cross-Platform Support
 - Run the **server** on **Linux, macOS, or Windows**.
-- Develop clients in **C#, Java, Node.js, TypeScript, React**, and more.
+- Develop clients in **C#, Node.js, TypeScript, React**, and more.
 
 ---
 
-### 🏗️ Flexible Schema Modeling
+### Flexible Schema Modeling
 - Combine **code-first** models with an internal schema.
 - Automatic **model generation** in C# and TypeScript.
 - Supports **classes, interfaces, records, and structs**.
@@ -41,70 +43,69 @@ The database is best described as an **object-oriented graph database** with ric
 
 ---
 
-### 🔌 Plugin System
+### Plugin System
 - Intercept queries and transactions to customize functionality.
 - Embed custom logic deep into the data layer using **C#** or **TypeScript**.
 
 ---
 
-### ☁️ Flexible Hosting & Deployment
+### Flexible Hosting & Deployment
 - Run **in-process** or as an **external server**.
 - Includes a **built-in web-based DBA UI**.
 
 ---
 
-### 🗄️ Flexible Storage Options
-- Store data on the **local file system**.
-- Integrate with **remote blob storage**.
+### Flexible Storage Options
+- Store data on the **local file system** for performance or **remote blob storage** to reduce cost.
+- The in-memory index and queued disk writes plays well with stores that have a higher latency .
 
 ---
 
-### 🔒 Transactions & Reliability
-- **ACID-compliant transactions** with rollback to any point in time.
-- Built-in **data recovery** from corruption or unexpected shutdowns.
-- Optional **queued disk flush** for optimized performance.
+### Transactions & Reliability
+- **ACID-compliant transactions**
+- Built-in **data recovery** from file corruption or unexpected shutdown or powerloss.
+- Log based storage system, supporting rollback to any point in time.
 
 ---
 
-### ⚡ High Performance
-- Built-in **in-memory indexes**: tries, hashmaps, and bit arrays.
+### High Performance
+- Built-in **in-memory indexes** using tries, hashmaps, and bit arrays.
 - Optional **disk-based indexes** via **Lucene**, **SQLite**, or custom implementations.
 - Intelligent caching based on set operations.
-- Benchmark results available — **don’t just take our word for it!**
+- Benchmarks available — **don’t just take our word for it!**
 
 ---
 
-### 📈 Scalability & Fault Tolerance
+### Scalability & Fault Tolerance
 - **Append-only transaction file format** for durability.
 - Automatic backups to external storage.
-- **Two-way replication** and content synchronization.
 
 ---
 
-### 🌍 Multilingual, Versioning & Access Control
-- Manage **content in multiple languages** with version history.
-- **Role-based access control** for secure, filtered queries.
-
----
-
-### 🖼️ Built-in Media Handling
+### Built-in Media Handling
 - Integrated **image scaling engine**.
 - AI-powered **image indexing and manipulation** plugins.
 
 ---
 
-### 🕒 Persistent Task Queue
+### Persistent Task Queue
 - Automatic batching of background tasks for improved performance.
 - Used for **file indexing** and other long-running operations.
 - Create and run **custom background tasks**.
 
 ---
 
-### 📊 Logging & Statistics
+### Logging & Statistics
 - Track queries and usage per request.
 - View statistics and logs via the **built-in DBA UI**.
 - Extend logging with your own custom data.
 
+---
+
+### Planned functionality 
+- Multilingual, Versioning & object level Access Control.
+- Two-way replication and content synchronization. 
+- DB clients and model generation for Java developers.
 ---
 
 ## Why Relatude.DB?
