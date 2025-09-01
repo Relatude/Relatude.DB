@@ -37,13 +37,13 @@ public class StringArrayPropertyModel : PropertyModel, IPropertyModelUniqueContr
         var length = readInt(s);
         var bs = new byte[length];
         s.Read(bs, 0, length);
-        return WAFGlobals.Encoding.GetString(bs);
+        return RelatudeDBGlobals.Encoding.GetString(bs);
     }
     static void writeInt(Stream s, int v) {
         s.Write(BitConverter.GetBytes(v), 0, 4);
     }
     static void writeString(Stream s, string v) {
-        var bytes = WAFGlobals.Encoding.GetBytes(v);
+        var bytes = RelatudeDBGlobals.Encoding.GetBytes(v);
         writeInt(s, bytes.Length);
         s.Write(bytes, 0, bytes.Length);
     }

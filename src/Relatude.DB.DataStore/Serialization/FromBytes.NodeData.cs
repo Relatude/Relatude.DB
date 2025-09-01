@@ -118,7 +118,7 @@ namespace Relatude.DB.Serialization {
         }
         static object toPropertyValue(byte[] bytes, PropertyType propType) {
             return propType switch {
-                PropertyType.String => WAFGlobals.Encoding.GetString(bytes),
+                PropertyType.String => RelatudeDBGlobals.Encoding.GetString(bytes),
                 PropertyType.Integer => BitConverter.ToInt32(bytes),
                 PropertyType.Long => BitConverter.ToInt64(bytes),
                 PropertyType.Guid => new Guid(bytes),

@@ -16,8 +16,8 @@ internal static class StringEncryption {
         }
     }
     static string encryptString(string clearText, string password, string salt) {
-        var clearBytes = WAFGlobals.Encoding.GetBytes(clearText);
-        var saltBytes = WAFGlobals.Encoding.GetBytes(salt);
+        var clearBytes = RelatudeDBGlobals.Encoding.GetBytes(clearText);
+        var saltBytes = RelatudeDBGlobals.Encoding.GetBytes(salt);
         var pdb = new PasswordDeriveBytes(password, saltBytes);
         var Key = pdb.GetBytes(32);
         var IV = pdb.GetBytes(16);
@@ -26,10 +26,10 @@ internal static class StringEncryption {
     }
     static string decryptString(string cipherText, string password, string salt) {
         var cipherBytes = Convert.FromBase64String(cipherText);
-        var saltBytes = WAFGlobals.Encoding.GetBytes(salt);
+        var saltBytes = RelatudeDBGlobals.Encoding.GetBytes(salt);
         var pdb = new PasswordDeriveBytes(password, saltBytes);
         byte[] decryptedData = decryptBytes(cipherBytes, pdb.GetBytes(32), pdb.GetBytes(16));
-        return WAFGlobals.Encoding.GetString(decryptedData);
+        return RelatudeDBGlobals.Encoding.GetString(decryptedData);
     }
     static byte[] encryptBytes(byte[] clearData, byte[] Key, byte[] IV) {
         var ms = new MemoryStream();

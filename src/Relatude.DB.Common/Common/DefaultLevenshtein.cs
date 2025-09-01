@@ -1,4 +1,7 @@
 ﻿namespace Relatude.DB.Common;
+/// <summary>
+/// Default Levenshtein distances based on word length.
+/// </summary>
 public class DefaultLevenshtein {
     public static void GetDefaultSearchDistance(int wordLength, out int distance1, out int distance2) {
         if (wordLength < 2) {

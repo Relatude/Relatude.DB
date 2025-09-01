@@ -140,7 +140,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteString(this Stream s, string v) {
-            var bytes = WAFGlobals.Encoding.GetBytes(v);
+            var bytes = RelatudeDBGlobals.Encoding.GetBytes(v);
             s.WriteInt(bytes.Length);
             s.Write(bytes, 0, bytes.Length);
         }
@@ -148,7 +148,7 @@ namespace Relatude.DB.Common {
             var length = s.ReadInt();
             var bs = new byte[length];
             s.Read(bs, 0, length);
-            return WAFGlobals.Encoding.GetString(bs);
+            return RelatudeDBGlobals.Encoding.GetString(bs);
         }
         public static void WriteStringOrNull(this Stream s, string? v) {
             if (v == null) {

@@ -82,7 +82,7 @@ public static class StoreStreamExtenstions {
         var buffer = new byte[length];
         s.Get(position, length, buffer);
         position += length;
-        return WAFGlobals.Encoding.GetString(buffer);
+        return RelatudeDBGlobals.Encoding.GetString(buffer);
     }
     public static int GetInt(this IAppendStream s, long position) {
         var bytes = new byte[4];
@@ -179,13 +179,13 @@ public static class StoreStreamExtenstions {
         s.Append(bytes);
     }
     public static void WriteString(this IAppendStream s, string v) {
-        var bytes = WAFGlobals.Encoding.GetBytes(v);
+        var bytes = RelatudeDBGlobals.Encoding.GetBytes(v);
         s.WriteVerifiedInt(bytes.Length);
         s.Append(bytes);
     }
     public static string ReadString(this IReadStream s) {
         var length = s.ReadVerifiedInt();
-        return WAFGlobals.Encoding.GetString(s.Read(length));
+        return RelatudeDBGlobals.Encoding.GetString(s.Read(length));
     }
 
     public static void WriteDateTimeUtc(this IAppendStream s, DateTime v) {

@@ -1,8 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Files;
-public interface IFileStore : IDisposable
-{
+public interface IFileStore : IDisposable {
     Guid Id { get; }
     Task ExtractAsync(FileValue value, Stream outStream);
     Task ExtractAsync(FileValue value, IAppendStream outStream);

@@ -68,7 +68,7 @@ public static partial class ToBytes {
         return propType switch {
             PropertyType.Integer => BitConverter.GetBytes((int)value),
             PropertyType.Guid => ((Guid)value).ToByteArray(),
-            PropertyType.String => WAFGlobals.Encoding.GetBytes((string)value),
+            PropertyType.String => RelatudeDBGlobals.Encoding.GetBytes((string)value),
             PropertyType.DateTime => BitConverter.GetBytes(((DateTime)value).Ticks),
             PropertyType.Boolean => BitConverter.GetBytes((bool)value),
             PropertyType.Decimal => DecimalPropertyModel.ToBytes((decimal)value),

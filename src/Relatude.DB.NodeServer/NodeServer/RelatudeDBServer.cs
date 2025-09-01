@@ -1,10 +1,10 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.AI;
-using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
+using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
 public static partial class RelatudeDBServer {
     readonly static List<Tuple<DateTime, string>> _serverLog = [];
@@ -31,7 +31,7 @@ public static partial class RelatudeDBServer {
     static NodeStoreContainer? _defaultContainer = null;
     public static bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public static NodeStoreContainer? DefaultContainer => _defaultContainer;
-    public static NodeStore DefaultStore => GetDefaultStoreAndWaitIfOpening();
+    public static NodeStore Default => GetDefaultStoreAndWaitIfOpening();
     public static NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 120) {
         if (_defaultContainer == null) throw new Exception("No default store container found or initialized. ");
         return GetStoreAndWaitIfOpening(_defaultContainer.Settings.Id, timeoutSec);
@@ -155,7 +155,7 @@ public static partial class RelatudeDBServer {
     }
     internal static IEnumerable<ITaskRunner> GetRegisteredTaskRunners(NodeStoreContainer container) {
         lock (_runnersByContainer) {
-            List< ITaskRunner> values = [];
+            List<ITaskRunner> values = [];
             if (_runnersByContainer.TryGetValue(container.Settings.Id, out var runners)) values.AddRange(runners);
             if (_runnersByContainer.TryGetValue(Guid.Empty, out var allRunners)) values.AddRange(allRunners);
             return values;

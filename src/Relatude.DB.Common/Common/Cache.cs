@@ -1,27 +1,28 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using System.Drawing;
-using System.Linq;
 
 namespace Relatude.DB.Common {
-    class Entry<T> {
-        public Entry(T data, ulong timestamp, int size) {
-            Data = data;
-            Timestamp = timestamp;
-            Size = size;
-        }
-        public T Data;
-        public ulong Timestamp;
-        public int Size;
-    }
-    // Threadsafe
-    // Simple cache, with a upper memory size ( _maxSize )
-    // LRU cache, items are removed in order of last accessed
-    // If adding an item will exceed max size it removes items from cache until total size is half of max
-    // Reducing size is costly, and above logic reduce calls to this method
-    // Only items with size>0 is removed. So items with size 0 is reserved!!
-    // This is used to ensure items are kept in cache until segment is written to transaction log.
-    // Only after item is written to transaction log, its size is updated.
+    /// <summary>
+    /// Threadsafe simple cache, with a upper memory size ( _maxSize )
+    /// LRU cache, items are removed in order of last accessed
+    /// If adding an item will exceed max size it removes items from cache until total size is half of max
+    /// Reducing size is costly, and above logic reduce calls to this method
+    /// Only items with size>0 is removed. So items with size 0 is reserved!!
+    /// This is used to ensure items are kept in cache until segment is written to transaction log.   
+    /// </summary>
+    /// <typeparam name="TKey"></typeparam>
+    /// <typeparam name="TValue"></typeparam>
+    /// <param name="maxSize"></param>
     public class Cache<TKey, TValue>(long maxSize) where TKey : notnull {
+        class Entry<T> {
+            public Entry(T data, ulong timestamp, int size) {
+                Data = data;
+                Timestamp = timestamp;
+                Size = size;
+            }
+            public T Data;
+            public ulong Timestamp;
+            public int Size;
+        }
         readonly object _lock = new();
         readonly long _maxSize = maxSize;
         readonly Dictionary<TKey, Entry<TValue>> _cache = [];

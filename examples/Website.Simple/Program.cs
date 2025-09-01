@@ -20,7 +20,7 @@ var app = builder.Build();
 
 app.MapGet("/", () => {
     if (!RelatudeDBServer.DefaultStoreIsOpenOrOpening()) return "Closed.";
-    var store = RelatudeDBServer.DefaultStore;
+    var store = RelatudeDBServer.Default;
     var noObjects = store.Query<object>().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
