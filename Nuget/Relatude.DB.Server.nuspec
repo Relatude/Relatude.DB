@@ -23,15 +23,15 @@
 		<file src="..\readme.md" target="readme.md" />
 		<file src="..\license.txt" target="license.txt" />
 		<file src="icon.png" target="" />
-		<file src="..\Relatude.DB.Common\bin\Release\net8.0\Relatude.DB.Common.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.DataStore\bin\Release\net8.0\Relatude.DB.DataStore.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.DataStoreLocal\bin\Release\net8.0\Relatude.DB.DataStoreLocal.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.DataStoreRemote\bin\Release\net8.0\Relatude.DB.DataStoreRemote.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.NodeServer\bin\Release\net8.0\Relatude.DB.NodeServer.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.FileStorage\bin\Release\net8.0\Relatude.DB.FileStorage.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.IO\bin\Release\net8.0\Relatude.DB.IO.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.Logger\bin\Release\net8.0\Relatude.DB.Logger.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.Model\bin\Release\net8.0\Relatude.DB.Model.dll" target="lib\net8.0" />
-		<file src="..\Relatude.DB.NodeStore\bin\Release\net8.0\Relatude.DB.NodeStore.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.Common\bin\Release\net8.0\Relatude.DB.Common.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.DataStore\bin\Release\net8.0\Relatude.DB.DataStore.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.DataStoreLocal\bin\Release\net8.0\Relatude.DB.DataStoreLocal.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.DataStoreRemote\bin\Release\net8.0\Relatude.DB.DataStoreRemote.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.NodeServer\bin\Release\net8.0\Relatude.DB.NodeServer.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.FileStorage\bin\Release\net8.0\Relatude.DB.FileStorage.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.IO\bin\Release\net8.0\Relatude.DB.IO.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.Logger\bin\Release\net8.0\Relatude.DB.Logger.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.Model\bin\Release\net8.0\Relatude.DB.Model.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.NodeStore\bin\Release\net8.0\Relatude.DB.NodeStore.dll" target="lib\net8.0" />
 	</files>
 </package>

@@ -8,11 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="relatude.db.json" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
   </ItemGroup>
 
 </Project>

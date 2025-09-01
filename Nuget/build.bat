@@ -8,7 +8,7 @@ if exist Output (
 )
 
 :: Find a .csproj file
-for %%f in (..\\Relatude.DB.Common\\*.csproj) do (
+for %%f in (..\\src\\Relatude.DB.Common\\*.csproj) do (
     set "csproj=%%f"
     goto :found
 )
@@ -48,7 +48,7 @@ echo Detected version: %version%
 set /p tag=Enter subversion tag (ie: -alpha): 
 
 :: Build the solution
-dotnet build ..\Relatude.DB.sln --configuration Release
+dotnet build ..\src\Relatude.DB.sln --configuration Release
 
 :: Pack the NuGet packages using the entered version
 for %%f in (.\*.nuspec) do (
