@@ -1,0 +1,1 @@
+The Relatude.DB test suite is proprietary and not open source.
