@@ -5,7 +5,7 @@ public class DemoArticleGenerator(int seed = 0) {
     public DemoArticle One() {
         return new DemoArticle {
             Title = _textGenerator.GenerateTitle(50),
-            Content = _textGenerator.GenerateText(2048),
+            Content = _textGenerator.GenerateText(1048),
         };
     }
     public DemoArticle[] Many(int count) {

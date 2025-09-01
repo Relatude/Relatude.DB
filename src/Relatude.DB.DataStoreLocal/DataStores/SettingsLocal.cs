@@ -60,8 +60,8 @@ public enum PersistedValueIndexEngine {
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,
-    BuiltIn = 0,
-    Sqlite = 1,
+    BuiltIn = 1,
+    Sqlite = 2,
 }
 
 

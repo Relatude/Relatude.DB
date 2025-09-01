@@ -325,7 +325,6 @@ public static partial class RelatudeDBServer {
             ThreadPool.QueueUserWorkItem(_ => { transaction.Execute(); });
             return allIds.Count;
         });
-        app.MapPost(path("test"), () => "Hei");
         app.MapPost(path("query"), (Guid storeId, QueryModel query) => GetStore(storeId).EvaluateForJsonAsync(query.Query, query.Parameters.Select(ParameterModel.Convert).ToList()));
         app.MapPost(path("execute"), (Guid storeId, ActionModel[] actions, bool flushToDisk) => GetStore(storeId).ExecuteAsync(actions, flushToDisk));
         app.MapPost(path("shift-all-dates"), async (Guid storeId, int seconds) => {
@@ -395,7 +394,7 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("populate"), (Guid storeId, int count) => {
             var store = db(storeId);
             var sw = new Stopwatch();
-            var chunkSize = 1000;
+            var chunkSize = 10000;
             var created = 0;
             var generator = new DemoArticleGenerator();
             while (true) {
