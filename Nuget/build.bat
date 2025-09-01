@@ -71,7 +71,8 @@ if not exist ../Secrets/nuget_apikey.txt (
     exit /b 1
 )
 
-set /p apikey=<../Secrets/nuget_apikey.txt
+:: Outside of version control, so never exposed publicly
+set /p apikey=<../../Relatude.DB.Secrets/nuget_apikey.txt
 
 :: Push all generated packages to nuget.org
 for %%f in (Output\*.nupkg) do (

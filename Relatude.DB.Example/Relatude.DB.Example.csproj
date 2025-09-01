@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0.6</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="relatude.db.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
+  </ItemGroup>
+
+</Project>

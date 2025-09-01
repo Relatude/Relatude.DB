@@ -358,6 +358,8 @@ MigrationBackup/
 
 # Relatude specific files
 /Relatude.DB.ServerUI/.parcel-cache
-/Relatude.DB.Example/relatude.db*
-*.exe
-/Secrets
+/Relatude.DB.Example/relatude.db/*
+/Relatude.DB.Example/relatude.db.temp/*
+/Relatude.DB.Example/relatude.db.json
+nuget.exe
+
