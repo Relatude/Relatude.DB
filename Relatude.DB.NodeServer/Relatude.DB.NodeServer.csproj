@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<OutputType>Library</OutputType>
+		<IsPackable>true</IsPackable>
+		<RootNamespace>Relatude.DB</RootNamespace>
+		<Version>0.1.0.6</Version>
+	</PropertyGroup>
+	<ItemGroup>
+	  <None Remove="NodeServer\ClientUI\Images\favicon.ico" />
+	  <None Remove="NodeServer\ClientUI\start.html" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
+		<ProjectReference Include="..\Relatude.DB.DataStoreRemote\Relatude.DB.DataStoreRemote.csproj" />
+		<ProjectReference Include="..\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<EmbeddedResource Include="NodeServer\ClientUI\Images\favicon.ico" />
+		<EmbeddedResource Include="NodeServer\ClientUI\index.30b17246.js" />
+		<EmbeddedResource Include="NodeServer\ClientUI\index.5246294a.css" />
+		<EmbeddedResource Include="NodeServer\ClientUI\index.html" />
+		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
+	</ItemGroup>
+</Project>

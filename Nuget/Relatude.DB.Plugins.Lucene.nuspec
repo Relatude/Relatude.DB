@@ -8,7 +8,7 @@
 		<license type="file">license.txt</license>
 		<icon>icon.png</icon>
 		<readme>readme.md</readme>
-		<projectUrl>http://relatude.com/</projectUrl>
+		<projectUrl>https://www.github.com/relatude/relatude.db</projectUrl>
 		<description>Plugin for Lucene text indexing</description>
 		<releaseNotes></releaseNotes>
 		<copyright>$copyright$</copyright>
@@ -25,6 +25,6 @@
 		<file src="..\readme.md" target="readme.md" />
 		<file src="..\license.txt" target="license.txt" />
 		<file src="icon.png" target="" />
-		<file src="..\WAF.Lucene\bin\Release\net8.0\WAF.Lucene.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.Lucene\bin\Release\net8.0\Relatude.DB.Lucene.dll" target="lib\net8.0" />
 	</files>
 </package>

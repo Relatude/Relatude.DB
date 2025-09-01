@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>Relatude.DB</RootNamespace>
+		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+		<Version>0.1.0.6</Version>
+	</PropertyGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />
+	  <ProjectReference Include="..\Relatude.DB.FileStorage\Relatude.DB.FileStorage.csproj" />
+	  <ProjectReference Include="..\Relatude.DB.IO\Relatude.DB.IO.csproj" />
+	  <ProjectReference Include="..\Relatude.DB.Logger\Relatude.DB.Logger.csproj" />
+	  <ProjectReference Include="..\Relatude.DB.Model\Relatude.DB.Model.csproj" />
+	</ItemGroup>
+
+</Project>

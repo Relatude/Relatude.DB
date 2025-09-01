@@ -8,8 +8,8 @@
 		<license type="file">license.txt</license>
 		<icon>icon.png</icon>
 		<readme>readme.md</readme>
-		<projectUrl>http://relatude.com/</projectUrl>
-		<description>Multimodel database engine. </description>
+		<projectUrl>https://www.github.com/relatude/relatude.db</projectUrl>
+		<description>Multimodel database engine. This package contains all the components needed to host and run the database server in a web project. </description>
 		<releaseNotes></releaseNotes>
 		<copyright>$copyright$</copyright>
 		<tags>Database ORM CMS</tags>
@@ -23,15 +23,15 @@
 		<file src="..\readme.md" target="readme.md" />
 		<file src="..\license.txt" target="license.txt" />
 		<file src="icon.png" target="" />
-		<file src="..\WAF.Common\bin\Release\net8.0\WAF.Common.dll" target="lib\net8.0" />
-		<file src="..\WAF.DataStore\bin\Release\net8.0\WAF.DataStore.dll" target="lib\net8.0" />
-		<file src="..\WAF.DataStoreLocal\bin\Release\net8.0\WAF.DataStoreLocal.dll" target="lib\net8.0" />
-		<file src="..\WAF.DataStoreRemote\bin\Release\net8.0\WAF.DataStoreRemote.dll" target="lib\net8.0" />
-		<file src="..\WAF.NodeServer\bin\Release\net8.0\WAF.NodeServer.dll" target="lib\net8.0" />
-		<file src="..\WAF.FileStorage\bin\Release\net8.0\WAF.FileStorage.dll" target="lib\net8.0" />
-		<file src="..\WAF.IO\bin\Release\net8.0\WAF.IO.dll" target="lib\net8.0" />
-		<file src="..\WAF.Logger\bin\Release\net8.0\WAF.Logger.dll" target="lib\net8.0" />
-		<file src="..\WAF.Model\bin\Release\net8.0\WAF.Model.dll" target="lib\net8.0" />
-		<file src="..\WAF.NodeStore\bin\Release\net8.0\WAF.NodeStore.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.Common\bin\Release\net8.0\Relatude.DB.Common.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.DataStore\bin\Release\net8.0\Relatude.DB.DataStore.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.DataStoreLocal\bin\Release\net8.0\Relatude.DB.DataStoreLocal.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.DataStoreRemote\bin\Release\net8.0\Relatude.DB.DataStoreRemote.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.NodeServer\bin\Release\net8.0\Relatude.DB.NodeServer.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.FileStorage\bin\Release\net8.0\Relatude.DB.FileStorage.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.IO\bin\Release\net8.0\Relatude.DB.IO.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.Logger\bin\Release\net8.0\Relatude.DB.Logger.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.Model\bin\Release\net8.0\Relatude.DB.Model.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.NodeStore\bin\Release\net8.0\Relatude.DB.NodeStore.dll" target="lib\net8.0" />
 	</files>
 </package>

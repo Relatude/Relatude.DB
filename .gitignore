@@ -356,8 +356,8 @@ MigrationBackup/
 !**ModellingUI/[Pp]ackages/*
 **ModellingUI/**/dist/*
 
-/WAF.ServerUI/.parcel-cache
-/WAF.Example/waf.data*
-/WAF.Example/waf.settings.json
+# Relatude specific files
+/Relatude.DB.ServerUI/.parcel-cache
+/Relatude.DB.Example/relatude.db*
 *.exe
 /Secrets

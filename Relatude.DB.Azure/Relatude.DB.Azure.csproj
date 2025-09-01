@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>Relatude.DB</RootNamespace>
+		<Version>0.1.0.6</Version>
+	</PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="Azure.AI.OpenAI" Version="2.0.0" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
+	</ItemGroup>
+</Project>

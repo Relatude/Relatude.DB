@@ -7,15 +7,52 @@ if exist Output (
     rmdir /s /q Output
 )
 
+:: Find a .csproj file
+for %%f in (..\\Relatude.DB.Common\\*.csproj) do (
+    set "csproj=%%f"
+    goto :found
+)
+
+:found
+if not defined csproj (
+    echo ERROR: No .csproj file found!
+    pause
+    exit /b 1
+)
+
+:: Read version number from the .csproj file
+set "version="
+for /f "usebackq tokens=3 delims=<>" %%v in (`findstr /ri "<\s*Version\s*>" "%csproj%"`) do (
+    set "version=%%v"
+    goto :gotVersion
+)
+
+:gotVersion
+if not defined version (
+    echo ERROR: Could not find a <Version> tag in %csproj%!
+    pause
+    exit /b 1
+)
+
+:: trim leading/trailing spaces
+for /f "tokens=* delims= " %%A in ("%version%") do set "version=%%A"
+:trimEnd
+if not "%version:~-1%"==" " goto :trimDone
+set "version=%version:~0,-1%"
+goto :trimEnd
+:trimDone
+
+echo Detected version: %version%
+
 :: Prompt the user for the version number
-set /p version=Enter version number (ie: 0.1.0.1-alpha): 
+set /p tag=Enter subversion tag (ie: -alpha): 
 
 :: Build the solution
 dotnet build ..\Relatude.DB.sln --configuration Release
 
 :: Pack the NuGet packages using the entered version
 for %%f in (.\*.nuspec) do (
-    nuget pack %%f -OutputDirectory Output\ -Version %version%
+    nuget pack %%f -OutputDirectory Output\ -Version %version%%tag%
 )
 
 :: Ask whether to publish NuGets

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>Relatude.DB</RootNamespace>
+		<Version>0.1.0.6</Version>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
+	</ItemGroup>
+
+</Project>

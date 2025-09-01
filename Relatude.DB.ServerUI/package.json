@@ -1,0 +1,37 @@
+{
+  "name": "relatude.db.serverui",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "start": "parcel src/start/index.html --no-cache",
+    "build": "npm run clean_dist && npm run clean_wwwroot && parcel build src/start/index.html --no-source-maps --no-content-hash --public-url . && npm run copy_to_server",
+    "clean_dist": "rimraf dist && rimraf .parcel-cache",
+    "clean_wwwroot": "rimraf ../Relatude.DB.NodeServer/NodeServer/ClientUI/*.* --glob",
+    "copy_to_server": "copyfiles -u 1 dist/**/* ../Relatude.DB.NodeServer/NodeServer/ClientUI/"
+  },
+  "author": "Ole Gulbrandsen",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "copyfiles": "^2.4.1",
+    "parcel": "^2.13.2",
+    "postcss": "^8.4.49",
+    "postcss-preset-mantine": "^1.17.0",
+    "postcss-simple-vars": "^7.0.1",
+    "process": "^0.11.10",
+    "rimraf": "^3.0.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@mantine/core": "^7.15.2",
+    "@mantine/form": "^7.15.2",
+    "@mantine/hooks": "^7.15.2",
+    "@tabler/icons-react": "^3.26.0",
+    "mobx": "^6.13.5",
+    "mobx-react": "^7.1.0",
+    "mobx-react-lite": "^3.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

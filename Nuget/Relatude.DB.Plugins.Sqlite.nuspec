@@ -8,7 +8,7 @@
 		<license type="file">license.txt</license>
 		<icon>icon.png</icon>
 		<readme>readme.md</readme>
-		<projectUrl>http://relatude.com/</projectUrl>
+		<projectUrl>https://www.github.com/relatude/relatude.db</projectUrl>
 		<description>Plugin for SQLite text and value indexing</description>
 		<releaseNotes></releaseNotes>
 		<copyright>$copyright$</copyright>
@@ -22,8 +22,7 @@
 	<files>
 		<file src="..\readme.md" target="readme.md" />
 		<file src="..\license.txt" target="license.txt" />
-		<file src="..\license.txt" target="license.txt" />
 		<file src="icon.png" target="" />
-		<file src="..\WAF.Sqlite\bin\Release\net8.0\WAF.Sqlite.dll" target="lib\net8.0" />
+		<file src="..\Relatude.DB.Sqlite\bin\Release\net8.0\Relatude.DB.Sqlite.dll" target="lib\net8.0" />
 	</files>
 </package>
