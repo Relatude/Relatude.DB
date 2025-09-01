@@ -363,3 +363,7 @@ MigrationBackup/
 /Relatude.DB.Example/relatude.db.json
 nuget.exe
 
+/examples/Website.Simple/relatude.db
+/examples/Website.Simple/relatude.db.json
+/src/Relatude.DB.ServerUI/.parcel-cache
+/src/Relatude.DB.ServerUI/dist

@@ -1,5 +1,4 @@
 
-import { useApp } from "../../start/useApp";
 import { observer } from "mobx-react-lite";
 import { Datamodel } from "../../relatude.db/datamodel";
 import { MultiSelect } from "@mantine/core";

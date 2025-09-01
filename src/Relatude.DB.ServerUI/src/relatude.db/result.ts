@@ -16,14 +16,14 @@ export class SearchResultHit<T> {
     score: number;
 }
 export class TextSample {
-    samples: WordSample[];
+    fragments: FragmentSample[];
     cutAtStart: boolean;
     cutAtEnd: boolean;
 }
 export const formatSample = (sample:TextSample, startTag: string, endTag: string, startEllipse: string = "...", endEllipse: string = "...") => {
     let result: string[] = [];
     if (sample.cutAtStart) result.push(startEllipse);
-    for (const s of sample.samples) {
+    for (const s of sample.fragments) {
         //if (result.length > 0) result.push(" ");
         if (s.isMatch) result.push(startTag);
         result.push(s.fragment);
@@ -32,7 +32,7 @@ export const formatSample = (sample:TextSample, startTag: string, endTag: string
     if (sample.cutAtEnd) result.push(endEllipse);
     return result.join("");
 }
-export class WordSample {
+export class FragmentSample {
     isMatch: boolean;
     fragment: string;
 }

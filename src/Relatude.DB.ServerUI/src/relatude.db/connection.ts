@@ -4,10 +4,10 @@ export class Connection {
     private _address: string;
     private _headers: HeadersInit;
     private _includeRequestCredentials: RequestCredentials;
-    constructor(address: string, includeRequestCredentials: RequestCredentials = 'same-origin') {
+    constructor(address: string, includeRequestCredentials: RequestCredentials = "include") {
         this._address = address;
         if (!this._address.endsWith("/")) this._address += "/";
-        this._headers = { 'Content-Type': 'application/json' };
+        this._headers = { "Content-Type": "application/json" };
         this._includeRequestCredentials = includeRequestCredentials;
     }
     public SetHeader = (key: string, value: string) => this._headers[key] = value;
@@ -19,7 +19,7 @@ export class Connection {
             credentials: this._includeRequestCredentials,
             body: JSON.stringify({ query, parameters }),
         };
-        const response = await fetch(this._address + "query?storeId=" + storeId, init);
+        const response = await fetch(this._address + "query?storeId=" + storeId, init,);
         if (!response.ok) throw new Error("Network response error: " + response.statusText);
         return await response.json() as T;
     }

@@ -14,6 +14,6 @@ export class App {
             return false;
         });
         this.ui = new UI(this.api);
-        this.connection = new Connection(baseUrl + "data", 'include');
+        this.connection = new Connection(baseUrl + "data");
     }
 }

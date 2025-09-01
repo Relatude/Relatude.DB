@@ -5,7 +5,7 @@ public class RelatudeDBServerSettings {
     public string? Description { get; set; }
     public string? MasterUserName { get; set; }
     public string? MasterPassword { get; set; }
-    public string TokenCookieName { get; set; } = "WAFAdminServerToken";
+    public string TokenCookieName { get; set; } = "RelatudeDBToken";
     public string TokenEncryptionSalt { get; set; } = SecureGuid.New().ToString();
     public string TokenEncryptionSecret { get; set; } = SecureGuid.New().ToString();
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days

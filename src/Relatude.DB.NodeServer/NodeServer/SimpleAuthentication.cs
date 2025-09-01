@@ -10,7 +10,7 @@ public static class SimpleAuthentication {
     public static bool TokenCookieSameSite { get; set; } = RelatudeDBServer.Settings.TokenCookieSameSite;
     public static double TokenCookieMaxAgeInSec { get; set; } = RelatudeDBServer.Settings.TokenCookieMaxAgeInSec;
 
-    public static string TokenCookieName => RelatudeDBServer.Settings.TokenCookieName == null ? "WAFAdminServerToken" : RelatudeDBServer.Settings.TokenCookieName;
+    public static string TokenCookieName => RelatudeDBServer.Settings.TokenCookieName == null ? "RelatudeDBToken" : RelatudeDBServer.Settings.TokenCookieName;
     public static string TokenEncryptionSalt => RelatudeDBServer.Settings.TokenEncryptionSalt == null ? SecureGuid.New().ToString() : RelatudeDBServer.Settings.TokenEncryptionSalt;
     public static string TokenEncryptionSecret => RelatudeDBServer.Settings.TokenEncryptionSecret == null ? SecureGuid.New().ToString() : RelatudeDBServer.Settings.TokenEncryptionSecret;
 

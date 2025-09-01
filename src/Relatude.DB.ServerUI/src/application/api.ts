@@ -122,7 +122,7 @@ class DataAPI {
     queueReIndexAll = (storeId: string) => this.server.queryJson<number>(this.controller, 'queue-re-index-all', { storeId });
     constructor(private server: API, private controller: string) { }
     shiftAllDates = (storeId: string, seconds: number) => this.server.queryJson<number>(this.controller, 'shift-all-dates', { storeId, seconds: seconds.toString() });
-    query = (storeId: string, query: string) => this.server.queryJson<any>(this.controller, 'query', { storeId, query });
+    query = (storeId: string, query: string) => this.server.queryJson<any>(this.controller, 'query', { storeId, query }, );
     execute = (storeId: string, transactions: Transaction[]) => this.server.execute(this.controller, 'execute', { storeId }, transactions);
 }
 class EndpointsAPI {

@@ -26,7 +26,7 @@ export const component = (P: { store: QueryBuilderStore }) => {
                     return (
                         <div key={index}>
                             <h4>{v.node.name}</h4>
-                            <p>{(v.sample as TextSample).samples.map((s,i) => {
+                            <p>{(v.sample as TextSample).fragments.map((s,i) => {
                                     return <span key={i} style={{ backgroundColor: s.isMatch?"brown":"" }}>{s.fragment}</span>;
                             })}</p>
                             {/* <p dangerouslySetInnerHTML={{__html:formatSample(v.sample, "<b style='background-color:yellow'>", "</b>")}} ></p> */}

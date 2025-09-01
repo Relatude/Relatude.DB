@@ -2,21 +2,15 @@ using Relatude.DB.NodeServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
-//#if DEBUG
 builder.Services.AddCors(options => {
-    options.AddPolicy(name: "IgnoreCORSLocally", builder => {
-        builder.WithOrigins("http://localhost:1234")
-               .AllowAnyHeader()
-               .AllowAnyMethod()
-               .AllowCredentials();
+    options.AddPolicy(name: "AllowALL", builder => {
+        builder.AllowAnyHeader().AllowAnyMethod().AllowCredentials().SetIsOriginAllowed(origin => true);
     });
 });
-//#endif
-
-
 
 var app = builder.Build();
+
+app.UseCors("AllowALL");
 
 app.MapGet("/", () => {
     if (!RelatudeDBServer.DefaultStoreIsOpenOrOpening()) return "Closed.";
@@ -26,10 +20,6 @@ app.MapGet("/", () => {
 });
 
 app.UseRelatudeDB("/relatude.db");
-
-//#if DEBUG
-app.UseCors("IgnoreCORSLocally");
-//#endif
 
 
 app.Run();
