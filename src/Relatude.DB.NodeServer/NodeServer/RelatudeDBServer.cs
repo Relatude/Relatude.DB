@@ -6,7 +6,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
 namespace Relatude.DB.NodeServer;
-public static partial class WAFServer {
+public static partial class RelatudeDBServer {
     readonly static List<Tuple<DateTime, string>> _serverLog = [];
     static void startUpLog(string msg) { lock (_serverLog) { _serverLog.Add(new(DateTime.UtcNow, msg)); } }
     static Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }

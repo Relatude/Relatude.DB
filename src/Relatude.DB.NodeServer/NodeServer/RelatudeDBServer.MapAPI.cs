@@ -15,7 +15,7 @@ using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Models;
 namespace Relatude.DB.NodeServer;
-public static partial class WAFServer {
+public static partial class RelatudeDBServer {
     static NodeStoreContainer container(Guid storeId) {
         if (_containers.TryGetValue(storeId, out var container)) return container;
         throw new Exception("Container not found.");

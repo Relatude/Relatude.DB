@@ -64,8 +64,8 @@ if /I NOT "%publish%"=="Y" (
 )
 
 :: Read API key from apikey.txt
-if not exist ../Secrets/nuget_apikey.txt (
-    echo ERROR: ../Secrets/nuget_apikey.txt not found!
+if not exist ../../Relatude.DB.Secrets/nuget_apikey.txt (
+    echo ERROR: ../../Relatude.DB.Secrets/nuget_apikey.txt not found!
     echo Please create a file named nuget_apikey.txt in the Secrets and put your NuGet API key inside.
     pause
     exit /b 1

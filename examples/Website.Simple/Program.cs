@@ -19,8 +19,8 @@ builder.Services.AddCors(options => {
 var app = builder.Build();
 
 app.MapGet("/", () => {
-    if (!WAFServer.DefaultStoreIsOpenOrOpening()) return "Closed.";
-    var store = WAFServer.DefaultStore;
+    if (!RelatudeDBServer.DefaultStoreIsOpenOrOpening()) return "Closed.";
+    var store = RelatudeDBServer.DefaultStore;
     var noObjects = store.Query<object>().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
