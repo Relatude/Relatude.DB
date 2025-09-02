@@ -111,7 +111,7 @@ public sealed partial class Transaction {
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
-            SetRelation(expression, fromGuid, toGuid);
+            SetRelation(fromGuid, expression, toGuid);
         } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
               && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
             SetRelation(fromUint, expression, toUInt);

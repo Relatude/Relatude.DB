@@ -1,7 +1,13 @@
-﻿using Relatude.DB.NodeServer;
+﻿using Relatude.DB.Nodes;
+using Relatude.DB.NodeServer;
+using System.Text.Json;
 public static class GlobalExtensions {
     public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
-        builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new RelationJsonConverter()));
+        builder.Services.ConfigureHttpJsonOptions(o => {
+            o.SerializerOptions.Converters.Add(new RelationJsonConverter());
+            o.SerializerOptions.TypeInfoResolver = IRelationPropertyJsonTypeInfoResolver.Create();
+        }
+        );
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = "/relatude.db",

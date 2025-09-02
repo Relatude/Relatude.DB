@@ -1,9 +1,6 @@
 ﻿using Relatude.DB.Query.ExpressionToString.ExpressionTreeToString;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Collections.ObjectModel;
-using Relatude.DB.Common;
-
 namespace Relatude.DB.Query;
 internal static class ExpressionExtension {
     public static string ToQueryString(this Expression expression) {
@@ -21,7 +18,4 @@ internal static class ExpressionExtension {
             return base.VisitMember(node);
         }
     }
-
 }
-
-

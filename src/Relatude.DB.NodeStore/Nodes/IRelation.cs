@@ -1,7 +1,5 @@
-﻿using System.Collections;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Datamodels;
-using Relatude.DB.Demo.Models;
 using Relatude.DB.Query;
 
 namespace Relatude.DB.Nodes;
@@ -11,13 +9,13 @@ public interface IRelationProperty {
     int Count();
     bool Contains(int id);
     bool Contains(Guid id);
-    bool HasIncludedData { get; }
+    bool HasIncludedData();
 }
 public interface IOneProperty : IRelationProperty {
-    object? IncludedData { get; }
+    object? GetIncludedData();
 }
 public interface IManyProperty : IRelationProperty {
-    IEnumerable<object> IncludedData { get; }
+    IEnumerable<object> GetIncludedData();
 }
 
 public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) : IOneProperty {
@@ -56,19 +54,11 @@ public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, IN
     public bool Contains(int id) => tryGet(out var nodeData) ? nodeData.__Id == id : false;
     public bool Contains(Guid id) => tryGet(out var nodeData) ? nodeData.Id == id : false;
 
-    //IncludedData? _included;
-    //public IncludedData Included => _included == null ? (_included = new(store, nodeData, isSet)) : _included;
-    public bool HasIncludedData => isSet.HasValue;
-    //public class IncludedData(NodeStore? store, INodeData? nodeData, bool? isSet) {
-    //    public bool? IsSet => isSet;
-    //    public T? Node => nodeData == null ? default : store!.Get<T>(nodeData);
-    //}
-    public object? IncludedData {
-        get {
-            if (!isSet.HasValue) throw new Exception("No included data. ");
-            if (nodeData == null) return null;
-            return store!.Get<T>(nodeData);
-        }
+    public bool HasIncludedData() => isSet.HasValue;
+    public object? GetIncludedData() {
+        if (!isSet.HasValue) throw new Exception("No included data. ");
+        if (nodeData == null) return null;
+        return store!.Get<T>(nodeData);
     }
 
 }
@@ -102,20 +92,11 @@ public class ManyProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, I
         if (nodeDatas is not null) return nodeDatas.Any(n => n.Id == id);
         return Query(id).Count() > 0;
     }
-
-    //IncludedData? _included;
-    //public IncludedData Included => _included == null ? (_included = new(store, nodeDatas)) : _included;
-    public bool HasIncludedData => nodeDatas is not null;
-    //public class IncludedData(NodeStore? store, INodeData[]? nodeDatasIncluded) {
-    //    public int? Count => nodeDatasIncluded?.Length;
-    //    public IEnumerable<T>? Nodes => nodeDatasIncluded?.Select(n => store!.Get<T>(n));
-    //}
-    public IEnumerable<object> IncludedData {
-        get {
-            if (nodeDatas is null) throw new Exception("No included data. ");
-            foreach (var nodeData in nodeDatas) {
-                yield return store!.Get<T>(nodeData)!;
-            }
+    public bool HasIncludedData() => nodeDatas is not null;
+    public IEnumerable<object> GetIncludedData() {
+        if (nodeDatas is null) throw new Exception("No included data. ");
+        foreach (var nodeData in nodeDatas) {
+            yield return store!.Get<T>(nodeData)!;
         }
     }
 }
