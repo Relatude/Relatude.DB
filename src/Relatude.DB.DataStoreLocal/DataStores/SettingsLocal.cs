@@ -17,12 +17,13 @@
 
     public bool AutoFlushDiskInBackground { get; set; } = true;
     public double AutoFlushDiskIntervalInSeconds { get; set; } = 1;
-    public bool DelayAutoDiskFlushIfBusy { get; set; } = true; // TODO: Implement this feature
-    public double MaxDelayAutoDiskFlushIfBusyInSeconds { get; set; } = 10; // TODO: Implement this feature
+    public bool DelayAutoDiskFlushIfBusy { get; set; } = true;
+    public double MaxDelayAutoDiskFlushIfBusyInSeconds { get; set; } = 15;
 
-    public bool AutoSaveIndexStates { get; set; } = false;
-    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 45; // TODO: Implement this feature
-    public int AutoSaveIndexStatesActionCountLimit { get; set; } = 50000; // TODO: Implement this feature
+    public bool AutoSaveIndexStates { get; set; } = true;
+    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 30;
+    public int AutoSaveIndexStatesActionCountUpperLimit { get; set; } = 100000;
+    public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 10000;
 
     public bool AutoBackUp { get; set; } = false;
     public int NoHourlyBackUps { get; set; } = 10;

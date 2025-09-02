@@ -1,4 +1,7 @@
 ﻿namespace Relatude.DB.Common;
+/// <summary>
+/// Extensions for DateTime to safely add or subtract TimeSpan without exceeding DateTime limits.
+/// </summary>
 public static class DateTimeExtentions {
     public static DateTime SafeAdd(this DateTime dt, TimeSpan ts) =>
 ts > TimeSpan.Zero ? (DateTime.MaxValue - dt < ts ? DateTime.MaxValue : dt + ts)

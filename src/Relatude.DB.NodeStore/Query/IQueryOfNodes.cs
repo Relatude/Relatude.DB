@@ -18,6 +18,8 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IQueryOfNodes<TNode, TInclude> Where(string lambdaCodeAsString);
     IQueryOfNodes<TNode, TInclude> Where(Guid id);
     IQueryOfNodes<TNode, TInclude> Where(int id);
+    IQueryOfNodes<TNode, TInclude> Where(IEnumerable<Guid> ids);
+    IQueryOfNodes<TNode, TInclude> Where(IEnumerable<int> ids);
     IQueryOfNodes<TNode, TInclude> WhereSearch(string text, double? semanticRatio = null);
     IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes);
     IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes);
@@ -71,15 +73,13 @@ public static class IQueryExecutableExtensions {
         return false;
     }
     public static TNode? FirstOrDefault<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query) => query.Take(1).Execute().FirstOrDefault();
-    public static async Task<TNode?> FirstOrDefaultAsync<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query)
-    {
+    public static async Task<TNode?> FirstOrDefaultAsync<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query) {
         var res = await query.Take(1).ExecuteAsync();
         return res.FirstOrDefault();
     }
 
     public static TNode First<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query) => query.Take(1).Execute().First();
-    public static async Task<TNode> FirstAsync<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query)
-    {
+    public static async Task<TNode> FirstAsync<TNode, TInclude>(this IQueryOfNodes<TNode, TInclude> query) {
         var res = await query.Take(1).ExecuteAsync();
         return res.First();
     }

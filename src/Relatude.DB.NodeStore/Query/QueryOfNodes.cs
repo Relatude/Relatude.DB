@@ -72,6 +72,14 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         _q.Where(id);
         return this;
     }
+    public IQueryOfNodes<TNode, TInclude> Where(IEnumerable<Guid> ids) {
+        _q.Where(ids);
+        return this;
+    }
+    public IQueryOfNodes<TNode, TInclude> Where(IEnumerable<int> ids) {
+        _q.Where(ids);
+        return this;
+    }
     public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes) {
         _q.WhereTypes(nodeTypes);
         return this;

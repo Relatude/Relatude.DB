@@ -139,7 +139,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;
     public SettingsLocal Settings => _settings;
-    public long Timestamp => _log.LastTimestamp;
+    public long Timestamp {
+        get {
+            validateDatabaseState();
+            _lock.EnterReadLock();
+            try {
+                return _log.LastTimestamp;
+            } finally {
+                _lock.ExitReadLock();
+            }
+        }
+    }
     public static DataStoreLocal Open(
         Datamodel dm,
         SettingsLocal? settings = null,

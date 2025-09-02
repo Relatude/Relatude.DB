@@ -1,16 +1,28 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Query;
 
 namespace Relatude.DB.Nodes;
 
-public interface IRelationProperty { }
-public interface IOneProperty : IRelationProperty { }
-public interface IManyProperty : IRelationProperty { }
+public interface IRelationProperty {
+    bool IsSet();
+    int Count();
+    bool Contains(int id);
+    bool Contains(Guid id);
+    bool HasIncludedData { get; }
+}
+public interface IOneProperty : IRelationProperty {
+    object? IncludedData { get; }
+}
+public interface IManyProperty : IRelationProperty {
+    IEnumerable<object> IncludedData { get; }
+}
 
 public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) : IOneProperty {
     public bool IsSet() => (isSet.HasValue) ? isSet.Value : tryGet(out _);
+    public int Count() => IsSet() ? 1 : 0;
     public T Get() {
         if (TryGet(out T? value)) return value;
         throw new Exception($"Relation {store?.Datastore.Datamodel.Properties[propertyId].CodeName} is not set and empty. ");
@@ -41,20 +53,28 @@ public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, IN
         value = default;
         return false;
     }
-    IncludedData? _included;
-    public IncludedData Included => _included == null ? (_included = new(store, nodeData, isSet)) : _included;
-    public bool WasIncluded => isSet.HasValue;
-    public class IncludedData(NodeStore? store, INodeData? nodeData, bool? isSet) {
-        public bool? IsSet => isSet;
-        public T? Node => nodeData == null ? default : store!.Get<T>(nodeData);
+    public bool Contains(int id) => tryGet(out var nodeData) ? nodeData.__Id == id : false;
+    public bool Contains(Guid id) => tryGet(out var nodeData) ? nodeData.Id == id : false;
+
+    //IncludedData? _included;
+    //public IncludedData Included => _included == null ? (_included = new(store, nodeData, isSet)) : _included;
+    public bool HasIncludedData => isSet.HasValue;
+    //public class IncludedData(NodeStore? store, INodeData? nodeData, bool? isSet) {
+    //    public bool? IsSet => isSet;
+    //    public T? Node => nodeData == null ? default : store!.Get<T>(nodeData);
+    //}
+    public object? IncludedData {
+        get {
+            if (!isSet.HasValue) throw new Exception("No included data. ");
+            if (nodeData == null) return null;
+            return store!.Get<T>(nodeData);
+        }
     }
-    //public void Set(T node, Transaction transaction) {
-    //}
-    //public void Clear(Transaction transaction) {
-    //}
+
 }
 public class ManyProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : IManyProperty {
     int? _count;
+    public bool IsSet() => Count() > 0;
     public int Count() {
         if (_count.HasValue) return _count.Value;
         if (nodeDatas is not null) return (_count = nodeDatas.Length).Value;
@@ -65,13 +85,38 @@ public class ManyProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, I
         if (nodeDatas is null) nodeDatas = store!.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId);
         return nodeDatas.Select(n => store!.Get<T>(n));
     }
+
     public IQueryOfNodes<T, T> Query() => store!.QueryRelated<T>(propertyId, parentId);
-    IncludedData? _included;
-    public IncludedData Included => _included == null ? (_included = new(store, nodeDatas)) : _included;
-    public bool WasIncluded => nodeDatas is not null;
-    public class IncludedData(NodeStore? store, INodeData[]? nodeDatasIncluded) {
-        public int? Count => nodeDatasIncluded?.Length;
-        public IEnumerable<T>? Nodes => nodeDatasIncluded?.Select(n => store!.Get<T>(n));
+    public IQueryOfNodes<T, T> Query(Guid id) => store!.QueryRelated<T>(propertyId, parentId).Where(id);
+    public IQueryOfNodes<T, T> Query(IEnumerable<Guid> ids) => store!.QueryRelated<T>(propertyId, parentId).Where(ids);
+    public IQueryOfNodes<T, T> Query(int id) => store!.QueryRelated<T>(propertyId, parentId).Where(id);
+    public IQueryOfNodes<T, T> Query(IEnumerable<int> ids) => store!.QueryRelated<T>(propertyId, parentId).Where(ids);
+
+    public bool Contains(int id) {
+        if (_count.HasValue && _count == 0) return false;
+        if (nodeDatas is not null) return nodeDatas.Any(n => n.__Id == id);
+        return Query(id).Count() > 0;
+    }
+    public bool Contains(Guid id) {
+        if (_count.HasValue && _count == 0) return false;
+        if (nodeDatas is not null) return nodeDatas.Any(n => n.Id == id);
+        return Query(id).Count() > 0;
+    }
+
+    //IncludedData? _included;
+    //public IncludedData Included => _included == null ? (_included = new(store, nodeDatas)) : _included;
+    public bool HasIncludedData => nodeDatas is not null;
+    //public class IncludedData(NodeStore? store, INodeData[]? nodeDatasIncluded) {
+    //    public int? Count => nodeDatasIncluded?.Length;
+    //    public IEnumerable<T>? Nodes => nodeDatasIncluded?.Select(n => store!.Get<T>(n));
+    //}
+    public IEnumerable<object> IncludedData {
+        get {
+            if (nodeDatas is null) throw new Exception("No included data. ");
+            foreach (var nodeData in nodeDatas) {
+                yield return store!.Get<T>(nodeData)!;
+            }
+        }
     }
 }
 

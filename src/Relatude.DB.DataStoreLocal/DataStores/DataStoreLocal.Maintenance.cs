@@ -199,6 +199,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk();
     }
     public Task<StoreStatus> GetInfoAsync() => Task.FromResult(GetInfo());
+    public long GetLogActionsNotItInStatefile() {
+        _lock.EnterReadLock();
+        try {
+            return _noPrimitiveActionsSinceLastStateSnaphot;
+        } finally {
+            _lock.ExitReadLock();
+        }
+    }
     public StoreStatus GetInfo() {
         var info = new StoreStatus();
         if (_state != DataStoreState.Open) return info;

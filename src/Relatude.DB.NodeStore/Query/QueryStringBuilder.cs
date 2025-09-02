@@ -300,6 +300,28 @@ internal sealed class QueryStringBuilder {
         _sb.Append(id);
         _sb.Append(")");
     }
+    internal void Where(IEnumerable<int> ids) {
+        _sb.Append(".Where([");
+        bool first = true;
+        foreach (var id in ids) {
+            if (!first) _sb.Append(", ");
+            else first = false;
+            _sb.Append(id);
+        }
+        _sb.Append("])");
+    }
+    internal void Where(IEnumerable<Guid> ids) {
+        _sb.Append(".Where([");
+        bool first = true;
+        foreach (var id in ids) {
+            if (!first) _sb.Append(", ");
+            else first = false;
+            _sb.Append('\"');
+            _sb.Append(id);
+            _sb.Append('\"');
+        }
+        _sb.Append("])");
+    }
     string getQueryString() {
         if (_branchMarker == null || _branches == null) return _sb.ToString();
         StringBuilder include = new();

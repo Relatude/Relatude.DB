@@ -1,6 +1,7 @@
 using Relatude.DB.NodeServer;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddRelatudeDB();
 
 builder.Services.AddCors(options => {
     options.AddPolicy(name: "AllowALL", builder => {
@@ -19,7 +20,6 @@ app.MapGet("/", () => {
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 
-app.UseRelatudeDB("/relatude.db");
-
+app.UseRelatudeDB();
 
 app.Run();

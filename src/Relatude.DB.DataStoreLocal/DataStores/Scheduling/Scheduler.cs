@@ -8,11 +8,11 @@ internal class Scheduler(DataStoreLocal _db) {
     Timer? _autoFlushTimer; // timer for auto flushing disk
     Timer? _taskDequeueTimer; // timer only for dequeuing index tasks
     Timer? _taskDequeuePersistedTimer; // timer only for dequeuing index tasks
-    Timer? _backgroundTaskTimer;  // general background grouping a number of background tasks ( backup, cache purge etc )
+    Timer? _backgroundTaskTimer;  // general background grouping a number of background tasks ( auto state file save, backup, cache purge etc )
 
     OnlyOneThreadRunning _autoFlushTaskRunningFlag = new(); // flag to ensure only one thread is running auto flush at a time
-    OnlyOneThreadRunning _dequeIndexTaskRunnningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
-    OnlyOneThreadRunning _dequeIndexTaskPersistedRunnningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
+    OnlyOneThreadRunning _dequeIndexTaskRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
+    OnlyOneThreadRunning _dequeIndexTaskPersistedRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
     OnlyOneThreadRunning _backgroundTaskRunningFlag = new(); // flag to ensure only one thread is running background tasks at a time
 
     DateTime _lastSaveIndexStates = DateTime.UtcNow;
@@ -32,7 +32,7 @@ internal class Scheduler(DataStoreLocal _db) {
         if (_s.AutoSaveIndexStates && _s.AutoSaveIndexStatesIntervalInMinutes <= 0) _s.AutoSaveIndexStatesIntervalInMinutes = 45;
         if (_s.AutoTruncate && _s.AutoTruncateIntervalInMinutes <= 0) _s.AutoTruncateIntervalInMinutes = 24 * 60;
 
-        // initating flush timer:
+        // initiating flush timer:
         if (_s.AutoFlushDiskInBackground) {
             var flushIntervalMs = (int)_s.AutoFlushDiskIntervalInSeconds * 1000;
             if (flushIntervalMs == 0) flushIntervalMs = defaultAutoFlushPulseIntervalMs; // default to 1 second if not set
@@ -82,13 +82,13 @@ internal class Scheduler(DataStoreLocal _db) {
     void dequeueTaskQueues(object? state) {
         if (_db.State != DataStoreState.Open) return;
         deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
-        dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunnningFlag, _db);
+        dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db);
     }
     void dequeuePersistedTaskQueues(object? state) {
         if (_db.State != DataStoreState.Open) return;
         if (_db.TaskQueuePersisted != null) {
             deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
-            dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunnningFlag, _db);
+            dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db);
         }
     }
 
@@ -103,8 +103,8 @@ internal class Scheduler(DataStoreLocal _db) {
                 db.Log(" - " + kv.Value + " " + kv.Key.ToString().Decamelize().ToLower());
             }
         }
-        queue.RestartTasksFromDbShutdown(out int restaredBatches, out int abortedBatches, out int restaredTasks, out int abortedTasks);
-        if (restaredBatches > 0) db.Log("   -> " + restaredBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
+        queue.RestartTasksFromDbShutdown(out int restartedBatches, out int abortedBatches, out int restaredTasks, out int abortedTasks);
+        if (restartedBatches > 0) db.Log("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
         if (abortedBatches > 0) db.Log("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
     static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, IDataStore db) {
@@ -147,11 +147,27 @@ internal class Scheduler(DataStoreLocal _db) {
             db.LogError("Deleting expired tasks failed: ", err);
         }
     }
+    DateTime _lastAutoFlush = DateTime.UtcNow;
     void autoFlushDisk(object? state) {
         if (_autoFlushTaskRunningFlag.IsRunning_IfNotFlagToRunning()) return;
         try {
             if (_db.State != DataStoreState.Open) return;
             var now = DateTime.UtcNow;
+            var lastTransaction = new DateTime(_db.Timestamp, DateTimeKind.Utc);
+            var secondsSinceLastTransaction = (now - lastTransaction).TotalSeconds;
+            var busy = secondsSinceLastTransaction < _s.AutoFlushDiskIntervalInSeconds;
+            var secondsSinceLastAutoFlush = (now - _lastAutoFlush).TotalSeconds;
+            if (busy) {
+                if (secondsSinceLastAutoFlush < _s.MaxDelayAutoDiskFlushIfBusyInSeconds) {
+                    //_db.Log("Auto disk flush delayed, database busy. ");
+                    return; // too busy, delay
+                } else {
+                    _db.Log("Auto disk flush forced. " + secondsSinceLastAutoFlush.To1000N() + "s since last auto flush. ");
+                }
+            } else {
+                // _db.Log("Not busy, auto disk flush starting. ");
+            }
+            _lastAutoFlush = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
             _db.FlushToDisk(out var t, out var a, out var w);
             if (t > 0) _db.Log("Background disk flush. "
@@ -205,7 +221,24 @@ internal class Scheduler(DataStoreLocal _db) {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoSaveIndexStates) return;
-            if ((now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes) return;
+            var noActionsNotInStateFile = _db.GetLogActionsNotItInStatefile();
+            var belowUpperLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountUpperLimit;
+            if (belowUpperLimit) {
+                var belowLowerLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountLowerLimit;
+                if (belowLowerLimit) {
+                    // _db.Log("Auto save index states not due yet, unsaved action count below lower limit. ");
+                    return;
+                }
+                var belowTimeLimit = (now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes;
+                if (belowTimeLimit) {
+                    // _db.Log("Auto save index states not due yet, based on time interval. ");
+                    return;
+                } else {
+                    _db.Log("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
+                }
+            } else {
+                _db.Log("Auto save index states due, upper unsaved action count limit exceeded. ");
+            }
             var sw = Stopwatch.StartNew();
             _db.Log("Auto save index states started");
             _db.Maintenance(MaintenanceAction.SaveIndexStates);
