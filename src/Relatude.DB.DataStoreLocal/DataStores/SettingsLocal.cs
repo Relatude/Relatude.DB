@@ -14,10 +14,15 @@
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
     public bool ForceDiskFlushOnEveryTransaction { get; set; } = false;
+
     public bool AutoFlushDiskInBackground { get; set; } = true;
     public double AutoFlushDiskIntervalInSeconds { get; set; } = 1;
+    public bool DelayAutoDiskFlushIfBusy { get; set; } = true; // TODO: Implement this feature
+    public double MaxDelayAutoDiskFlushIfBusyInSeconds { get; set; } = 10; // TODO: Implement this feature
+
     public bool AutoSaveIndexStates { get; set; } = false;
-    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 45;
+    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 45; // TODO: Implement this feature
+    public int AutoSaveIndexStatesActionCountLimit { get; set; } = 50000; // TODO: Implement this feature
 
     public bool AutoBackUp { get; set; } = false;
     public int NoHourlyBackUps { get; set; } = 10;
