@@ -57,7 +57,7 @@ public static partial class RelatudeDBServer {
         }
     }
 
-    internal static IEndpointRouteBuilder UseWAFDB(this WebApplication app, string? urlPath = "/relatude.db",
+    internal static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = "/relatude.db",
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
         return UseWAFDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsIO).Result;
     }
@@ -97,11 +97,6 @@ public static partial class RelatudeDBServer {
         } else {
             await next();
         }
-    }
-    public class Credentials {
-        public string UserName { get; set; } = "";
-        public string Password { get; set; } = "";
-        public bool Remember { get; set; } = false;
     }
     static async Task startServerAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
         _serverLog.Clear();

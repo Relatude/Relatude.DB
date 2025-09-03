@@ -25,4 +25,7 @@
 		<EmbeddedResource Include="NodeServer\ClientUI\index.html" />
 		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
 	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="NodeServer\WebAPI\" />
+	</ItemGroup>
 </Project>

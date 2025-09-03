@@ -98,6 +98,11 @@ public static partial class RelatudeDBServer {
             return Results.File(data, "image/x-icon", "favicon.ico");
         });
     }
+    public class Credentials {
+        public string UserName { get; set; } = "";
+        public string Password { get; set; } = "";
+        public bool Remember { get; set; } = false;
+    }
     static void mapAuth(WebApplication app, Func<string, string> path) {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
