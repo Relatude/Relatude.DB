@@ -134,6 +134,7 @@ public static partial class RelatudeDBServer {
                 },
             }
         }));
+        app.MapPost(path("eventstream"), UIEventHub.Serve);
     }
     static void mapSettings(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);
@@ -412,7 +413,7 @@ public static partial class RelatudeDBServer {
                 created += create;
             }
             sw.Start();
-             store.Flush();
+            store.Flush();
             sw.Stop();
             return new {
                 CountCreated = count,
