@@ -1,15 +1,17 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useApp } from '../../start/useApp';
 import { Button } from '@mantine/core';
+import { EventData } from '../../application/models';
+import { ServerEventHub } from '../../application/serverEventHub';
 
-
+let hubTest: ServerEventHub;
 export const Datamodel = (P: { storeId: string }) => {
     const app = useApp();
     //const [settings, setSettings] = useState<ServerSettings>();
     const [selectedModelId, setSelectedModelId] = useState<string>();
     const [code, setCode] = useState<string>();
     const [model, setModel] = useState<string>();
-    const selectModel=async (id:string)=>{
+    const selectModel = async (id: string) => {
         // setSelectedModelId(id);
         // const code = await ctx.api.datamodel.getCode(true);
         // setCode(code);
@@ -36,12 +38,27 @@ export const Datamodel = (P: { storeId: string }) => {
         const result = await app.api.demo.populate(P.storeId, count);
         alert(`Created ${result.countCreated} items in ${result.elapsedMs} ms, ${Math.round(result.countCreated / (result.elapsedMs / 1000))} items/sec`);
     }
+    const testEvents = async () => {
+        hubTest = new ServerEventHub(app.api, (event: EventData<any>) => {
+            console.log("Event", event);
+            //alert("Event: " + event.name + " " + JSON.stringify(event.data));
+        }, (error) => {
+            console.log("Event error", error);
+        }, (error) => {
+            console.log("Connection error", error);
+        });
+        await hubTest.connect();
+        hubTest.addEventListener("test", (data) => {
+            console.log("Test event", data);
+        });
+    }
     return (
         <>
             <div>
                 <h1>Datamodel</h1>
                 <Button onClick={populateDemo}>Add demo content</Button>
                 <Button onClick={reIndexAll}>Re index content</Button>
+                <Button onClick={testEvents}>Test events</Button>
                 {/* {settings && settings.datamodelSources && settings.datamodelSources.map((source, index) => (
                     <div style={{ fontWeight: source.id == selectedModelId ? "bold" : "" }} onClick={(e) => selectModel(source.id)} key={source.id}>{source.name}</div>
                 ))} */}

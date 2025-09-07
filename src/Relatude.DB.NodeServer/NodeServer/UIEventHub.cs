@@ -1,5 +1,6 @@
 ﻿
-using System.Text.Json;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc.Diagnostics;
 using System.Text;
 
 namespace Relatude.DB.NodeServer;
@@ -10,9 +11,9 @@ public class EventData(string name, object data, TimeSpan? maxAge = null) {
     public string Name { get; } = name;
     public object Data { get; } = data;
 }
-public class EventSubscription(string[] events) {
+public class EventSubscription() {
     public Guid SubscriptionId { get; } = Guid.NewGuid();
-    public HashSet<string> EventNames { get; } = new(events);
+    public HashSet<string> EventNames { get; } = [];
     public LinkedList<EventData> EventQueue { get; } = new();
 }
 public class EventSubscriptions {
@@ -56,8 +57,8 @@ public class EventSubscriptions {
             return null;
         }
     }
-    public Guid CreateSubscription(string[] events) {
-        var subscription = new EventSubscription(events);
+    public Guid CreateSubscription() {
+        var subscription = new EventSubscription();
         lock (_eventSubscriptions) {
             _eventSubscriptions[subscription.SubscriptionId] = subscription;
         }
@@ -107,50 +108,54 @@ public class EventSubscriptions {
 public static class ServerEventHub {
     static EventSubscriptions _subscriptions = new();
     public static void Publish(string name, object data, TimeSpan? maxAge = null) => _subscriptions.Enqueue(new(name, data, maxAge));
-    internal static void ChangeSubscription(Guid subscriptionId, string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
-    internal static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
-    internal static EventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
-    internal static int SubscriptionCount() => _subscriptions.Count();
-    internal static async Task Subscribe(HttpContext context, string[] events) {
+    public static void ChangeSubscription(Guid subscriptionId, string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
+    public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
+    public static EventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
+    public static int SubscriptionCount() => _subscriptions.Count();
+    public static async Task Subscribe(HttpContext context) {
 
         var response = context.Response;
         var headers = response.Headers;
-        var cancellationToken = context.RequestAborted;
+        var cancellation = context.RequestAborted;
 
         headers.Append("Content-Type", "text/event-stream");
         headers.Append("Cache-Control", "no-cache");
         headers.Append("Connection", "keep-alive");
         headers.Append("X-Accel-Buffering", "no"); // Disable buffering for nginx
 
-        var subscriptionId = _subscriptions.CreateSubscription(events);
+        context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+        var subscriptionId = _subscriptions.CreateSubscription();
         try {
-            await writeEvent(context, new EventData("subscriptionId", subscriptionId.ToString()));
-            while (!cancellationToken.IsCancellationRequested) {
+            await writeEvent(response, cancellation, new("subscriptionId", subscriptionId.ToString()));
+            while (!cancellation.IsCancellationRequested) {
                 var eventData = _subscriptions.Dequeue(subscriptionId);
                 if (eventData != null) {
-                    await writeEvent(context, eventData);
+                    await writeEvent(response, cancellation, eventData);
                 } else {
                     if (!_subscriptions.IsSubscribing(subscriptionId)) break;
-                    await Task.Delay(1000, cancellationToken);
+                    await Task.Delay(500, cancellation);
                     _subscriptions.ClearExpired();
                 }
             }
+        } catch (TaskCanceledException) {
+            Console.WriteLine("SSE client disconnected");
         } catch (Exception error) {
             Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
             _subscriptions.CancelSubscription(subscriptionId);
         }
     }
-    static async Task writeEvent(HttpContext context, EventData e) {
-        var response = context.Response;
-        var stringData = buildEvent(e.Data, e.Name);
-        await response.WriteAsync(stringData, context.RequestAborted);
-        await response.WriteAsync($"\n\n");
-        await response.Body.FlushAsync(context.RequestAborted);
+    static async Task writeEvent(HttpResponse response, CancellationToken cancellation, EventData e) {
+        var stringData = buildEvent(e);
+        await response.WriteAsync(stringData, cancellation);
+        await response.Body.FlushAsync(cancellation);
     }
     static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null, bool pretty = false) {
         var json = System.Text.Json.JsonSerializer.Serialize(dataObject, new System.Text.Json.JsonSerializerOptions {
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            WriteIndented = pretty,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
             Converters = {
                 new Relatude.DB.Nodes.RelationJsonConverter()
             }
@@ -159,7 +164,6 @@ public static class ServerEventHub {
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');
         if (!string.IsNullOrEmpty(id)) sb.Append("id: ").Append(id).Append('\n');
         if (!string.IsNullOrEmpty(eventName)) sb.Append("event: ").Append(eventName).Append('\n');
-
         using var reader = new StringReader(json);
         string? line;
         while ((line = reader.ReadLine()) != null) {
@@ -168,6 +172,23 @@ public static class ServerEventHub {
         sb.Append('\n');
         return sb.ToString();
     }
+
+    static Timer? _tester;
+    public static void StartTests() {
+        _tester = new Timer((_) => {
+            var testEvent = new TestEvent("Test at " + DateTime.UtcNow.ToString("HH:mm:ss"), "This is a te"+Environment.NewLine+"st event sent at " + DateTime.UtcNow.ToString("HH:mm:ss"), Environment.TickCount);
+            Publish("test", testEvent, TimeSpan.FromSeconds(30));
+            Console.WriteLine("Published test event: " + testEvent.Message);
+        }, null, 1000, 1000);
+    }
+    public static void StopTests() {
+        _tester?.Dispose();
+        _tester = null;
+    }
+}
+public class TestEvent(string title, string message, int count) {
+    public string Title { get; set; } = title;
+    public string Message { get; set; } = message;
+    public int Count { get; set; } = count;
 }
 
-}

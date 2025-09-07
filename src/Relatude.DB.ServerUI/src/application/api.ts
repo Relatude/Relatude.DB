@@ -1,15 +1,15 @@
-import { Datamodel} from "../relatude.db/datamodel";
+import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus, EventData } from "./models";
 
 type retryCallback = (errorMessage) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
 export class API {
     constructor(
-        private baseUrl: string,
+        public baseUrl: string,
         retry: retryCallback) {
         this.retry = retry;
-    }    
+    }
     retry: retryCallback;
     queryJson = async <T>(controller: string, action: string, query?: QueryObject, body?: object, noRetry: boolean = false): Promise<T> => {
         let statusCode: number | undefined;
@@ -109,20 +109,22 @@ class StatusAPI {
     constructor(private server: API, private controller: string) { }
     stateAll = () => this.server.queryJson<{ id: string, state: StoreStates }[]>(this.controller, 'state-all');
     statusAll = () => this.server.queryJson<{ id: string, status: DataStoreStatus }[]>(this.controller, 'status-all');
+    createEventSource = () => new EventSource(this.server.baseUrl + this.controller + "/events", { withCredentials: true });
+    changeSubscription = (subscriptionId: string, events: string[]) => this.server.execute(this.controller, 'change-subscription', { subscriptionId }, events);
 }
 class DatamodelAPI {
     constructor(private server: API, private controller: string) { }
     getCode = (storeId: string, addAttributes: boolean) => this.server.queryString(this.controller, 'get-code', { storeId, addAttributes: addAttributes ? "true" : "false" });
     getModel = async (storeId: string) => {
-     const model =  await this.server.queryJson<DatamodelModel>(this.controller, 'get-model', { storeId });
-     return new Datamodel(model);
+        const model = await this.server.queryJson<DatamodelModel>(this.controller, 'get-model', { storeId });
+        return new Datamodel(model);
     }
 }
 class DataAPI {
     queueReIndexAll = (storeId: string) => this.server.queryJson<number>(this.controller, 'queue-re-index-all', { storeId });
     constructor(private server: API, private controller: string) { }
     shiftAllDates = (storeId: string, seconds: number) => this.server.queryJson<number>(this.controller, 'shift-all-dates', { storeId, seconds: seconds.toString() });
-    query = (storeId: string, query: string) => this.server.queryJson<any>(this.controller, 'query', { storeId, query }, );
+    query = (storeId: string, query: string) => this.server.queryJson<any>(this.controller, 'query', { storeId, query },);
     execute = (storeId: string, transactions: Transaction[]) => this.server.execute(this.controller, 'execute', { storeId }, transactions);
 }
 class EndpointsAPI {
@@ -248,7 +250,7 @@ class LogAPI {
 }
 class DemoAPI {
     constructor(private server: API, private controller: string) { }
-    populate = (storeId: string, count:number) => this.server.queryJson<{ countCreated:number,elapsedMs:number }>(this.controller, 'populate', { storeId, count });
+    populate = (storeId: string, count: number) => this.server.queryJson<{ countCreated: number, elapsedMs: number }>(this.controller, 'populate', { storeId, count });
 }
 class TaskAPI {
     constructor(private server: API, private controller: string) { }

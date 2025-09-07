@@ -134,7 +134,10 @@ public static partial class RelatudeDBServer {
                 },
             }
         }));
-        app.MapPost(path("eventstream"), UIEventHub.Serve);
+        app.MapGet(path("events"), ServerEventHub.Subscribe);
+        app.MapPost(path("change-subscription"), (Guid subscriptionId, string[] events) => ServerEventHub.ChangeSubscription(subscriptionId, events));
+        app.MapPost(path("get-all-subscriptions"), ServerEventHub.GetAllSubscriptions);
+        app.MapPost(path("get-subscription-count"), ServerEventHub.SubscriptionCount);
     }
     static void mapSettings(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);

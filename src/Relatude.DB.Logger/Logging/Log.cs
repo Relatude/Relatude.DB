@@ -203,7 +203,6 @@ internal class Log : IDisposable {
                     loadStatStateFromBytes(stat, stream.Read(statBytesLength));
                 } else {
                     stream.Skip(statBytesLength);
-                    Console.WriteLine("Skipped stats " + _statFileKey + statKey);
                 }
             }
         }
