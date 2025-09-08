@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus} from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus } from "./models";
 
 type retryCallback = (errorMessage) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
@@ -142,6 +142,7 @@ class SettingsAPI {
     constructor(private server: API, private controller: string) { }
     getSettings = (storeId: string) => this.server.queryJson<NodeStoreContainer>(this.controller, 'get-settings', { storeId });
     setSettings = (storeId: string, settings: NodeStoreContainer) => this.server.execute(this.controller, 'set-settings', { storeId }, settings);
+    reSaveSettings = (storeId: string) => this.server.execute(this.controller, 're-save-settings', { storeId });
 }
 class MaintenanceAPI {
     constructor(private server: API, private controller: string) { }

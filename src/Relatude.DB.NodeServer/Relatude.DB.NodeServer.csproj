@@ -7,7 +7,7 @@
 		<OutputType>Library</OutputType>
 		<IsPackable>true</IsPackable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>0.1.0.9</Version>
+		<Version>0.1.0.10</Version>
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="NodeServer\ClientUI\Images\favicon.ico" />
@@ -24,8 +24,5 @@
 		<EmbeddedResource Include="NodeServer\ClientUI\index.5246294a.css" />
 		<EmbeddedResource Include="NodeServer\ClientUI\index.html" />
 		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
-	</ItemGroup>
-	<ItemGroup>
-	  <Folder Include="NodeServer\WebAPI\" />
 	</ItemGroup>
 </Project>

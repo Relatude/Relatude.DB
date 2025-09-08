@@ -10,8 +10,9 @@ public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
     static JsonSerializerOptions getOptions() {
         if (_options == null) {
             _options = new JsonSerializerOptions {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNamingPolicy = null,
                 WriteIndented = true,
+                PropertyNameCaseInsensitive = true,
                 //DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             };
             _options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());

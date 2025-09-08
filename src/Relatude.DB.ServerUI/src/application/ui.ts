@@ -54,7 +54,8 @@ export class UI {
     askRetryDialog(errorMessage: any): boolean | PromiseLike<boolean> {
         this.showRetryDialog = true;
         this.retryDialogMessage = errorMessage;
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+
         });
     }
     getCurrentStore = () => this.containers.find(c => c.id === this.selectedStoreId);

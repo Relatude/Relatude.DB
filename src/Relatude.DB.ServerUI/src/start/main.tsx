@@ -1,6 +1,5 @@
-import React from "react";
 import { observer } from "mobx-react-lite";
-import { AppShell, Burger, Button, Group, ScrollArea } from "@mantine/core";
+import { AppShell, Burger, Button, Group, Modal, ScrollArea } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconBrightnessUp, IconMoon } from "@tabler/icons-react";
 import LogoSmall from "../components/logoSmall";
@@ -15,6 +14,7 @@ import { Settings } from "../sections/settings/settings";
 import Server from "../sections/server/server";
 import { API } from "../sections/api/api";
 import Monitor from "../sections/monitor/monitor";
+import { ErrorDialog } from "../components/errorDialog";
 
 const component = () => {
   const app = useApp();
@@ -30,7 +30,8 @@ const component = () => {
       }}
       padding="md"
     >
-      <AppShell.Header>
+      <ErrorDialog title="Error" message="An error occurred" details="Error details go here" />
+      <AppShell.Header >
         <Group h="100%" px="md" w={"100%"} justify="space-between">
           <Group h="100%" px="md">
             <Burger
@@ -73,12 +74,12 @@ const component = () => {
         {storeId === app.ui.menu.selected && <Status />}
         {app.ui.menu.selected === "server" && <Server />}
         {storeId && (<>
-          {app.ui.menu.selected === "datamodel" && <Datamodel storeId={storeId}/>}
+          {app.ui.menu.selected === "datamodel" && <Datamodel storeId={storeId} />}
           {app.ui.menu.selected === "data" && <Data storeId={storeId} />}
-          {app.ui.menu.selected === "api" && <API storeId={storeId}/>}
+          {app.ui.menu.selected === "api" && <API storeId={storeId} />}
           {app.ui.menu.selected === "files" && <Files storeId={storeId} />}
-          {app.ui.menu.selected === "logs" && <Monitor storeId={storeId}/>}
-          {app.ui.menu.selected === "settings" && <Settings storeId={storeId}/>}
+          {app.ui.menu.selected === "logs" && <Monitor storeId={storeId} />}
+          {app.ui.menu.selected === "settings" && <Settings storeId={storeId} />}
         </>)}
       </AppShell.Main>
     </AppShell>

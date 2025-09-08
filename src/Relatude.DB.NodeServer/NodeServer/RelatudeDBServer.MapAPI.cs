@@ -29,7 +29,7 @@ public static partial class RelatudeDBServer {
         mapRoot(app, action => ApiUrlPublic + action + "/");  // static files, index.html, css, js, favicon.ico for admin UI
         mapAuth(app, action => ApiUrlPublic + action + "/");  // authentication, login, ping, version, logout, etc.
 
-        // Pricate API, requiring authentication:
+        // Private API, requiring authentication:
         var path = (string section) => ApiUrlRoot + "/" + section + "/";
         mapStatus(app, action => path("status") + action);
         mapSettings(app, action => path("settings") + action);
@@ -143,6 +143,9 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);
         app.MapPost(path("set-settings"), (Guid storeId, [FromBody] NodeStoreContainerSettings settings) => {
             container(storeId).ApplyNewSettings(settings, true);
+            updateWAFServerSettingsFile();
+        });
+        app.MapPost(path("re-save-settings"), (Guid storeId) => {
             updateWAFServerSettingsFile();
         });
     }

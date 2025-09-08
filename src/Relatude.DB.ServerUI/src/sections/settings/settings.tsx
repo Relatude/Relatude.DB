@@ -16,6 +16,9 @@ export const Settings = (P: { storeId: string }) => {
         // if (settings) await ctx.api.settings.setSettings(settings);
         // await updateSettings();
     }
+    const reSaveSettings = async () => {
+        await app.api.settings.reSaveSettings(P.storeId);
+    }
     useEffect(() => {
         updateSettings();
     }, []);
@@ -35,6 +38,7 @@ export const Settings = (P: { storeId: string }) => {
                 <div>
                     <button onClick={updateSettings}>Reload</button>
                     <button onClick={saveSettings}>Save</button>
+                    <button onClick={reSaveSettings}>Re Save</button>
                 </div>
                 <div style={{ color: "red" }} >{settingsStringState}</div>
             </div>

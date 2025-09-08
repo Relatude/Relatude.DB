@@ -50,7 +50,7 @@
     public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Memory;
 
     public bool AutoDequeTasks { get; set; } = true;
-    public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Memory;
+    public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.BuiltIn;
     public string? PersistedQueueStoreFolderPath { get; set; }
 
 }

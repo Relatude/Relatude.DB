@@ -9,9 +9,6 @@ export class App {
         if (!baseUrl.endsWith("/")) baseUrl += "/";
         this.api = new API(baseUrl, async (errorMessage) => {
             return await this.ui.askRetryDialog(errorMessage);
-            //return window.confirm(errorMessage + " - Retry?");
-            console.error("ERROR: " + errorMessage);
-            return false;
         });
         this.ui = new UI(this.api);
         this.connection = new Connection(baseUrl + "data");
