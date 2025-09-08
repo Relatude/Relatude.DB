@@ -1,6 +1,12 @@
 import { API } from "./api";
-import { EventData } from "./models";
 
+export interface EventData<T> {
+    id: string;
+    timestamp: Date;
+    maxAge: number;
+    name: string;
+    data: T;
+}
 class EventListener<T> {
     constructor(
         public name: string,
@@ -10,9 +16,9 @@ class EventListener<T> {
 export class ServerEventHub {
     constructor(
         private api: API,
-        private onAnyEvent: (event: EventData<any>) => void,
-        private onEventError: (error: any) => void,
-        private onConnectionError: (error: any) => void,
+        private onAnyEvent: ((eventData: EventData<unknown>) => void) | null = null,
+        private onEventError: ((error: any) => void) | null = null,
+        private onConnectionError: ((error: any) => void) | null = null,
     ) { }
     private _eventSource: EventSource | null = null;
     private _subscriptionId: string | null = null;
@@ -22,8 +28,14 @@ export class ServerEventHub {
     connect = () => {
         if (this._eventSource) this.disconnect();
         this._eventSource = this.api.status.createEventSource();
-        this._eventSource.onmessage = this.onEventSourceMessage;
-        this._eventSource.onerror = this.onEventSourceError;
+        this._eventSource.onmessage = (event: MessageEvent) => {
+            if (!this._subscriptionId) this.onFirstMessage(event);
+            else this.onEventMessage(event);
+        };
+        this._eventSource.onerror = (error: any) => {
+            if (this.onConnectionError) this.onConnectionError(error);
+            else console.log("EventSource connection error", error);
+        }
         return new Promise((resolve, reject) => {
             this._onReceivedSubscriptionId = resolve;
             this._onErrorReceivingSubscriptionId = reject;
@@ -51,21 +63,13 @@ export class ServerEventHub {
             this._eventSource = null;
         }
     }
-    private onEventSourceMessage = (event: MessageEvent) => {
-        if (!this._subscriptionId) this.onFirstMessage(event);
-        else this.onEventMessage(event);
-    }
-    private onEventSourceError = (error: any) => {
-        console.log("EventSource error", error);
-        this.onConnectionError(error);
-    }
-    private onFirstMessage = (event: MessageEvent) => {
+    private toEventData = <T>(message: MessageEvent): EventData<T> => JSON.parse(message.data) as EventData<T>;
+    private onFirstMessage = (event: MessageEvent) => { // first message contains subscription id
         try {
             if (!this._onReceivedSubscriptionId) throw new Error("No handler for subscription id");
-            var eventData = JSON.parse(event.data) as EventData<string>;
+            var eventData = this.toEventData<string>(event);
             this._subscriptionId = eventData.data
             if (!this._subscriptionId) throw new Error("Invalid subscription id");
-            console.log("Subscribed to events with id", this._subscriptionId);
             this._onReceivedSubscriptionId(this._subscriptionId);
         } catch (err) {
             if (this._onErrorReceivingSubscriptionId) this._onErrorReceivingSubscriptionId(err);
@@ -73,18 +77,20 @@ export class ServerEventHub {
     }
     private onEventMessage = (event: MessageEvent) => {
         try {
-            const eventData = JSON.parse(event.data) as EventData<any>;
-            this.onAnyEvent(eventData);
+            const eventData = this.toEventData(event);
+            if (this.onAnyEvent) this.onAnyEvent(eventData);
             const listeners = this._eventListeners.filter(l => l.name == eventData.name);
             for (const l of listeners) {
                 try {
                     l.onEvent(eventData.data);
                 } catch (err) {
                     if (l.onError) l.onError(err);
+                    else console.log("Error in event listener", err);
                 }
             }
         } catch (err) {
-            this.onEventError(err);
+            if (this.onEventError) this.onEventError(err);
+            else console.log("Error processing event", err);
         }
     }
 }

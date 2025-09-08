@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus, EventData } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus} from "./models";
 
 type retryCallback = (errorMessage) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;

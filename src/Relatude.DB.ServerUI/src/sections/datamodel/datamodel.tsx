@@ -1,8 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useApp } from '../../start/useApp';
 import { Button } from '@mantine/core';
-import { EventData } from '../../application/models';
-import { ServerEventHub } from '../../application/serverEventHub';
+import { ServerEventHub, EventData } from '../../application/serverEventHub';
 
 let hubTest: ServerEventHub;
 export const Datamodel = (P: { storeId: string }) => {
@@ -39,7 +38,7 @@ export const Datamodel = (P: { storeId: string }) => {
         alert(`Created ${result.countCreated} items in ${result.elapsedMs} ms, ${Math.round(result.countCreated / (result.elapsedMs / 1000))} items/sec`);
     }
     const testEvents = async () => {
-        hubTest = new ServerEventHub(app.api, (event: EventData<any>) => {
+        hubTest = new ServerEventHub(app.api, (event: EventData<unknown>) => {
             console.log("Event", event);
             //alert("Event: " + event.name + " " + JSON.stringify(event.data));
         }, (error) => {
@@ -48,7 +47,7 @@ export const Datamodel = (P: { storeId: string }) => {
             console.log("Connection error", error);
         });
         await hubTest.connect();
-        hubTest.addEventListener("test", (data) => {
+        hubTest.addEventListener<string>("test", (data) => {
             console.log("Test event", data);
         });
     }

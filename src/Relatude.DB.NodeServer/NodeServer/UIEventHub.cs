@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace Relatude.DB.NodeServer;
 public class EventData(string name, object data, TimeSpan? maxAge = null) {
@@ -120,7 +121,7 @@ public static class ServerEventHub {
 
         headers.Append("Content-Type", "text/event-stream");
         headers.Append("Cache-Control", "no-cache");
-        headers.Append("Connection", "keep-alive");
+        if (context.Request.Protocol == "HTTP/1.1") headers.Append("Connection", "keep-alive"); // not needed for HTTP/2 and later:
         headers.Append("X-Accel-Buffering", "no"); // Disable buffering for nginx
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
@@ -128,6 +129,7 @@ public static class ServerEventHub {
         var subscriptionId = _subscriptions.CreateSubscription();
         try {
             await writeEvent(response, cancellation, new("subscriptionId", subscriptionId.ToString()));
+            Console.WriteLine("SSE client connected, subscriptionId: " + subscriptionId + ". Connections: " + _subscriptions.Count().ToString("N0"));
             while (!cancellation.IsCancellationRequested) {
                 var eventData = _subscriptions.Dequeue(subscriptionId);
                 if (eventData != null) {
@@ -139,7 +141,7 @@ public static class ServerEventHub {
                 }
             }
         } catch (TaskCanceledException) {
-            Console.WriteLine("SSE client disconnected");
+            Console.WriteLine("SSE client disconnected, subscriptionId: " + subscriptionId + ". Connections: " + (_subscriptions.Count() - 1).ToString("N0"));
         } catch (Exception error) {
             Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
@@ -151,19 +153,13 @@ public static class ServerEventHub {
         await response.WriteAsync(stringData, cancellation);
         await response.Body.FlushAsync(cancellation);
     }
-    static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null, bool pretty = false) {
-        var json = System.Text.Json.JsonSerializer.Serialize(dataObject, new System.Text.Json.JsonSerializerOptions {
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-            WriteIndented = pretty,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
-            Converters = {
-                new Relatude.DB.Nodes.RelationJsonConverter()
-            }
-        });
+    static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
+        var json = JsonSerializer.Serialize(dataObject, GlobalExtensions.DefaultJsonHttpOptions);
         var sb = new StringBuilder(json.Length + 64);
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');
         if (!string.IsNullOrEmpty(id)) sb.Append("id: ").Append(id).Append('\n');
         if (!string.IsNullOrEmpty(eventName)) sb.Append("event: ").Append(eventName).Append('\n');
+        // supporting multi-line JSON data:
         using var reader = new StringReader(json);
         string? line;
         while ((line = reader.ReadLine()) != null) {
@@ -171,19 +167,6 @@ public static class ServerEventHub {
         }
         sb.Append('\n');
         return sb.ToString();
-    }
-
-    static Timer? _tester;
-    public static void StartTests() {
-        _tester = new Timer((_) => {
-            var testEvent = new TestEvent("Test at " + DateTime.UtcNow.ToString("HH:mm:ss"), "This is a te"+Environment.NewLine+"st event sent at " + DateTime.UtcNow.ToString("HH:mm:ss"), Environment.TickCount);
-            Publish("test", testEvent, TimeSpan.FromSeconds(30));
-            Console.WriteLine("Published test event: " + testEvent.Message);
-        }, null, 1000, 1000);
-    }
-    public static void StopTests() {
-        _tester?.Dispose();
-        _tester = null;
     }
 }
 public class TestEvent(string title, string message, int count) {

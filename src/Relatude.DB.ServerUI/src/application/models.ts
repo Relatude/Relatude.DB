@@ -158,10 +158,3 @@ export interface ServerLogEntry {
 export interface Transaction {
 
 }
-export interface EventData<T> {
-    id: string;
-    timestamp: Date;
-    maxAge: number;
-    name: string;
-    data: T;
-}

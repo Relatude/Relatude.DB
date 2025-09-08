@@ -23,11 +23,4 @@ app.MapGet("/", () => {
 
 app.UseRelatudeDB();
 
-ServerEventHub.StartTests();
-
-app.MapGet("/stopevents", () => {
-    ServerEventHub.StopTests();
-    return "OK";
-});
-
 app.Run();
