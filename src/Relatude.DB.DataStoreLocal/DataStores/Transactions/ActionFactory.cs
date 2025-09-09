@@ -52,13 +52,13 @@ internal static class ActionFactory {
             }
         }
     }
-    static int getIdAndVerifyIdAndGuid(DataStoreLocal db, NodeAction nodeAction) {
+    static int getIdAndVerifyIdAndGuidIfGuidIsGiven(DataStoreLocal db, NodeAction nodeAction) {
         var id = nodeAction.Node.__Id;
         var guid = nodeAction.Node.Id;
         if (guid == Guid.Empty && id == 0) throw new Exception("Both ID and GUID are empty, cannot perform action. ");
         if (id == 0) {
             id = db._guids.GetId(guid);
-        } else {
+        } else if (guid != Guid.Empty) {
             db._guids.ValidateExistence(id, guid);
         }
         return id;
@@ -90,7 +90,7 @@ internal static class ActionFactory {
                 }
                 break;
             case NodeOperation.DeleteOrFail: { // delete if exists, otherwise throw exception
-                    var id = getIdAndVerifyIdAndGuid(db, nodeAction);
+                    var id = getIdAndVerifyIdAndGuidIfGuidIsGiven(db, nodeAction);
                     var oldNode = db._nodes.Get(id);
                     // adding transactions to first remove any relation related to node,
                     // NB: important to not use "yield return" here as the values of the relation will change during the loop
@@ -176,7 +176,7 @@ internal static class ActionFactory {
                     if (nodeExists(db, nodeAction.Node)) {
                         nodeAction.Operation = NodeOperation.ForceUpdate;
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
-                    } else { 
+                    } else {
                         nodeAction.Operation = NodeOperation.Insert;
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
                     }
@@ -206,7 +206,7 @@ internal static class ActionFactory {
                 }
                 break;
             case NodeOperation.ReIndex: {
-                    int id = getIdAndVerifyIdAndGuid(db, nodeAction);
+                    int id = getIdAndVerifyIdAndGuidIfGuidIsGiven(db, nodeAction);
                     Utils.QueueIndexing(db, id, db._definition.GetTypeOfNode(id), doNotRegenTheseProps, newTasks);
                 }
                 break;

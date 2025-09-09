@@ -18,7 +18,7 @@ internal class SemanticIndex : IIndex {
         defaultMinimumVectorSimilarity = (float)ai.Settings.DefaultMinimumSimilarity;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
-        _index = new FlatVectorIndex();
+        _index = new FlatMemoryVectorIndex();
         _ai = ai;
         newSetState();
         _db = db;
