@@ -18,8 +18,8 @@ public static class SimpleAuthentication {
 #if DEBUG
         return new CookieOptions {
             HttpOnly = TokenCookieHttpOnly,
-            SameSite = SameSiteMode.None,
-            Secure = true,
+            //SameSite = SameSiteMode.None,
+            Secure = false,
             MaxAge = maxAge,
         };
 #else

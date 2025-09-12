@@ -40,16 +40,16 @@ namespace Relatude.DB.Nodes {
             return types;
         }
         static byte[] compileCode(List<(string className, string code)> codeStrings, Datamodel datamodel) {
-# if DEBUG
-            if (true) { 
-                var path="C:\\WAF_Temp\\CodeGen\\";
-                if (!Directory.Exists(path)) Directory.CreateDirectory(path);
-                foreach (var code in codeStrings) {
-                    var filePath = Path.Combine(path, code.className + ".cs");
-                    File.WriteAllText(filePath, code.code);
-                }
-            }
-#endif
+// # if DEBUG
+//             if (true) { 
+//                 var path="C:\\WAF_Temp\\CodeGen\\";
+//                 if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+//                 foreach (var code in codeStrings) {
+//                     var filePath = Path.Combine(path, code.className + ".cs");
+//                     File.WriteAllText(filePath, code.code);
+//                 }
+//             }
+// #endif
             var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp10);
             var syntaxTrees = codeStrings.Select(code => SyntaxFactory.ParseSyntaxTree(code.code, parseOptions, code.className + ".cs"));
             var assemblyPath = Path.GetDirectoryName(typeof(object).Assembly.Location) + string.Empty;
