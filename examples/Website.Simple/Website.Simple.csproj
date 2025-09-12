@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
   </ItemGroup>
