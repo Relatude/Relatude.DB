@@ -77,8 +77,10 @@ public static partial class RelatudeDBServer {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
                 if (c.datastore == null) return 0;
-                var activity = c.datastore.GetActivity();
-                if (activity == null || activity.Category != DataStoreActivityCategory.Opening) return 100;
+                if (c.datastore.State != DataStoreState.Opening) return 100;
+                var status = c.datastore.GetStatus();
+                var activity = status.ActivityTree.FirstOrDefault(a => a.Activity.Category == DataStoreActivityCategory.Opening)?.Activity;
+                if (activity == null) return 100;
                 var progress = activity.PercentageProgress;
                 if (!progress.HasValue) return 0;
                 return progress.Value;

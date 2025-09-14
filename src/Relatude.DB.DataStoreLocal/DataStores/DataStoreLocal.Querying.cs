@@ -16,25 +16,25 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Task<INodeData> GetAsync(Guid id) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return Task.FromResult(_nodes.Get(_guids.GetId(id)));
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public Task<INodeData> GetAsync(int id) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return Task.FromResult(_nodes.Get(id));
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
@@ -44,25 +44,25 @@ public sealed partial class DataStoreLocal : IDataStore {
     public INodeData Get(Guid id) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return _nodes.Get(_guids.GetId(id));
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public INodeData Get(int id) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return _nodes.Get(id);
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
@@ -108,7 +108,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
@@ -119,63 +119,63 @@ public sealed partial class DataStoreLocal : IDataStore {
             nodeData = null;
             return false;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return _nodes.TryGet(id, out nodeData, out _);
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public bool TryGetGuid(int id, out Guid guid) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return _guids.TryGetId(id, out guid);
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public IEnumerable<INodeData> Get(IEnumerable<int> __ids) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             var result = _nodes.Get(__ids.ToArray()); // must return a copy to avoid problems with locks
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
             return result;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public IEnumerable<INodeData> Get(IEnumerable<Guid> ids) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             var result = _nodes.Get(ids.Select(_guids.GetId).ToArray()); // must return a copy to avoid problems with locks
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
             return result;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public bool Exists(Guid id, Guid nodeTypeId) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(id, out var uid)) return false;
@@ -184,19 +184,19 @@ public sealed partial class DataStoreLocal : IDataStore {
             NodeTypeModel actualType = _definition.Datamodel.NodeTypes[actualTypeId];
             return actualType.ThisAndAllInheritedTypes.ContainsKey(nodeTypeId);
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(from, out var fromId) || !_guids.TryGetId(to, out var toId)) return false;
             return _definition.Relations[relationId].Contains(fromId, toId, fromTargetToSource);
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
@@ -204,7 +204,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(from, out var fromId)) return [];
@@ -212,7 +212,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
             return _nodes.Get(relatedIds.ToArray());
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
@@ -220,7 +220,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(from, out var fromId)) {
@@ -236,7 +236,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             node = _nodes.Get(relatedIds.First());
             return true;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
@@ -244,32 +244,32 @@ public sealed partial class DataStoreLocal : IDataStore {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(from, out var fromId)) return 0;
             var relation = _definition.Relations[relProp.RelationId];
             return relation.GetRelated(fromId, relProp.FromTargetToSource).Count;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             if (!_guids.TryGetId(from, out var fromId)) return [];
             return _definition.Relations[relationId].GetRelated(fromId, fromTargetToSource).Enumerate().Select(id => _guids.GetGuid(id)).ToArray();
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
     object query(IExpression expression, string? query, IEnumerable<Parameter> parameters) {
         _lock.EnterReadLock();
-        registerQueryActivity();
+        var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             var sw = Stopwatch.StartNew();
@@ -292,7 +292,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Increment(ref _noQueriesSinceClearCache);
             return result;
         } finally {
-            deRegisterQueryActivity();
+            deRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }

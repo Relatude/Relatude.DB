@@ -13,7 +13,6 @@ public interface IDataStore : IDisposable {
     void LogError(string description, Exception error);
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
-    DataStoreActivity GetActivity();
     DataStoreStatus GetStatus();
     QueryLogger QueryLogger { get; }
 

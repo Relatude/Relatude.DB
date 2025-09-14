@@ -18,7 +18,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
     public Datamodel? Datamodel { get; private set; }
     public DataStoreStatus Status {
         get {
-            if (datastore == null) return new DataStoreStatus(DataStoreState.Closed, DataStoreActivity.None);
+            if (datastore == null) return new DataStoreStatus(DataStoreState.Closed, []);
             return datastore.GetStatus();
         }
     }

@@ -206,12 +206,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         _scheduler.Stop();
         _lock.EnterWriteLock();
         Log("Database opening");
-        updateCurrentActivity(DataStoreActivityCategory.Opening, "Database opening", 0);
+        var activityId = registerActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
         var currentModelHash = getCheckSumForStateFileAndIndexes();
         try {
             if (_state != DataStoreState.Closed) throw new Exception("Store cannot be opened as current state is " + _state);
             _state = DataStoreState.Opening;
-            readState(throwOnBadStateFile, currentModelHash);
+            readState(throwOnBadStateFile, currentModelHash, activityId);
             _state = DataStoreState.Open;
             _startUpTimeMs = sw.ElapsedMilliseconds;
             Log("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
@@ -223,7 +223,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             } else { // delete state file and reload
                 try {
                     Log("Rebuilding index from log");
-                    updateCurrentActivity("Rebuilding index from log", 0);
+                    updateActivity(activityId, "Rebuilding index from log", 0);
                     _io.DeleteIfItExists(_fileKeys.StateFileKey);
                     Dispose();
                     initialize();
@@ -231,7 +231,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         Log("Resetting persisted index store, index store is out of sync");
                         PersistedIndexStore.Reset(_log.FileId, currentModelHash);
                     }
-                    readState(throwOnBadStateFile, currentModelHash);
+                    readState(throwOnBadStateFile, currentModelHash, activityId);
                     _state = DataStoreState.Open;
                     _startUpTimeMs = sw.ElapsedMilliseconds;
                     Log("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
@@ -243,7 +243,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } finally {
             if (_state == DataStoreState.Error) Dispose();
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
         if (_state == DataStoreState.Open) {

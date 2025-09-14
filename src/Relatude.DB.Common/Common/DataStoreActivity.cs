@@ -1,6 +1,7 @@
-﻿namespace Relatude.DB.Common;
+﻿using System.Text.Json.Serialization;
+
+namespace Relatude.DB.Common;
 public enum DataStoreActivityCategory {
-    None,
     Opening,
     Closing,
     Querying,
@@ -10,12 +11,31 @@ public enum DataStoreActivityCategory {
     Rewriting,
     SavingState,
 }
-public class DataStoreActivity(DataStoreActivityCategory category, string? description, int? percentageProgress) {
-    public DataStoreActivityCategory Category { get; } = category;
-    public string? Description { get; } = description;
-    public int? PercentageProgress { get; } = percentageProgress;
+public class DataStoreActivity {
+    private DataStoreActivity(long id, long parentId, DataStoreActivityCategory cat, string? desc, int? prg) {
+        Id = id;
+        ParentId = parentId;
+        Category = cat;
+        Description = desc;
+        PercentageProgress = prg;
+    }
+    public long Id { get; }
+    public long ParentId { get; }
+    public bool IsRoot => ParentId == 0;
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public DataStoreActivityCategory Category { get; }
+    public string? Description { get; set; }
+    public int? PercentageProgress { get; set; }
     public override string ToString() {
         return $"{Category} - {Description} - {PercentageProgress}";
     }
-    public static DataStoreActivity None => new(DataStoreActivityCategory.None, null, null);
+    public static DataStoreActivity Create(long activityId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
+        return new(activityId, 0, category, description, percentageProgress);
+    }
+    public static DataStoreActivity CreateChild(long activityId, long parentActivityId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
+        return new(activityId, parentActivityId, category, description, percentageProgress);
+    }
+    public DataStoreActivity Copy() {
+        return new DataStoreActivity(Id, ParentId, Category, Description, PercentageProgress);
+    }
 }

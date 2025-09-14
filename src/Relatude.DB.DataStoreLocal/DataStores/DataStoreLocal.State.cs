@@ -42,7 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceLastStateSnaphot = 0;
         if (PersistedIndexStore != null) PersistedIndexStore.Commit(_log.LastTimestamp);
     }
-    void readState(bool throwOnBadStateFile, Guid currentModelHash) {
+    void readState(bool throwOnBadStateFile, Guid currentModelHash, long activityId) {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
 
@@ -83,7 +83,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else { // read state, before reading rest from log file
             try {
                 Log("Reading state file");
-                updateCurrentActivity("Reading state file", 0);
+                updateActivity(activityId, "Reading state file", 0);
                 using var stream = _io.OpenRead(_fileKeys.StateFileKey, 0);
                 Log("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
@@ -103,16 +103,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
 
                 if (_log.FileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
-                updateCurrentActivity("Reading id registry", 5);
+                updateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
-                _nodes.ReadState(stream, (d, p) => updateCurrentActivity(d, (int)(5 + p! * 0.05))); // 5-10%
-                _relations.ReadState(stream, (d, p) => updateCurrentActivity(d, (int)(10 + p! * 0.05))); // 10-15%
-                _index.ReadState(stream, out var anyIndexesMissing, (d, p) => updateCurrentActivity(d, (int)(15 + p! * 0.85))); // 15-100%
+                _nodes.ReadState(stream, (d, p) => updateActivity(activityId, d, (int)(5 + p! * 0.05))); // 5-10%
+                _relations.ReadState(stream, (d, p) => updateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
+                _index.ReadState(stream, out var anyIndexesMissing, (d, p) => updateActivity(activityId, d, (int)(15 + p! * 0.85))); // 15-100%
                 if (anyIndexesMissing) throw new Exception("Some indexes are missing. "); // causes reload with no state file ( and rebuild of indexes )
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
                 Log("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
-                updateCurrentActivity("State file read", 100);
+                updateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
                 var errMsg = "Failed loading index states. " + err.Message; // try to continue with loading from log file
                 throw new IndexReadException(errMsg, err);
@@ -126,7 +126,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var readingFrom = lastTimestamp > 0 ? "UTC " + new DateTime(lastTimestamp, DateTimeKind.Utc) : " the beginning.";
         var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / _log.FileSize;
         Log("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
-        updateCurrentActivity("Reading log file", 0);
+        updateActivity(activityId, "Reading log file", 0);
         sw.Restart();
         var lastProgress = 0;
         var actionCountInTransaction = 0;
@@ -160,7 +160,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             + " - " + actionCount.To1000N() + " actions";
                         Log(desc);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
-                        updateCurrentActivity(desc.Trim(), progressBar);
+                        updateActivity(activityId, desc.Trim(), progressBar);
                         lastBytesRead = readBytes;
                     }
                     _guids.RegisterAction(a);

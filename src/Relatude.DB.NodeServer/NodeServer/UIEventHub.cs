@@ -1,8 +1,7 @@
 ﻿
-using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Mvc.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace Relatude.DB.NodeServer;
 public class EventData(string name, object data, TimeSpan? maxAge = null) {

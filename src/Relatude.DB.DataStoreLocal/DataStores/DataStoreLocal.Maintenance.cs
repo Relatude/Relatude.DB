@@ -20,7 +20,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     internal void FlushToDisk(out int transactionCount, out int actionCount, out long bytesWritten) {
         _lock.EnterWriteLock();
-        updateCurrentActivity(DataStoreActivityCategory.Flushing, "Flushing to disk", null);
+        var activityId = registerActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
             _log.FlushToDisk(out transactionCount, out actionCount, out bytesWritten);
@@ -28,13 +28,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }
     public void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null) {
         _lock.EnterWriteLock();
-        updateCurrentActivity(DataStoreActivityCategory.Copying, "Copying log file", null);
+        var activityId = registerActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try {
             _log.FlushToDisk();
             _log.Copy(newLogFileKey, destinationIO);
@@ -42,7 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Failed to copy log file. ", err);
         } finally {
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }
@@ -55,7 +55,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
+    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) { 
+        var activityId = registerActvity(DataStoreActivityCategory.Rewriting, "Starting rewrite of log file", 0);
+        try {
+            rewriteStore(activityId, hotSwapToNewFile, newLogFileKey, destinationIO);
+        } finally {
+            deRegisterActivity(activityId);
+        }
+    }
+    void rewriteStore(long activityId, bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
         // written to minimize locking while rewriting store
         validateDatabaseState();
         if (destinationIO == null) destinationIO = _io;
@@ -73,23 +81,21 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
-            updateRewriteActivity("Starting rewrite of log file", 0);
             _log.FlushToDisk(); // maing sure every segment exists in _nodes ( through call back )
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
-            updateRewriteActivity("Starting rewrite of log file", 5);
+            updateActivity(activityId, "Starting rewrite of log file", 5);
             _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, _nodes.Snapshot(), _relations.Snapshot(), threadSafeReadSegments, updateNodeDataPositionInLogFile);
-            updateRewriteActivity("Starting rewrite of log file", 10);
+            updateActivity(activityId, "Starting rewrite of log file", 10);
         } catch (Exception err) {
             _state = DataStoreState.Error;
-            endRewriteActivity();
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
             _lock.ExitWriteLock();
         }
         try {
             // no block, allowing simulatenous writes or reads while log is being rewritten
-            _rewriter.Step1_RewriteLog_NoLockRequired(updateRewriteActivity); // (10%-80%)
+            _rewriter.Step1_RewriteLog_NoLockRequired((string desc, int prg) => updateActivity(activityId, desc, prg)); // (10%-80%)
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
@@ -97,7 +103,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _io.DeleteIfItExists(_fileKeys.StateFileKey);
         try {
             _lock.EnterWriteLock();
-            updateRewriteActivity("Finalizing rewrite", 90);  // (90%-100%)
+            updateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
             if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
             try {
                 _rewriter.Step2_HotSwap_RequiresWriteLock(_log, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
@@ -107,9 +113,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
                 if (hotSwapToNewFile) saveState(); // needed to refresh state file with new log file
                 //if (hotSwapToNewFile) _io.DeleteIfItExists(_fileKeys.StateFileKey);
-
             } finally {
-                endRewriteActivity();
                 _lock.ExitWriteLock();
             }
             LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
@@ -121,7 +125,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void TruncateIndexes() {
         _lock.EnterWriteLock();
-        updateCurrentActivity(DataStoreActivityCategory.Copying, "Truncate indexes", null);
+        var activityId = registerActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
         try {
             validateDatabaseState();
             _log.FlushToDisk();
@@ -130,13 +134,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Failed truncate indexes. ", err);
         } finally {
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }
     public void DeleteOldLogs() {
         _lock.EnterWriteLock();
-        updateCurrentActivity(DataStoreActivityCategory.Copying, "Deleting old logs", null);
+        var activityId = registerActvity(DataStoreActivityCategory.Copying, "Deleting old logs");
         try {
             validateDatabaseState();
             foreach (var f in _fileKeys.Log_GetAllFileKeys(_io)) {
@@ -145,13 +149,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         } catch (Exception err) {
             throw new Exception("Failed to delete old logs. ", err);
         } finally {
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }
     public void SaveIndexStates() {
         _lock.EnterWriteLock();
-        updateCurrentActivity(DataStoreActivityCategory.SavingState, "Saving index states", null);
+        var activityId = registerActvity(DataStoreActivityCategory.SavingState, "Saving index states");
         try {
             validateDatabaseState();
             if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0) {
@@ -162,7 +166,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Failed to save index states. ", err);
         } finally {
-            endCurrentActivity();
+            deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }

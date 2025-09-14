@@ -10,7 +10,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Add(ref _noNodeGetsSinceClearCache, nodes.Length);
             return nodes.Select(n => (NodeId: n.__Id, Text: UtilsText.GetTextExtract(this, n))).ToArray();
         } finally {
-            deRegisterQueryActivity();
             _lock.ExitReadLock();
         }
     }
@@ -23,7 +22,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Add(ref _noNodeGetsSinceClearCache, nodes.Length);
             return nodes.Select(n => (NodeId: n.__Id, Text: UtilsText.GetSemanticExtract(this, n))).ToArray();
         } finally {
-            deRegisterQueryActivity();
             _lock.ExitReadLock();
         }
     }
