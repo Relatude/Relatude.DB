@@ -1,5 +1,4 @@
 ﻿using System.Text.Json.Serialization;
-
 namespace Relatude.DB.Common;
 public enum DataStoreActivityCategory {
     Opening,

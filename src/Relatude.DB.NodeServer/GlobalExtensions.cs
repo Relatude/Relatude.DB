@@ -1,11 +1,8 @@
-﻿using Relatude.DB.Nodes;
+﻿using System.Text.Json;
+using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
-using System.Text.Json;
 
 // NO NAMASPACE ON PURPOSE
-public class RelatudeDBContext {
-
-}
 public static class GlobalExtensions {
     static JsonSerializerOptions? _defaultJsonHttpOptions;
     public static JsonSerializerOptions DefaultJsonHttpOptions {
