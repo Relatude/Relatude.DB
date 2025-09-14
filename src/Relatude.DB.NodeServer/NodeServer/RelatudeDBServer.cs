@@ -6,37 +6,42 @@ using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
 using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
-public static partial class RelatudeDBServer {
-    readonly static List<Tuple<DateTime, string>> _serverLog = [];
-    static void startUpLog(string msg) { lock (_serverLog) { _serverLog.Add(new(DateTime.UtcNow, msg)); } }
-    static Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
-    static void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
-    static string _settingsFile = "relatude.db.json";
-    static string _rootDataFolderPath = string.Empty;
-    static IIOProvider? _tempIO;
-    static ISettingsLoader? _settingsLoader;
-    static Dictionary<Guid, IIOProvider> _ios = [];
-    static Dictionary<string, IAIProvider> _ais = [];
+public partial class RelatudeDBServer {
+    public RelatudeDBServer(string? urlPath) {
+        if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
+        if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
+        if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
+    }
+    readonly List<Tuple<DateTime, string>> _serverLog = [];
+    void startUpLog(string msg) { lock (_serverLog) { _serverLog.Add(new(DateTime.UtcNow, msg)); } }
+    Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
+    void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
+    string _settingsFile = "relatude.db.json";
+    string _rootDataFolderPath = string.Empty;
+    IIOProvider? _tempIO;
+    ISettingsLoader? _settingsLoader;
+    Dictionary<Guid, IIOProvider> _ios = [];
+    Dictionary<string, IAIProvider> _ais = [];
 
     public static event EventHandler<NodeStore>? OnStoreInit;
     public static event EventHandler<NodeStore>? OnStoreOpen;
     public static event EventHandler<NodeStore>? OnStoreDispose;
 
-    internal static string ApiUrlRoot { get; private set; } = string.Empty;
-    internal static string ApiUrlPublic => ApiUrlRoot + "/auth/";
-    static RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
-    public static RelatudeDBServerSettings Settings { get { return _serverSettings; } }
-    static Dictionary<Guid, NodeStoreContainer> _containers = [];
-    static NodeStoreContainer[] _containersToAutoOpen = [];
-    static NodeStoreContainer? _defaultContainer = null;
-    public static bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
-    public static NodeStoreContainer? DefaultContainer => _defaultContainer;
-    public static NodeStore Default => GetDefaultStoreAndWaitIfOpening();
-    public static NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 120) {
+    internal string ApiUrlRoot { get; private set; } = string.Empty;
+    internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
+    RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
+    public RelatudeDBServerSettings Settings { get { return _serverSettings; } }
+    Dictionary<Guid, NodeStoreContainer> _containers = [];
+    NodeStoreContainer[] _containersToAutoOpen = [];
+    NodeStoreContainer? _defaultContainer = null;
+    public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
+    public NodeStoreContainer? DefaultContainer => _defaultContainer;
+    public NodeStore Default => GetDefaultStoreAndWaitIfOpening();
+    public NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 120) {
         if (_defaultContainer == null) throw new Exception("No default store container found or initialized. ");
         return GetStoreAndWaitIfOpening(_defaultContainer.Settings.Id, timeoutSec);
     }
-    public static NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 12000) {
+    public NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 12000) {
         if (!_containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         var sw = Stopwatch.StartNew();
         if (container.Settings.AutoOpen) { // if auto open is enabled, we have to wait for first initialization, otherwise .datastore will be null
@@ -57,23 +62,8 @@ public static partial class RelatudeDBServer {
         }
     }
 
-    internal static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = "/relatude.db",
-        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
-        return UseWAFDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsIO).Result;
-    }
-    internal static async Task<IEndpointRouteBuilder> UseWAFDBAsync(WebApplication app, string? urlPath = "/relatude.db",
-        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
-        app.Use(progressResponse);
-        app.Use(SimpleAuthentication.Authorize);
-        if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
-        if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
-        if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
-        await startServerAsync(app, dataFolderPath, tempFolderPath, settingsIO);
-        mapAPI(app);
-        return app;
-    }
 
-    static int getStartingProgressEstimate() {
+    int getStartingProgressEstimate() {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
                 if (c.datastore == null) return 0;
@@ -91,7 +81,7 @@ public static partial class RelatudeDBServer {
             return 0;
         }
     }
-    static async Task progressResponse(HttpContext ctx, Func<Task> next) {
+    public async Task ProgressResponse(HttpContext ctx, Func<Task> next) {
         if (anyRemaingToAutoOpen && ctx.Request.Path == "/") {
             ctx.Response.ContentType = "text/html";
             var html = getResource("ClientStart.start.html");
@@ -100,7 +90,7 @@ public static partial class RelatudeDBServer {
             await next();
         }
     }
-    static async Task startServerAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
+    public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
         _serverLog.Clear();
         startUpLog("Relatude.DB Server started");
         var environmentRoot = app.Environment.ContentRootPath;
@@ -122,7 +112,7 @@ public static partial class RelatudeDBServer {
         _serverSettings = await _settingsLoader.ReadAsync();
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
-                var container = new NodeStoreContainer(containerSettings);
+                var container = new NodeStoreContainer(containerSettings, this);
                 _containers.Add(containerSettings.Id, container);
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
             }
@@ -137,11 +127,11 @@ public static partial class RelatudeDBServer {
             }
         }
     }
-    static Dictionary<Guid, List<ITaskRunner>> _runnersByContainer = [];
-    public static void RegisterTaskRunner(ITaskRunner runner) {
+    Dictionary<Guid, List<ITaskRunner>> _runnersByContainer = [];
+    public void RegisterTaskRunner(ITaskRunner runner) {
         RegisterTaskRunner(Guid.Empty, runner); // meaning for all containers
     }
-    public static void RegisterTaskRunner(Guid containerId, ITaskRunner runner) {
+    public void RegisterTaskRunner(Guid containerId, ITaskRunner runner) {
         lock (_runnersByContainer) {
             if (!_runnersByContainer.TryGetValue(containerId, out var runners)) {
                 runners = [];
@@ -150,7 +140,7 @@ public static partial class RelatudeDBServer {
             runners.Add(runner);
         }
     }
-    internal static IEnumerable<ITaskRunner> GetRegisteredTaskRunners(NodeStoreContainer container) {
+    internal IEnumerable<ITaskRunner> GetRegisteredTaskRunners(NodeStoreContainer container) {
         lock (_runnersByContainer) {
             List<ITaskRunner> values = [];
             if (_runnersByContainer.TryGetValue(container.Settings.Id, out var runners)) values.AddRange(runners);
@@ -160,8 +150,8 @@ public static partial class RelatudeDBServer {
     }
     static int _remaingToAutoOpenCount = 0;
     static bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
-    static void openContainerNoException(NodeStoreContainer container) => openContainer(container, false);
-    static void openContainer(NodeStoreContainer container, bool throwException) {
+    void openContainerNoException(NodeStoreContainer container) => openContainer(container, false);
+    void openContainer(NodeStoreContainer container, bool throwException) {
         try {
             container.Open(true);
         } catch (Exception err) {
@@ -172,24 +162,24 @@ public static partial class RelatudeDBServer {
             Interlocked.Decrement(ref _remaingToAutoOpenCount);
         }
     }
-    static void updateWAFServerSettingsFile() {
+    void updateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = _containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
         if (_containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = _containers[_serverSettings.DefaultStoreId];
     }
-    static void ensurePrefix(Guid storeId, ref string fileKey) {
+    void ensurePrefix(Guid storeId, ref string fileKey) {
         var filePrefix = _containers[storeId].Settings?.LocalSettings?.FilePrefix;
         if (string.IsNullOrEmpty(filePrefix)) return;
         if (!fileKey.StartsWith('.')) filePrefix += ".";
         if (fileKey.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
         fileKey = filePrefix + fileKey;
     }
-    static NodeStore GetStore(Guid storeId) {
+    NodeStore GetStore(Guid storeId) {
         if (!_containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         if (container.Store == null) throw new Exception("Store not initialized. ");
         return container.Store;
     }
-    internal static void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+    internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
         try {
             OnStoreOpen?.Invoke(nodeStoreContainer, store);
@@ -197,7 +187,7 @@ public static partial class RelatudeDBServer {
             startUpLog("Error occurred during OnStoreOpen event: " + err.Message);
         }
     }
-    internal static void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+    internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
         try {
             OnStoreInit?.Invoke(nodeStoreContainer, store);
@@ -205,7 +195,7 @@ public static partial class RelatudeDBServer {
             startUpLog("Error occurred during OnStoreInit event: " + err.Message);
         }
     }
-    internal static void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+    internal void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
         try {
             OnStoreDispose?.Invoke(nodeStoreContainer, store);
@@ -214,7 +204,7 @@ public static partial class RelatudeDBServer {
         }
     }
 
-    public static bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
+    public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
         lock (_ios) {
             if (_ios.TryGetValue(ioId, out io)) return true;
             var settings = _serverSettings.ContainerSettings?.SelectMany(c => c.IOSettings!)?.FirstOrDefault(s => s.Id == ioId);
@@ -229,7 +219,7 @@ public static partial class RelatudeDBServer {
             return _ios.TryGetValue(ioId, out io);
         }
     }
-    public static bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, Action<string> log) {
+    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, Action<string> log) {
         lock (_ais) {
             if (_ais.TryGetValue(id + filePrefix, out ai)) return true;
             var settings = _serverSettings.AISettings?.FirstOrDefault(s => s.Id == id);
@@ -252,11 +242,11 @@ public static partial class RelatudeDBServer {
             return _ais.TryGetValue(id + filePrefix, out ai);
         }
     }
-    public static IIOProvider GetIO(Guid id) {
+    public IIOProvider GetIO(Guid id) {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;
     }
-    public static IAIProvider GetAI(Guid id, string? filePrefix, Action<string> log) {
+    public IAIProvider GetAI(Guid id, string? filePrefix, Action<string> log) {
         if (!TryGetAI(id, filePrefix, out var ai, log)) throw new Exception("AIProvider not found");
         return ai;
     }

@@ -15,15 +15,15 @@ using Relatude.DB.NodeServer.Models;
 using Relatude.DB.NodeServer.EventHub;
 using Microsoft.AspNetCore.Mvc;
 namespace Relatude.DB.NodeServer;
-public static partial class RelatudeDBServer {
-    static NodeStoreContainer container(Guid storeId) {
+public partial class RelatudeDBServer {
+    NodeStoreContainer container(Guid storeId) {
         if (_containers.TryGetValue(storeId, out var container)) return container;
         throw new Exception("Container not found.");
     }
-    static NodeStore db(Guid storeId) {
+    NodeStore db(Guid storeId) {
         return container(storeId).Store ?? throw new Exception("Store not initialized. ");
     }
-    static void mapAPI(WebApplication app) {
+    public void MapAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
         mapRoot(app, action => ApiUrlPublic + action + "/");  // static files, index.html, css, js, favicon.ico for admin UI
@@ -55,7 +55,7 @@ public static partial class RelatudeDBServer {
     static ulong uiHash = getHash("ClientUI.index.5246294a.css") ^ getHash("ClientUI.index.30b17246.js");
 
     // PUBLIC API and with no authentication (controlled by urlpath in middleware):
-    static void mapRoot(WebApplication app, Func<string, string> path) {
+    void mapRoot(WebApplication app, Func<string, string> path) {
         // a unique hash to ensure a new url for each new version of the client
         // but also to make sure unchanged ui is cached by the browser
         // not a secret, just a unique string so string replace works
@@ -103,12 +103,12 @@ public static partial class RelatudeDBServer {
         public string Password { get; set; } = "";
         public bool Remember { get; set; } = false;
     }
-    static void mapAuth(WebApplication app, Func<string, string> path) {
+    void mapAuth(WebApplication app, Func<string, string> path) {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
         app.MapPost(path("login"), (HttpContext context, Credentials credentials) => {
             if (SimpleAuthentication.CredentialsAreValid(credentials.UserName, credentials.Password)) {
-                SimpleAuthentication.LogIn(context, credentials.Remember);
+                SimpleAuthentication.LogIn(context, credentials.Remember, this);
                 return new { Success = true };
             }
             return new { Success = false };
@@ -116,20 +116,20 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("have-users"), (HttpContext context) => {
             return !string.IsNullOrEmpty(Settings.MasterUserName) && !string.IsNullOrEmpty(Settings.MasterPassword);
         });
-        app.MapPost(path("is-logged-in"), (HttpContext context) => SimpleAuthentication.IsLoggedIn(context));
+        app.MapPost(path("is-logged-in"), (HttpContext context) => SimpleAuthentication.IsLoggedIn(context, this));
         app.MapPost(path("version"), () => { return new { Version = "1.0.0" }; });
-        app.MapPost(path("logout"), (HttpContext context) => SimpleAuthentication.LogOut(context));
+        app.MapPost(path("logout"), (HttpContext context) => SimpleAuthentication.LogOut(context, this));
     }
 
     // PRIVATE API, requires authentication (controlled by path in middleware):
-    static void mapStatus(WebApplication app, Func<string, string> path) {
+    void mapStatus(WebApplication app, Func<string, string> path) {
         app.MapPost(path("status-all"), () => _containers.Values.Select(c => new { c.Settings.Id, c.Status }));
         app.MapGet(path("events"), ServerEventHub.Subscribe);
         app.MapPost(path("change-subscription"), (Guid subscriptionId, string[] events) => ServerEventHub.ChangeSubscription(subscriptionId, events));
         app.MapPost(path("get-all-subscriptions"), ServerEventHub.GetAllSubscriptions);
         app.MapPost(path("get-subscription-count"), ServerEventHub.SubscriptionCount);
     }
-    static void mapSettings(WebApplication app, Func<string, string> path) {
+    void mapSettings(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);
         app.MapPost(path("set-settings"), (Guid storeId, [FromBody] NodeStoreContainerSettings settings) => {
             container(storeId).ApplyNewSettings(settings, true);
@@ -139,7 +139,7 @@ public static partial class RelatudeDBServer {
             updateWAFServerSettingsFile();
         });
     }
-    static void mapMaintenance(WebApplication app, Func<string, string> path) {
+    void mapMaintenance(WebApplication app, Func<string, string> path) {
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open(true));
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
@@ -278,7 +278,7 @@ public static partial class RelatudeDBServer {
             }
         });
     }
-    static void mapServer(WebApplication app, Func<string, string> path) {
+    void mapServer(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-store-containers"), () => {
             return _containers.Values.Select(c => new {
                 c.Settings.Id,
@@ -306,7 +306,7 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("create-store"), () => {
             var id = Guid.NewGuid();
             var containerSettings = new NodeStoreContainerSettings() { Id = id, Name = "New Store" };
-            var container = new NodeStoreContainer(containerSettings);
+            var container = new NodeStoreContainer(containerSettings, this);
             _containers.Add(id, container);
             updateWAFServerSettingsFile();
             return containerSettings;
@@ -319,7 +319,7 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("get-server-log"), () => getStartUpLog().Select(e => { return new { Timestamp = e.Item1, Description = e.Item2 }; }).ToArray());
         app.MapPost(path("clear-server-log"), clearStartUpLog);
     }
-    static void mapData(WebApplication app, Func<string, string> path) {
+    void mapData(WebApplication app, Func<string, string> path) {
         app.MapPost(path("queue-re-index-all"), (Guid storeId) => {
             var allIds = db(storeId).Query<object>().SelectId().Execute();
             var transaction = db(storeId).CreateTransaction();
@@ -351,13 +351,13 @@ public static partial class RelatudeDBServer {
             return transaction.Count;
         });
     }
-    static void mapDatamodel(WebApplication app, Func<string, string> path) {
+    void mapDatamodel(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-code"), (Guid storeId, bool addAttributes) => CodeGeneratorForCSharpModels.GenerateCSharpModelCode(db(storeId).Datastore.Datamodel, addAttributes));
         //app.MapPost(path("get-model"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);
         app.MapPost(path("get-model"), (Guid storeId) => db(storeId).Datastore.Datamodel);
         app.MapPost(path("server"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);
     }
-    static void mapLog(WebApplication app, Func<string, string> path) {
+    void mapLog(WebApplication app, Func<string, string> path) {
         app.MapPost(path("clear-container-log"), (Guid storeId) => container(storeId).ClearContainerLog());
         app.MapPost(path("get-container-log"), (Guid storeId, int skip, int take) => container(storeId).ContainerLog.Get().Reverse().Skip(skip).Take(take));
         app.MapPost(path("is-enabled"), (Guid storeId) => db(storeId).Datastore.QueryLogger.Enabled);
@@ -379,7 +379,7 @@ public static partial class RelatudeDBServer {
         app.MapPost(path("analyse-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseActionCount(intervalType, from, to));
         app.MapPost(path("analyse-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseActionOperations(intervalType, from, to));
     }
-    static void mapTasks(WebApplication app, Func<string, string> path) {
+    void mapTasks(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-batch-count-queued"), (Guid storeId) => db(storeId).Datastore.TaskQueue.CountBatch(Tasks.BatchState.Pending));
         app.MapPost(path("get-batch-count-per-state"), (Guid storeId) => db(storeId).Datastore.TaskQueue.BatchCountsPerState());
         app.MapPost(path("get-batch-info"), (Guid storeId, Tasks.BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize) => {
@@ -392,7 +392,7 @@ public static partial class RelatudeDBServer {
             db(storeId).Datastore.TaskQueue.DeleteById(batchIds);
         });
     }
-    static void mapDemo(WebApplication app, Func<string, string> path) {
+    void mapDemo(WebApplication app, Func<string, string> path) {
         app.MapPost(path("populate"), (Guid storeId, int count) => {
             var store = db(storeId);
             var sw = new Stopwatch();

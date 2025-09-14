@@ -1,6 +1,7 @@
-﻿using System.Text.Json;
+﻿using Microsoft.AspNetCore.Builder;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
+using System.Text.Json;
 
 // NO NAMASPACE ON PURPOSE
 public static class GlobalExtensions {
@@ -21,15 +22,23 @@ public static class GlobalExtensions {
     }
     public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
         builder.Services.ConfigureHttpJsonOptions(o => ConfigureDefaultJsonHttpOptions(o.SerializerOptions));
-        builder.Services.AddTransient((service) => RelatudeDBServer.Default);
+        builder.Services.AddTransient(service => RelatudeDBServerContext.Current); // Server instance
+        builder.Services.AddTransient(service => RelatudeDBServerContext.Current.Default); // Default DB of server
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = "/relatude.db",
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
-        return RelatudeDBServer.UseRelatudeDB(app, urlPath, dataFolderPath, tempFolderPath, settingsIO);
+        return UseRelatudeDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsIO).Result;
     }
-    public static Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = "/relatude.db",
+    public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = "/relatude.db",
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
-        return RelatudeDBServer.UseWAFDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsIO);
+        var server = new RelatudeDBServer(urlPath);
+        RelatudeDBServerContext.Initialize(server);
+        var authentication = new SimpleAuthentication(server);
+        app.Use(authentication.Authorize);
+        app.Use(server.ProgressResponse);
+        await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsIO);
+        server.MapAPI(app);
+        return app;
     }
 }

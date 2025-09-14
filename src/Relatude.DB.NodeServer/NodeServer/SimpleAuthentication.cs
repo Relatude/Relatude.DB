@@ -1,20 +1,20 @@
 ﻿using System.Net;
-using Relatude.DB.NodeServer;
+
 
 namespace Relatude.DB.NodeServer;
-public static class SimpleAuthentication {
+public class SimpleAuthentication(RelatudeDBServer server) {
+    
+    public bool TokenLockedToIP { get; set; } = server.Settings.TokenLockedToIP;
+    public bool TokenCookieHttpOnly { get; set; } = true;
+    public bool TokenCookieSecure { get; set; } = server.Settings.TokenCookieSecure;
+    public bool TokenCookieSameSite { get; set; } = server.Settings.TokenCookieSameSite;
+    public double TokenCookieMaxAgeInSec { get; set; } = server.Settings.TokenCookieMaxAgeInSec;
 
-    public static bool TokenLockedToIP { get; set; } = RelatudeDBServer.Settings.TokenLockedToIP;
-    public static bool TokenCookieHttpOnly { get; set; } = true;
-    public static bool TokenCookieSecure { get; set; } = RelatudeDBServer.Settings.TokenCookieSecure;
-    public static bool TokenCookieSameSite { get; set; } = RelatudeDBServer.Settings.TokenCookieSameSite;
-    public static double TokenCookieMaxAgeInSec { get; set; } = RelatudeDBServer.Settings.TokenCookieMaxAgeInSec;
+    public string TokenCookieName => server.Settings.TokenCookieName == null ? "RelatudeDBToken" : server.Settings.TokenCookieName;
+    public string TokenEncryptionSalt => server.Settings.TokenEncryptionSalt == null ? SecureGuid.New().ToString() : server.Settings.TokenEncryptionSalt;
+    public string TokenEncryptionSecret => server.Settings.TokenEncryptionSecret == null ? SecureGuid.New().ToString() : server.Settings.TokenEncryptionSecret;
 
-    public static string TokenCookieName => RelatudeDBServer.Settings.TokenCookieName == null ? "RelatudeDBToken" : RelatudeDBServer.Settings.TokenCookieName;
-    public static string TokenEncryptionSalt => RelatudeDBServer.Settings.TokenEncryptionSalt == null ? SecureGuid.New().ToString() : RelatudeDBServer.Settings.TokenEncryptionSalt;
-    public static string TokenEncryptionSecret => RelatudeDBServer.Settings.TokenEncryptionSecret == null ? SecureGuid.New().ToString() : RelatudeDBServer.Settings.TokenEncryptionSecret;
-
-    static CookieOptions getCookieOptions(TimeSpan? maxAge) {
+    CookieOptions getCookieOptions(TimeSpan? maxAge) {
 #if DEBUG
         return new CookieOptions {
             HttpOnly = TokenCookieHttpOnly,
@@ -31,47 +31,47 @@ public static class SimpleAuthentication {
         };
 #endif
     }
-    static bool authenticationIsValid(HttpContext context) {
+    bool authenticationIsValid(HttpContext context) {
         if (TokenCookieName == null) return false;
         var requestIP = context.Connection.RemoteIpAddress + "";
         var token = context.Request.Cookies[TokenCookieName];
         if (token == null) return false;
-        if (TokenUtil.IsTokenValid(token, requestIP, out var userId, (userId) => RelatudeDBServer.Settings.UserTokenId)) {
-            return userId == RelatudeDBServer.Settings.MasterUserName;
+        if (TokenUtil.IsTokenValid(token, requestIP, out var userId, (userId) => server.Settings.UserTokenId)) {
+            return userId == server.Settings.MasterUserName;
         }
         return false;
     }
     static Random rnd = new();
-    public static bool CredentialsAreValid(string username, string password) {
+    public bool CredentialsAreValid(string username, string password) {
         Task.Delay(rnd.Next(50, 300)).Wait(); // random time delay to slow down brute force attacks:
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) return false;
-        return username.ToLower() == RelatudeDBServer.Settings.MasterUserName && password == RelatudeDBServer.Settings.MasterPassword;
+        return username.ToLower() == server.Settings.MasterUserName && password == server.Settings.MasterPassword;
     }
-    public static bool IsLoggedIn(HttpContext context) {
+    public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);
     }
-    public static void LogIn(HttpContext context, bool remember) {
+    public void LogIn(HttpContext context, bool remember) {
         var requestIP = context.Connection.RemoteIpAddress + "";
-        var token = TokenUtil.CreateToken(RelatudeDBServer.Settings.MasterUserName!, RelatudeDBServer.Settings.UserTokenId, requestIP);
+        var token = TokenUtil.CreateToken(server.Settings.MasterUserName!, server.Settings.UserTokenId, requestIP);
         TimeSpan? maxAge = remember ? TimeSpan.FromSeconds(TokenCookieMaxAgeInSec) : null;
         context.Response.Cookies.Append(TokenCookieName, token, getCookieOptions(maxAge));
     }
-    public static void LogOut(HttpContext context) {
+    public void LogOut(HttpContext context) {
         context.Response.Cookies.Delete(TokenCookieName, getCookieOptions(null));
     }
-    public static Task Authorize(HttpContext context, Func<Task> next) {
+    public Task Authorize(HttpContext context, Func<Task> next) {
         if (requireAuthentication(context) && !authenticationIsValid(context)) {
             context.Response.StatusCode = (int)HttpStatusCode.Unauthorized; //  401
             return Task.CompletedTask;
         }
         return next();
     }
-    static bool requireAuthentication(HttpContext context) {
-        if (requestIsUnderUrl(context, RelatudeDBServer.ApiUrlRoot)) {
-            if (requestIsUnderUrl(context, RelatudeDBServer.ApiUrlPublic)) {
+    bool requireAuthentication(HttpContext context) {
+        if (requestIsUnderUrl(context, server.ApiUrlRoot)) {
+            if (requestIsUnderUrl(context, server.ApiUrlPublic)) {
                 //Console.WriteLine("Public, url: " + context.Request.Path.Value);
                 return false; // except for the login page:
-            } else if (requestIsOnUrl(context, RelatudeDBServer.ApiUrlRoot)) {
+            } else if (requestIsOnUrl(context, server.ApiUrlRoot)) {
                 //Console.WriteLine("Root , url: " + context.Request.Path.Value);
                 return false; // root, no authentication required ( index html, css, js )
             } else {

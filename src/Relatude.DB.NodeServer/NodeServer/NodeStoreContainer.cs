@@ -11,7 +11,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.DataStores.Files;
 
 namespace Relatude.DB.NodeServer;
-public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposable {
+public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
     internal IDataStore? datastore { get; set; }
     public NodeStore? Store { get; private set; }
@@ -43,20 +43,20 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
             CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel(ignoreErrors);
-            IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? RelatudeDBServer.GetIO(settings.IoDatabase.Value) : null;
+            IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
-                    if (!RelatudeDBServer.TryGetIO(ioFilesId, out var ioFiles)) continue;
+                    if (!server.TryGetIO(ioFilesId, out var ioFiles)) continue;
                     var fileKey = new FileKeyUtility(settings.LocalSettings.FilePrefix).FileStore_GetLatestFileKey(ioFiles);
                     if (fs == null) fs = [new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
                     else fs = [.. fs, new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
                 }
             }
-            IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? RelatudeDBServer.GetIO(settings.IoBackup.Value) : null;
-            IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? RelatudeDBServer.GetIO(settings.IoLog.Value) : null;
+            IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? server.GetIO(settings.IoBackup.Value) : null;
+            IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
             IAIProvider? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
-                RelatudeDBServer.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, log) : null;
+                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, log) : null;
             Func<IPersistedIndexStore>? createIndexStore = null;
 
             if (settings.LocalSettings.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory) {
@@ -104,10 +104,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
                     createIndexStore,
                     queueStore);
             Interlocked.Increment(ref _initializationCounter);
-            var runners = RelatudeDBServer.GetRegisteredTaskRunners(this);
+            var runners = server.GetRegisteredTaskRunners(this);
             foreach (var runner in runners) datastore.RegisterRunner(runner);
             Store = new NodeStore(datastore);
-            RelatudeDBServer.RaiseEventStoreInit(this, Store);
+            server.RaiseEventStoreInit(this, Store);
             try {
                 datastore.Open(false, false);
             } catch {
@@ -116,7 +116,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
                 throw;
             }
             datastore.Log($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
-            RelatudeDBServer.RaiseEventStoreOpen(this, Store);
+            server.RaiseEventStoreOpen(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
             throw;
@@ -126,7 +126,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
         datastore = null;
         if (Store != null) {
             Store.Dispose();
-            RelatudeDBServer.RaiseEventStoreDispose(this, Store);
+            server.RaiseEventStoreDispose(this, Store);
             Store = null;
             Datamodel = null;
         }
@@ -170,7 +170,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings) : IDisposab
                 throw new NotImplementedException();
             case DatamodelSourceType.JsonFile: {
                     if (source.FileIO == null) throw new Exception("FileIO is required for JsonFile DatamodelSource");
-                    if (!RelatudeDBServer.TryGetIO(source.FileIO.Value, out var io)) throw new Exception("FileIO not found for JsonFile DatamodelSource");
+                    if (!server.TryGetIO(source.FileIO.Value, out var io)) throw new Exception("FileIO not found for JsonFile DatamodelSource");
                     var json = io.ReadAllTextUTF8(source.Reference!);
                     var dm2 = System.Text.Json.JsonSerializer.Deserialize<Datamodel>(json);
                     if (dm2 == null) throw new Exception("Failed to deserialize Datamodel from JsonFile");
