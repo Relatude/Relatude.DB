@@ -14,6 +14,7 @@ internal class Log : IDisposable {
     readonly IIOProvider _io;
     readonly LogTextStream _logTextStream;
     readonly string _statFileKey;
+    readonly string _backupStatFile;
     static string getStatisticsFileKey(string property, StatisticsInfo info, LogSettings settings) {
         // a unique that prevents collisions between different statistical settings
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
@@ -25,6 +26,7 @@ internal class Log : IDisposable {
         _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, _setting.FileNameExtension);
         _logTextStream = new LogTextStream(io, _setting.Key, _setting.FileInterval);
         _statFileKey = (string.IsNullOrEmpty(_setting.FileNamePrefix) ? "" : _setting.FileNamePrefix + _setting.FileNameDelimiter) + _setting.Key + _setting.FileNameDelimiter + "statistics" + _setting.FileNameExtension;
+        _backupStatFile = _statFileKey + ".bkup";
         loadAllStatistics();
     }
     void loadAllStatistics() {
@@ -118,7 +120,7 @@ internal class Log : IDisposable {
             default: return null;
         }
     }
-    public void FlushToDisk() {
+    public void FlushToDiskNow() {
         if (_setting.EnableLog) {
             lock (_lock) {
                 _logStream.FlushToDisk();
@@ -176,6 +178,22 @@ internal class Log : IDisposable {
         lock (_lock) {
             if (!_setting.EnableStatistics) return;
             if (_io.DoesNotExistOrIsEmpty(_statFileKey)) return;
+
+            if (canConfirmFileIsNotValid(_io, _statFileKey)) { // confirmed corrupted file
+                _io.DeleteIfItExists(_statFileKey); // delete corrupted file
+                if (_io.ExistsAndIsNotEmpty(_backupStatFile)) {
+                    if (canConfirmFileIsNotValid(_io, _backupStatFile)) {
+                        _io.DeleteIfItExists(_backupStatFile); // delete corrupted bkup file
+                        return; // both files corrupted, cannot restore
+                    } else {
+                        _io.CopyFile(_backupStatFile, _statFileKey);
+                        // ok, continue to load from restored backup file
+                    }
+                } else {
+                    return; // no backup file, no way to restore
+                }
+            }
+
             using var stream = _io.OpenRead(_statFileKey, 0);
             var rowKey = stream.ReadString();
             var rowBytesLength = stream.ReadVerifiedInt();
@@ -207,12 +225,26 @@ internal class Log : IDisposable {
             }
         }
     }
+    static readonly Guid _hasEndMarker = Guid.Parse("95a2c0ae-c9f2-4e2a-b2c0-0b65991f759f");
+    static readonly Guid _endMarker = Guid.Parse("f44e7f3f-5a86-4739-9b10-229cc624776c");
+    // returns true if file is confirmed to be invalid, but only if it can be confirmed ( is new format and has end markers)
+    static bool canConfirmFileIsNotValid(IIOProvider io, string fileKey) {
+        var bytesForTwoGuids = 16 + 16;
+        var fileLength = io.GetFileSizeOrZeroIfUnknown(fileKey);
+        if (fileLength < bytesForTwoGuids) return false; // indeterminate, so cannot confirm invalid
+        using var stream = io.OpenRead(fileKey, fileLength - bytesForTwoGuids);
+        var g1 = stream.ReadGuid();
+        var g2 = stream.ReadGuid();
+        if (g1 != _hasEndMarker) return false; // indeterminate, so cannot confirm invalid
+        return g2 != _endMarker; // true if invalid
+    }
     public void SaveStatisticsState() {
         lock (_lock) {
             if (!_setting.EnableStatistics) return;
             var allStats = _statByProp.Values.SelectMany(s => s).ToList();
             var anyDirty = allStats.Any(s => s.IsDirty) || _rowStat.IsDirty;
             if (!anyDirty) return;
+            _io.CopyIfItExistsAndOverwrite(_statFileKey, _backupStatFile); // make backup first
             _io.DeleteIfItExists(_statFileKey);
             using var stream = _io.OpenAppend(_statFileKey);
             stream.WriteString(_rowStat.Key);
@@ -226,6 +258,9 @@ internal class Log : IDisposable {
                 stream.WriteVerifiedInt(statBytes.Length);
                 stream.Append(statBytes);
             }
+            // new format end markers to detect corrupted files
+            stream.WriteGuid(_hasEndMarker);
+            stream.WriteGuid(_endMarker);
         }
     }
     LogRecord getRecord(LogEntry entry) {
@@ -351,6 +386,7 @@ internal class Log : IDisposable {
     public void DeleteStatistics() {
         lock (_lock) {
             _io.DeleteIfItExists(_statFileKey);
+            _io.DeleteIfItExists(_backupStatFile);
             loadAllStatistics();
         }
     }
@@ -450,7 +486,6 @@ internal class Log : IDisposable {
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated).Select(c => c.Map(i => i.EstimateCount())).ToList();
         }
     }
-
     public Interval<int> AnalyseCombinedRows(IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
         lock (_lock) {
             return _rowStat.GetCombinedValue(intervalType, fromUtc, toUtc);
@@ -500,6 +535,38 @@ internal class Log : IDisposable {
             var value = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
             return value.Map(v => v.Values.ToDictionary(k => k.Key, v => v.Value));
         }
+    }
+    public void RebuildStatistics() {
+        if (!_setting.EnableStatistics) return;
+        var firstRecord = GetTimestampOfFirstRecord();
+        var lastRecord = GetTimestampOfLastRecord();
+        if (firstRecord == null || lastRecord == null) return; // no records return
+        DeleteStatistics();
+        var filesize = GetTotalFileSize();
+        var chunkCount = filesize / (10 * 1024 * 1024);
+        // around 10MB chunks, assuming linear distribution of data ( which is a big assumption...).
+        // More work neeed later to handle large dataset.
+        var deltaTimePerChunk = (lastRecord.Value - firstRecord.Value).Ticks / (chunkCount + 1);
+        var currentFrom = firstRecord.Value;
+        while (currentFrom < lastRecord.Value) {
+            var currentTo = new DateTime(currentFrom.Ticks + deltaTimePerChunk, DateTimeKind.Utc);
+            if (currentTo > lastRecord.Value) currentTo = lastRecord.Value;
+            var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, out var total);
+            lock (_lock) {
+                foreach (var entry in entries) {
+                    _rowStat.RecordIfPossible(entry.Timestamp, true);
+                    foreach (var value in entry.Values) {
+                        if (_statByProp.TryGetValue(value.Key, out var stats)) {
+                            foreach (var stat in stats) {
+                                stat.RecordIfPossible(entry.Timestamp, value.Value);
+                            }
+                        }
+                    }
+                }
+            }
+            currentFrom = currentTo;
+        }
+
     }
     public void Dispose() {
         lock (_lock) {

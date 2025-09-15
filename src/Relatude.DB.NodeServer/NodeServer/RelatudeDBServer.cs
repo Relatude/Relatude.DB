@@ -1,10 +1,11 @@
-﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+﻿using Microsoft.AspNetCore.Hosting.Server;
 using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
-using Relatude.DB.Common;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.NodeServer;
 public partial class RelatudeDBServer {
     public RelatudeDBServer(string? urlPath) {
@@ -26,11 +27,19 @@ public partial class RelatudeDBServer {
     public static event EventHandler<NodeStore>? OnStoreInit;
     public static event EventHandler<NodeStore>? OnStoreOpen;
     public static event EventHandler<NodeStore>? OnStoreDispose;
+    SimpleAuthentication? _autentication;
+    public SimpleAuthentication Authentication {
+        get {
+            if (_autentication == null) throw new Exception("Authentication not initialized. Make sure to call RelatudeDBServer.StartAsync() before using the server.");
+            return _autentication;
+        }
+    }
 
     internal string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
-    public RelatudeDBServerSettings Settings { get { return _serverSettings; } }
+    public RelatudeDBServerSettings Settings { get {
+            return _serverSettings; } }
     Dictionary<Guid, NodeStoreContainer> _containers = [];
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
@@ -61,8 +70,6 @@ public partial class RelatudeDBServer {
             Thread.Sleep(100);
         }
     }
-
-
     int getStartingProgressEstimate() {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
@@ -81,7 +88,7 @@ public partial class RelatudeDBServer {
             return 0;
         }
     }
-    public async Task ProgressResponse(HttpContext ctx, Func<Task> next) {
+    public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
         if (anyRemaingToAutoOpen && ctx.Request.Path == "/") {
             ctx.Response.ContentType = "text/html";
             var html = getResource("ClientStart.start.html");
@@ -106,9 +113,6 @@ public partial class RelatudeDBServer {
             try { _tempIO.DeleteIfItExists(file.Key); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
-
-
-
         _serverSettings = await _settingsLoader.ReadAsync();
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
@@ -126,6 +130,7 @@ public partial class RelatudeDBServer {
                 ThreadPool.QueueUserWorkItem(openContainerNoException, container, true);
             }
         }
+        _autentication = new (this);
     }
     Dictionary<Guid, List<ITaskRunner>> _runnersByContainer = [];
     public void RegisterTaskRunner(ITaskRunner runner) {
@@ -148,8 +153,8 @@ public partial class RelatudeDBServer {
             return values;
         }
     }
-    static int _remaingToAutoOpenCount = 0;
-    static bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
+    int _remaingToAutoOpenCount = 0;
+    bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
     void openContainerNoException(NodeStoreContainer container) => openContainer(container, false);
     void openContainer(NodeStoreContainer container, bool throwException) {
         try {
@@ -203,7 +208,6 @@ public partial class RelatudeDBServer {
             startUpLog("Error occurred during OnStoreDispose event: " + err.Message);
         }
     }
-
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
         lock (_ios) {
             if (_ios.TryGetValue(ioId, out io)) return true;

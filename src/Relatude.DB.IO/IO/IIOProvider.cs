@@ -54,8 +54,8 @@ public static class IIOProviderExtensions {
     public static void CopyIfItExistsAndOverwrite(this IIOProvider io, string fileKeySource, string fileKeyDest) {
         if (io.DoesNotExistOrIsEmpty(fileKeySource)) return;
         io.DeleteIfItExists(fileKeyDest);
-        var readStream = io.OpenRead(fileKeySource, 0);
-        var writeStream = io.OpenAppend(fileKeyDest);
+        using var readStream = io.OpenRead(fileKeySource, 0);
+        using var writeStream = io.OpenAppend(fileKeyDest);
         if (readStream.Length > 1024 * 1024 * 100) { // max 100 mb this method
             throw new Exception("File too big to copy. ");
         }

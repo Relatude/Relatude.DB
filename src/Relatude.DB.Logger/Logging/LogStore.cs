@@ -38,6 +38,9 @@ public class LogStore : IDisposable {
     public void DeleteStatistics(string logKey) {
         if (_logs.TryGetValue(logKey, out var log)) log.DeleteStatistics();
     }
+    public void RebuildStatistics(string logKey) {
+        if (_logs.TryGetValue(logKey, out var log)) log.RebuildStatistics();
+    }
     public void DeleteLogAndStatistics(string logKey) {
         if (_logs.TryGetValue(logKey, out var log)) {
             log.EnforceDateLimit(DateTime.MaxValue);
@@ -47,15 +50,15 @@ public class LogStore : IDisposable {
     public void DeleteAll() {
         foreach (var log in _logs) DeleteLogAndStatistics(log.Key);
     }
-    public void ExecuteMaintenance() {
+    public void SaveStatsAndDeleteExpiredData() {
         SaveStatistics();
         EnforceLimits();
     }
     public void SaveStatistics() {
         foreach (var log in _logs) log.Value.SaveStatisticsState();
     }
-    public void FlushToDisk() {
-        foreach (var log in _logs) log.Value.FlushToDisk();
+    public void FlushToDiskNow() {
+        foreach (var log in _logs) log.Value.FlushToDiskNow();
     }
     public void EnforceLimits() {
         foreach (var log in _logs.Values) {

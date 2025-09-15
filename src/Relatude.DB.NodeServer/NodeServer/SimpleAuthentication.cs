@@ -1,65 +1,119 @@
-﻿using System.Net;
-
-
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Net;
+using System.Text.Json;
 namespace Relatude.DB.NodeServer;
 public class SimpleAuthentication(RelatudeDBServer server) {
-    
-    public bool TokenLockedToIP { get; set; } = server.Settings.TokenLockedToIP;
-    public bool TokenCookieHttpOnly { get; set; } = true;
-    public bool TokenCookieSecure { get; set; } = server.Settings.TokenCookieSecure;
-    public bool TokenCookieSameSite { get; set; } = server.Settings.TokenCookieSameSite;
-    public double TokenCookieMaxAgeInSec { get; set; } = server.Settings.TokenCookieMaxAgeInSec;
 
-    public string TokenCookieName => server.Settings.TokenCookieName == null ? "RelatudeDBToken" : server.Settings.TokenCookieName;
-    public string TokenEncryptionSalt => server.Settings.TokenEncryptionSalt == null ? SecureGuid.New().ToString() : server.Settings.TokenEncryptionSalt;
-    public string TokenEncryptionSecret => server.Settings.TokenEncryptionSecret == null ? SecureGuid.New().ToString() : server.Settings.TokenEncryptionSecret;
-
-    CookieOptions getCookieOptions(TimeSpan? maxAge) {
+    RelatudeDBServerSettings settings => server.Settings; // retrieve settings each time, in case they change
+    CookieOptions getTokenCookieOptions(TimeSpan? maxAge) {
 #if DEBUG
         return new CookieOptions {
-            HttpOnly = TokenCookieHttpOnly,
+            HttpOnly = true,
             //SameSite = SameSiteMode.None,
             Secure = false,
             MaxAge = maxAge,
         };
 #else
         return new CookieOptions {
-            HttpOnly = TokenCookieHttpOnly,
+            HttpOnly = true,
             SameSite = TokenCookieSameSite ? SameSiteMode.Strict : SameSiteMode.None,
             Secure = TokenCookieSecure,
             MaxAge = maxAge,
         };
 #endif
     }
+
+    // Authentication
     bool authenticationIsValid(HttpContext context) {
-        if (TokenCookieName == null) return false;
+        if (settings.TokenCookieName == null) return false;
         var requestIP = context.Connection.RemoteIpAddress + "";
-        var token = context.Request.Cookies[TokenCookieName];
+        var token = context.Request.Cookies[settings.TokenCookieName];
         if (token == null) return false;
-        if (TokenUtil.IsTokenValid(token, requestIP, out var userId, (userId) => server.Settings.UserTokenId)) {
-            return userId == server.Settings.MasterUserName;
+
+        if (isTokenValid(token, requestIP, out var userId, out var userTokenId)) {
+            if (userTokenId != settings.UserTokenId) return false; // token id does not match current token id
+            if (userId != settings.MasterUserName) return false; // only the master user is supported
+            return true;
         }
         return false;
     }
-    static Random rnd = new();
-    public bool CredentialsAreValid(string username, string password) {
-        Task.Delay(rnd.Next(50, 300)).Wait(); // random time delay to slow down brute force attacks:
+    string createToken(string userId, Guid userTokenId, string userIP) {
+        var values = new Dictionary<string, string> {
+                { "CreatedUtcTicks", DateTime.UtcNow.Ticks.ToString() },
+                { "UserId", userId.ToString() },
+                { "UserTokenId", userTokenId.ToString() },
+                { "UserIP", userIP }
+            };
+        var json = JsonSerializer.Serialize(values);
+        return StringEncryption.Encrypt(json, settings.TokenEncryptionSecret, settings.TokenEncryptionSalt);
+    }
+    bool isTokenValid(string? token, string requestIP, [MaybeNullWhen(false)] out string userId, [MaybeNullWhen(false)] out Guid? userTokenId) {
+        userId = null;
+        userTokenId = null;
+        try {
+
+            // decrypting
+            if (token == null || token.Length < 30) return false; // token cannot be valid
+            if (!StringEncryption.TryDecrypt(token, settings.TokenEncryptionSecret, settings.TokenEncryptionSalt, out var json)) return false; // decryption failed
+
+            // parsing json
+            var values = JsonSerializer.Deserialize<Dictionary<string, string>>(json); // may throw exception
+            if (values == null) return false; // invalid json
+
+            // expired?
+            if (!values.TryGetValue("CreatedUtcTicks", out var createdUtcTicksString)) return false; // no createdUtcTicks
+            if (!long.TryParse(createdUtcTicksString, out var createdUtcTicks)) return false; // invalid createdUtcTicks
+            var createdUtc = new DateTime(createdUtcTicks, DateTimeKind.Utc);
+            var age = DateTime.UtcNow.Subtract(createdUtc);
+            if (age > TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec)) return false; // token expired
+
+            // getting the user Id, but store it in a temporary variable
+            if (!values.TryGetValue("UserId", out var tempUserIdString)) return false; // no userId            
+
+            // user tokenId
+            if (!values.TryGetValue("UserTokenId", out var userTokenIdString)) return false; // no userTokenId
+            if (!Guid.TryParse(userTokenIdString, out var tokenId)) return false; // invalid userTokenId
+
+            // user IP?
+            if (settings.TokenLockedToIP) {
+                if (!values.TryGetValue("UserIP", out var userIP)) return false; // no userIP
+                if (userIP != requestIP) return false; // IP mismatch
+            }
+
+            // all ok!
+            userTokenId = tokenId;
+            userId = tempUserIdString;
+            return true;
+
+        } catch (Exception err) {
+            Console.WriteLine("Token validation error: " + err);
+        }
+        // any other outcome is a failure
+        userId = null;
+        userTokenId = null;
+        return false;
+    }
+
+    public bool AreCredentialsValid(string username, string password) {
+        Task.Delay(new Random().Next(50, 300)).Wait(); // random time delay to slow down brute force attacks. and not too fast to hint valid usernames
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) return false;
-        return username.ToLower() == server.Settings.MasterUserName && password == server.Settings.MasterPassword;
+        return username.ToLower() == settings.MasterUserName && password == settings.MasterPassword;
     }
     public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);
     }
     public void LogIn(HttpContext context, bool remember) {
         var requestIP = context.Connection.RemoteIpAddress + "";
-        var token = TokenUtil.CreateToken(server.Settings.MasterUserName!, server.Settings.UserTokenId, requestIP);
-        TimeSpan? maxAge = remember ? TimeSpan.FromSeconds(TokenCookieMaxAgeInSec) : null;
-        context.Response.Cookies.Append(TokenCookieName, token, getCookieOptions(maxAge));
+        var token = createToken(settings.MasterUserName!, settings.UserTokenId, requestIP);
+        TimeSpan? maxAge = remember ? TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec) : null;
+        context.Response.Cookies.Append(settings.TokenCookieName, token, getTokenCookieOptions(maxAge));
     }
     public void LogOut(HttpContext context) {
-        context.Response.Cookies.Delete(TokenCookieName, getCookieOptions(null));
+        context.Response.Cookies.Delete(settings.TokenCookieName, getTokenCookieOptions(null));
     }
-    public Task Authorize(HttpContext context, Func<Task> next) {
+
+    // Authorization middleware
+    public Task AuthorizationMiddleware(HttpContext context, Func<Task> next) {
         if (requireAuthentication(context) && !authenticationIsValid(context)) {
             context.Response.StatusCode = (int)HttpStatusCode.Unauthorized; //  401
             return Task.CompletedTask;

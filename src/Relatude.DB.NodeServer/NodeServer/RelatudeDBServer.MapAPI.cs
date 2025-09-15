@@ -23,7 +23,7 @@ public partial class RelatudeDBServer {
     NodeStore db(Guid storeId) {
         return container(storeId).Store ?? throw new Exception("Store not initialized. ");
     }
-    public void MapAPI(WebApplication app) {
+    public void MapSimpleAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
         mapRoot(app, action => ApiUrlPublic + action + "/");  // static files, index.html, css, js, favicon.ico for admin UI
@@ -107,8 +107,8 @@ public partial class RelatudeDBServer {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
         app.MapPost(path("login"), (HttpContext context, Credentials credentials) => {
-            if (SimpleAuthentication.CredentialsAreValid(credentials.UserName, credentials.Password)) {
-                SimpleAuthentication.LogIn(context, credentials.Remember, this);
+            if (Authentication.AreCredentialsValid(credentials.UserName, credentials.Password)) {
+                Authentication.LogIn(context, credentials.Remember);
                 return new { Success = true };
             }
             return new { Success = false };
@@ -116,9 +116,9 @@ public partial class RelatudeDBServer {
         app.MapPost(path("have-users"), (HttpContext context) => {
             return !string.IsNullOrEmpty(Settings.MasterUserName) && !string.IsNullOrEmpty(Settings.MasterPassword);
         });
-        app.MapPost(path("is-logged-in"), (HttpContext context) => SimpleAuthentication.IsLoggedIn(context, this));
+        app.MapPost(path("is-logged-in"), (HttpContext context) => Authentication.IsLoggedIn(context));
         app.MapPost(path("version"), () => { return new { Version = "1.0.0" }; });
-        app.MapPost(path("logout"), (HttpContext context) => SimpleAuthentication.LogOut(context, this));
+        app.MapPost(path("logout"), (HttpContext context) => Authentication.LogOut(context));
     }
 
     // PRIVATE API, requires authentication (controlled by path in middleware):

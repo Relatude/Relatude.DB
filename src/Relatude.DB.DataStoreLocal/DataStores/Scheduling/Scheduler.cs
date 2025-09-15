@@ -24,7 +24,7 @@ internal class Scheduler(DataStoreLocal _db) {
     int timerStartupDelta = 323; // delta between different timers, so they do not all run at exactly the same time
     int defaultAutoFlushPulseIntervalMs = 1000; // default interval for auto flushing disk, if no setting is provided
     int taskQueuePulseIntervalMs = 1000; // default interval for checking for new tasks and the time allowed for building a batch of tasks
-    int backgroundTasksPulseIntervalMs = 60000; // backup, cache purge etc. run every minute, not needed to run too often
+    int backgroundTasksPulseIntervalMs = 60000; // backup if due and delete old, cache purge, save log stats, flush logs etc. run every minute, not needed to run too often
     TimeSpan _intervalOfDeletingExpiredTasks = TimeSpan.FromMinutes(5); // interval for running delete expired tasks, default is 5 minutes
 
     public void Start() {
@@ -206,11 +206,11 @@ internal class Scheduler(DataStoreLocal _db) {
     void flushQueryLogIfRunning() {
         try {
             if ((DateTime.UtcNow - _lastQueryLogFlush).TotalSeconds < 30) {
-                _db.QueryLogger.Flush();
+                _db.QueryLogger.FlushToDiskNow();
                 _lastQueryLogFlush = DateTime.UtcNow;
             }
-            if ((DateTime.UtcNow - _lastQueryLogMaintenance).TotalMinutes > 5) {
-                _db.QueryLogger.Maintenance();
+            if ((DateTime.UtcNow - _lastQueryLogMaintenance).TotalSeconds > 60) {
+                    _db.QueryLogger.SaveStatsAndDeleteExpiredData();
                 _lastQueryLogMaintenance = DateTime.UtcNow;
             }
         } catch (Exception err) {

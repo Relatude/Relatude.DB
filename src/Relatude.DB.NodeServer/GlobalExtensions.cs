@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Relatude.DB.Nodes;
+﻿using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using System.Text.Json;
 
@@ -33,12 +32,11 @@ public static class GlobalExtensions {
     public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = "/relatude.db",
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
         var server = new RelatudeDBServer(urlPath);
-        RelatudeDBServerContext.Initialize(server);
-        var authentication = new SimpleAuthentication(server);
-        app.Use(authentication.Authorize);
-        app.Use(server.ProgressResponse);
         await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsIO);
-        server.MapAPI(app);
+        app.Use(server.StartupProgressBarMiddleware); // middleware to show opening progress page
+        app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
+        server.MapSimpleAPI(app);
+        RelatudeDBServerContext.Initialize(server);
         return app;
     }
 }

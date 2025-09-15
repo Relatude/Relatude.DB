@@ -330,11 +330,11 @@ public class QueryLogger : IDisposable {
         if (_logStore == null) return new Interval<Dictionary<string, int>>(from, to);
         return _logStore.AnalyseCombinedGroupCounts(_actionLogKey, "operation", intervalType, from, to);
     }
-    public void Flush() {
-        if (_logStore != null) _logStore.FlushToDisk();
+    public void FlushToDiskNow() {
+        if (_logStore != null) _logStore.FlushToDiskNow();
     }
-    public void Maintenance() {
-        if (_logStore != null) _logStore.ExecuteMaintenance();
+    public void SaveStatsAndDeleteExpiredData() {
+        if (_logStore != null) _logStore.SaveStatsAndDeleteExpiredData();
     }
     public void Dispose() {
         _logStore?.Dispose();
