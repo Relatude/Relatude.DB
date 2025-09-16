@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Buffers.Binary;
+using System.Text;
 namespace Relatude.DB.IO;
 public static class StoreStreamExtenstions {
 
@@ -193,6 +194,24 @@ public static class StoreStreamExtenstions {
     }
     public static DateTime ReadDateTimeUtc(this IReadStream s) {
         return new DateTime(BitConverter.ToInt64(s.Read(8), 0), DateTimeKind.Utc);
+    }
+
+    public static void WriteDateTimeOffset(this IAppendStream s, DateTimeOffset v) {
+        var utcTicks = v.UtcDateTime.Ticks;
+        var offsetMinutes = checked((short)v.Offset.TotalMinutes); // offsets are minute-based, range ±14h
+
+        Span<byte> buf = stackalloc byte[10];
+        BinaryPrimitives.WriteInt64LittleEndian(buf[..8], utcTicks);
+        BinaryPrimitives.WriteInt16LittleEndian(buf.Slice(8, 2), offsetMinutes);
+        s.Append(buf.ToArray());
+    }
+    public static DateTimeOffset ReadDateTimeOffset(this IReadStream s) {
+        var bytes = s.Read(10);
+        var utcTicks = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(..8));
+        var offsetMinutes = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(8, 2));
+        var offset = TimeSpan.FromMinutes(offsetMinutes);
+        // Construct the same instant, but with the preserved offset
+        return new DateTimeOffset(new DateTime(utcTicks, DateTimeKind.Utc)).ToOffset(offset);
     }
     public static void WriteTimeSpan(this IAppendStream s, TimeSpan v) {
         s.Append(BitConverter.GetBytes(v.Ticks));

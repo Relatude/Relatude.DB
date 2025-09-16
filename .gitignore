@@ -367,3 +367,6 @@ nuget.exe
 /examples/Website.Simple/relatude.db.json
 /src/Relatude.DB.ServerUI/.parcel-cache
 /src/Relatude.DB.ServerUI/dist
+
+# JetBrains IDE
+.idea

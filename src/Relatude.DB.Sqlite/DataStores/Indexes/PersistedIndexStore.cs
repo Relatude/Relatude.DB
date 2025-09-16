@@ -182,6 +182,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (value == null) return default!;
         if (value is T t) return t;
         if (typeof(T) == typeof(DateTime)) return (T)(object)DateTime.Parse((string)value);
+        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)DateTimeOffset.Parse((string)value);
         if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value);
         if (value is long && typeof(T) == typeof(int)) return (T)(object)(int)(long)value;
         return (T)value;

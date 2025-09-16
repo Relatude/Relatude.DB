@@ -55,7 +55,7 @@ public static class DatamodelExtensions {
         datamodel.Assemblies.Add(t.Assembly);
     }
     static HashSet<Type> standardPropetyObjectTypes = new() {
-        typeof(string),typeof(string[]), typeof(DateTime), typeof(Guid), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal), typeof(FileValue)
+        typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal), typeof(FileValue)
     };
     static HashSet<Type> getRefTypes(Type t) {
         var types = new HashSet<Type>();

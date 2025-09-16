@@ -17,6 +17,7 @@ public enum PropertyType : int
     ByteArray = 12,
     File = 13,
     FloatArray = 14,
+    DateTimeOffset = 15,
 
     Relation = 100,
     //Collection = 200,

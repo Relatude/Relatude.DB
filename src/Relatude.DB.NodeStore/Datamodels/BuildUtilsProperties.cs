@@ -26,6 +26,8 @@ internal static class BuildUtilsProperties {
             p = getDecimalPropertyModel(cast<DecimalPropertyAttribute>(a, m));
         } else if (valueType == typeof(DateTime)) {
             p = getDateTimePropertyModel(cast<DateTimePropertyAttribute>(a, m));
+        } else if (valueType == typeof(DateTimeOffset)) {
+            p = getDateTimeOffsetPropertyModel(cast<DateTimeOffsetPropertyAttribute>(a, m));
         } else if (valueType == typeof(TimeSpan)) {
             p = getTimeSpanPropertyModel(cast<TimeSpanPropertyAttribute>(a, m));
         } else if (valueType == typeof(Guid)) {
@@ -90,6 +92,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(long)) attr = new LongPropertyAttribute();
             else if (valueType == typeof(decimal)) attr = new DecimalPropertyAttribute();
             else if (valueType == typeof(DateTime)) attr = new DateTimePropertyAttribute();
+            else if (valueType == typeof(DateTimeOffset)) attr = new DateTimeOffsetPropertyAttribute();
             else if (valueType == typeof(TimeSpan)) attr = new TimeSpanPropertyAttribute();
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
@@ -105,6 +108,7 @@ internal static class BuildUtilsProperties {
             || attr is LongPropertyAttribute && valueType != typeof(long)
             || attr is DecimalPropertyAttribute && valueType != typeof(decimal)
             || attr is DateTimePropertyAttribute && valueType != typeof(DateTime)
+            || attr is DateTimeOffsetPropertyAttribute && valueType != typeof(DateTimeOffset)
             || attr is TimeSpanPropertyAttribute && valueType != typeof(TimeSpan)
             || attr is GuidPropertyAttribute && valueType != typeof(Guid)
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
@@ -170,6 +174,14 @@ internal static class BuildUtilsProperties {
     }
     static DateTimePropertyModel getDateTimePropertyModel(DateTimePropertyAttribute a) {
         var p = new DateTimePropertyModel();
+        p.DefaultValue = a.DefaultValue;
+        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.MaxValue = a.MaxValue;
+        p.MinValue = a.MinValue;
+        return p;
+    }
+    static DateTimeOffsetPropertyModel getDateTimeOffsetPropertyModel(DateTimeOffsetPropertyAttribute a) {
+        var p = new DateTimeOffsetPropertyModel();
         p.DefaultValue = a.DefaultValue;
         if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
         p.MaxValue = a.MaxValue;
