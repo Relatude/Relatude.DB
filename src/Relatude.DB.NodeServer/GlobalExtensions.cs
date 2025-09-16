@@ -21,8 +21,7 @@ public static class GlobalExtensions {
     }
     public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
         builder.Services.ConfigureHttpJsonOptions(o => ConfigureDefaultJsonHttpOptions(o.SerializerOptions));
-        builder.Services.AddTransient(service => RelatudeDBServerContext.Current); // Server instance
-        builder.Services.AddTransient(service => RelatudeDBServerContext.Current.Default); // Default DB of server
+        builder.Services.AddSingleton<RelatudeDBContext>();
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = "/relatude.db",
@@ -36,7 +35,7 @@ public static class GlobalExtensions {
         app.Use(server.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
         server.MapSimpleAPI(app);
-        RelatudeDBServerContext.Initialize(server);
+        RelatudeDBRuntime.Initialize(server);
         return app;
     }
 }

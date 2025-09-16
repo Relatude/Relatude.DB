@@ -2,7 +2,7 @@
 using Relatude.DB.Logging.Statistics;
 
 namespace Relatude.DB.Logging;
-public class LogStore : IDisposable {
+public class LogStore : IDisposable, ILogStore {
     readonly Dictionary<string, Log> _logs;
     IIOProvider _io;
     static public LogStore EmptySink = new(new IOProviderMemory(), Array.Empty<LogSettings>());

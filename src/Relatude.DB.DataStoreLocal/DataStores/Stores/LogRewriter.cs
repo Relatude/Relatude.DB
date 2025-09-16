@@ -40,7 +40,7 @@ internal class LogRewriter {
     (int nodeId, NodeSegment segment)[] _nodes;
     public Dictionary<int, NodeSegment> _newSegements;
     (Guid relId, RelData[] relations)[] _relations;
-    readonly LogStore _newStore;
+    readonly LogFile _newStore;
     readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
     readonly ReadSegmentsFunc _loadSegments;
     bool _finalizing = false;
@@ -60,7 +60,7 @@ internal class LogRewriter {
         _loadSegments = loadSegments;
         _registerNodeSegment = registerNodeSegment;
         _newSegements = new();
-        _newStore = new LogStore(FileKey, _definition, _destIO, (nodeId, seg) => {
+        _newStore = new LogFile(FileKey, _definition, _destIO, (nodeId, seg) => {
             _newSegements[nodeId] = seg;
         }, null); // no ValueIndex store
         _diff = new();
@@ -107,7 +107,7 @@ internal class LogRewriter {
         foreach (var t in d2) _newStore.QueDiskWrites(t);
         _newStore.FlushToDisk();
     }
-    public void Step2_HotSwap_RequiresWriteLock(LogStore oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
+    public void Step2_HotSwap_RequiresWriteLock(LogFile oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
         if (_finalizing) throw new Exception("Finalizing already started. ");
         _finalizing = true;
         foreach (var t in _diff) _newStore.QueDiskWrites(t); // final transactions, added while last step was running

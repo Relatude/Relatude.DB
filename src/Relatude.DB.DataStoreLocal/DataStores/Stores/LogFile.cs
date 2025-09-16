@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Stores {
     // Threadsafe read operations to support multiple read queries at the same time
     // Write operations are NOT threadsafe, including FlushDisk, but store is designed to be used with a single writer thread
     /// </summary>
-    internal class LogStore : IDisposable {
+    internal class LogFile : IDisposable {
         // File format is designed to detect and repair from a partially completed write
         // and also make it possible to extract data if file is corrupted. 
         // It uses markers to indicate start and end of log file, if an corruption is found, the reader skips to the next transaction start marker.
@@ -37,7 +37,7 @@ namespace Relatude.DB.DataStores.Stores {
         IIOProvider _io;
         long _lastTimestampID;
 
-        public LogStore(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, DiskFlushCallback? flushCallback) {
+        public LogFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, DiskFlushCallback? flushCallback) {
             FileKey = fileKey;
             _io = io;
             _definition = definition;

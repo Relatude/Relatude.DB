@@ -185,6 +185,7 @@ internal class LogStream : IDisposable {
         flushBufferAndReleaseOpenFiles();
         var fileKey = getStreamFileName(GetLogFileDates().FirstOrDefault());
         if (fileKey == null) return null;
+        if(_io.DoesNotExistOrIsEmpty(fileKey)) return null;
         using var stream = _io.OpenRead(fileKey, 0);
         while (!stream.More()) return null;
         if (!stream.MoveToNextValidMarker(_startMarker)) return null;
@@ -195,6 +196,7 @@ internal class LogStream : IDisposable {
         flushBufferAndReleaseOpenFiles();
         var fileKey = getStreamFileName(GetLogFileDates().LastOrDefault());
         if (fileKey == null) return null;
+        if (_io.DoesNotExistOrIsEmpty(fileKey)) return null;
         using var stream = _io.OpenRead(fileKey, 0);
         DateTime dtLast = DateTime.MinValue;
         while (stream.More()) {
@@ -204,7 +206,7 @@ internal class LogStream : IDisposable {
                 dtLast = stream.ReadDateTimeUtc();
                 var compressed = stream.ReadBool();
                 stream.SkipByteArray();
-                stream.ValidateMarker(_startMarker);
+                stream.ValidateMarker(_endMarker);
             } catch (Exception) { // ignore error, just continue                
                 break;
             }

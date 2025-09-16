@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
+using Relatude.DB.Logging;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
@@ -14,6 +15,7 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
+    ILogStore LogStore{ get; }
     QueryLogger QueryLogger { get; }
 
     TaskQueue TaskQueue { get; }

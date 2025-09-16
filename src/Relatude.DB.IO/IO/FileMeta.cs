@@ -1,27 +1,14 @@
-﻿
-using System.Xml.Linq;
+﻿using Relatude.DB.IO;
 
-namespace Relatude.DB.IO;
-public class FileMetaLight(string key, long size, DateTime creationTimeUtc, DateTime lastModifiedUtc) {
-
-    public static FileMetaLight FromFileInfo(FileInfo f) {
-        return new(f.Name, f.Length, f.CreationTimeUtc, f.LastWriteTimeUtc);
-    }
-
-    public string Key { get; } = key;
-    public long Size { get; } = size;
-    public DateTime CreationTimeUtc { get; } = creationTimeUtc;
-    public DateTime LastModifiedUtc { get; } = lastModifiedUtc;
-    public FileMeta ToFileMeta() {
+public class FileMeta {
+    public static FileMeta FromFileInfo(FileInfo fileInfo) {
         return new() {
-            Key = Key,
-            Size = Size,
-            CreationTimeUtc = CreationTimeUtc,
-            LastModifiedUtc = LastModifiedUtc,
+            Key = fileInfo.Name,
+            Size = fileInfo.Length,
+            CreationTimeUtc = fileInfo.CreationTimeUtc,
+            LastModifiedUtc = fileInfo.LastWriteTimeUtc,
         };
     }
-}
-public class FileMeta {
     public string Key { get; set; } = string.Empty;
     public long Size { get; set; }
     public DateTime CreationTimeUtc { get; set; } = DateTime.UtcNow;

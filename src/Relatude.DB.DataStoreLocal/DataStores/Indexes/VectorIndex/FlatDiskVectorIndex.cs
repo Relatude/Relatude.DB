@@ -45,6 +45,7 @@ public class FlatDiskVectorIndex : IVectorIndex {
             _vacant.Add(offset);
         }
     }
+
     #region Attempt 4 - TODO: attempt memory-mapped file with parallel processing
     #endregion
 

@@ -555,18 +555,21 @@ internal class Log : IDisposable {
             lock (_lock) {
                 foreach (var entry in entries) {
                     _rowStat.RecordIfPossible(entry.Timestamp, true);
+                    Console.Write($"{entry.Timestamp} : ");
                     foreach (var value in entry.Values) {
                         if (_statByProp.TryGetValue(value.Key, out var stats)) {
                             foreach (var stat in stats) {
+                                Console.Write($"{value.Key}={value.Value}, ");
                                 stat.RecordIfPossible(entry.Timestamp, value.Value);
                             }
                         }
                     }
+                    Console.WriteLine();
                 }
             }
             currentFrom = currentTo;
         }
-
+        SaveStatisticsState();
     }
     public void Dispose() {
         lock (_lock) {

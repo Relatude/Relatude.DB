@@ -16,8 +16,8 @@ public class SimpleAuthentication(RelatudeDBServer server) {
 #else
         return new CookieOptions {
             HttpOnly = true,
-            SameSite = TokenCookieSameSite ? SameSiteMode.Strict : SameSiteMode.None,
-            Secure = TokenCookieSecure,
+            SameSite = settings.TokenCookieSameSite ? SameSiteMode.Strict : SameSiteMode.None,
+            Secure = settings.TokenCookieSecure,
             MaxAge = maxAge,
         };
 #endif

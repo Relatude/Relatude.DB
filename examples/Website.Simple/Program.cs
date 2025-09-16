@@ -1,5 +1,3 @@
-using Relatude.DB.Demo.Models;
-using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,8 +13,14 @@ var app = builder.Build();
 
 app.UseCors("AllowALL");
 
-app.MapGet("/", (NodeStore store) => {
-    var noObjects = store.Query<object>().Count();
+app.MapGet("/del", (RelatudeDBContext ctx) => {
+    
+
+
+});
+
+app.MapGet("/", (RelatudeDBContext ctx) => {
+    var noObjects = ctx.Database.Query<object>().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 

@@ -9,6 +9,7 @@ using Relatude.DB.DataStores.Scheduling;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
+using Relatude.DB.Logging;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Tasks;
@@ -24,7 +25,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal GuidStore _guids = default!;
     internal IndexStore _index = default!;
     internal RelationStore _relations = default!;
-    internal LogStore _log = default!;
+    internal LogFile _log = default!;
     internal NodeStore _nodes = default!;
     internal Variables _variables = default!;
     long _startUpTimeMs;
@@ -135,6 +136,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public FileKeyUtility FileKeys => _fileKeys;
+    public ILogStore LogStore => _queryLogger.LogStore;
     public QueryLogger QueryLogger => _queryLogger;
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;

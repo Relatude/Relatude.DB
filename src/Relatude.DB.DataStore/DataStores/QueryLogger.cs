@@ -15,6 +15,12 @@ public class QueryLogger : IDisposable {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     LogStore? _logStore;
+    public LogStore LogStore {
+        get {
+            if (_logStore == null) throw new InvalidOperationException("Logging is not initialized.");
+            return _logStore;
+        }
+    }
     List<LogSettings> getSettings() {
         return [
             new() {
