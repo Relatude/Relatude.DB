@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Hosting.Server;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
@@ -17,7 +16,7 @@ public partial class RelatudeDBServer {
     void startUpLog(string msg) { lock (_serverLog) { _serverLog.Add(new(DateTime.UtcNow, msg)); } }
     Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
     void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
-    string _settingsFile = "relatude.db.json";
+    string _settingsFile = Defaults.SettingsFileName;
     string _rootDataFolderPath = string.Empty;
     IIOProvider? _tempIO;
     ISettingsLoader? _settingsLoader;
@@ -106,7 +105,7 @@ public partial class RelatudeDBServer {
         if (!System.IO.Path.IsPathRooted(dataFolderPath)) dataFolderPath = environmentRoot.SuperPathCombine(dataFolderPath);
         _rootDataFolderPath = dataFolderPath;
 
-        if (tempFolderPath == null) tempFolderPath = "relatude.db.temp";
+        if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;        
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
         _tempIO = new IODisk(tempFolderPath);
         foreach (var file in _tempIO.GetFiles()) {

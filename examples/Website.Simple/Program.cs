@@ -13,12 +13,6 @@ var app = builder.Build();
 
 app.UseCors("AllowALL");
 
-app.MapGet("/del", (RelatudeDBContext ctx) => {
-    
-
-
-});
-
 app.MapGet("/", (RelatudeDBContext ctx) => {
     var noObjects = ctx.Database.Query<object>().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");

@@ -20,7 +20,7 @@ public class RelatudeDBServerSettings {
         var io = new IOSettings() {
             Id = Guid.NewGuid(),
             Name = "Local disk",
-            Path = "relatude.db",
+            Path = Defaults.DataFolderPath,
             IOType = IOTypes.LocalDisk,
         };
         var local = new SettingsLocal() {

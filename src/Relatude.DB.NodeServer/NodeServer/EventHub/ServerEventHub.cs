@@ -1,7 +1,8 @@
 ﻿
+using Microsoft.AspNetCore.Http.Features;
+using Relatude.DB.NodeServer.Json;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http.Features;
 namespace Relatude.DB.NodeServer.EventHub;
 public static class ServerEventHub {
     static EventSubscriptions _subscriptions = new();
@@ -51,7 +52,7 @@ public static class ServerEventHub {
         await response.Body.FlushAsync(cancellation);
     }
     static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
-        var json = JsonSerializer.Serialize(dataObject, GlobalExtensions.DefaultJsonHttpOptions);
+        var json = JsonSerializer.Serialize(dataObject, RelatudeDBJsonOptions.Default);
         var sb = new StringBuilder(json.Length + 64);
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');
         if (!string.IsNullOrEmpty(id)) sb.Append("id: ").Append(id).Append('\n');
