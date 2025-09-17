@@ -182,12 +182,14 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (value == null) return default!;
         if (value is T t) return t;
         if (typeof(T) == typeof(DateTime)) return (T)(object)DateTime.Parse((string)value);
+        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)DateTimeOffset.Parse((string)value);
         if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value);
         if (value is long && typeof(T) == typeof(int)) return (T)(object)(int)(long)value;
         return (T)value;
     }
     public object? CastToDb(object value) {
         if (value is DateTime dt) return dt.ToString("O");
+        if (value is DateTimeOffset dto) return dto.ToString("O");
         return value;
     }
     public IWordIndex OpenWordIndex(SetRegister sets, string key, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
