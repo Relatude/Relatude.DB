@@ -89,6 +89,7 @@ namespace Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions {
             {typeof(byte), "Byte"},
             {typeof(char), "Char"},
             {typeof(DateTime), "Date"},
+            {typeof(DateTimeOffset), "DateTimeOffset"},
             {typeof(decimal), "Decimal"},
             {typeof(double), "Double"},
             {typeof(int), "Integer"},

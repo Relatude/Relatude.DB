@@ -92,6 +92,14 @@ public class DateTimePropertyAttribute : PropertyAttribute, IAttrWithUniqueContr
     public bool UniqueValues { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class DateTimeOffsetPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints {
+    public DateTimeOffset DefaultValue { get; set; }
+    public BoolValue Indexed { get; set; }
+    public DateTimeOffset MinValue = DateTimeOffset.MinValue;
+    public DateTimeOffset MaxValue = DateTimeOffset.MaxValue;
+    public bool UniqueValues { get; set; }
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class TimeSpanPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints {
     public TimeSpan DefaultValue { get; set; }
     public BoolValue Indexed { get; set; }
