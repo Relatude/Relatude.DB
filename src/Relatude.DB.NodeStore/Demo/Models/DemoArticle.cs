@@ -13,6 +13,20 @@ public class DemoArticle {
     public FileValue File { get; set; } = FileValue.Empty;
     public Tree.FromNode Parent { get; set; } = Tree.EmptyFrom;
     public Tree.ToNodes Children { get; set; } = Tree.EmptyTo;
+    
+    [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = false)]
+    public DemoArticleChild? Child { get; set; }
+}
+
+public sealed class OneDemoArticleManyDemoArticleChildren : OneToOne<DemoArticle, DemoArticleChild>;
+
+public sealed class DemoArticleChild
+{
+    public Guid Id { get; set; }
+    public DateTimeOffset DateOfBirth { get; set; }
+    
+    [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = true)]
+    public DemoArticle? Parent { get; set; }
 }
 
 public class Tree : OneToMany<DemoArticle, DemoArticle, Tree> { }

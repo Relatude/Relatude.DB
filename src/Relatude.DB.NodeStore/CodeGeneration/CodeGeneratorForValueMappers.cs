@@ -26,6 +26,7 @@ internal static class CodeGeneratorForValueMappers {
             PropertyType.StringArray => "string[]",
             PropertyType.Guid => "Guid",
             PropertyType.DateTime => "DateTime",
+            PropertyType.DateTimeOffset => "DateTimeOffset",
             PropertyType.TimeSpan => "TimeSpan",
             PropertyType.Long => "long",
             PropertyType.ByteArray => "byte[]",

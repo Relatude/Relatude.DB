@@ -131,6 +131,7 @@ namespace Relatude.DB.Query.ExpressionToString.ExpressionTreeToString.CodeWriter
             {typeof(byte), "CByte"},
             {typeof(char), "CChar"},
             {typeof(DateTime), "CDate"},
+            {typeof(DateTimeOffset), "CDateTimeOffset"},
             {typeof(double), "CDbl"},
             {typeof(decimal), "CDec"},
             {typeof(int), "CInt"},
