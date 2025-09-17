@@ -131,7 +131,7 @@ public partial class Datamodel {
                     if (tryToAutoCreateOneToManyRelations(rp, out relation, out var reasonForNotCreating)) {
                         Relations.Add(relation.Id, relation);
                     } else {
-                        throw new Exception("Unable to infer a relation for property \"" + p.GetFullNameBaseType(this) + "\". Please specify the relation for the property. " + reasonForNotCreating);
+                        throw new Exception("Unable to infer a relation of member \"" + p.GetFullNameBaseType(this) + "\". The type is either not supported or not part of the datamodel. If it is a relation property please specify it using an attribute or define it explicitly in the datamodel. " + reasonForNotCreating);
                     }
                 }
             }

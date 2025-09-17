@@ -235,6 +235,16 @@ public static class CodeGeneratorForCSharpModels {
                     sb.AppendLine(")]");
                 }
                 break;
+            case PropertyType.DateTimeOffset: {
+                    addBaseAttributes<DateTimeOffsetPropertyAttribute>(p, dm, sb);
+                    var d = (DateTimeOffsetPropertyModel)p;
+                    if (d.Indexed) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (d.DefaultValue != DateTimeOffset.MinValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.DefaultValue) + " = \"" + d.DefaultValue + "\"");
+                    if (d.MinValue != DateTimeOffset.MinValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.MinValue) + " = \"" + d.MinValue + "\"");
+                    if (d.MaxValue != DateTimeOffset.MaxValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.MaxValue) + " = \"" + d.MaxValue + "\"");
+                    sb.AppendLine(")]");
+                }
+                break;
             case PropertyType.Decimal: {
                     addBaseAttributes<DecimalPropertyAttribute>(p, dm, sb);
                     var i = (DecimalPropertyModel)p;

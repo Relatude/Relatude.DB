@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
@@ -16,6 +17,7 @@ public interface IDataStore : IDisposable {
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
     ILogStore LogStore{ get; }
+    IAIProvider AI { get; }
     QueryLogger QueryLogger { get; }
 
     TaskQueue TaskQueue { get; }

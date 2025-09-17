@@ -9,6 +9,8 @@ using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
 using Relatude.DB.DataStores.Files;
+using System.ComponentModel;
+using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 
 namespace Relatude.DB.NodeServer;
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
@@ -36,14 +38,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     int _initializationCounter = 0;
     int _hasFailedCounter = 0;
     public bool HasInitialized => Interlocked.CompareExchange(ref _initializationCounter, 0, 0) > 0;
+    public Exception? StartUpException = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
-    public void Open(bool ignoreErrors) {
+    public void Open(bool ignoreDatamodelLoadingErrors) {
         try {
             if (IsOpenOrOpening()) return;
             CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
-            Datamodel = loadDatamodel(ignoreErrors);
+            Datamodel = loadDatamodel(ignoreDatamodelLoadingErrors);
             IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
+            string? diskFallBackPath = null;
+            if (ioDatabase is IODisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
@@ -56,7 +61,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? server.GetIO(settings.IoBackup.Value) : null;
             IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
             IAIProvider? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
-                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, log) : null;
+                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, log, diskFallBackPath) : null;
             Func<IPersistedIndexStore>? createIndexStore = null;
 
             if (settings.LocalSettings.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory) {
@@ -84,10 +89,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             IQueueStore? queueStore = null;
             if (settings.LocalSettings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
                 var queuePath = settings.LocalSettings.PersistedQueueStoreFolderPath;
-                if (queuePath == null) {
-                    if (ioDatabase is IODisk ioDisk) queuePath = ioDisk.BaseFolder;
-                    else throw new Exception("The setting PersistedQueueStoreFolderPath is required for LocalSettings.PersistedQueueStoreFolderPath");
-                }
+                if (string.IsNullOrEmpty(queuePath)) queuePath = diskFallBackPath;
+                if (string.IsNullOrEmpty(queuePath)) throw new Exception("The setting PersistedQueueStoreFolderPath is required for LocalSettings.PersistedQueueStoreFolderPath");
+                if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 queuePath = Path.Combine(queuePath, new FileKeyUtility(settings.LocalSettings.FilePrefix).Queue_GetFileKey("sqlite"));
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }

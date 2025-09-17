@@ -33,27 +33,32 @@ public partial class RelatudeDBServer {
             return _autentication;
         }
     }
-
+    internal string RootDataFolderPath => _rootDataFolderPath;
     internal string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
-    public RelatudeDBServerSettings Settings { get {
-            return _serverSettings; } }
+    public RelatudeDBServerSettings Settings {
+        get {
+            return _serverSettings;
+        }
+    }
     Dictionary<Guid, NodeStoreContainer> _containers = [];
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
     public NodeStore Default => GetDefaultStoreAndWaitIfOpening();
-    public NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 120) {
+    public NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 60 * 15) {
         if (_defaultContainer == null) throw new Exception("No default store container found or initialized. ");
         return GetStoreAndWaitIfOpening(_defaultContainer.Settings.Id, timeoutSec);
     }
-    public NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 12000) {
+    public NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 60 * 15) {
         if (!_containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         var sw = Stopwatch.StartNew();
         if (container.Settings.AutoOpen) { // if auto open is enabled, we have to wait for first initialization, otherwise .datastore will be null
             while (true) {
+                if (container.StartUpException != null)
+                    throw new Exception("Unable to open database.", container.StartUpException);
                 if (container.HasInitialized) break;
                 if (sw.Elapsed.TotalSeconds > timeoutSec) throw new Exception("Timeout waiting for store to start initializing.");
                 Thread.Sleep(100);
@@ -64,6 +69,7 @@ public partial class RelatudeDBServer {
         if (datastore.State != DataStoreState.Opening && container.Store != null) return container.Store;
         //sw.Restart();
         while (true) {
+            if (container.StartUpException != null) throw new Exception("Unable to autostart database.", container.StartUpException);
             if (datastore.State != DataStoreState.Opening && container.Store != null) return container.Store;
             if (sw.Elapsed.TotalSeconds > timeoutSec) throw new Exception("Timeout waiting for store to open.");
             Thread.Sleep(100);
@@ -105,7 +111,7 @@ public partial class RelatudeDBServer {
         if (!System.IO.Path.IsPathRooted(dataFolderPath)) dataFolderPath = environmentRoot.SuperPathCombine(dataFolderPath);
         _rootDataFolderPath = dataFolderPath;
 
-        if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;        
+        if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
         _tempIO = new IODisk(tempFolderPath);
         foreach (var file in _tempIO.GetFiles()) {
@@ -126,11 +132,27 @@ public partial class RelatudeDBServer {
             if (container.Settings.WaitUntilOpen) {
                 openContainer(container, true);
             } else {
-                ThreadPool.QueueUserWorkItem(openContainerNoException, container, true);
+                ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => openContainer(container, false), container, true);
             }
         }
-        _autentication = new (this);
+        _autentication = new(this);
     }
+    int _remaingToAutoOpenCount = 0;
+    bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
+    void openContainer(NodeStoreContainer container, bool throwException) {
+        try {
+            container.StartUpException = null;
+            container.Open(true);
+        } catch (Exception err) {
+            container.StartUpException = err;
+            startUpLog("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
+            Console.WriteLine(err.Message); //
+            if (throwException) throw;
+        } finally {
+            Interlocked.Decrement(ref _remaingToAutoOpenCount);
+        }
+    }
+
     Dictionary<Guid, List<ITaskRunner>> _runnersByContainer = [];
     public void RegisterTaskRunner(ITaskRunner runner) {
         RegisterTaskRunner(Guid.Empty, runner); // meaning for all containers
@@ -152,20 +174,8 @@ public partial class RelatudeDBServer {
             return values;
         }
     }
-    int _remaingToAutoOpenCount = 0;
-    bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
-    void openContainerNoException(NodeStoreContainer container) => openContainer(container, false);
-    void openContainer(NodeStoreContainer container, bool throwException) {
-        try {
-            container.Open(true);
-        } catch (Exception err) {
-            startUpLog("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
-            Console.WriteLine(err.Message); //
-            if (throwException) throw;
-        } finally {
-            Interlocked.Decrement(ref _remaingToAutoOpenCount);
-        }
-    }
+
+
     void updateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = _containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
@@ -222,15 +232,17 @@ public partial class RelatudeDBServer {
             return _ios.TryGetValue(ioId, out io);
         }
     }
-    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, Action<string> log) {
+    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, Action<string> log, string? fallBackAiPath) {
         lock (_ais) {
             if (_ais.TryGetValue(id + filePrefix, out ai)) return true;
             var settings = _serverSettings.AISettings?.FirstOrDefault(s => s.Id == id);
             if (settings == null) return false;
-            string? folderPath = null;
-
-            if (!string.IsNullOrEmpty(settings.FilePath)) {
-                folderPath = _rootDataFolderPath.SuperPathCombine(settings.FilePath);
+            string? folderPath = settings.FilePath;
+            if (string.IsNullOrEmpty(folderPath)) folderPath = fallBackAiPath;
+            if (!string.IsNullOrEmpty(folderPath)) {
+                if (!Path.IsPathRooted(folderPath)) {
+                    folderPath = _rootDataFolderPath.SuperPathCombine(folderPath);
+                }
                 if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
             } else {
                 throw new Exception($"AIProvider {settings.Name} [{id}] does not have a valid file path set.");
@@ -249,8 +261,8 @@ public partial class RelatudeDBServer {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;
     }
-    public IAIProvider GetAI(Guid id, string? filePrefix, Action<string> log) {
-        if (!TryGetAI(id, filePrefix, out var ai, log)) throw new Exception("AIProvider not found");
+    public IAIProvider GetAI(Guid id, string? filePrefix, Action<string> log, string? fallBackAiPath) {
+        if (!TryGetAI(id, filePrefix, out var ai, log, fallBackAiPath)) throw new Exception("AIProvider not found");
         return ai;
     }
 }

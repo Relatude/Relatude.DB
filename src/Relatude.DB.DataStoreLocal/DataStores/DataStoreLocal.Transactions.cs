@@ -28,7 +28,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     TransactionResult execute_withTransformOption(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
         _lock.EnterWriteLock();
-        var activityId = registerActvity(DataStoreActivityCategory.Executing, "Preparing to execute transaction", 0);
+        var activityId = registerActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
             validateDatabaseState();
             if (transaction.Timestamp <= _log.LastTimestamp) {

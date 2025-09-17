@@ -137,6 +137,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public FileKeyUtility FileKeys => _fileKeys;
     public ILogStore LogStore => _queryLogger.LogStore;
+    public IAIProvider AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
     public QueryLogger QueryLogger => _queryLogger;
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;

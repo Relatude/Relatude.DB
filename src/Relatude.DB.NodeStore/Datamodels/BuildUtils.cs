@@ -77,8 +77,15 @@ internal static class BuildUtils {
 
         // first, gather all public fields and properties:
         var all = new List<MemberInfo>();
-        foreach (var f in type.GetFields()) if (f.IsPublic) all.Add(f);
-        foreach (var p in type.GetProperties()) if (p.GetGetMethod(true) != null) all.Add(p);
+
+        foreach (var f in type.GetFields()) {
+            firstTestForIllegalTypes(f.FieldType, f);
+            if (f.IsPublic) all.Add(f);
+        }
+        foreach (var p in type.GetProperties()) {
+            firstTestForIllegalTypes(p.PropertyType, p);
+            if (p.GetGetMethod(true) != null) all.Add(p);
+        }
 
         // then, inlcude only members that are defined for the first time in this class/interface/record,
         // this means, members that are implementations of interfaces will be excluded:
@@ -111,6 +118,22 @@ internal static class BuildUtils {
             if (!Guid.TryParse(attr.Id, out _)) throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
         }
         return attr;
+    }
+    static Type[] knownSupportedValueTypes = [typeof(bool), typeof(byte), typeof(int), typeof(long), typeof(double), typeof(decimal), 
+        typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan)];
+    static void firstTestForIllegalTypes(Type valueType, MemberInfo member) {
+        if (valueType.IsValueType) {
+            if (valueType.IsGenericType && valueType.GetGenericTypeDefinition() == typeof(Nullable<>)) {
+                throw new Exception("Nullable types are unsupported, property type: " + valueType.FullName);
+            }
+            if (!knownSupportedValueTypes.Contains(valueType)) {
+                throw new Exception("The type \"" + valueType.Name + "\" of member \""
+                    + member.DeclaringType!.Name + "." + member.Name
+                    + "\" is not supported by the database type system. ");
+            }
+        } else {
+            // non value types are either ok like arrays etc., or relations to types/models not known yet, so cannot check them here...
+        }
     }
     public static Guid GetOrCreateNodeTypeId(Type type) {
         if (tryGetAttribute<NodeAttribute>(type, out var attr) && attr.Id != null) {

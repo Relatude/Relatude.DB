@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
 		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-		<Version>0.1.0.14</Version>
+		<Version>0.1.0.15</Version>
 	</PropertyGroup>
 	<ItemGroup>
 	  <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />

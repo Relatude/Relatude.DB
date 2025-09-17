@@ -6,24 +6,24 @@ using Relatude.DB.Nodes;
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes
 public static class DatamodelExtensions {
-    static bool excludeTypeAsNodeType(Type type) { 
+    static bool excludeTypeAsNodeType(Type type) {
         if (type.IsAbstract && type.IsSealed) return true; // ignore static classes
-        if (type.IsEnum) return true; 
+        if (type.IsEnum) return true;
         return false;
-    
+
     }
     public static void AddNamespace<T>(this Datamodel datamodel) {
         var assembly = typeof(T).Assembly;
         var namespaces = typeof(T).Namespace;
         if (namespaces == null) throw new Exception("Namespace not found for type " + typeof(T).FullName);
         foreach (var type in assembly.GetTypes()) {
-            if(excludeTypeAsNodeType(type)) continue;
+            if (excludeTypeAsNodeType(type)) continue;
             if (type.Namespace != namespaces) continue;
             datamodel.Add(type, true);
         }
     }
     public static void AddAssembly(this Datamodel datamodel, Assembly assembly, string nameSpace) {
-        if(nameSpace == null) throw new Exception("Namespace not found for assembly " + assembly.FullName);
+        if (nameSpace == null) throw new Exception("Namespace not found for assembly " + assembly.FullName);
         foreach (var type in assembly.GetTypes()) {
             if (excludeTypeAsNodeType(type)) continue;
             if (type.Namespace != nameSpace) continue;
@@ -38,7 +38,7 @@ public static class DatamodelExtensions {
         datamodel.addType(type);
     }
     static void addType(this Datamodel datamodel, Type t) {
-        if(datamodel.HasInitialized()) throw new Exception("Datamodel is already initialized. Cannot add more types. " + t.FullName);
+        if (datamodel.HasInitialized()) throw new Exception("Datamodel is already initialized. Cannot add more types. " + t.FullName);
         if (t.InheritsFromOrImplements<IRelation>()) {
             var r = BuildUtils.CreateRelationModelFromType(t);
             if (datamodel.Relations.ContainsKey(r.Id)) return;
@@ -54,9 +54,9 @@ public static class DatamodelExtensions {
         // remember Assembly Reference:
         datamodel.Assemblies.Add(t.Assembly);
     }
-    static HashSet<Type> standardPropetyObjectTypes = new() {
+    static HashSet<Type> standardPropertyObjectTypes = [ // not relations
         typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal), typeof(FileValue)
-    };
+    ];
     static HashSet<Type> getRefTypes(Type t) {
         var types = new HashSet<Type>();
         getReferencedTypes(t, types);
@@ -68,7 +68,7 @@ public static class DatamodelExtensions {
         foreach (var m in t.GetMembers()) {
             var type = m is FieldInfo f ? f.FieldType : m is PropertyInfo p ? p.PropertyType : null;
             if (type == null) continue;
-            if (standardPropetyObjectTypes.Contains(type)) continue;
+            if (standardPropertyObjectTypes.Contains(type)) continue;
             if (type.IsPrimitive)
                 continue;
             if (type.IsEnum) continue;
