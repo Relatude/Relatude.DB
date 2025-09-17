@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.NodeServer;
-public class ContainerLogEntry(string message) {
-    public DateTime Timestamp { get; } = DateTime.UtcNow;
+public class ContainerLogEntry(string message, DateTime? dt = null) {
+    public DateTime Timestamp { get; } = dt ?? DateTime.UtcNow;
     public string Description { get; } = message;
 }
 public class ContainerLog(int capacity, TimeSpan maxAge) {

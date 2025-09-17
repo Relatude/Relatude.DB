@@ -39,6 +39,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     int _hasFailedCounter = 0;
     public bool HasInitialized => Interlocked.CompareExchange(ref _initializationCounter, 0, 0) > 0;
     public Exception? StartUpException = null;
+    public DateTime? StartUpExceptionDateTimeUTC = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
     public void Open(bool ignoreDatamodelLoadingErrors) {
         try {
