@@ -13,15 +13,14 @@ internal static class Utils {
         // 1 ready all relevant properties for the node type ( and exclude relations and text index)
         // 2 avoid looking up property for each value, use the property id as key
         // 3 do a better diff, combine both "forceValue" and "add if missing" in one loop
-        if (!definition.Datamodel.NodeTypes.TryGetValue(node.NodeType, out var nodeType)) {
+        if (!definition.NodeTypes.TryGetValue(node.NodeType, out var nodeType)) {
             throw new("Node with id " + node.Id + " is of unknown type: " + node.NodeType + ". ");
         }
         var allProps = nodeType.AllProperties;
 
         // forcing type and validating value on given properties in node
         foreach (var kv in node.Values) {
-            if (allProps.ContainsKey(kv.PropertyId)) {
-                var prop = definition.Properties[kv.PropertyId];  // optimization possible....
+            if (allProps.TryGetValue(kv.PropertyId, out var prop)) {
                 var value = prop.ForceValueType(kv.Value, out var changed);
                 if (transformValues) value = prop.TransformFromOuterToInnerValue(value, oldNode);
                 prop.ValidateValue(value);

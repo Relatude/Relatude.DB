@@ -29,6 +29,7 @@ internal sealed class Definition {
             var c = NodeTypes[cm.Id];
             foreach (var p in cm.AllProperties.Values) {
                 c.AllPropertiesByName.Add(p.CodeName, Properties[p.Id]);
+                c.AllProperties.Add(p.Id, Properties[p.Id]);
             }
         }
         foreach (var cm in datamodel.Relations.Values) {
