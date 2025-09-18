@@ -122,6 +122,7 @@ internal static class BuildUtils {
     static Type[] knownSupportedValueTypes = [typeof(bool), typeof(byte), typeof(int), typeof(long), typeof(double), typeof(decimal), 
         typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan)];
     static void firstTestForIllegalTypes(Type valueType, MemberInfo member) {
+        if (valueType.IsEnum) return;
         if (valueType.IsValueType) {
             if (valueType.IsGenericType && valueType.GetGenericTypeDefinition() == typeof(Nullable<>)) {
                 throw new Exception("Nullable types are unsupported, property type: " + valueType.FullName);
@@ -131,9 +132,8 @@ internal static class BuildUtils {
                     + member.DeclaringType!.Name + "." + member.Name
                     + "\" is not supported by the database type system. ");
             }
-        } else {
-            // non value types are either ok like arrays etc., or relations to types/models not known yet, so cannot check them here...
         }
+        // non value types are either ok like arrays etc., or relations to types/models not known yet, so cannot check them here...
     }
     public static Guid GetOrCreateNodeTypeId(Type type) {
         if (tryGetAttribute<NodeAttribute>(type, out var attr) && attr.Id != null) {
