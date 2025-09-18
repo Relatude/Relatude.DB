@@ -12,10 +12,18 @@ public partial class RelatudeDBServer {
         if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
         if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
     }
-    readonly List<Tuple<DateTime, string>> _serverLog = [];
-    void startUpLog(string msg) { lock (_serverLog) { _serverLog.Add(new(DateTime.UtcNow, msg)); } }
+
+    // simple startup log to help with debugging startup issues
+    readonly Queue<Tuple<DateTime, string>> _serverLog = [];
+    void serverLog(string msg) {
+        lock (_serverLog) {
+            while (_serverLog.Count >= 1000) _serverLog.Dequeue();
+            _serverLog.Enqueue(new(DateTime.UtcNow, msg));
+        }
+    }
     Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
     void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
+
     string _settingsFile = Defaults.SettingsFileName;
     string _rootDataFolderPath = string.Empty;
     IIOProvider? _tempIO;
@@ -89,7 +97,7 @@ public partial class RelatudeDBServer {
             });
             return (int)Math.Ceiling((double)combinedProgress / _containersToAutoOpen.Length);
         } catch (Exception err) {
-            startUpLog("Error occurred during progress estimate: " + err.Message);
+            serverLog("Error occurred during progress estimate: " + err.Message);
             return 0;
         }
     }
@@ -104,7 +112,7 @@ public partial class RelatudeDBServer {
     }
     public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
         _serverLog.Clear();
-        startUpLog("Relatude.DB Server started");
+        serverLog("Server starting up.");
         var environmentRoot = app.Environment.ContentRootPath;
         if (string.IsNullOrEmpty(dataFolderPath)) dataFolderPath = string.Empty;
         dataFolderPath = dataFolderPath.EnsureDirectorySeparatorChar();
@@ -114,11 +122,19 @@ public partial class RelatudeDBServer {
         if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
         _tempIO = new IODisk(tempFolderPath);
-        foreach (var file in _tempIO.GetFiles()) {
+        var tempFiles = _tempIO.GetFiles();
+        var tempSize = tempFiles.Sum(f => f.Size);
+        var tempCount = tempFiles.Length;
+        if (tempCount == 0) serverLog("No temp files found to clean.");
+        else serverLog($"Cleaning temp folder, found {tempCount} file(s) and {tempSize.ToByteString()}.");
+        foreach (var file in tempFiles) {
             try { _tempIO.DeleteIfItExists(file.Key); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
+        Stopwatch sw = Stopwatch.StartNew();
+        if (tempCount == 0) serverLog("Loading settings using: " + _settingsLoader.GetType().FullName);
         _serverSettings = await _settingsLoader.ReadAsync();
+        serverLog("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
                 var container = new NodeStoreContainer(containerSettings, this);
@@ -127,25 +143,32 @@ public partial class RelatudeDBServer {
             }
         }
         _containersToAutoOpen = _containers.Values.Where(c => c.Settings.AutoOpen).ToArray();
+        serverLog("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
         _remaingToAutoOpenCount = _containersToAutoOpen.Length;
         foreach (var container in _containersToAutoOpen) {
             if (container.Settings.WaitUntilOpen) {
-                openContainer(container, true);
+                serverLog("Opening \"" + container.Settings.Name + "\".");
+                autoOpenContainer(container, true);
             } else {
-                ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => openContainer(container, false), container, true);
+                serverLog("Initiating asynchronous opening of \"" + container.Settings.Name + "\".");
+                ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => autoOpenContainer(container, false), container, true);
             }
         }
         _autentication = new(this);
     }
     int _remaingToAutoOpenCount = 0;
     bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
-    void openContainer(NodeStoreContainer container, bool throwException) {
+    void autoOpenContainer(NodeStoreContainer container, bool throwException) {
         try {
+            var sw = Stopwatch.StartNew();
             container.StartUpException = null;
-            container.Open(true);
+            container.StartUpExceptionDateTimeUTC = null;
+            container.Open(container.Settings.AllowDatamodelErrors);
+            serverLog("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
             container.StartUpException = err;
-            startUpLog("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
+            container.StartUpExceptionDateTimeUTC = DateTime.UtcNow;
+            serverLog("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
             Console.WriteLine(err.Message); //
             if (throwException) throw;
         } finally {
@@ -175,7 +198,6 @@ public partial class RelatudeDBServer {
         }
     }
 
-
     void updateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = _containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
@@ -198,7 +220,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreOpen?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            startUpLog("Error occurred during OnStoreOpen event: " + err.Message);
+            serverLog("Error occurred during OnStoreOpen event: " + err.Message);
         }
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
@@ -206,7 +228,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreInit?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            startUpLog("Error occurred during OnStoreInit event: " + err.Message);
+            serverLog("Error occurred during OnStoreInit event: " + err.Message);
         }
     }
     internal void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
@@ -214,7 +236,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreDispose?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            startUpLog("Error occurred during OnStoreDispose event: " + err.Message);
+            serverLog("Error occurred during OnStoreDispose event: " + err.Message);
         }
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {

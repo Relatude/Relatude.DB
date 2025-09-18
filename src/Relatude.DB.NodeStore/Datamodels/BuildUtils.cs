@@ -128,9 +128,9 @@ internal static class BuildUtils {
                 throw new Exception("Nullable types are unsupported, property type: " + valueType.FullName);
             }
             if (!knownSupportedValueTypes.Contains(valueType)) {
-                throw new Exception("The type \"" + valueType.Name + "\" of member \""
+                throw new Exception("The type \"" + valueType.GetCSharpName()+ "\" of member \""
                     + member.DeclaringType!.Name + "." + member.Name
-                    + "\" is not supported by the database type system. ");
+                    + "\" is not supported. ");
             }
         }
         // non value types are either ok like arrays etc., or relations to types/models not known yet, so cannot check them here...

@@ -6,6 +6,7 @@ using Relatude.DB.Query;
 
 namespace Relatude.DB.DataStores;
 public class QueryLogger : IDisposable {
+    static string _systemLogKey = "system";
     static string _queryLogKey = "query";
     static string _transactionLogKey = "transaction";
     static string _actionLogKey = "action";
@@ -23,6 +24,27 @@ public class QueryLogger : IDisposable {
     }
     List<LogSettings> getSettings() {
         return [
+            new() {
+                Name = "System",
+                Key = _queryLogKey,
+                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
+                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
+                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
+                FileInterval = FileResolution.Day,
+                EnableLog = _enableDetails,
+                EnableStatistics = true,
+                EnableLogTextFormat = true,
+                ResolutionRowStats = 4,
+                FirstDayOfWeek = DayOfWeek.Monday,
+                MaxAgeOfLogFilesInDays = 10,
+                MaxTotalSizeOfLogFilesInMb = 100,
+                Compressed = false,
+                Properties = {
+                        { "type", new() { Name = "Type", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)]} },
+                        { "text", new() { Name = "Text", DataType = LogDataType.Double } },
+                        { "details", new() { Name = "Details",DataType = LogDataType.String, } },
+                },
+            },
             new() {
                 Name = "Queries",
                 Key = _queryLogKey,
@@ -191,6 +213,15 @@ public class QueryLogger : IDisposable {
         _datamodel = datamodel;
         Enabled = enabled;
     }
+    public void RecordSystem(Exception error) => RecordSystem(SystemLogEntryType.Error, error.Message, error.StackTrace);
+    public void RecordSystem(SystemLogEntryType type, string text, string? details = null) {
+        LogEntry entry = new();
+        entry.Values.Add("type", type.ToString());
+        entry.Values.Add("text", text);
+        entry.Values.Add("details", details == null ? string.Empty : details);
+        _logStore?.Record(_systemLogKey, entry);
+        _logStore?.FlushToDiskNow(_systemLogKey);
+    }
     public void RecordQuery(string query, double durationMs, int resultCount, Metrics metrics) {
         if (durationMs < MinDurationMsBeforeLogging) return;
         LogEntry entry = new();
@@ -287,26 +318,21 @@ public class QueryLogger : IDisposable {
         _logStore.DeleteLogAndStatistics(_transactionLogKey);
         _logStore.DeleteLogAndStatistics(_actionLogKey);
     }
-    public LogEntry[] ExtractQueryLog(DateTime from, DateTime to, int skip, int take, out int total) {
-        if (_logStore == null) {
-            total = 0;
-            return [];
-        }
-        return _logStore.ExtractLog(_queryLogKey, from, to, skip, take, out total).ToArray();
+    public LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, out int total) {
+        if (_logStore == null) { total = 0; return []; }
+        return _logStore.ExtractLog(_systemLogKey, from, to, skip, take, out total).ToArray();
     }
-    public LogEntry[] ExtractTransactionLog(DateTime from, DateTime to, int skip, int take, out int total) {
-        if (_logStore == null) {
-            total = 0;
-            return [];
-        }
-        return _logStore.ExtractLog(_transactionLogKey, from, to, skip, take, out total).ToArray();
+    public LogEntry[] ExtractSystemLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_systemLogKey, from, to, skip, take, out total);
+    public LogEntry[] ExtractQueryLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_queryLogKey, from, to, skip, take, out total);
+    public LogEntry[] ExtractTransactionLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_transactionLogKey, from, to, skip, take, out total);
+    public LogEntry[] ExtractActionLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_actionLogKey, from, to, skip, take, out total);
+    public Interval<int>[] AnalyseSystemLogCount(IntervalType intervalType, DateTime from, DateTime to) {
+        if (_logStore == null) return [];
+        return _logStore.AnalyseRows(_systemLogKey, intervalType, from, to, false, true).ToArray();
     }
-    public LogEntry[] ExtractActionLog(DateTime from, DateTime to, int skip, int take, out int total) {
-        if (_logStore == null) {
-            total = 0;
-            return [];
-        }
-        return _logStore.ExtractLog(_actionLogKey, from, to, skip, take, out total).ToArray();
+    public Interval<Dictionary<string, int>> AnalyseSystemLogCountByType(IntervalType intervalType, DateTime from, DateTime to) {
+        if (_logStore == null) return new Interval<Dictionary<string, int>>(from, to);
+        return _logStore.AnalyseCombinedGroupCounts(_systemLogKey, "type", intervalType, from, to);
     }
     public Interval<int>[] AnalyseQueryCount(IntervalType intervalType, DateTime from, DateTime to) {
         if (_logStore == null) return [];
@@ -347,3 +373,8 @@ public class QueryLogger : IDisposable {
     }
 }
 
+public enum SystemLogEntryType {
+    Info,
+    Warning,
+    Error,
+}

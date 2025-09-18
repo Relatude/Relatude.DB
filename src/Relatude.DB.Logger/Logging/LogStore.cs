@@ -57,6 +57,9 @@ public class LogStore : IDisposable, ILogStore {
     public void SaveStatistics() {
         foreach (var log in _logs) log.Value.SaveStatisticsState();
     }
+    public void FlushToDiskNow(string logKey) {
+        if (_logs.TryGetValue(logKey, out var log)) log.FlushToDiskNow();
+    }
     public void FlushToDiskNow() {
         foreach (var log in _logs) log.Value.FlushToDiskNow();
     }

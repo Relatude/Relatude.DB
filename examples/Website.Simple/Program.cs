@@ -18,11 +18,6 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 
-app.MapGet("/Test", (string query, RelatudeDBContext ctx) => {
-    return ctx.Database.AI.GetCompletionAsync(query);
-});
-
-
 app.UseRelatudeDB();
 
 app.Run();

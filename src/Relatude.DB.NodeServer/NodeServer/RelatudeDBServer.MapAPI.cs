@@ -23,6 +23,7 @@ public partial class RelatudeDBServer {
     NodeStore db(Guid storeId) {
         return container(storeId).Store ?? throw new Exception("Store not initialized. ");
     }
+    bool isDbInitialized(Guid storeId) => container(storeId).Store! != null;
     public void MapSimpleAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
@@ -359,15 +360,24 @@ public partial class RelatudeDBServer {
     }
     void mapLog(WebApplication app, Func<string, string> path) {
         app.MapPost(path("clear-container-log"), (Guid storeId) => container(storeId).ClearContainerLog());
-        app.MapPost(path("get-container-log"), (Guid storeId, int skip, int take) => container(storeId).ContainerLog.Get().Reverse().Skip(skip).Take(take));
+        app.MapPost(path("get-container-log"), (Guid storeId, int skip, int take) => {
+            var c = container(storeId);
+            if (isDbInitialized(storeId)) {
+                return container(storeId).ContainerLog.Get().Reverse().Skip(skip).Take(take);
+            } else if (c.StartUpException != null) {
+                return [new ContainerLogEntry(c.StartUpException.Message, c.StartUpExceptionDateTimeUTC)];
+            } 
+            return [];
+        });
+
         app.MapPost(path("is-enabled"), (Guid storeId) => db(storeId).Datastore.QueryLogger.Enabled);
         app.MapPost(path("is-enabled-details"), (Guid storeId) => db(storeId).Datastore.QueryLogger.EnableDetails);
         app.MapPost(path("enable"), (Guid storeId, bool enable) => db(storeId).Datastore.QueryLogger.Enabled = enable);
         app.MapPost(path("enable-details"), (Guid storeId, bool enable) => db(storeId).Datastore.QueryLogger.EnableDetails = enable);
         app.MapPost(path("clear"), (Guid storeId) => db(storeId).Datastore.QueryLogger.Clear());
-        app.MapPost(path("extract-query-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => db(storeId).Datastore.QueryLogger.ExtractQueryLog(from, to, skip, take, out var total));
-        app.MapPost(path("extract-transaction-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => db(storeId).Datastore.QueryLogger.ExtractTransactionLog(from, to, skip, take, out var total));
-        app.MapPost(path("extract-action-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => db(storeId).Datastore.QueryLogger.ExtractActionLog(from, to, skip, take, out var total));
+        app.MapPost(path("extract-query-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractQueryLog(from, to, skip, take, out var total) : default);
+        app.MapPost(path("extract-transaction-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractTransactionLog(from, to, skip, take, out var total) : default);
+        app.MapPost(path("extract-action-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractActionLog(from, to, skip, take, out var total) : default);
         app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.QueryLogger.RecordingPropertyHits = enabled);
         app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.QueryLogger.RecordingPropertyHits);
         app.MapPost(path("analyse-property-hits"), (Guid storeId) => db(storeId).Datastore.QueryLogger.AnalyzePropertyHits());
