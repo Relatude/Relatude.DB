@@ -15,10 +15,8 @@ public class AzureBlobIOReadStream : IReadStream {
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
-    readonly Action<string> _log;
     string _fileKey;
-    public AzureBlobIOReadStream(Action<string> log, BlobContainerClient container, string fileKey, long position, bool lockBlob, Action disposeCallback) {
-        _log = log;
+    public AzureBlobIOReadStream(BlobContainerClient container, string fileKey, long position, bool lockBlob, Action disposeCallback) {
         _fileKey = fileKey;
         _disposeCallback = disposeCallback;
         _blobClient = container.GetBlobClient(fileKey);
@@ -56,7 +54,7 @@ public class AzureBlobIOReadStream : IReadStream {
                 var options = new BlobDownloadOptions { Range = new HttpRange(Position, lengthToRead), Conditions = conditions };
                 var sw = Stopwatch.StartNew();
                 _readAheadBuffer = _blobClient.DownloadContent(options).Value.Content.ToArray();
-                _log(" - Reader Downloaded " + _fileKey + " " + lengthToRead.ToTransferString(sw) + " offset:" + Position.To1000N());
+                // _log(" - Reader Downloaded " + _fileKey + " " + lengthToRead.ToTransferString(sw) + " offset:" + Position.To1000N());
                 _bufferStartPos = Position;
             }
             byte[] result;

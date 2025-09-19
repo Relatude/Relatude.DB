@@ -163,7 +163,7 @@ public partial class RelatudeDBServer {
             var sw = Stopwatch.StartNew();
             container.StartUpException = null;
             container.StartUpExceptionDateTimeUTC = null;
-            container.Open(container.Settings.AllowDatamodelErrors);
+            container.Open();
             serverLog("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
             container.StartUpException = err;
@@ -254,7 +254,7 @@ public partial class RelatudeDBServer {
             return _ios.TryGetValue(ioId, out io);
         }
     }
-    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, Action<string> log, string? fallBackAiPath) {
+    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, string? fallBackAiPath) {
         lock (_ais) {
             if (_ais.TryGetValue(id + filePrefix, out ai)) return true;
             var settings = _serverSettings.AISettings?.FirstOrDefault(s => s.Id == id);
@@ -269,7 +269,7 @@ public partial class RelatudeDBServer {
             } else {
                 throw new Exception($"AIProvider {settings.Name} [{id}] does not have a valid file path set.");
             }
-            ai = AISettings.Create(settings, folderPath, filePrefix, log);
+            ai = AISettings.Create(settings, folderPath, filePrefix);
             try {
                 _ais.Add(id + filePrefix, ai);
             } catch (Exception ex) {
@@ -283,8 +283,8 @@ public partial class RelatudeDBServer {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;
     }
-    public IAIProvider GetAI(Guid id, string? filePrefix, Action<string> log, string? fallBackAiPath) {
-        if (!TryGetAI(id, filePrefix, out var ai, log, fallBackAiPath)) throw new Exception("AIProvider not found");
+    public IAIProvider GetAI(Guid id, string? filePrefix, string? fallBackAiPath) {
+        if (!TryGetAI(id, filePrefix, out var ai, fallBackAiPath)) throw new Exception("AIProvider not found");
         return ai;
     }
 }

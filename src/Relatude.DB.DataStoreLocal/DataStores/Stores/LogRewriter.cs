@@ -40,7 +40,7 @@ internal class LogRewriter {
     (int nodeId, NodeSegment segment)[] _nodes;
     public Dictionary<int, NodeSegment> _newSegements;
     (Guid relId, RelData[] relations)[] _relations;
-    readonly LogFile _newStore;
+    readonly WALFile _newStore;
     readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
     readonly ReadSegmentsFunc _loadSegments;
     bool _finalizing = false;
@@ -60,7 +60,7 @@ internal class LogRewriter {
         _loadSegments = loadSegments;
         _registerNodeSegment = registerNodeSegment;
         _newSegements = new();
-        _newStore = new LogFile(FileKey, _definition, _destIO, (nodeId, seg) => {
+        _newStore = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => {
             _newSegements[nodeId] = seg;
         }, null); // no ValueIndex store
         _diff = new();
@@ -68,7 +68,7 @@ internal class LogRewriter {
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
         lock (_diff) _diff.Add(t);
     }
-    public void Step1_RewriteLog_NoLockRequired(Action<string, int> reportProgress) { // does not block simulatenous writes or reads
+    public void Step1_RewriteLog_NoLockRequired(Action<string, int> reportProgress) { // does not block simultaneous writes or reads
         if (_finalizing) throw new Exception("Finalizing already started. ");
         var dm = _definition.Datamodel;
         var chunkSize = 97;
@@ -107,7 +107,7 @@ internal class LogRewriter {
         foreach (var t in d2) _newStore.QueDiskWrites(t);
         _newStore.FlushToDisk();
     }
-    public void Step2_HotSwap_RequiresWriteLock(LogFile oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
+    public void Step2_HotSwap_RequiresWriteLock(WALFile oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
         if (_finalizing) throw new Exception("Finalizing already started. ");
         _finalizing = true;
         foreach (var t in _diff) _newStore.QueDiskWrites(t); // final transactions, added while last step was running

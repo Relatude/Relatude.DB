@@ -10,9 +10,9 @@ public class LogStore : IDisposable, ILogStore {
         _io = io;
         _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io), StringComparer.OrdinalIgnoreCase);
     }
-    public bool Record(string logKey, LogEntry entry, bool flushToDisk = false) {
+    public bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null) {
         if (_logs.TryGetValue(logKey, out var log)) {
-            log.Record(entry, flushToDisk);
+            log.Record(entry, flushToDisk, forceLogging, forceStatistics);
             return true;
         }
         return false;

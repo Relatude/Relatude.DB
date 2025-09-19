@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reflection;
-using System.Text;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -141,7 +140,7 @@ public partial class RelatudeDBServer {
         });
     }
     void mapMaintenance(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("open"), (Guid storeId) => container(storeId).Open(true));
+        app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
             if (_containers.Values.Count(c => c.IsOpenOrOpening()) == 0) {
@@ -359,35 +358,36 @@ public partial class RelatudeDBServer {
         app.MapPost(path("server"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);
     }
     void mapLog(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("clear-container-log"), (Guid storeId) => container(storeId).ClearContainerLog());
-        app.MapPost(path("get-container-log"), (Guid storeId, int skip, int take) => {
+
+        app.MapPost(path("has-startup-exception"), (Guid storeId) => container(storeId).StartUpException != null);
+        app.MapPost(path("get-startup-exception"), (Guid storeId) => {
             var c = container(storeId);
-            if (isDbInitialized(storeId)) {
-                return container(storeId).ContainerLog.Get().Reverse().Skip(skip).Take(take);
-            } else if (c.StartUpException != null) {
-                return [new ContainerLogEntry(c.StartUpException.Message, c.StartUpExceptionDateTimeUTC)];
-            } 
-            return [];
+            var e = c.StartUpException;
+            if (e == null) return null;
+            return new { When = c.StartUpExceptionDateTimeUTC, e.Message, e.StackTrace, };
         });
 
-        app.MapPost(path("is-enabled"), (Guid storeId) => db(storeId).Datastore.QueryLogger.Enabled);
-        app.MapPost(path("is-enabled-details"), (Guid storeId) => db(storeId).Datastore.QueryLogger.EnableDetails);
-        app.MapPost(path("enable"), (Guid storeId, bool enable) => db(storeId).Datastore.QueryLogger.Enabled = enable);
-        app.MapPost(path("enable-details"), (Guid storeId, bool enable) => db(storeId).Datastore.QueryLogger.EnableDetails = enable);
-        app.MapPost(path("clear"), (Guid storeId) => db(storeId).Datastore.QueryLogger.Clear());
-        app.MapPost(path("extract-query-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractQueryLog(from, to, skip, take, out var total) : default);
-        app.MapPost(path("extract-transaction-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractTransactionLog(from, to, skip, take, out var total) : default);
-        app.MapPost(path("extract-action-log"), (Guid storeId, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.QueryLogger.ExtractActionLog(from, to, skip, take, out var total) : default);
-        app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.QueryLogger.RecordingPropertyHits = enabled);
-        app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.QueryLogger.RecordingPropertyHits);
-        app.MapPost(path("analyse-property-hits"), (Guid storeId) => db(storeId).Datastore.QueryLogger.AnalyzePropertyHits());
-        app.MapPost(path("analyse-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseQueryCount(intervalType, from, to));
-        app.MapPost(path("analyse-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseQueryDuration(intervalType, from, to));
-        app.MapPost(path("analyse-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseTransactionCount(intervalType, from, to));
-        app.MapPost(path("analyse-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseTransactionDuration(intervalType, from, to));
-        app.MapPost(path("analyse-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseTransactionAction(intervalType, from, to));
-        app.MapPost(path("analyse-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseActionCount(intervalType, from, to));
-        app.MapPost(path("analyse-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.QueryLogger.AnalyseActionOperations(intervalType, from, to));
+        app.MapPost(path("enable-log"), (Guid storeId, string logKey, bool enable) => db(storeId).Datastore.Logger.EnableLog(logKey, enable));
+        app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsLogEnabled(logKey));
+        app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => db(storeId).Datastore.Logger.EnableStatistics(logKey, enable));
+        app.MapPost(path("is-statistics-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsStatisticsEnabled(logKey));
+        app.MapPost(path("clear-log"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.Clear(logKey));
+        app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.Logger.ExtractLog(logKey, from, to, skip, take, out var total) : default);
+
+        app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.Logger.RecordingPropertyHits = enabled);
+        app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.RecordingPropertyHits);
+        app.MapPost(path("analyse-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.AnalyzePropertyHits());
+
+        app.MapPost(path("analyse-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCount(intervalType, from, to));
+        app.MapPost(path("analyse-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCountByType(intervalType, from, to));
+        app.MapPost(path("analyse-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryCount(intervalType, from, to));
+        app.MapPost(path("analyse-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryDuration(intervalType, from, to));
+        app.MapPost(path("analyse-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionCount(intervalType, from, to));
+        app.MapPost(path("analyse-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionDuration(intervalType, from, to));
+        app.MapPost(path("analyse-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionAction(intervalType, from, to));
+        app.MapPost(path("analyse-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionCount(intervalType, from, to));
+        app.MapPost(path("analyse-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionOperations(intervalType, from, to));
+
     }
     void mapTasks(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-batch-count-queued"), (Guid storeId) => db(storeId).Datastore.TaskQueue.CountBatch(Tasks.BatchState.Pending));

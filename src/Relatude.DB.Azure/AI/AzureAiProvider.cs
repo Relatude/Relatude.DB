@@ -21,7 +21,7 @@ public class AzureAiProvider : IAIProvider {
     readonly AzureOpenAIClient _client;
     readonly ChatClient _chatClient;
     readonly EmbeddingClient _embeddingClient;
-    public Action<string, bool>? LogCallback { get; set; }
+    public Action<string>? LogCallback { get; set; }
     public AIProviderSettings Settings { get; }
     public double DefaultSemanticRatio => Settings.DefaultSemanticRatio;
     public AzureAiProvider(AIProviderSettings settings, IEmbeddingCache? cache = null) {
@@ -55,7 +55,7 @@ public class AzureAiProvider : IAIProvider {
     public async Task<List<float[]>> GetEmbeddingsAsync(IEnumerable<string> paragraphs) {
 
         if (Settings.ApiKey == "DUMMY") {
-            LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.", false);
+            LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.");
             var createDummy = (string v) => {
                 var hash = v.XXH64Hash();
                 if (_cache.TryGet(hash, out var createDummyVector)) return createDummyVector;
@@ -78,7 +78,7 @@ public class AzureAiProvider : IAIProvider {
             var sw = Stopwatch.StartNew();
             var clientResult = await _embeddingClient.GenerateEmbeddingsAsync(missing);
             sw.Stop();
-            LogCallback?.Invoke($"Embedding http request for {missing.Count} items. {sw.ElapsedMilliseconds.To1000N()}ms. ", false);
+            LogCallback?.Invoke($"Embedding http request for {missing.Count} items. {sw.ElapsedMilliseconds.To1000N()}ms. ");
             var result = clientResult.Value.Select(v => v.ToFloats().ToArray()).ToList();
             var pos = 0;
             foreach (var v in valueSet) {

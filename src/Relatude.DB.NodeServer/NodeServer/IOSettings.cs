@@ -28,7 +28,7 @@ namespace Relatude.DB.NodeServer {
                         return new IODisk(path);
                     }
                 case IOTypes.AzureBlobStorage: {
-                        return LateBindings.CreateAzureBlobIOProvider(settings, (string s) => { });
+                        return LateBindings.CreateAzureBlobIOProvider(settings);
                     }
                 default:
                     throw new NotImplementedException();

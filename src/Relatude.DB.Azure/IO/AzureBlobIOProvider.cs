@@ -6,10 +6,8 @@ public class AzureBlobIOProvider : IIOProvider {
     readonly BlobContainerClient _container;
     readonly bool _lockBlob;
     readonly Dictionary<string, FileMeta> _files = new(StringComparer.OrdinalIgnoreCase);
-    Action<string> _log;
-    public AzureBlobIOProvider(string blobConnectionString, string blobContainerName, bool lockBlob, Action<string> log) {
+    public AzureBlobIOProvider(string blobConnectionString, string blobContainerName, bool lockBlob) {
         var blobContainer = new BlobContainerClient(blobConnectionString, blobContainerName);
-        _log = log;
         _container = blobContainer;
         _lockBlob = lockBlob;
         syncDirInfo(_container.GetBlobs().ToArray());
@@ -66,7 +64,7 @@ public class AzureBlobIOProvider : IIOProvider {
             if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
         }
         meta.Readers++;
-        return new AzureBlobIOReadStream(_log, _container, fileKey, position, _lockBlob, () => {
+        return new AzureBlobIOReadStream(_container, fileKey, position, _lockBlob, () => {
             meta.Readers--;
         });
     }
@@ -83,14 +81,13 @@ public class AzureBlobIOProvider : IIOProvider {
             }
         }
         meta.Writers++;
-        return new AzureBlobIOAppendStream(_log, _container, fileKey, fileKey, _lockBlob, (long size) => {
+        return new AzureBlobIOAppendStream(_container, fileKey, fileKey, _lockBlob, (long size) => {
             meta.Writers--;
             meta.LastModifiedUtc = DateTime.UtcNow;
             meta.Size = size;
         });
     }
     public void DeleteIfItExists(string fileKey) {
-        _log("DeleteIfItExists " + fileKey);
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_files) {
             if (_files.TryGetValue(fileKey, out var meta)) {

@@ -23,7 +23,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
-            _log.FlushToDisk(out transactionCount, out actionCount, out bytesWritten);
+            _wal.FlushToDisk(out transactionCount, out actionCount, out bytesWritten);
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
@@ -36,8 +36,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         var activityId = registerActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try {
-            _log.FlushToDisk();
-            _log.Copy(newLogFileKey, destinationIO);
+            _wal.FlushToDisk();
+            _wal.Copy(newLogFileKey, destinationIO);
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Failed to copy log file. ", err);
@@ -50,7 +50,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterReadLock();
         try {
             validateDatabaseState();
-            return _log.ReadNodeSegments(segments, out diskReads);
+            return _wal.ReadNodeSegments(segments, out diskReads);
         } finally {
             _lock.ExitReadLock();
         }
@@ -68,7 +68,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         validateDatabaseState();
         if (destinationIO == null) destinationIO = _io;
         if (string.IsNullOrEmpty(newLogFileKey)) throw new Exception("New log file name cannot be empty. ");
-        if (newLogFileKey == _log.FileKey) throw new Exception("New log file name cannot be the same as current. ");
+        if (newLogFileKey == _wal.FileKey) throw new Exception("New log file name cannot be the same as current. ");
         if (_rewriter != null) throw new Exception("Rewriter already initialized. ");
         _lock.EnterWriteLock();
         try {
@@ -81,7 +81,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
-            _log.FlushToDisk(); // maing sure every segment exists in _nodes ( through call back )
+            _wal.FlushToDisk(); // maing sure every segment exists in _nodes ( through call back )
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             updateActivity(activityId, "Starting rewrite of log file", 5);
@@ -106,7 +106,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             updateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
             if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
             try {
-                _rewriter.Step2_HotSwap_RequiresWriteLock(_log, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
+                _rewriter.Step2_HotSwap_RequiresWriteLock(_wal, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
                 if (hotSwapToNewFile) {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
                     // reset, since we have a new log file
@@ -128,7 +128,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
         try {
             validateDatabaseState();
-            _log.FlushToDisk();
+            _wal.FlushToDisk();
             PersistedIndexStore?.OptimizeDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -144,7 +144,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             foreach (var f in _fileKeys.Log_GetAllFileKeys(_io)) {
-                if (_log.FileKey != f) _io.DeleteIfItExists(f);
+                if (_wal.FileKey != f) _io.DeleteIfItExists(f);
             }
         } catch (Exception err) {
             throw new Exception("Failed to delete old logs. ", err);
@@ -159,7 +159,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0) {
-                _log.FlushToDisk();
+                _wal.FlushToDisk();
                 saveState();
             }
         } catch (Exception err) {
@@ -217,8 +217,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (_state != DataStoreState.Open) return info;
-            info.LogFirstStateUtc = new DateTime(_log.FirstTimestamp, DateTimeKind.Utc);
-            info.LogLastChange = new DateTime(_log.LastTimestamp, DateTimeKind.Utc);
+            info.LogFirstStateUtc = new DateTime(_wal.FirstTimestamp, DateTimeKind.Utc);
+            info.LogLastChange = new DateTime(_wal.LastTimestamp, DateTimeKind.Utc);
             info.StartUpMs = _startUpTimeMs;
             info.LogTruncatableActions = _noPrimitiveActionsInLogThatCanBeTruncated;
             info.LogActionsNotItInStatefile = _noPrimitiveActionsSinceLastStateSnaphot;
@@ -248,7 +248,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _definition.AddInfo(info);
             _nodes.AddInfo(info);
             info.RelationCount = _relations.TotalCount();
-            _log.AddInfo(info);
+            _wal.AddInfo(info);
             _sets.AddInfo(info);
             info.LogStateFileSize = _io.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
         } finally {
@@ -264,8 +264,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             validateDatabaseState();
-            if (timestamp <= _log.LastTimestamp) throw new Exception("Timestamp must be greater than last timestamp. ");
-            _log.StoreTimestamp(timestamp);
+            if (timestamp <= _wal.LastTimestamp) throw new Exception("Timestamp must be greater than last timestamp. ");
+            _wal.StoreTimestamp(timestamp);
         } finally {
             _lock.ExitWriteLock();
         }

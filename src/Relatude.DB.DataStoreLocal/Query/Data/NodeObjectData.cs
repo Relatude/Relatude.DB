@@ -29,7 +29,7 @@ internal class NodeObjectData : IStoreNodeData {
     public object? GetValue(string propertyName) {
         if (_allPropertiesByName.TryGetValue(propertyName, out var propertyId)) {
             if (_nodeData.TryGetValue(propertyId, out var value)) {
-                if (_db.QueryLogger.RecordingPropertyHits) _db.QueryLogger.RecordPropertyHit(propertyId);
+                if (_db.Logger.RecordingPropertyHits) _db.Logger.RecordPropertyHit(propertyId);
                 return value;
             } else {
                 var prop = _def.Datamodel.Properties[propertyId];

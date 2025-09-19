@@ -9,7 +9,6 @@ using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Tasks;
 using Relatude.DB.DataStores.Files;
-using System.ComponentModel;
 using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 
 namespace Relatude.DB.NodeServer;
@@ -30,23 +29,21 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         var isOpen = IsOpenOrOpening();
         CloseIfOpen();
         settings = newSettings;
-        if (isOpen && reopenIfOpen) Open(false);
+        if (isOpen && reopenIfOpen) Open();
     }
 
-    public ContainerLog ContainerLog { get; set; } = new(1000, TimeSpan.FromDays(2));
-    void log(string msg) => ContainerLog.Add(msg);
     int _initializationCounter = 0;
     int _hasFailedCounter = 0;
     public bool HasInitialized => Interlocked.CompareExchange(ref _initializationCounter, 0, 0) > 0;
     public Exception? StartUpException = null;
     public DateTime? StartUpExceptionDateTimeUTC = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
-    public void Open(bool ignoreDatamodelLoadingErrors) {
+    public void Open() {
         try {
             if (IsOpenOrOpening()) return;
             CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
-            Datamodel = loadDatamodel(ignoreDatamodelLoadingErrors);
+            Datamodel = loadDatamodel();
             IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
             string? diskFallBackPath = null;
             if (ioDatabase is IODisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
@@ -62,7 +59,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? server.GetIO(settings.IoBackup.Value) : null;
             IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
             IAIProvider? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
-                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, log, diskFallBackPath) : null;
+                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, diskFallBackPath) : null;
             Func<IPersistedIndexStore>? createIndexStore = null;
 
             if (settings.LocalSettings.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory) {
@@ -105,7 +102,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioBackup,
                     ioLog,
                     ai,
-                    log,
                     createIndexStore,
                     queueStore);
             Interlocked.Increment(ref _initializationCounter);
@@ -120,7 +116,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 datastore = null;
                 throw;
             }
-            datastore.Log($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
+            datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
@@ -136,7 +132,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Datamodel = null;
         }
     }
-    Datamodel loadDatamodel(bool ignoreErrors) {
+    Datamodel loadDatamodel() {
         var dm = new Datamodel();
         if (settings.DatamodelSources != null) {
             foreach (var source in settings.DatamodelSources) {
@@ -144,15 +140,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     loadDatamodelSource(dm, source);
                 } catch (Exception ex) {
                     var msg = $"Failed to load datamodel source {source.Id}: {ex.Message}";
-                    if (ignoreErrors) log(msg);
-                    else throw new Exception(msg, ex);
+                    throw new Exception(msg, ex);
                 }
             }
         }
         return dm;
-    }
-    public void ClearContainerLog() {
-        ContainerLog.Clear();
     }
     void loadDatamodelSource(Datamodel dm, DatamodelSource source) {
         switch (source.Type) {

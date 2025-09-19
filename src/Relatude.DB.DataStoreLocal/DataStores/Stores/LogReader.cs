@@ -31,9 +31,9 @@ internal class LogReader : IDisposable {
     }
     static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId) {
         var readStream = io.OpenRead(fileKey, 0);
-        readStream.ValidateMarker(LogFile._logStartMarker);
+        readStream.ValidateMarker(WALFile._logStartMarker);
         var version = readStream.ReadVerifiedLong();
-        if (version != LogFile._logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + LogFile._logVersioNumber + " but found " + version + " .");
+        if (version != WALFile._logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " but found " + version + " .");
         fileId = readStream.ReadGuid();
         if (fromTransactionAtPos > 0) { // reopen at a specific position
             readStream.Dispose();
@@ -44,7 +44,7 @@ internal class LogReader : IDisposable {
     public long LastReadTimestamp { get => _lastTimestampID; }
     public bool ReadNextTransaction([MaybeNullWhen(false)] out ExecutedPrimitiveTransaction transaction, bool throwOnErrors, Action<string, Exception> log, out long byteSizeOfTransaction) {
         while (_readStream != null && _readStream.More()) {
-            var foundMarker = _readStream.MoveToNextValidMarker(LogFile._transactionStartMarker);
+            var foundMarker = _readStream.MoveToNextValidMarker(WALFile._transactionStartMarker);
             if (!foundMarker) break;
             try {
                 transaction = tryReadNext(_readStream, _definition, ref _lastTimestampID, out byteSizeOfTransaction);
@@ -66,7 +66,7 @@ internal class LogReader : IDisposable {
         var noActions = readStream.ReadVerifiedInt();
         var actions = new List<PrimitiveActionBase>(noActions);
         for (var i = 0; i < noActions; i++) {
-            readStream.ValidateMarker(LogFile._actionMarker);
+            readStream.ValidateMarker(WALFile._actionMarker);
             var segmentStreamPosition = readStream.Position + 8; // add 8 as first byte is for array length, we only want exact position of node data bytes
             var actionData = readStream.ReadByteArray();
             var checkSum = readStream.ReadUInt();
@@ -91,7 +91,7 @@ internal class LogReader : IDisposable {
                 throw new NotSupportedException("Unknown action type: " + action.GetType().Name);
             }
         }
-        readStream.ValidateMarker(LogFile._transactionEndMarker);
+        readStream.ValidateMarker(WALFile._transactionEndMarker);
         var t = new ExecutedPrimitiveTransaction(actions, timestamp);
         if (lastTimestampID < t.Timestamp) lastTimestampID = t.Timestamp;
         byteSizeOfTransaction = readStream.Position - startPosition;

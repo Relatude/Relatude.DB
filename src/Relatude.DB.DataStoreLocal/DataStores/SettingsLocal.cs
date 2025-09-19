@@ -7,8 +7,8 @@
 
     public bool EnableSystemLog { get; set; } = false;
     public bool OnlyLogErrorsToSystemLog { get; set; } = true;
-    public bool EnableQueryLog { get; set; } = false;
-    public bool EnableQueryLogDetails { get; set; } = false;
+    //public bool EnableQueryLog { get; set; } = false;
+    //public bool EnableQueryLogDetails { get; set; } = false;
     public bool WriteSystemLogConsole { get; set; } = true;
     public int DaysToKeepSystemLog { get; set; } = 10;
     public double NodeCacheSizeGb { get; set; } = 1;

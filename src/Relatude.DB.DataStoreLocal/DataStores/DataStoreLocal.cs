@@ -25,7 +25,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal GuidStore _guids = default!;
     internal IndexStore _index = default!;
     internal RelationStore _relations = default!;
-    internal LogFile _log = default!;
+    internal WALFile _wal = default!;
     internal NodeStore _nodes = default!;
     internal Variables _variables = default!;
     long _startUpTimeMs;
@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
     readonly IFileStore _defaultFileStore;
-    readonly QueryLogger _queryLogger;
+    readonly Logger _logger;
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
     internal readonly IAIProvider? _ai;
@@ -46,7 +46,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
-    readonly Action<string>? _logCallback;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
     long _noPrimitiveActionsSinceLastStateSnaphot;
@@ -68,12 +67,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? bkup = null,
         IIOProvider? log = null,
         IAIProvider? ai = null,
-        Action<string>? logCallback = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
         IQueueStore? queueStore = null
         ) {
         _initiatedUtc = DateTime.UtcNow;
-        _logCallback = logCallback;
         //_lock = new(LockRecursionPolicy.SupportsRecursion);
         _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
@@ -82,11 +79,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioLog = log ?? _io;
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
-        if (_ai != null) _ai.LogCallback = Log;
+        if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new FileKeyUtility(_settings.FilePrefix);
-        _queryLogger = new(_ioLog, _settings.EnableQueryLog, _settings.EnableQueryLogDetails, _fileKeys, dm);
+        _logger = new(_ioLog, _fileKeys, dm);
         RegisterRunner(new IndexTaskRunner(this));
         RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         TaskQueue = new(new DefaultQueueStore(_taskRunners), _taskRunners);
@@ -110,7 +107,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _defaultFileStore = _fileStores[Guid.Empty];
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
-        deleteOldSystemLogFiles();
         _scheduler = new(this);
         try {
             initialize();
@@ -136,9 +132,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public FileKeyUtility FileKeys => _fileKeys;
-    public ILogStore LogStore => _queryLogger.LogStore;
+    public ILogStore LogStore => _logger.LogStore;
     public IAIProvider AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
-    public QueryLogger QueryLogger => _queryLogger;
+    public Logger Logger => _logger;
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;
     public SettingsLocal Settings => _settings;
@@ -147,7 +143,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _lock.EnterReadLock();
             try {
-                return _log.LastTimestamp;
+                return _wal.LastTimestamp;
             } finally {
                 _lock.ExitReadLock();
             }
@@ -162,12 +158,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? log = null,
         IAIProvider? ai = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
-        Action<string>? logCallback = null,
         bool? throwOnBadStateFile = false,
         bool? throwOnBadLogFile = false
         ) {
         settings ??= new();
-        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, logCallback, createPersistedIndexStore);
+        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, createPersistedIndexStore);
         try {
             d.Open(throwOnBadLogFile ?? settings.ThrowOnBadLogFile,
                 throwOnBadStateFile ?? settings.ThrowOnBadStateFile);
@@ -191,7 +186,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
             if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
         };
-        _log = new(_fileKeys.Log_GetLatestFileKey(_io), _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback);
+        _wal = new(_fileKeys.Log_GetLatestFileKey(_io), _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);
@@ -202,13 +197,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         TaskQueue?.ReOpen();
         TaskQueuePersisted?.ReOpen();
         logLine___________________________();
-        Log("Database intialized");
+        LogInfo("Database intialized");
     }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
         var sw = Stopwatch.StartNew();
         _scheduler.Stop();
         _lock.EnterWriteLock();
-        Log("Database opening");
+        LogInfo("Database opening");
         var activityId = registerActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
         var currentModelHash = getCheckSumForStateFileAndIndexes();
         try {
@@ -217,29 +212,29 @@ public sealed partial class DataStoreLocal : IDataStore {
             readState(throwOnBadStateFile, currentModelHash, activityId);
             _state = DataStoreState.Open;
             _startUpTimeMs = sw.ElapsedMilliseconds;
-            Log("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
+            LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
         } catch (IndexReadException e) {
-            Log("Indexfile out of sync: " + e.Message);
+            LogInfo("Indexfile out of sync: " + e.Message);
             if (throwOnBadStateFile) {
                 _state = DataStoreState.Error;
                 throw;
             } else { // delete state file and reload
                 try {
-                    Log("Rebuilding index from log");
+                    LogInfo("Rebuilding index from log");
                     updateActivity(activityId, "Rebuilding index from log", 0);
                     _io.DeleteIfItExists(_fileKeys.StateFileKey);
                     Dispose();
                     initialize();
                     if (PersistedIndexStore != null) {
-                        Log("Resetting persisted index store, index store is out of sync");
-                        PersistedIndexStore.Reset(_log.FileId, currentModelHash);
+                        LogInfo("Resetting persisted index store, index store is out of sync");
+                        PersistedIndexStore.Reset(_wal.FileId, currentModelHash);
                     }
                     readState(throwOnBadStateFile, currentModelHash, activityId);
                     _state = DataStoreState.Open;
                     _startUpTimeMs = sw.ElapsedMilliseconds;
-                    Log("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
+                    LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
                 } catch (Exception reloadError) {
-                    Log("Reopen failed. " + reloadError.Message);
+                    LogInfo("Reopen failed. " + reloadError.Message);
                     _state = DataStoreState.Error;
                     throw;
                 }
@@ -310,7 +305,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterReadLock();
         try {
             validateDatabaseState();
-            return _log.LastTimestamp;
+            return _wal.LastTimestamp;
         } finally {
             _lock.ExitReadLock();
         }
@@ -322,8 +317,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { _scheduler.Stop(); } catch { }
         try { if (_state == DataStoreState.Open) FlushToDisk(); } catch { }
         try { _index?.Dispose(); } catch { }
-        try { _log?.Dispose(); } catch { }
-        try { _queryLogger?.Dispose(); } catch { }
+        try { _wal?.Dispose(); } catch { }
+        try { _logger?.Dispose(); } catch { }
         try { _ai?.Dispose(); } catch { }
         try { PersistedIndexStore?.Dispose(); } catch { }
         try { TaskQueue?.Dispose(); } catch { }

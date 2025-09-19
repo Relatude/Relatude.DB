@@ -286,9 +286,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 tr.DurationMs = durationMs;
                 rows = tr.Count;
             }
-            if (_queryLogger.Enabled) {
-                _queryLogger.RecordQuery(query ?? expression.ToString()!, durationMs, rows, scope.Metrics);
-            }
+            if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, durationMs, rows, scope.Metrics);
             Interlocked.Increment(ref _noQueriesSinceClearCache);
             return result;
         } finally {

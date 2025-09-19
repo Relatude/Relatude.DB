@@ -36,7 +36,7 @@ namespace Relatude.DB.Logging {
         bool HasLog(string logKey);
         bool IsEnabled(string logKey);
         void RebuildStatistics(string logKey);
-        bool Record(string logKey, LogEntry entry, bool flushToDisk = false);
+        bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null);
         void SaveStatistics();
         void SaveStatsAndDeleteExpiredData();
     }

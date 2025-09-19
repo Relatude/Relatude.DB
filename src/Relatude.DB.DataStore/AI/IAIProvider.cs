@@ -4,7 +4,7 @@ public interface IAIProvider : IDisposable {
     Task<string> GetCompletionAsync(string prompt);
     void ClearCache();
     AIProviderSettings Settings { get; }
-    Action<string, bool>? LogCallback { get; set; }
+    Action<string>? LogCallback { get; set; }
 }
 public enum AIProviderCacheType {
     Memory = 0,

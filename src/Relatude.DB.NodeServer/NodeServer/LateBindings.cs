@@ -34,13 +34,13 @@ public static class LateBindings {
     public static IQueueStore CreateSqliteQueueStore(string queuePath) {
         return create<IQueueStore>("Relatude.DB.Tasks.SqliteQueueStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [queuePath]);
     }
-    public static IEmbeddingCache CreateSqlLiteEmbeddingCache(string? filePath, Action<string> log) {
-        return create<IEmbeddingCache>("Relatude.DB.AI.SqlLiteEmbeddingCache", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [filePath, log]);
+    public static IEmbeddingCache CreateSqlLiteEmbeddingCache(string? filePath) {
+        return create<IEmbeddingCache>("Relatude.DB.AI.SqlLiteEmbeddingCache", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [filePath]);
     }
     internal static IAIProvider CreateAzureAiProvider(AIProviderSettings aiSettings, IEmbeddingCache cache) {
         return create<IAIProvider>("Relatude.DB.AI.AzureAiProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [aiSettings, cache]);
     }
-    internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings, Action<string> log) {
-        return create<IIOProvider>("Relatude.DB.AI.AzureBlobIOProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob, log]);
+    internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
+        return create<IIOProvider>("Relatude.DB.IO.AzureBlobIOProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob]);
     }
 }

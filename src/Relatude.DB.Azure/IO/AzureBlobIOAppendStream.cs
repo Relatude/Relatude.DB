@@ -19,7 +19,6 @@ namespace Relatude.DB.IO {
     public class AzureBlobIOAppendStream : IAppendStream {
         readonly AppendBlobClient _appendBlobClient;
         readonly BlobLeaseClient? _blobLeaseClient;
-        readonly Action<string> _log;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
         long _maxBufferBeforeFlush = 1024 * 1024 * 2; //2 mb
@@ -29,9 +28,8 @@ namespace Relatude.DB.IO {
         object _lock = new();
         ChecksumUtil _checkSum = new();
         public string FileKey { get; }
-        public AzureBlobIOAppendStream(Action<string> log, BlobContainerClient container, string blobName, string fileKey, bool lockBlob, Action<long> disposeCallback) {
+        public AzureBlobIOAppendStream(BlobContainerClient container, string blobName, string fileKey, bool lockBlob, Action<long> disposeCallback) {
             _disposeCallback = disposeCallback;
-            _log = log;
             FileKey = fileKey;
             _appendBlobClient = container.GetAppendBlobClient(blobName);
             AzureBlobIOProvider.EnsureResetOfLeaseId(container, blobName);
@@ -63,7 +61,7 @@ namespace Relatude.DB.IO {
                 if (_writeBuffer.Length < _maxBufferBeforeFlush) {
                     Stopwatch sw = Stopwatch.StartNew();
                     _appendBlobClient.AppendBlock(_writeBuffer, options);
-                    _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
+                    // _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
                 } else {
                     var segment = new byte[_maxBufferBeforeFlush];
                     var segmengStream = new MemoryStream((int)_maxBufferBeforeFlush);
@@ -76,7 +74,7 @@ namespace Relatude.DB.IO {
                         segmengStream.SetLength(read);
                         Stopwatch sw = Stopwatch.StartNew();
                         _appendBlobClient.AppendBlock(segmengStream, options);
-                        _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
+                        // _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
                     }
                 }
                 _writeBuffer = new MemoryStream();
@@ -128,7 +126,7 @@ namespace Relatude.DB.IO {
             var binaryData = _appendBlobClient.DownloadContent(options).Value.Content;
             var stream = binaryData.ToStream();
             stream.Read(buffer, 0, length);
-            _log(" - Appender Downloaded " + FileKey + " " + length.ToTransferString(sw)+ " offset:" + offset.To1000N());
+            // _log(" - Appender Downloaded " + FileKey + " " + length.ToTransferString(sw)+ " offset:" + offset.To1000N());
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();
         public void WriteChecksum() => _checkSum.WriteChecksum(this);

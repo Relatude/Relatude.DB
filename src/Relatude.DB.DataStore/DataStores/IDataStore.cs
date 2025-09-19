@@ -11,14 +11,16 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public interface IDataStore : IDisposable {
     void DeleteIndexStateFile();
-    void Log(string message, bool isError = false);
+    void LogInfo(string text, string? details = null);
+    void LogWarning(string text, string? details = null);
     void LogError(string description, Exception error);
+    void Log(SystemLogEntryType type, string text, string? details = null);
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
-    ILogStore LogStore{ get; }
+    ILogStore LogStore { get; }
     IAIProvider AI { get; }
-    QueryLogger QueryLogger { get; }
+    Logger Logger { get; }
 
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }

@@ -24,7 +24,7 @@ namespace Relatude.DB.NodeServer {
         public AITypes AIType { get; set; }
         public AIProviderCacheType? CacheType { get; set; }
 
-        public static IAIProvider Create(AISettings settings, string? dataFolder, string? filePrefix, Action<string> log) {
+        public static IAIProvider Create(AISettings settings, string? dataFolder, string? filePrefix) {
             switch (settings.AIType) {
                 case AITypes.Azure: {
 
@@ -47,7 +47,7 @@ namespace Relatude.DB.NodeServer {
                         }
                         IEmbeddingCache cache = s.CacheType switch {
                             AIProviderCacheType.Memory => new MemoryEmbeddingCache(1000),
-                            AIProviderCacheType.SqlLite => LateBindings.CreateSqlLiteEmbeddingCache(filePath, log),
+                            AIProviderCacheType.SqlLite => LateBindings.CreateSqlLiteEmbeddingCache(filePath),
                             _ => throw new NotImplementedException(),
                         };
                         return LateBindings.CreateAzureAiProvider(s, cache);

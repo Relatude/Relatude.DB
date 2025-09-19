@@ -95,17 +95,17 @@ internal class Scheduler(DataStoreLocal _db) {
     static void initTaskQueue(IDataStore db, TaskQueue queue, string name) {
         var a = queue.BatchCountsPerState();
         if (a.Length == 0) {
-            db.Log(name + " queue initiated.");
+            db.LogInfo(name + " queue initiated.");
         } else {
-            db.Log(name + " queue initiated with:");
+            db.LogInfo(name + " queue initiated with:");
             for (int i = 0; i < a.Length; i++) {
                 var kv = a[i];
-                db.Log(" - " + kv.Value + " " + kv.Key.ToString().Decamelize().ToLower());
+                db.LogInfo(" - " + kv.Value + " " + kv.Key.ToString().Decamelize().ToLower());
             }
         }
         queue.RestartTasksFromDbShutdown(out int restartedBatches, out int abortedBatches, out int restaredTasks, out int abortedTasks);
-        if (restartedBatches > 0) db.Log("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
-        if (abortedBatches > 0) db.Log("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
+        if (restartedBatches > 0) db.LogInfo("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
+        if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
     static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, IDataStore db) {
         if (oneThread.IsRunning_IfNotFlagToRunning()) return;
@@ -118,13 +118,12 @@ internal class Scheduler(DataStoreLocal _db) {
             var tasks = new List<Task<BatchTaskResult[]>>();
 
             BatchTaskResult[] result = queue.ExecuteTasksAsync(10000, abort).Result;
-
             var ms = sw.Elapsed.TotalMilliseconds;
             if (result.Length == 0) return; // no tasks executed
             var failed = result.Count(r => r.Error != null);
             var taskTotalCount = result.Sum(r => r.TaskCount);
             var taskFailedCount = result.Where(r => r.Error != null).Sum(r => r.TaskCount);
-            db.Log("Dequeued " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
+            db.LogInfo("Dequeued " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
                 (failed > 0 ? (taskFailedCount + " tasks in " + failed + " batches failed! ") : ""));
             foreach (var r in result) if (r.Error != null) db.LogError(r.TaskTypeName + " failed", r.Error!);
         } catch (Exception err) {
@@ -141,7 +140,7 @@ internal class Scheduler(DataStoreLocal _db) {
             int deletedCount = queue.DeleteExpiredTasks();
             sw.Stop();
             if (deletedCount > 0) {
-                db.Log("Deleted " + deletedCount + " expired tasks in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+                db.LogInfo("Deleted " + deletedCount + " expired tasks in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
             }
         } catch (Exception err) {
             db.LogError("Deleting expired tasks failed: ", err);
@@ -162,7 +161,7 @@ internal class Scheduler(DataStoreLocal _db) {
                     //_db.Log("Auto disk flush delayed, database busy. ");
                     return; // too busy, delay
                 } else {
-                    _db.Log("Auto disk flush forced. " + secondsSinceLastAutoFlush.To1000N() + "s since last auto flush. ");
+                    _db.LogInfo("Auto disk flush forced. " + secondsSinceLastAutoFlush.To1000N() + "s since last auto flush. ");
                 }
             } else {
                 // _db.Log("Not busy, auto disk flush starting. ");
@@ -170,7 +169,7 @@ internal class Scheduler(DataStoreLocal _db) {
             _lastAutoFlush = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
             _db.FlushToDisk(out var t, out var a, out var w);
-            if (t > 0) _db.Log("Background disk flush. "
+            if (t > 0) _db.LogInfo("Background disk flush. "
                 + sw.ElapsedMilliseconds.To1000N() + "ms, "
                 + t + " transaction" + (t != 1 ? "s" : "") + ", "
                 + a + " action" + (a != 1 ? "s" : "") + ", "
@@ -194,7 +193,7 @@ internal class Scheduler(DataStoreLocal _db) {
             if (_db.State != DataStoreState.Open) return;
             if (_s.AutoPurgeCache) runAutoPurgeCache();
             if (_db.State != DataStoreState.Open) return;
-            if (_db.QueryLogger.Enabled) flushQueryLogIfRunning();
+            if (_db.Logger.LoggingAny) flushQueryLogIfRunning();
         } catch (Exception err) {
             _db.LogError("Background task failed: ", err);
         } finally {
@@ -206,11 +205,11 @@ internal class Scheduler(DataStoreLocal _db) {
     void flushQueryLogIfRunning() {
         try {
             if ((DateTime.UtcNow - _lastQueryLogFlush).TotalSeconds < 30) {
-                _db.QueryLogger.FlushToDiskNow();
+                _db.Logger.FlushToDiskNow();
                 _lastQueryLogFlush = DateTime.UtcNow;
             }
             if ((DateTime.UtcNow - _lastQueryLogMaintenance).TotalSeconds > 60) {
-                    _db.QueryLogger.SaveStatsAndDeleteExpiredData();
+                    _db.Logger.SaveStatsAndDeleteExpiredData();
                 _lastQueryLogMaintenance = DateTime.UtcNow;
             }
         } catch (Exception err) {
@@ -234,15 +233,15 @@ internal class Scheduler(DataStoreLocal _db) {
                     // _db.Log("Auto save index states not due yet, based on time interval. ");
                     return;
                 } else {
-                    _db.Log("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
+                    _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
                 }
             } else {
-                _db.Log("Auto save index states due, upper unsaved action count limit exceeded. ");
+                _db.LogInfo("Auto save index states due, upper unsaved action count limit exceeded. ");
             }
             var sw = Stopwatch.StartNew();
-            _db.Log("Auto save index states started");
+            _db.LogInfo("Auto save index states started");
             _db.Maintenance(MaintenanceAction.SaveIndexStates);
-            _db.Log("Auto save index states finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            _db.LogInfo("Auto save index states finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         } catch (Exception err) {
             _db.LogError("Auto save index states failed: ", err);
         }
@@ -254,9 +253,9 @@ internal class Scheduler(DataStoreLocal _db) {
         try {
             if ((now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes) return;
             var sw = Stopwatch.StartNew();
-            _db.Log("Auto truncate started");
+            _db.LogInfo("Auto truncate started");
             _db.Maintenance(MaintenanceAction.TruncateLog);
-            _db.Log("Auto truncate finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            _db.LogInfo("Auto truncate finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         } catch (Exception err) {
             _db.LogError("Auto truncate failed: ", err);
         }
@@ -275,7 +274,7 @@ internal class Scheduler(DataStoreLocal _db) {
             _db.Maintenance(MaintenanceAction.PurgeCache);
             sw.Stop();
             long finalSize = _db._nodes.CacheSize + _db._definition.Sets.CacheSize;
-            _db.Log("Auto cache purge " + sw.ElapsedMilliseconds.To1000N() + "ms. "
+            _db.LogInfo("Auto cache purge " + sw.ElapsedMilliseconds.To1000N() + "ms. "
                 + intialSize.ToByteString() + " -> "
                 + finalSize.ToByteString() + ". ");
         } catch (Exception err) {
@@ -306,13 +305,13 @@ internal class Scheduler(DataStoreLocal _db) {
         if (filesInCurrentHour.Count() == 0) {
             var sw = Stopwatch.StartNew();
             var fileKey = _db.FileKeys.Log_GetFileKeyForBackup(now, false);
-            _db.Log("Backup started: " + fileKey);
+            _db.LogInfo("Backup started: " + fileKey);
             if (_s.TruncateBackups) {
                 _db.RewriteStore(false, fileKey, _db.IOBackup);
             } else {
                 _db.CopyStore(fileKey, _db.IOBackup);
             }
-            _db.Log("Backup finished: " + fileKey + " in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            _db.LogInfo("Backup finished: " + fileKey + " in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         }
     }
     void deleteOlderBackupsIfDue() {
@@ -377,7 +376,7 @@ internal class Scheduler(DataStoreLocal _db) {
         }
         var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep); // the opoosite of keep
         foreach (var f in filesToDelete) {
-            _db.Log("Deleting: " + f);
+            _db.LogInfo("Deleting: " + f);
             _db.IO.DeleteIfItExists(f);
         }
     }

@@ -3,9 +3,14 @@ using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Query;
-
 namespace Relatude.DB.DataStores;
-public class QueryLogger : IDisposable {
+public enum SystemLogEntryType {
+    Info,
+    Warning,
+    Error,
+}
+public class Logger : IDisposable {
+
     static string _systemLogKey = "system";
     static string _queryLogKey = "query";
     static string _transactionLogKey = "transaction";
@@ -13,12 +18,13 @@ public class QueryLogger : IDisposable {
     static string _taskqueueLogKey = "taskqueue";
     static string _taskbatchqueueLogKey = "taskbatchqueue";
     static string _statusLogKey = "status";
+
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    LogStore? _logStore;
+    LogStore _logStore;
+    readonly Datamodel _datamodel;
     public LogStore LogStore {
         get {
-            if (_logStore == null) throw new InvalidOperationException("Logging is not initialized.");
             return _logStore;
         }
     }
@@ -26,12 +32,12 @@ public class QueryLogger : IDisposable {
         return [
             new() {
                 Name = "System",
-                Key = _queryLogKey,
+                Key = _systemLogKey,
                 FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = true,
                 ResolutionRowStats = 4,
@@ -52,7 +58,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -77,7 +83,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -100,7 +106,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -121,7 +127,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -142,7 +148,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -166,7 +172,7 @@ public class QueryLogger : IDisposable {
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
-                EnableLog = _enableDetails,
+                EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
@@ -184,37 +190,43 @@ public class QueryLogger : IDisposable {
             },
         ];
     }
-    readonly Datamodel _datamodel;
-    bool _enabled;
-    public bool Enabled {
-        get => _enabled;
-        set {
-            if (value && _logStore == null) _logStore = new LogStore(_io, getSettings());
-            _enabled = value;
-        }
-    }
+
+    public bool EnableSystemLog = true; // only system log, is enabled by default
+    public bool EnableSystemLogStatistics = true; // all statistics enabled by default for all logs...
+    public bool EnableSystemQueryLog = false;
+    public bool EnableSystemQueryLogStatistics = true;
+    public bool EnableTransactionLog = false;
+    public bool EnableTransactionLogStatistics = true;
+    public bool EnableActionLog = false;
+    public bool EnableActionLogStatistics = true;
+    public bool EnableTaskQueueLog = false;
+    public bool EnableTaskQueueLogStatistics = true;
+    public bool EnableTaskBatchQueueLog = false;
+    public bool EnableTaskBatchQueueLogStatistics = true;
+    public bool EnableStatusLog = false;
+    public bool EnableStatusLogStatistics = true;
+
+    public bool LoggingSystem => EnableSystemLog || EnableSystemLogStatistics;
+    public bool LoggingTransactionsOrActions => EnableTransactionLog || EnableActionLog || EnableTransactionLogStatistics || EnableActionLogStatistics;
+    public bool LoggingTransactions => EnableTransactionLog || EnableTransactionLogStatistics;
+    public bool LoggingActions => EnableActionLog || EnableActionLogStatistics;
+    public bool LoggingQueries => EnableSystemQueryLog || EnableSystemQueryLogStatistics;
+    public bool LoggingTaskQueue => EnableTaskQueueLog || EnableTaskQueueLogStatistics;
+    public bool LoggingTaskBatchQueue => EnableTaskBatchQueueLog || EnableTaskBatchQueueLogStatistics;
+    public bool LoggingStatus => EnableStatusLog || EnableStatusLogStatistics;
+    public bool LoggingAny => EnableSystemLog || EnableSystemLogStatistics || EnableSystemQueryLog || EnableSystemQueryLogStatistics || EnableTransactionLog || EnableTransactionLogStatistics || EnableActionLog || EnableActionLogStatistics || EnableTaskQueueLog || EnableTaskQueueLogStatistics || EnableTaskBatchQueueLog || EnableTaskBatchQueueLogStatistics || EnableStatusLog || EnableStatusLogStatistics;
+
+
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
-    bool _enableDetails;
-    public bool EnableDetails {
-        get => _enableDetails;
-        set {
-            _enableDetails = value;
-            bool orgValue = Enabled;
-            Enabled = false;
-            _logStore?.Dispose();
-            _logStore = new LogStore(_io, getSettings());
-            Enabled = orgValue;
-        }
-    }
-    public QueryLogger(IIOProvider io, bool enabled, bool enableDetails, FileKeyUtility fileKeys, Datamodel datamodel) {
+
+    public Logger(IIOProvider io, FileKeyUtility fileKeys, Datamodel datamodel) {
         _fileKeys = fileKeys;
-        _enableDetails = enableDetails;
         _io = io;
         _datamodel = datamodel;
-        Enabled = enabled;
+        _logStore = new LogStore(_io, getSettings());
     }
-    public void RecordSystem(Exception error) => RecordSystem(SystemLogEntryType.Error, error.Message, error.StackTrace);
     public void RecordSystem(SystemLogEntryType type, string text, string? details = null) {
+        if (!EnableSystemLog) return;        
         LogEntry entry = new();
         entry.Values.Add("type", type.ToString());
         entry.Values.Add("text", text);
@@ -223,6 +235,7 @@ public class QueryLogger : IDisposable {
         _logStore?.FlushToDiskNow(_systemLogKey);
     }
     public void RecordQuery(string query, double durationMs, int resultCount, Metrics metrics) {
+        if (!EnableSystemQueryLog) return;
         if (durationMs < MinDurationMsBeforeLogging) return;
         LogEntry entry = new();
         entry.Values.Add("query", query);
@@ -235,6 +248,7 @@ public class QueryLogger : IDisposable {
         _logStore?.Record(_queryLogKey, entry);
     }
     public void RecordTransaction(long transactionId, double duration, int actionCount, int primitiveActionCount, bool diskFlush) {
+        if (!EnableTransactionLog) return;
         LogEntry entry = new();
         entry.Values.Add("transactionId", transactionId);
         entry.Values.Add("duration", duration);
@@ -244,6 +258,7 @@ public class QueryLogger : IDisposable {
         _logStore?.Record(_transactionLogKey, entry);
     }
     public void RecordAction(long transactionId, string operation, string details) {
+        if (!EnableActionLog) return;
         LogEntry entry = new();
         entry.Values.Add("transactionId", transactionId);
         entry.Values.Add("operation", operation);
@@ -251,6 +266,7 @@ public class QueryLogger : IDisposable {
         _logStore?.Record(_actionLogKey, entry);
     }
     public void RecordTaskQueue(string id, string taskName, DateTime created, double durationMs, string result, string details) {
+        if (!EnableTaskQueueLog) return;
         LogEntry entry = new();
         entry.Values.Add("id", id);
         entry.Values.Add("taskName", taskName);
@@ -259,6 +275,17 @@ public class QueryLogger : IDisposable {
         entry.Values.Add("result", result);
         entry.Values.Add("details", details);
         _logStore?.Record(_taskqueueLogKey, entry);
+    }
+    public void RecordTaskBatchQueue(string id, string taskName, DateTime created, double durationMs, string result, string details) {
+        if (!EnableTaskBatchQueueLog) return;
+        LogEntry entry = new();
+        entry.Values.Add("id", id);
+        entry.Values.Add("taskName", taskName);
+        entry.Values.Add("created", created.ToString("o"));
+        entry.Values.Add("duration", durationMs);
+        entry.Values.Add("result", result);
+        entry.Values.Add("details", details);
+        _logStore?.Record(_taskbatchqueueLogKey, entry);
     }
     public void RecordStatus(int nodeCacheCount, int nodeCacheSize, int setCacheCount, int setCacheSize, int taskQueueCount) {
         LogEntry entry = new();
@@ -311,21 +338,14 @@ public class QueryLogger : IDisposable {
             }
         }
     }
-
-    public void Clear() {
+    public void Clear(string logKey) {
         if (_logStore == null) return;
-        _logStore.DeleteLogAndStatistics(_queryLogKey);
-        _logStore.DeleteLogAndStatistics(_transactionLogKey);
-        _logStore.DeleteLogAndStatistics(_actionLogKey);
+        _logStore.DeleteLogAndStatistics(logKey);
     }
     public LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, out int total) {
         if (_logStore == null) { total = 0; return []; }
-        return _logStore.ExtractLog(_systemLogKey, from, to, skip, take, out total).ToArray();
+        return _logStore.ExtractLog(logKey, from, to, skip, take, out total).ToArray();
     }
-    public LogEntry[] ExtractSystemLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_systemLogKey, from, to, skip, take, out total);
-    public LogEntry[] ExtractQueryLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_queryLogKey, from, to, skip, take, out total);
-    public LogEntry[] ExtractTransactionLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_transactionLogKey, from, to, skip, take, out total);
-    public LogEntry[] ExtractActionLog(DateTime from, DateTime to, int skip, int take, out int total) => ExtractLog(_actionLogKey, from, to, skip, take, out total);
     public Interval<int>[] AnalyseSystemLogCount(IntervalType intervalType, DateTime from, DateTime to) {
         if (_logStore == null) return [];
         return _logStore.AnalyseRows(_systemLogKey, intervalType, from, to, false, true).ToArray();
@@ -362,6 +382,7 @@ public class QueryLogger : IDisposable {
         if (_logStore == null) return new Interval<Dictionary<string, int>>(from, to);
         return _logStore.AnalyseCombinedGroupCounts(_actionLogKey, "operation", intervalType, from, to);
     }
+    
     public void FlushToDiskNow() {
         if (_logStore != null) _logStore.FlushToDiskNow();
     }
@@ -371,10 +392,53 @@ public class QueryLogger : IDisposable {
     public void Dispose() {
         _logStore?.Dispose();
     }
-}
 
-public enum SystemLogEntryType {
-    Info,
-    Warning,
-    Error,
+    public void EnableLog(string logKey, bool enable) {
+        switch (logKey) {
+            case "system": EnableSystemLog = enable; break;
+            case "query": EnableSystemQueryLog = enable; break;
+            case "transaction": EnableTransactionLog = enable; break;
+            case "action": EnableActionLog = enable; break;
+            case "taskqueue": EnableTaskQueueLog = enable; break;
+            case "taskbatchqueue": EnableTaskBatchQueueLog = enable; break;
+            case "status": EnableStatusLog = enable; break;
+            default: break;
+        }
+    }
+    public void EnableStatistics(string logKey, bool enable) {
+        switch (logKey) {
+            case "system": EnableSystemLogStatistics = enable; break;
+            case "query": EnableSystemQueryLogStatistics = enable; break;
+            case "transaction": EnableTransactionLogStatistics = enable; break;
+            case "action": EnableActionLogStatistics = enable; break;
+            case "taskqueue": EnableTaskQueueLogStatistics = enable; break;
+            case "taskbatchqueue": EnableTaskBatchQueueLogStatistics = enable; break;
+            case "status": EnableStatusLogStatistics = enable; break;
+            default: break;
+        }
+    }
+    public bool IsLogEnabled(string logKey) {
+        switch (logKey) {
+            case "system": return EnableSystemLog;
+            case "query": return EnableSystemQueryLog;
+            case "transaction": return EnableTransactionLog;
+            case "action": return EnableActionLog;
+            case "taskqueue": return EnableTaskQueueLog;
+            case "taskbatchqueue": return EnableTaskBatchQueueLog;
+            case "status": return EnableStatusLog;
+            default: return false;
+        }
+    }
+    public bool IsStatisticsEnabled(string logKey) {
+        switch (logKey) {
+            case "system": return EnableSystemLogStatistics;
+            case "query": return EnableSystemQueryLogStatistics;
+            case "transaction": return EnableTransactionLogStatistics;
+            case "action": return EnableActionLogStatistics;
+            case "taskqueue": return EnableTaskQueueLogStatistics;
+            case "taskbatchqueue": return EnableTaskBatchQueueLogStatistics;
+            case "status": return EnableStatusLogStatistics;
+            default: return false;
+        }
+    }
 }

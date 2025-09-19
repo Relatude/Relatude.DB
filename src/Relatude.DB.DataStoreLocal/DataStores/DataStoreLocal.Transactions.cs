@@ -13,13 +13,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public TransactionResult Execute(TransactionData transaction, bool flushToDisk = false) {
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
-        if (_queryLogger.Enabled) {
+        if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
             var transId = execute_withTransformOption(transaction, true, flushToDisk, out var primitiveActionCount);
-            if (_queryLogger.Enabled) {
-                foreach (var a in transaction.Actions) _queryLogger.RecordAction(transId.TransactionId, a.OperationName(), a.ToString());
-                _queryLogger.RecordTransaction(transId.TransactionId, sw.Elapsed.TotalMilliseconds, transaction.Actions.Count, primitiveActionCount, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk);
-            }
+            if (_logger.LoggingActions)
+                foreach (var a in transaction.Actions) _logger.RecordAction(transId.TransactionId, a.OperationName(), a.ToString());
+            if (_logger.LoggingTransactions)
+                _logger.RecordTransaction(transId.TransactionId, sw.Elapsed.TotalMilliseconds, transaction.Actions.Count, primitiveActionCount, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk);
             return transId;
         } else {
             return execute_withTransformOption(transaction, true, flushToDisk, out _);
@@ -31,9 +31,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
             validateDatabaseState();
-            if (transaction.Timestamp <= _log.LastTimestamp) {
+            if (transaction.Timestamp <= _wal.LastTimestamp) {
                 if (transaction.Timestamp > 0) throw new ExceptionWithoutIntegrityLoss("Invalid timestamp value. Transactions can only be executed once. ");
-                transaction.Timestamp = _log.NewTimestamp();
+                transaction.Timestamp = _wal.NewTimestamp();
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
@@ -65,13 +65,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
         if (executed.Count == 0) {
-            if (flushToDisk) _log.FlushToDisk();
+            if (flushToDisk) _wal.FlushToDisk();
             return; // no actions executed, no need to write to disk
         }
         var executedTransaction = new ExecutedPrimitiveTransaction(executed, transaction.Timestamp);
-        _log.QueDiskWrites(executedTransaction);
+        _wal.QueDiskWrites(executedTransaction);
         _rewriter?.RegisterNewTransactionWhileRewriting(executedTransaction);
-        if (flushToDisk) _log.FlushToDisk();
+        if (flushToDisk) _wal.FlushToDisk();
         _noPrimitiveActionsSinceLastStateSnaphot += primitiveActionCount;
         _noPrimitiveActionsSinceClearCache += primitiveActionCount;
         _noTransactionsSinceLastStateSnaphot++;
@@ -111,8 +111,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 // Console.WriteLine("Rollback: " + executed[n]);
                 executeAction(executed[n].Opposite());
             }
-            _guids.CancelNewIds();
             throw;
+        } finally {
+            _guids.CancelUnCommitedNewIdsIfAny();
         }
     }
     void validateLocks(PrimitiveActionBase a, HashSet<Guid>? transactionLocks) {

@@ -45,16 +45,16 @@ public sealed class NodeStore : IDisposable {
         if (datastore.IO.DoesNotExistsOrIsEmpty(fileKey)) {
             Stopwatch sw2 = Stopwatch.StartNew();
             dll = Compiler.BuildDll(code, datastore.Datamodel);
-            datastore.Log("Recompiled mapper DLL in " + sw2.ElapsedMilliseconds.To1000N() + "ms.");
+            datastore.LogInfo("Recompiled mapper DLL in " + sw2.ElapsedMilliseconds.To1000N() + "ms.");
             datastore.IO.WriteAllBytes(fileKey, dll);
         } else {
             dll = datastore.IO.ReadAllBytes(fileKey);
-            datastore.Log("Loading mapper DLL from disk. ");
+            datastore.LogInfo("Loading mapper DLL from disk. ");
         }
         var types = Compiler.LoadDll(dll);
         Mapper = new NodeMapper(types, this);
         sw.Stop();
-        datastore.Log("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
+        datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
     public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node), flushToDisk);

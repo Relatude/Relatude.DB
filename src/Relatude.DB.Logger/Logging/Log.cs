@@ -128,14 +128,14 @@ internal class Log : IDisposable {
             }
         }
     }
-    public void Record(LogEntry entry, bool flushToDisk) {
+    public void Record(LogEntry entry, bool flushToDisk, bool? forceLogging = null, bool? forceStatistics = null) {
         lock (_lock) {
-            if (_setting.EnableLog) {
+            if (_setting.EnableLog || (forceLogging.HasValue && forceLogging.Value)) {
                 var record = getRecord(entry);
                 _logStream.Record(record, flushToDisk);
                 if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
             }
-            if (_setting.EnableStatistics) {
+            if (_setting.EnableStatistics || (forceStatistics.HasValue && forceStatistics.Value)) { 
                 _rowStat.RecordIfPossible(entry.Timestamp, true);
                 foreach (var value in entry.Values) {
                     if (_statByProp.TryGetValue(value.Key, out var stats)) {

@@ -1,5 +1,4 @@
 ﻿using Microsoft.Data.Sqlite;
-using System.Data;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.AI;
@@ -7,7 +6,6 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     SqliteConnection _cn = default!;
     string? _localFilePath;
-    readonly Action<string>? _logCallback;
     bool _open = false;
     void openIfClosed() {
         lock (_lock) {
@@ -16,7 +14,6 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             _cn = new();
             _cn.ConnectionString = connectionStr;
             _cn.Open();
-            _logCallback?.Invoke("EmbeddingCache opened: " + connectionStr);
             using var pragma = _cn.CreateCommand();
             pragma.CommandText = "PRAGMA journal_mode=WAL";
             pragma.ExecuteNonQuery();
@@ -26,9 +23,8 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             _open = true;
         }
     }
-    public SqlLiteEmbeddingCache(string? localFilePath, Action<string>? logCallback = null) {
+    public SqlLiteEmbeddingCache(string? localFilePath) {
         _localFilePath = localFilePath;
-        _logCallback = logCallback;
     }
     public void Set(ulong hash, float[] embedding) {
         lock (_lock) {

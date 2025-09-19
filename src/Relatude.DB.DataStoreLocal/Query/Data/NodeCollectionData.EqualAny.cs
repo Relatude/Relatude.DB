@@ -11,7 +11,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             foreach (var id in _ids.Enumerate()) {
                 var node = _db._nodes.Get(id);
                 if (node.TryGetValue(propertyId, out var value)) {
-                    if (_db.QueryLogger.RecordingPropertyHits) _db.QueryLogger.RecordPropertyHit(propertyId);
+                    if (_db.Logger.RecordingPropertyHits) _db.Logger.RecordPropertyHit(propertyId);
                     foreach (var v in values) {
                         if (value.Equals(v)) {
                             ids.Add(id);

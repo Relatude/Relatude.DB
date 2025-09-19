@@ -46,9 +46,9 @@ namespace Relatude.DB.DataStores.Stores {
                 _newIds = null;
             }
         }
-        public void CancelNewIds() {
+        public void CancelUnCommitedNewIdsIfAny() {
             lock (_lock) {
-                if (_newIds == null) throw new("Recording never started. ");
+                if (_newIds == null) return;
                 foreach (var pair in _newIds) {
                     _guids.Remove(pair.Id);
                     _ids.Remove(pair.Guid);
