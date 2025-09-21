@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, ContainerLogEntry, QueryLogValues, TransactionLogValues, ActionLogValues, Transaction, ServerLogEntry, DataStoreStatus } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry } from "./models";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
@@ -45,7 +45,7 @@ export class API {
             statusCode = response.status;
             if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
             return await response.text();
-        } catch (error) {
+        } catch (error: any) {
             const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
             if (!noRetry && await this.retry(errMsg)) return this.queryString(controller, action, query, body);
             throw new Error(errMsg);
@@ -65,7 +65,7 @@ export class API {
             statusCode = response.status;
             if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
             return
-        } catch (error) {
+        } catch (error: any) {
             const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
             if (await this.retry(errMsg)) return this.execute(controller, action, query, body);
             throw new Error(errMsg);
@@ -81,7 +81,7 @@ export class API {
             statusCode = response.status;
             if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
             return
-        } catch (error) {
+        } catch (error: any) {
             const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
             if (await this.retry(errMsg)) return this.upload(controller, action, query, data);
             throw new Error(errMsg);
@@ -174,9 +174,9 @@ class MaintenanceAPI {
     downloadFile = async (storeId: string, ioId: string, fileName: string) => {
         try {
             await this.validateDownloadFileRead(storeId, ioId, fileName);
-        } catch (error) {
+        } catch (error: any) {
             if (await this.server.retry(error.message)) {
-                return await this.downloadFile(storeId, ioId, fileName);
+                await this.downloadFile(storeId, ioId, fileName);
             } else {
                 throw error;
             }
@@ -240,17 +240,17 @@ class LogAPI {
 
     // app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.Logger.RecordingPropertyHits = enabled);
     // app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.RecordingPropertyHits);
-    // app.MapPost(path("analyse-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.AnalyzePropertyHits());
+    // app.MapPost(path("analyze-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.AnalyzePropertyHits());
 
-    // app.MapPost(path("analyse-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCount(intervalType, from, to));
-    // app.MapPost(path("analyse-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCountByType(intervalType, from, to));
-    // app.MapPost(path("analyse-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryCount(intervalType, from, to));
-    // app.MapPost(path("analyse-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryDuration(intervalType, from, to));
-    // app.MapPost(path("analyse-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionCount(intervalType, from, to));
-    // app.MapPost(path("analyse-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionDuration(intervalType, from, to));
-    // app.MapPost(path("analyse-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionAction(intervalType, from, to));
-    // app.MapPost(path("analyse-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionCount(intervalType, from, to));
-    // app.MapPost(path("analyse-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionOperations(intervalType, from, to));
+    // app.MapPost(path("analyze-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeSystemLogCount(intervalType, from, to));
+    // app.MapPost(path("analyze-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeSystemLogCountByType(intervalType, from, to));
+    // app.MapPost(path("analyze-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeQueryCount(intervalType, from, to));
+    // app.MapPost(path("analyze-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeQueryDuration(intervalType, from, to));
+    // app.MapPost(path("analyze-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionCount(intervalType, from, to));
+    // app.MapPost(path("analyze-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionDuration(intervalType, from, to));
+    // app.MapPost(path("analyze-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionAction(intervalType, from, to));
+    // app.MapPost(path("analyze-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeActionCount(intervalType, from, to));
+    // app.MapPost(path("analyze-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeActionOperations(intervalType, from, to));
 
     // NEW TS Code:
     hasStartupException = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'has-startup-exception', { storeId });
@@ -260,21 +260,32 @@ class LogAPI {
     enableStatistics = (storeId: string, logKey: string, enable: boolean) => this.server.execute(this.controller, 'enable-statistics', { storeId, logKey, enable: enable ? "true" : "false" });
     isStatisticsEnabled = (storeId: string, logKey: string) => this.server.queryJson<boolean>(this.controller, 'is-statistics-enabled', { storeId, logKey })
     clearLog = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-log', { storeId, logKey });
+    clearStatistics = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-statistics', { storeId, logKey });
     extractLog = <T>(storeId: string, logKey: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<T>[]>(this.controller, 'extract-log', { storeId, logKey, from: from.toISOString(), to: to.toISOString(), skip, take }));
-    extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<QueryLogValues>[]>(this.controller, 'extract-query-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
+    //extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<QueryLogEntry>[]>(this.controller, 'extract-query-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
+
+    extractSystemLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<SystemLogEntry>(storeId, "system", from, to, skip, take);
+    extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<QueryLogEntry>(storeId, "query", from, to, skip, take);
+    extractTransactionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TransactionLogEntry>(storeId, "transaction", from, to, skip, take);
+    extractActionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<ActionLogEntry>(storeId, "action", from, to, skip, take);
+    extractTaskLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskLogEntry>(storeId, "task", from, to, skip, take);
+    extractTaskBatchLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskBatchLogEntry>(storeId, "taskbatch", from, to, skip, take);
+    extractMetricsLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<MetricsLogEntry>(storeId, "metrics", from, to, skip, take);
+    
+
 
     setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
-    analysePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-property-hits', { storeId });
-    analyseSystemLogCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseSystemLogCountByType = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyseActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-property-hits', { storeId });
+    analyzeSystemLogCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeSystemLogCountByType = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     private fixTimeStamp = async <T>(entries: Promise<LogEntry<T>[]>) => {
         const result = await entries;
         result.forEach(e => e.timestamp = new Date(e.timestamp));
@@ -311,14 +322,14 @@ class LogAPI {
     // extractActionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<ActionLogValues>[]>(this.controller, 'extract-action-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
     // setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     // isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
-    // analysePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-property-hits', { storeId });
-    // analyseQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyseActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyse-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-property-hits', { storeId });
+    // analyzeQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    // analyzeActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
 }
 class DemoAPI {
     constructor(private server: API, private controller: string) { }

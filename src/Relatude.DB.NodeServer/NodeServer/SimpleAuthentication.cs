@@ -9,8 +9,8 @@ public class SimpleAuthentication(RelatudeDBServer server) {
 #if DEBUG
         return new CookieOptions {
             HttpOnly = true,
-            //SameSite = SameSiteMode.None,
-            Secure = false,
+            SameSite = SameSiteMode.None,
+            Secure = true,
             MaxAge = maxAge,
         };
 #else

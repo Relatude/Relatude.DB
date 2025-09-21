@@ -1,9 +1,7 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
-using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
-using Relatude.DB.Tasks.TextIndexing;
 namespace Relatude.DB.Tasks.TextIndexing;
 public class TextOrSemanticIndexTask(int nodeId, string? textIndex) : TaskData() {
     public int NodeId { get; } = nodeId;
@@ -13,7 +11,7 @@ public class SemanticIndexTaskRunner(IDataStore db, IAIProvider? ai) : TaskRunne
     public override BatchTaskPriority Priority => BatchTaskPriority.Medium;
     public override int MaxTaskCountPerBatch => 20;
     public override bool PersistToDisk => true;
-    public override async Task ExecuteAsync(Batch<TextOrSemanticIndexTask> batch) {
+    public override async Task ExecuteAsync(Batch<TextOrSemanticIndexTask> batch, TaskLogger? taskLogger) {
         var t = new TransactionData();
         var onlySemanticIndex = batch.Tasks.Where(t => t.TextIndex == null).ToList();
         await updateSemanticIndexOnly(onlySemanticIndex, t);

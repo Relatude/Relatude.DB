@@ -11,7 +11,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.Medium;
     public override int MaxTaskCountPerBatch => 100;
     public override bool PersistToDisk => true; //Random.Shared.Next(0, 100) < 50;
-    public override Task ExecuteAsync(Batch<IndexTask> batch) {
+    public override Task ExecuteAsync(Batch<IndexTask> batch, TaskLogger? taskLogger) {
 
         // Only text index, update now
         var onlyTextIndex = batch.Tasks.Where(t => t.TextIndex && !t.VectorIndex);

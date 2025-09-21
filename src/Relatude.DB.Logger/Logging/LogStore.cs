@@ -35,6 +35,9 @@ public class LogStore : IDisposable, ILogStore {
     public void DeleteLogOlderThan(string logKey, DateTime to) {
         if (_logs.TryGetValue(logKey, out var log)) log.EnforceDateLimit(to);
     }
+    public void DeleteLog(string logKey) {
+        if (_logs.TryGetValue(logKey, out var log)) log.EnforceDateLimit(DateTime.MaxValue);
+    }
     public void DeleteStatistics(string logKey) {
         if (_logs.TryGetValue(logKey, out var log)) log.DeleteStatistics();
     }

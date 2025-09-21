@@ -3,11 +3,27 @@ using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Query;
+using Relatude.DB.Tasks;
+using System.Text.Json.Serialization;
 namespace Relatude.DB.DataStores;
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SystemLogEntryType {
     Info,
     Warning,
     Error,
+}
+
+public class StoreMetrics {
+    public int QueryCount{ get; set; }
+    public int TransactionCount { get; set; }
+    public int NodeCount { get; set; }
+    public int RelationCount { get; set; }
+    public int NodeCacheCount { get; set; }
+    public int NodeCacheSize { get; set; }
+    public int SetCacheCount { get; set; }
+    public int SetCacheSize { get; set; }
+    public int TaskQueueCount { get; set; }
+    public int TaskPersistedQueueCount { get; set; }
 }
 public class Logger : IDisposable {
 
@@ -15,9 +31,9 @@ public class Logger : IDisposable {
     static string _queryLogKey = "query";
     static string _transactionLogKey = "transaction";
     static string _actionLogKey = "action";
-    static string _taskqueueLogKey = "taskqueue";
-    static string _taskbatchqueueLogKey = "taskbatchqueue";
-    static string _statusLogKey = "status";
+    static string _taskLogKey = "task";
+    static string _taskbatchLogKey = "taskbatch";
+    static string _metricsLogKey = "metrics";
 
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
@@ -47,7 +63,7 @@ public class Logger : IDisposable {
                 Compressed = false,
                 Properties = {
                         { "type", new() { Name = "Type", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)]} },
-                        { "text", new() { Name = "Text", DataType = LogDataType.Double } },
+                        { "text", new() { Name = "Text", DataType = LogDataType.String } },
                         { "details", new() { Name = "Details",DataType = LogDataType.String, } },
                 },
             },
@@ -121,8 +137,8 @@ public class Logger : IDisposable {
                     },
             },
             new() {
-                Name = "TaskQue",
-                Key = _taskqueueLogKey,
+                Name = "Tasks",
+                Key = _taskLogKey,
                 FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
@@ -136,14 +152,16 @@ public class Logger : IDisposable {
                 MaxTotalSizeOfLogFilesInMb = 100,
                 Compressed = false,
                 Properties = {
-                        { "id", new() { Name = "Id", DataType = LogDataType.String, }},
-                        { "taskName", new() { Name = "Task name", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
-                        { "created", new() { Name = "Created", DataType = LogDataType.String } },
-                    },
+                    { "taskTypeName", new() { Name = "Task type", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
+                    { "success", new() { Name = "Success", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
+                    { "batchId", new() { Name = "Batch ID", DataType = LogDataType.String } },
+                    { "taskId", new() { Name = "Task ID", DataType = LogDataType.String } },
+                    { "details", new() { Name = "Details", DataType = LogDataType.String }},
+                },
             },
             new() {
-                Name = "TaskBatchQue",
-                Key = _taskbatchqueueLogKey,
+                Name = "TaskBatches",
+                Key = _taskbatchLogKey,
                 FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
@@ -156,18 +174,19 @@ public class Logger : IDisposable {
                 MaxAgeOfLogFilesInDays = 10,
                 MaxTotalSizeOfLogFilesInMb = 100,
                 Compressed = false,
-                Properties = {
-                        { "id", new() { Name = "Id", DataType = LogDataType.String, }},
-                        { "taskName", new() { Name = "Task name", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
-                        { "created", new() { Name = "Created", DataType = LogDataType.String } },
+                    Properties = {
+                        { "batchId", new() { Name = "Batch Id", DataType = LogDataType.String, }},
+                        { "taskTypeName", new() { Name = "Task type", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
+                        { "started", new() { Name = "Started", DataType = LogDataType.DateTime } },
                         { "duration", new() { Name = "Duration", DataType = LogDataType.Double, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
-                        { "result", new() { Name = "Result", DataType = LogDataType.String }},
-                        { "details", new() { Name = "Details", DataType = LogDataType.String }},
+                        { "taskCount", new() { Name = "Task count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
+                        { "success", new() { Name = "Success", DataType = LogDataType.String, Statistics = [new (StatisticsType.UniqueCountWithValues)] }},
+                        { "error", new() { Name = "Error", DataType = LogDataType.String }},
                     },
             },
             new() {
-                Name = "Status",
-                Key = _statusLogKey,
+                Name = "Metrics",
+                Key = _metricsLogKey,
                 FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
                 FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
                 FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
@@ -181,10 +200,14 @@ public class Logger : IDisposable {
                 MaxTotalSizeOfLogFilesInMb = 100,
                 Compressed = false,
                 Properties = {
+                        { "queryCount", new() { Name = "Query count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.Sum)] } },
+                        { "transactionCount", new() { Name = "Transaction Count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.Sum)] } },
+                        { "nodeCount", new() { Name = "Node count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
+                        { "relationCount", new() { Name = "Relation count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "nodeCacheCount", new() { Name = "Node cache count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "nodeCacheSize", new() { Name = "Node cache size", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
-                        { "setCacheSize", new() { Name = "Set cache size", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "setCacheCount", new() { Name = "Set cache count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
+                        { "setCacheSize", new() { Name = "Set cache size", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "taskQueueCount", new() { Name = "Task queue count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                     },
             },
@@ -199,23 +222,22 @@ public class Logger : IDisposable {
     public bool EnableTransactionLogStatistics = true;
     public bool EnableActionLog = false;
     public bool EnableActionLogStatistics = true;
-    public bool EnableTaskQueueLog = false;
-    public bool EnableTaskQueueLogStatistics = true;
-    public bool EnableTaskBatchQueueLog = false;
-    public bool EnableTaskBatchQueueLogStatistics = true;
-    public bool EnableStatusLog = false;
-    public bool EnableStatusLogStatistics = true;
+    public bool EnableTaskLog = false;
+    public bool EnableTaskLogStatistics = true;
+    public bool EnableTaskBatchLog = false;
+    public bool EnableTaskBatchLogStatistics = true;
+    public bool EnableMetricsLog = false;
+    public bool EnableMetricsLogStatistics = true;
 
     public bool LoggingSystem => EnableSystemLog || EnableSystemLogStatistics;
     public bool LoggingTransactionsOrActions => EnableTransactionLog || EnableActionLog || EnableTransactionLogStatistics || EnableActionLogStatistics;
     public bool LoggingTransactions => EnableTransactionLog || EnableTransactionLogStatistics;
     public bool LoggingActions => EnableActionLog || EnableActionLogStatistics;
     public bool LoggingQueries => EnableSystemQueryLog || EnableSystemQueryLogStatistics;
-    public bool LoggingTaskQueue => EnableTaskQueueLog || EnableTaskQueueLogStatistics;
-    public bool LoggingTaskBatchQueue => EnableTaskBatchQueueLog || EnableTaskBatchQueueLogStatistics;
-    public bool LoggingStatus => EnableStatusLog || EnableStatusLogStatistics;
-    public bool LoggingAny => EnableSystemLog || EnableSystemLogStatistics || EnableSystemQueryLog || EnableSystemQueryLogStatistics || EnableTransactionLog || EnableTransactionLogStatistics || EnableActionLog || EnableActionLogStatistics || EnableTaskQueueLog || EnableTaskQueueLogStatistics || EnableTaskBatchQueueLog || EnableTaskBatchQueueLogStatistics || EnableStatusLog || EnableStatusLogStatistics;
-
+    public bool LoggingTask => EnableTaskLog || EnableTaskLogStatistics;
+    public bool LoggingTaskBatch => EnableTaskBatchLog || EnableTaskBatchLogStatistics;
+    public bool LoggingMetrics => EnableMetricsLog || EnableMetricsLogStatistics;
+    public bool LoggingAny => EnableSystemLog || EnableSystemLogStatistics || EnableSystemQueryLog || EnableSystemQueryLogStatistics || EnableTransactionLog || EnableTransactionLogStatistics || EnableActionLog || EnableActionLogStatistics || EnableTaskLog || EnableTaskLogStatistics || EnableTaskBatchLog || EnableTaskBatchLogStatistics || EnableMetricsLog || EnableMetricsLogStatistics;
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
 
@@ -226,7 +248,7 @@ public class Logger : IDisposable {
         _logStore = new LogStore(_io, getSettings());
     }
     public void RecordSystem(SystemLogEntryType type, string text, string? details = null) {
-        if (!EnableSystemLog) return;        
+        if (!EnableSystemLog) return;
         LogEntry entry = new();
         entry.Values.Add("type", type.ToString());
         entry.Values.Add("text", text);
@@ -265,36 +287,42 @@ public class Logger : IDisposable {
         entry.Values.Add("details", details);
         _logStore?.Record(_actionLogKey, entry);
     }
-    public void RecordTaskQueue(string id, string taskName, DateTime created, double durationMs, string result, string details) {
-        if (!EnableTaskQueueLog) return;
+    public void RecordTask(string taskTypeName, bool success, Guid batchId, string taskId, string details) {
+        if (!EnableTaskLog) return;
         LogEntry entry = new();
-        entry.Values.Add("id", id);
-        entry.Values.Add("taskName", taskName);
-        entry.Values.Add("created", created.ToString("o"));
-        entry.Values.Add("duration", durationMs);
-        entry.Values.Add("result", result);
+        entry.Values.Add("taskTypeName", taskTypeName);
+        entry.Values.Add("success", success ? "Success" : "Error");
+        entry.Values.Add("batchId", batchId.ToString());
+        entry.Values.Add("taskId", taskId);
         entry.Values.Add("details", details);
-        _logStore?.Record(_taskqueueLogKey, entry);
+        _logStore?.Record(_taskLogKey, entry);
     }
-    public void RecordTaskBatchQueue(string id, string taskName, DateTime created, double durationMs, string result, string details) {
-        if (!EnableTaskBatchQueueLog) return;
+    public void RecordTaskBatch(Guid id, BatchTaskResult batchResult) {
+        if (!EnableTaskBatchLog) return;
         LogEntry entry = new();
-        entry.Values.Add("id", id);
-        entry.Values.Add("taskName", taskName);
-        entry.Values.Add("created", created.ToString("o"));
-        entry.Values.Add("duration", durationMs);
-        entry.Values.Add("result", result);
-        entry.Values.Add("details", details);
-        _logStore?.Record(_taskbatchqueueLogKey, entry);
+        entry.Values.Add("batchId", id.ToString());
+        entry.Values.Add("taskTypeName", batchResult.TaskTypeName);
+        entry.Values.Add("started", batchResult.StartedUTC);
+        entry.Values.Add("duration", batchResult.DurationMs);
+        entry.Values.Add("taskCount", batchResult.TaskCount);
+        entry.Values.Add("success", batchResult.Error == null ? "Success" : "Error");
+        entry.Values.Add("error", batchResult.Error?.Message ?? string.Empty);
+
+        _logStore?.Record(_taskbatchLogKey, entry);
     }
-    public void RecordStatus(int nodeCacheCount, int nodeCacheSize, int setCacheCount, int setCacheSize, int taskQueueCount) {
+    public void RecordStoreMetrics(StoreMetrics storeMetrics) {
         LogEntry entry = new();
-        entry.Values.Add("nodeCacheCount", nodeCacheCount);
-        entry.Values.Add("nodeCacheSize", nodeCacheSize);
-        entry.Values.Add("setCacheCount", setCacheCount);
-        entry.Values.Add("setCacheSize", setCacheSize);
-        entry.Values.Add("taskQueueCount", taskQueueCount);
-        _logStore?.Record(_statusLogKey, entry);
+        entry.Values.Add("queryCount", storeMetrics.QueryCount);
+        entry.Values.Add("transactionCount", storeMetrics.TransactionCount);
+        entry.Values.Add("nodeCount", storeMetrics.NodeCount);
+        entry.Values.Add("relationCount", storeMetrics.RelationCount);
+        entry.Values.Add("nodeCacheCount", storeMetrics.NodeCacheCount);
+        entry.Values.Add("nodeCacheSize", storeMetrics.NodeCacheSize);
+        entry.Values.Add("setCacheCount", storeMetrics.SetCacheCount);
+        entry.Values.Add("setCacheSize", storeMetrics.SetCacheSize);
+        entry.Values.Add("taskQueueCount", storeMetrics.TaskQueueCount);
+        entry.Values.Add("taskPersistedQueueCount", storeMetrics.TaskPersistedQueueCount);
+        _logStore?.Record(_metricsLogKey, entry);
     }
 
     bool _isRecordingPropertyHits = false;
@@ -338,9 +366,13 @@ public class Logger : IDisposable {
             }
         }
     }
-    public void Clear(string logKey) {
+    public void ClearLog(string logKey) {
         if (_logStore == null) return;
-        _logStore.DeleteLogAndStatistics(logKey);
+        _logStore.DeleteLog(logKey);
+    }
+    public void ClearStatistics(string logKey) {
+        if (_logStore == null) return;
+        _logStore.DeleteStatistics(logKey);
     }
     public LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, out int total) {
         if (_logStore == null) { total = 0; return []; }
@@ -382,7 +414,7 @@ public class Logger : IDisposable {
         if (_logStore == null) return new Interval<Dictionary<string, int>>(from, to);
         return _logStore.AnalyseCombinedGroupCounts(_actionLogKey, "operation", intervalType, from, to);
     }
-    
+
     public void FlushToDiskNow() {
         if (_logStore != null) _logStore.FlushToDiskNow();
     }
@@ -394,51 +426,41 @@ public class Logger : IDisposable {
     }
 
     public void EnableLog(string logKey, bool enable) {
-        switch (logKey) {
-            case "system": EnableSystemLog = enable; break;
-            case "query": EnableSystemQueryLog = enable; break;
-            case "transaction": EnableTransactionLog = enable; break;
-            case "action": EnableActionLog = enable; break;
-            case "taskqueue": EnableTaskQueueLog = enable; break;
-            case "taskbatchqueue": EnableTaskBatchQueueLog = enable; break;
-            case "status": EnableStatusLog = enable; break;
-            default: break;
-        }
+        if (logKey == _systemLogKey) EnableSystemLog = enable;
+        else if (logKey == _queryLogKey) EnableSystemQueryLog = enable;
+        else if (logKey == _transactionLogKey) EnableTransactionLog = enable;
+        else if (logKey == _actionLogKey) EnableActionLog = enable;
+        else if (logKey == _taskLogKey) EnableTaskLog = enable;
+        else if (logKey == _taskbatchLogKey) EnableTaskBatchLog = enable;
+        else if (logKey == _metricsLogKey) EnableMetricsLog = enable;
     }
     public void EnableStatistics(string logKey, bool enable) {
-        switch (logKey) {
-            case "system": EnableSystemLogStatistics = enable; break;
-            case "query": EnableSystemQueryLogStatistics = enable; break;
-            case "transaction": EnableTransactionLogStatistics = enable; break;
-            case "action": EnableActionLogStatistics = enable; break;
-            case "taskqueue": EnableTaskQueueLogStatistics = enable; break;
-            case "taskbatchqueue": EnableTaskBatchQueueLogStatistics = enable; break;
-            case "status": EnableStatusLogStatistics = enable; break;
-            default: break;
-        }
+        if (logKey == _systemLogKey) EnableSystemLogStatistics = enable;
+        else if (logKey == _queryLogKey) EnableSystemQueryLogStatistics = enable;
+        else if (logKey == _transactionLogKey) EnableTransactionLogStatistics = enable;
+        else if (logKey == _actionLogKey) EnableActionLogStatistics = enable;
+        else if (logKey == _taskLogKey) EnableTaskLogStatistics = enable;
+        else if (logKey == _taskbatchLogKey) EnableTaskBatchLogStatistics = enable;
+        else if (logKey == _metricsLogKey) EnableMetricsLogStatistics = enable;
     }
     public bool IsLogEnabled(string logKey) {
-        switch (logKey) {
-            case "system": return EnableSystemLog;
-            case "query": return EnableSystemQueryLog;
-            case "transaction": return EnableTransactionLog;
-            case "action": return EnableActionLog;
-            case "taskqueue": return EnableTaskQueueLog;
-            case "taskbatchqueue": return EnableTaskBatchQueueLog;
-            case "status": return EnableStatusLog;
-            default: return false;
-        }
+        if (logKey == _systemLogKey) return EnableSystemLog;
+        else if (logKey == _queryLogKey) return EnableSystemQueryLog;
+        else if (logKey == _transactionLogKey) return EnableTransactionLog;
+        else if (logKey == _actionLogKey) return EnableActionLog;
+        else if (logKey == _taskLogKey) return EnableTaskLog;
+        else if (logKey == _taskbatchLogKey) return EnableTaskBatchLog;
+        else if (logKey == _metricsLogKey) return EnableMetricsLog;
+        return false;
     }
     public bool IsStatisticsEnabled(string logKey) {
-        switch (logKey) {
-            case "system": return EnableSystemLogStatistics;
-            case "query": return EnableSystemQueryLogStatistics;
-            case "transaction": return EnableTransactionLogStatistics;
-            case "action": return EnableActionLogStatistics;
-            case "taskqueue": return EnableTaskQueueLogStatistics;
-            case "taskbatchqueue": return EnableTaskBatchQueueLogStatistics;
-            case "status": return EnableStatusLogStatistics;
-            default: return false;
-        }
+        if (logKey == _systemLogKey) return EnableSystemLogStatistics;
+        else if (logKey == _queryLogKey) return EnableSystemQueryLogStatistics;
+        else if (logKey == _transactionLogKey) return EnableTransactionLogStatistics;
+        else if (logKey == _actionLogKey) return EnableActionLogStatistics;
+        else if (logKey == _taskLogKey) return EnableTaskLogStatistics;
+        else if (logKey == _taskbatchLogKey) return EnableTaskBatchLogStatistics;
+        else if (logKey == _metricsLogKey) return EnableMetricsLogStatistics;
+        return false;
     }
 }

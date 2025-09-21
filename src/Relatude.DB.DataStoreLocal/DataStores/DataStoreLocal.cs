@@ -86,7 +86,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _logger = new(_ioLog, _fileKeys, dm);
         RegisterRunner(new IndexTaskRunner(this));
         RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
-        TaskQueue = new(new DefaultQueueStore(_taskRunners), _taskRunners);
+        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
         if (queueStore == null) {
             if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.BuiltIn) {
                 queueStore = new DefaultQueueStore(_taskRunners, _io, _fileKeys.Queue_GetFileKey("bin"));
@@ -96,7 +96,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Queue store engine must be set to either BuiltIn or Memory if no queueStore is provided.");
             }
         }
-        TaskQueuePersisted = new(queueStore, _taskRunners);
+        TaskQueuePersisted = new(this, queueStore, _taskRunners);
 
         Datamodel = dm;
         dm.EnsureInitalization();

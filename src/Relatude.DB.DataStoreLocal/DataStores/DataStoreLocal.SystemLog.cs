@@ -10,7 +10,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_settings.WriteSystemLogConsole) Console.WriteLine(text + (details == null ? null : Environment.NewLine + details));
         } catch { }
         try {
-            if (_settings.EnableSystemLog && (type == SystemLogEntryType.Error || !_settings.OnlyLogErrorsToSystemLog)) {
+            if (Logger.LoggingSystem) {
                 Logger.RecordSystem(type, text, details);
             }
         } catch (Exception ex) {

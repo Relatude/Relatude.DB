@@ -122,11 +122,20 @@ export interface StoreStatus {
     setCacheMisses: number;
     setCacheReduces: number;
 }
+export interface ServerLogEntry {
+    timestamp: Date;
+    description: string;
+}
 export interface LogEntry<T> {
     timestamp: Date;
     values: T;
 }
-export interface QueryLogValues {
+export interface SystemLogEntry {
+    type: "Info" | "Warning" | "Error";
+    text: string;
+    details?: string;
+}
+export interface QueryLogEntry {
     query: string;
     duration: number;
     resultCount: number;
@@ -135,26 +144,46 @@ export interface QueryLogValues {
     diskReads: number;
     nodesReadFromDisk: number;
 }
-export interface TransactionLogValues {
+export interface TransactionLogEntry {
     transactionId: string;
     duration: number;
     actionCount: number;
     primitiveActionCount: number;
     diskFlush: string;
 }
-export interface ActionLogValues {
+export interface ActionLogEntry {
     transactionId: string;
     operation: string;
     details: string;
 }
-export interface ContainerLogEntry {
-    timestamp: Date;
-    description: string;
+export interface TaskLogEntry {
+    taskId: string;
+    batchId: string;
+    taskTypeName: string;
+    success: string;
+    details: string;
 }
-export interface ServerLogEntry {
-    timestamp: Date;
-    description: string;
+export interface TaskBatchLogEntry {
+    batchId: string;
+    taskTypeName: string;
+    started: Date;
+    duration: number;
+    taskCount: string;
+    success: string;
+    error:string;
 }
+export interface MetricsLogEntry {
+    queryCount: number;
+    transactionCount: number;
+    nodeCount: number;
+    relationCount: number;
+    nodeCacheCount: number;
+    nodeCacheSize: number;    
+    setCacheCount: number;
+    setCacheSize: number;
+}
+
+
 export interface Transaction {
 
 }

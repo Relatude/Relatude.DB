@@ -1,8 +1,12 @@
-﻿namespace Relatude.DB.Tasks;
+﻿using Relatude.DB.Datamodels.Properties;
+
+namespace Relatude.DB.Tasks;
+public delegate void TaskLogger(bool success, string id, string details);
 public interface ITaskRunner {
     string TaskTypeId { get; }
     BatchTaskPriority Priority { get; }
-    Task ExecuteAsyncGeneric(IBatch tasks);
+    Task ExecuteAsyncGeneric(IBatch tasks, TaskLogger? taskLogger);
+    void LogTask(string id, string title, string category, string details, string error, bool success);
     byte[] TaskToBytesGeneric(TaskData task);
     TaskData TaskFromBytesGeneric(byte[] bytes);
     IBatch CreateBatchWithOneTask(TaskData task, BatchState state, string? jobId);
@@ -30,8 +34,8 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
             _ => TimeSpan.MaxValue
         };
     }
-    public async Task ExecuteAsyncGeneric(IBatch batch) => await ExecuteAsync((Batch<TTask>)batch);
-    public abstract Task ExecuteAsync(Batch<TTask> batch);
+    public async Task ExecuteAsyncGeneric(IBatch batch, TaskLogger? taskLogger) => await ExecuteAsync((Batch<TTask>)batch, taskLogger);
+    public abstract Task ExecuteAsync(Batch<TTask> batch, TaskLogger? taskLogger);
     public byte[] TaskToBytesGeneric(TaskData task) => TaskToBytes((TTask)task);
     public TaskData TaskFromBytesGeneric(byte[] bytes) => TaskFromBytes(bytes);
     public abstract byte[] TaskToBytes(TTask task);
@@ -47,6 +51,9 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
         var batch = new Batch<TTask>(batchMeta);
         batch.AddTasksFromBytes(this, taskData);
         return batch;
+    }
+    public void LogTask(string id, string title, string category, string details, string error, bool success) {
+
     }
     public abstract bool DeleteOnSuccess { get; }
     public abstract int MaxTaskCountPerBatch { get; }

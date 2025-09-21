@@ -1,11 +1,15 @@
-﻿using System.Diagnostics;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores;
+using System.Diagnostics;
+
 namespace Relatude.DB.Tasks;
 public class TaskQueue : IDisposable {
-    public TaskQueue(IQueueStore queue, Dictionary<string, ITaskRunner> runners) {
+    public TaskQueue(IDataStore store, IQueueStore queue, Dictionary<string, ITaskRunner> runners) {
+        _store = store;
         _queue = queue;
         _runners = runners;
     }
+    readonly IDataStore _store;
     readonly IQueueStore _queue;
     readonly Dictionary<string, ITaskRunner> _runners;
     readonly Dictionary<string, IBatch> _batchBufferByTypeAndJobId = [];
@@ -76,6 +80,7 @@ public class TaskQueue : IDisposable {
         if (_isShuttingdown) return [];
         _isExecuting = true;
         var totalMs = Stopwatch.StartNew();
+
         while (!_isShuttingdown) {
             if (abort()) break; // allow external abort
             if (totalMs.ElapsedMilliseconds >= maxDurationMs) break;
@@ -83,9 +88,16 @@ public class TaskQueue : IDisposable {
             var sw = Stopwatch.StartNew();
             var next = Dequeue();
             if (next == null) break; // no more tasks to process
+            TaskLogger? taskLogging = null;
+            if (_store.Logger.LoggingTask) {
+                taskLogging = (bool success, string id, string details) => {
+                    _store.Logger.RecordTask(next.Meta.TaskTypeId, success, next.Meta.BatchId, id, details);
+                };
+            }
+            BatchTaskResult result;
             try {
                 if (!_runners.TryGetValue(next.Meta.TaskTypeId, out var runner)) throw new Exception("No runner for: " + next.Meta.TaskTypeId);
-                await runner.ExecuteAsyncGeneric(next);
+                await runner.ExecuteAsyncGeneric(next, taskLogging);
                 lock (_lock) {
                     if (runner.DeleteOnSuccess) {
                         _queue.Delete([next.Meta.BatchId]);
@@ -93,13 +105,15 @@ public class TaskQueue : IDisposable {
                         _queue.Set([next.Meta.BatchId], BatchState.Completed);
                     }
                 }
-                results.Add(new(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount));
+                result = new BatchTaskResult(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount);
             } catch (Exception err) {
                 lock (_lock) {
                     _queue.Set(next.Meta.BatchId, err);
                 }
-                results.Add(new(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount, err));
+                result = new BatchTaskResult(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount, err);
             }
+            if (_store.Logger.LoggingTaskBatch) _store.Logger.RecordTaskBatch(next.Meta.BatchId, result);
+            results.Add(result);
         }
         if (_isShuttingdown) _hasShutdown = true;
         _isExecuting = false;
