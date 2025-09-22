@@ -253,7 +253,7 @@ export const component = (P: { storeId: string }) => {
                                 <Table.Tr key={index}>
                                     <Table.Td>{entry.timestamp.toLocaleTimeString()}</Table.Td>
                                     <Table.Td>{entry.values.batchId}</Table.Td>
-                                    <Table.Td>{entry.values.started.toLocaleTimeString()}</Table.Td>
+                                    <Table.Td>{entry.values.started.toString()}</Table.Td>
                                     <Table.Td>{entry.values.duration}</Table.Td>
                                     <Table.Td>{entry.values.taskCount}</Table.Td>
                                     <Table.Td>{entry.values.success}</Table.Td>

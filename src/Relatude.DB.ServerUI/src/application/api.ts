@@ -262,7 +262,6 @@ class LogAPI {
     clearLog = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-log', { storeId, logKey });
     clearStatistics = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-statistics', { storeId, logKey });
     extractLog = <T>(storeId: string, logKey: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<T>[]>(this.controller, 'extract-log', { storeId, logKey, from: from.toISOString(), to: to.toISOString(), skip, take }));
-    //extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<QueryLogEntry>[]>(this.controller, 'extract-query-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
 
     extractSystemLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<SystemLogEntry>(storeId, "system", from, to, skip, take);
     extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<QueryLogEntry>(storeId, "query", from, to, skip, take);
@@ -271,8 +270,6 @@ class LogAPI {
     extractTaskLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskLogEntry>(storeId, "task", from, to, skip, take);
     extractTaskBatchLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskBatchLogEntry>(storeId, "taskbatch", from, to, skip, take);
     extractMetricsLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<MetricsLogEntry>(storeId, "metrics", from, to, skip, take);
-    
-
 
     setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
@@ -288,48 +285,15 @@ class LogAPI {
     analyzeActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     private fixTimeStamp = async <T>(entries: Promise<LogEntry<T>[]>) => {
         const result = await entries;
-        result.forEach(e => e.timestamp = new Date(e.timestamp));
+        result.forEach(e => {
+            e.timestamp = new Date(e.timestamp);
+            // for (const key in e.values) {
+            //     if (isValidDateString(e.values[key] as string)) e.values[key] = new Date(e.values[key] as string) as any;
+            // }
+        });
         return result;
     }
 
-
-
-
-
-
-
-
-
-    // OLD
-    // getContainerLog = async (storeId: string, skip: number, take: number) => {
-    //     const result = await this.server.queryJson<ContainerLogEntry[]>(this.controller, 'get-container-log', { storeId, skip, take });
-    //     result.forEach(e => e.timestamp = new Date(e.timestamp));
-    //     return result;
-    // }
-    // clearContainerLog = (storeId: string) => this.server.execute(this.controller, 'clear-container-log', { storeId });
-    // enable = (storeId: string, enable: boolean) => this.server.execute(this.controller, 'enable', { storeId, enable: enable ? "true" : "false" });
-    // enableDetails = (storeId: string, enable: boolean) => this.server.execute(this.controller, 'enable-details', { storeId, enable: enable ? "true" : "false" });
-    // isEnabled = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-enabled', { storeId });
-    // isEnabledDetails = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-enabled-details', { storeId });
-    // clear = (storeId: string,) => this.server.execute(this.controller, 'clear', { storeId });
-    // private fixTimeStamp = async <T>(entries: Promise<LogEntry<T>[]>) => {
-    //     const result = await entries;
-    //     result.forEach(e => e.timestamp = new Date(e.timestamp));
-    //     return result;
-    // }
-    // extractQueryLog = async (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<QueryLogValues>[]>(this.controller, 'extract-query-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
-    // extractTransactionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<TransactionLogValues>[]>(this.controller, 'extract-transaction-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
-    // extractActionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<ActionLogValues>[]>(this.controller, 'extract-action-log', { storeId, from: from.toISOString(), to: to.toISOString(), skip, take }));
-    // setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
-    // isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
-    // analyzePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-property-hits', { storeId });
-    // analyzeQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    // analyzeActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
 }
 class DemoAPI {
     constructor(private server: API, private controller: string) { }
@@ -338,3 +302,4 @@ class DemoAPI {
 class TaskAPI {
     constructor(private server: API, private controller: string) { }
 }
+
