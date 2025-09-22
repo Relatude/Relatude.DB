@@ -404,4 +404,5 @@ public sealed class NodeStore : IDisposable {
 
     public long Timestamp => Datastore.Timestamp;
     public void Dispose() => Datastore.Dispose();
+
 }

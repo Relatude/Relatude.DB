@@ -15,7 +15,20 @@ namespace Relatude.DB.NodeServer;
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
     internal IDataStore? datastore { get; set; }
+    internal object _lock = new object();
+    internal Logger? _logger;
     public NodeStore? Store { get; private set; }
+
+
+    public Logger GetLogger() {
+        lock (_lock) {
+            if (IsOpenOrOpening()) return Store!.Datastore.Logger;
+            if (_logger == null) _logger = new Logger(getLoggerIO(), getLoggerFileKeys(), null);
+            return _logger;
+        }
+    }
+
+
     public Datamodel? Datamodel { get; private set; }
     public DataStoreStatus Status {
         get {
@@ -38,8 +51,22 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public Exception? StartUpException = null;
     public DateTime? StartUpExceptionDateTimeUTC = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
+
+    private FileKeyUtility getLoggerFileKeys() {
+        if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
+        return new FileKeyUtility(settings.LocalSettings.FilePrefix);
+    }
+    private IIOProvider getLoggerIO() {
+        IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
+        if (ioLog == null) {
+            ioLog = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
+        }
+        if(ioLog == null) throw new Exception("IoLog or IoDatabase is required for NodeStoreContainerSettings");
+        return ioLog;
+    }
     public void Open() {
         try {
+            if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
             CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");

@@ -358,7 +358,7 @@ public partial class RelatudeDBServer {
         app.MapPost(path("server"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);
     }
     void mapLog(WebApplication app, Func<string, string> path) {
-
+        var logger = (Guid storeId) => container(storeId).GetLogger();
         app.MapPost(path("has-startup-exception"), (Guid storeId) => container(storeId).StartUpException != null);
         app.MapPost(path("get-startup-exception"), (Guid storeId) => {
             var c = container(storeId);
@@ -367,30 +367,27 @@ public partial class RelatudeDBServer {
             return new { When = c.StartUpExceptionDateTimeUTC, e.Message, e.StackTrace, };
         });
 
-        app.MapPost(path("enable-log"),
-            (Guid storeId, string logKey, bool enable) =>
-        db(storeId).Datastore.Logger.EnableLog(logKey, enable)
-        );
-        app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsLogEnabled(logKey));
-        app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => db(storeId).Datastore.Logger.EnableStatistics(logKey, enable));
-        app.MapPost(path("is-statistics-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsStatisticsEnabled(logKey));
-        app.MapPost(path("clear-log"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.ClearLog(logKey));
-        app.MapPost(path("clear-statistics"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.ClearStatistics(logKey));
-        app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.Logger.ExtractLog(logKey, from, to, skip, take, out var total) : default);
+        app.MapPost(path("enable-log"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableLog(logKey, enable));
+        app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => logger(storeId).IsLogEnabled(logKey));
+        app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableStatistics(logKey, enable));
+        app.MapPost(path("is-statistics-enabled"), (Guid storeId, string logKey) => logger(storeId).IsStatisticsEnabled(logKey));
+        app.MapPost(path("clear-log"), (Guid storeId, string logKey) => logger(storeId).ClearLog(logKey));
+        app.MapPost(path("clear-statistics"), (Guid storeId, string logKey) => logger(storeId).ClearStatistics(logKey));
+        app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take) => logger(storeId).ExtractLog(logKey, from, to, skip, take, out var total));
 
-        app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.Logger.RecordingPropertyHits = enabled);
-        app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.RecordingPropertyHits);
-        app.MapPost(path("analyze-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.AnalyzePropertyHits());
+        app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => logger(storeId).RecordingPropertyHits = enabled);
+        app.MapPost(path("is-recording-property-hits"), (Guid storeId) => logger(storeId).RecordingPropertyHits);
+        app.MapPost(path("analyze-property-hits"), (Guid storeId) => logger(storeId).AnalyzePropertyHits());
 
-        app.MapPost(path("analyze-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCount(intervalType, from, to));
-        app.MapPost(path("analyze-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseSystemLogCountByType(intervalType, from, to));
-        app.MapPost(path("analyze-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryCount(intervalType, from, to));
-        app.MapPost(path("analyze-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseQueryDuration(intervalType, from, to));
-        app.MapPost(path("analyze-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionCount(intervalType, from, to));
-        app.MapPost(path("analyze-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionDuration(intervalType, from, to));
-        app.MapPost(path("analyze-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseTransactionAction(intervalType, from, to));
-        app.MapPost(path("analyze-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionCount(intervalType, from, to));
-        app.MapPost(path("analyze-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.AnalyseActionOperations(intervalType, from, to));
+        app.MapPost(path("analyze-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseSystemLogCount(intervalType, from, to));
+        app.MapPost(path("analyze-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseSystemLogCountByType(intervalType, from, to));
+        app.MapPost(path("analyze-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseQueryCount(intervalType, from, to));
+        app.MapPost(path("analyze-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseQueryDuration(intervalType, from, to));
+        app.MapPost(path("analyze-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseTransactionCount(intervalType, from, to));
+        app.MapPost(path("analyze-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseTransactionDuration(intervalType, from, to));
+        app.MapPost(path("analyze-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseTransactionAction(intervalType, from, to));
+        app.MapPost(path("analyze-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseActionCount(intervalType, from, to));
+        app.MapPost(path("analyze-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseActionOperations(intervalType, from, to));
 
     }
     void mapTasks(WebApplication app, Func<string, string> path) {

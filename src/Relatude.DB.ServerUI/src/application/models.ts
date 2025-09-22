@@ -1,4 +1,4 @@
-export type AppStates = "splash" | "login" | "main" ;
+export type AppStates = "splash" | "login" | "main";
 export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Unknown";
 export type StoreTypes = "SimpleStore" | "NodeStore";
 export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
@@ -166,11 +166,11 @@ export interface TaskLogEntry {
 export interface TaskBatchLogEntry {
     batchId: string;
     taskTypeName: string;
-    started: Date;
+    started: string;
     duration: number;
     taskCount: string;
     success: string;
-    error:string;
+    error: string;
 }
 export interface MetricsLogEntry {
     queryCount: number;
@@ -178,7 +178,7 @@ export interface MetricsLogEntry {
     nodeCount: number;
     relationCount: number;
     nodeCacheCount: number;
-    nodeCacheSize: number;    
+    nodeCacheSize: number;
     setCacheCount: number;
     setCacheSize: number;
 }

@@ -38,7 +38,7 @@ public class Logger : IDisposable {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     LogStore _logStore;
-    readonly Datamodel _datamodel;
+    readonly Datamodel? _datamodel;
     public LogStore LogStore {
         get {
             return _logStore;
@@ -241,7 +241,7 @@ public class Logger : IDisposable {
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
 
-    public Logger(IIOProvider io, FileKeyUtility fileKeys, Datamodel datamodel) {
+    public Logger(IIOProvider io, FileKeyUtility fileKeys, Datamodel? datamodel) {
         _fileKeys = fileKeys;
         _io = io;
         _datamodel = datamodel;
@@ -347,6 +347,7 @@ public class Logger : IDisposable {
         }
     }
     public KeyValuePair<string, int>[] AnalyzePropertyHits() {
+        if(_datamodel == null) return [];
         lock (_propertyHits) {
             return _propertyHits.Select(kv => {
                 var property = _datamodel.Properties[kv.Key];

@@ -22,6 +22,7 @@ export const component = (P: { storeId: string }) => {
     const [activeLogKey, setActiveLogKey] = useState<string>("system");
     const [propertyHits, setPropertyHits] = useState<string>();
     const [isRecordingPropertyHits, setIsRecordingPropertyHits] = useState<boolean>();
+    const [isNotOpen, setIsNotOpen] = useState(false);
     let currentContainer = app.ui.containers.find(c => c.id === P.storeId);
     useEffect(() => {
         const poller = new Poller(async () => {
@@ -46,6 +47,10 @@ export const component = (P: { storeId: string }) => {
         });
         return () => { poller.dispose(); }
     }, [activeLogKey, P.storeId]);
+    useEffect(() => {
+        setIsNotOpen(app.ui.storeStates.get(P.storeId)?.state != "Open")
+    }, [app.ui.storeStates.get(P.storeId)?.state])
+
     if (!P.storeId) return;
     if (!currentContainer) return;
     const setCurrentEnabledLog = async (enable: boolean) => {
@@ -64,8 +69,8 @@ export const component = (P: { storeId: string }) => {
     }
     const queryLogToolbar = <>
         <Group>
-            <Switch checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
-            <Switch checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
+            <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
+            <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
             <Button variant="light" onClick={() => clearLog()} >Clear Log</Button>
             <Button variant="light" onClick={() => clearStatistics()} >Clear Statistics</Button>
         </Group>
@@ -78,13 +83,13 @@ export const component = (P: { storeId: string }) => {
         <Tabs defaultValue="system">
             <Tabs.List>
                 <Tabs.Tab value="system" onClick={() => setActiveLogKey("system")}>System</Tabs.Tab>
+                <Tabs.Tab value="metrics" onClick={() => setActiveLogKey("metrics")}>Metrics</Tabs.Tab>
                 <Tabs.Tab value="query" onClick={() => setActiveLogKey("query")}>Queries</Tabs.Tab>
                 <Tabs.Tab value="transaction" onClick={() => setActiveLogKey("transaction")}>Transactions</Tabs.Tab>
-                <Tabs.Tab value="action" onClick={() => setActiveLogKey("action")}>Actions</Tabs.Tab>
-                <Tabs.Tab value="taskbatch" onClick={() => setActiveLogKey("taskbatch")}>Task batches</Tabs.Tab>
+                {/* <Tabs.Tab value="action" onClick={() => setActiveLogKey("action")}>Actions</Tabs.Tab> */}
+                {/* <Tabs.Tab value="taskbatch" onClick={() => setActiveLogKey("taskbatch")}>Task batches</Tabs.Tab> */}
                 <Tabs.Tab value="task" onClick={() => setActiveLogKey("task")}>Tasks</Tabs.Tab>
-                <Tabs.Tab value="metrics" onClick={() => setActiveLogKey("metrics")}>Metrics</Tabs.Tab>
-                <Tabs.Tab value="propertyHits" onClick={() => setActiveLogKey("propertyHits")}>Property Hits</Tabs.Tab>
+                <Tabs.Tab value="propertyHits" onClick={() => setActiveLogKey("propertyHits")}>Scans</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="system">
                 <Stack>
@@ -222,7 +227,7 @@ export const component = (P: { storeId: string }) => {
                                 <Table.Tr key={index}>
                                     <Table.Td>{entry.timestamp.toLocaleTimeString()}</Table.Td>
                                     <Table.Td>{entry.values.taskId}</Table.Td>
-                                    <Table.Td>{entry.values.started}</Table.Td>
+                                    <Table.Td>{new Date(entry.values.started).toLocaleString()}</Table.Td>
                                     <Table.Td>{entry.values.duration}</Table.Td>
                                     <Table.Td>{entry.values.success}</Table.Td>
                                     <Table.Td>{entry.values.error}</Table.Td>
