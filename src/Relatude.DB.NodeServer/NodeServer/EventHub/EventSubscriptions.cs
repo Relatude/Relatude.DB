@@ -40,8 +40,8 @@ public class EventSubscriptions {
             return null;
         }
     }
-    public Guid CreateSubscription() {
-        var subscription = new EventSubscription();
+    public Guid CreateSubscription(params string[] events) {
+        var subscription = new EventSubscription { EventNames = new HashSet<string>(events) };
         lock (_eventSubscriptions) {
             _eventSubscriptions[subscription.SubscriptionId] = subscription;
         }

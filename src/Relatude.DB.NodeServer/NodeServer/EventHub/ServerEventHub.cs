@@ -7,11 +7,11 @@ namespace Relatude.DB.NodeServer.EventHub;
 public static class ServerEventHub {
     static EventSubscriptions _subscriptions = new();
     public static void Publish(string name, object data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new(name, data, maxAge));
-    public static void ChangeSubscription(Guid subscriptionId, string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
+    public static void ChangeSubscription(Guid subscriptionId, params string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
     public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
     public static EventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
     public static int SubscriptionCount() => _subscriptions.Count();
-    public static async Task Subscribe(HttpContext context) {
+    public static async Task Subscribe(HttpContext context, params string[] events) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -24,7 +24,7 @@ public static class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var subscriptionId = _subscriptions.CreateSubscription();
+        var subscriptionId = _subscriptions.CreateSubscription(events);
         try {
             await writeEvent(response, cancellation, new("subscriptionId", subscriptionId.ToString()));
             Console.WriteLine("SSE client connected, subscriptionId: " + subscriptionId + ". Connections: " + _subscriptions.Count().ToString("N0"));
