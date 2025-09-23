@@ -5,11 +5,18 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace Relatude.DB.DataStores.Indexes.VectorIndex;
+/// <summary>
+/// Brute-force flat vector index stored on disk.
+/// Multithreaded search with producer-consumer pattern and SIMD acceleration.
+/// 1 000 000 vectors of 1536 dimensions (float32) = 6.1 GB file
+/// Search time ~200ms for top 10 on a modern CPU and SSD.
+/// Linear ration of no vectors and search time.
+/// </summary>
 public class FlatDiskVectorIndex : IVectorIndex {
-    int _dimensions;
+    int _dimensions; // every vector has the same number of dimensions
+    int _fileVersion = 1;
     Stream _stream;
     Dictionary<int, int> _fileIndex = []; // record segment by nodeId
-    List<int> _vacant = [];
     byte[] _buffer;
     float[] _vector;
     int _recordSegmentLength;
@@ -42,7 +49,6 @@ public class FlatDiskVectorIndex : IVectorIndex {
     public void Clear(int nodeId) {
         if (_fileIndex.TryGetValue(nodeId, out var offset)) {
             _fileIndex.Remove(nodeId);
-            _vacant.Add(offset);
         }
     }
 
@@ -67,8 +73,7 @@ public class FlatDiskVectorIndex : IVectorIndex {
         var queue = new BlockingCollection<(byte[] buf, int bytes)>(boundedCapacity: Environment.ProcessorCount * 2);
 
         // Producer: read from stream into pooled buffers.
-        var producer = Task.Run(() =>
-        {
+        var producer = Task.Run(() => {
             // Small carry for tail bytes across reads (at most recordLen-1)
             byte[] carry = Array.Empty<byte>();
             try {
@@ -307,16 +312,30 @@ public class FlatDiskVectorIndex : IVectorIndex {
     }
     #endregion
 
-    public void CompressMemory() {
-        throw new NotImplementedException();
-    }
+    public void CompressMemory() { }
 
     public void ReadState(IReadStream stream) {
-        throw new NotImplementedException();
+        var fileVersion = stream.ReadVerifiedInt();
+        if (fileVersion != _fileVersion) throw new Exception("Vector index file version does not match");
+        var dimensions = stream.ReadVerifiedInt();
+        if (dimensions != _dimensions) throw new Exception("Vector index dimensions do not match");
+        _fileIndex.Clear();
+        var count = stream.ReadVerifiedInt();
+        for (int i = 0; i < count; i++) {
+            var nodeId = stream.ReadVerifiedInt();
+            var segment = stream.ReadVerifiedInt();
+            _fileIndex.Add(nodeId, segment);
+        }
     }
 
     public void SaveState(IAppendStream stream) {
-        throw new NotImplementedException();
+        stream.WriteVerifiedInt(_fileVersion);
+        stream.WriteVerifiedInt(_dimensions);
+        stream.WriteVerifiedInt(_fileIndex.Count);
+        foreach (var kvp in _fileIndex) {
+            stream.WriteVerifiedInt(kvp.Key);
+            stream.WriteVerifiedInt(kvp.Value);
+        }
     }
 }
 

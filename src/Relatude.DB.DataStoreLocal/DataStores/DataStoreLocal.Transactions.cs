@@ -41,7 +41,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value);
             return new TransactionResult(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
-            // database state is ok, entiere transaction is cancelled and any changes have been rolled back
+            // database state is ok, entire transaction is cancelled and any changes have been rolled back
             LogError("Transaction Error. ", err);
             throw;
         } catch (Exception err) {
@@ -151,7 +151,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             case PrimitiveOperation.Remove: {
                     if (!_nodes.Contains(action.Node.__Id)) throw new ExceptionWithoutIntegrityLoss("Cannot remove unknown node: " + action.Node);
                     _nodes.Remove(action.Node, out var segmentRemoved);
-                    action.Segment = segmentRemoved; // must keep segment to be able to execute oposite action later
+                    action.Segment = segmentRemoved; // must keep segment to be able to execute opposite action later
                     _index.Remove(action.Node);
                 }
                 break;

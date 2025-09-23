@@ -165,7 +165,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     }
                     _guids.RegisterAction(a);
                     if (a is PrimitiveNodeAction na) {
-                        _nodes.RegisterAction(na);
+                        _nodes.RegisterAction_NotThreadsafe(na);
                         _index.RegisterActionDuringStateLoad(transaction.Timestamp, na, throwOnBadStateFile, logCriticalError);
                     } else if (a is PrimitiveRelationAction ra) {
                         _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems

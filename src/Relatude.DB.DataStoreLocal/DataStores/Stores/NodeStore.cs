@@ -15,7 +15,7 @@ namespace Relatude.DB.DataStores.Stores {
     // the item can now be removed from cache later if cache needs to save memory
     // if a get is issued for node not in cache, then it is loaded from log ( using segment info )
 
-    // threadsafe
+    // threadsafe, excect when loading and using method "_NotThreadsafe"
     internal sealed class NodeStore {
         object _lock = new();
         static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
@@ -119,26 +119,21 @@ namespace Relatude.DB.DataStores.Stores {
         }
         public void UpdateNodeDataPositionInLogFile(int id, NodeSegment segment) {
             lock (_lock) {
+                if (!_segments.ContainsKey(id)) return;
                 _segments[id] = segment;
                 _cache.TryUpdateSize(id, estimateSize(segment.Length));
             }
         }
-        public void RegisterAction(PrimitiveNodeAction action) {
+        public void RegisterAction_NotThreadsafe(PrimitiveNodeAction action) { // not threadsafe, must be called from log writer thread only
             switch (action.Operation) {
                 case PrimitiveOperation.Add:
                     if (action.Segment == null) throw new Exception("Internal error. ");
-                    UpdateNodeDataPositionInLogFile(action.Node.__Id, action.Segment.Value);
+                    _segments.Add(action.Node.__Id, action.Segment.Value);
                     break;
                 case PrimitiveOperation.Remove:
-                    DeRegisterSegment(action.Node.__Id);
+                    _segments.Remove(action.Node.__Id);
                     break;
                 default: throw new NotImplementedException();
-            }
-        }
-        public void DeRegisterSegment(int id) {
-            lock (_lock) {
-                _segments.Remove(id);
-                _cache.Clear_EvenIf0Size(id);
             }
         }
         internal void ReadState(IReadStream stream, Action<string?, int?> progress) {
@@ -146,7 +141,7 @@ namespace Relatude.DB.DataStores.Stores {
             stream.RecordChecksum();
             var count = stream.ReadVerifiedInt();
             for (var i = 0; i < count; i++) {
-                if (i % 79190 == 0) progress("Reading node index " + (i + 1) + " of " + count, (i * 100 / count));
+                if (i % 79190 == 0) progress("Reading node index " + (i + 1) + " of " + count, (i * 100 / count)); // just a prime number to "avoid" patterns
                 var nodeId = (int)stream.ReadUInt();
                 var pos = stream.ReadLong();
                 var len = stream.ReadVerifiedInt();
