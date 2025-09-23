@@ -6,3 +6,9 @@ public class EventData(string name, object data, TimeSpan? maxAge = null) {
     public string Name { get; } = name;
     public object Data { get; } = data;
 }
+
+public class EventDataBuilder(string name, Func<Guid, object> data, TimeSpan? maxAge = null) {
+    public TimeSpan? MaxAge { get; } = maxAge;
+    public Func<Guid, object> Data { get; } = data;
+    public string Name { get; } = name;
+}

@@ -10,6 +10,16 @@ public class EventSubscriptions {
             }
         }
     }
+    public void EnqueueToMatchingSubscriptions(EventDataBuilder builder) {
+        lock (_eventSubscriptions) {
+            foreach (var subscription in _eventSubscriptions.Values) {
+                var eventData = builder.Data(subscription.SubscriptionId);
+                if (subscription.EventNames.Contains(builder.Name)) {
+                    subscription.EventQueue.AddLast(new EventData(builder.Name, eventData, builder.MaxAge));
+                }
+            }
+        }
+    }
     public bool IsSubscribing(Guid subscriptionId) {
         lock (_eventSubscriptions) {
             return _eventSubscriptions.ContainsKey(subscriptionId);
@@ -40,8 +50,11 @@ public class EventSubscriptions {
             return null;
         }
     }
-    public Guid CreateSubscription(params string[] events) {
-        var subscription = new EventSubscription { EventNames = new HashSet<string>(events) };
+    public Guid CreateSubscription(Guid? id, params string[] events) {
+        var subscription = id.HasValue 
+            ? new EventSubscription { SubscriptionId = id.Value, EventNames = [..events] } 
+            : new EventSubscription { EventNames = [..events] };
+
         lock (_eventSubscriptions) {
             _eventSubscriptions[subscription.SubscriptionId] = subscription;
         }
