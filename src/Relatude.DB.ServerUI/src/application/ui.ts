@@ -32,6 +32,7 @@ export class UI {
     private _retryDialogMessage: string = ""; get retryDialogMessage() { return this._retryDialogMessage; } set retryDialogMessage(value: string) { this._retryDialogMessage = value; }
     private _queryBuilders: Map<string, QueryBuilderStore[]> = new Map();
     private _selectedQueryBuilders: Map<string, string> = new Map();
+    private _activeLogKey: string = "system"; get activeLogKey() { return this._activeLogKey; } set activeLogKey(value: string) { this._activeLogKey = value; }
     getSelectedQueryBuilderId(storeId: string) {
         return this._selectedQueryBuilders.get(storeId);
     }

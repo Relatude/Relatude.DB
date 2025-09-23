@@ -3,13 +3,15 @@ import { observer } from 'mobx-react';
 import { Button, Group, Space, Stack, Switch, Table, Tabs, Title } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import { Poller } from '../../application/poller';
-import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry } from '../../application/models';
+import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo } from '../../application/models';
 import { set } from 'mobx';
+import { formatBytesString } from '../../utils/formatting';
 export const component = (P: { storeId: string }) => {
     const app = useApp();
 
     const [enableLog, setEnabledLog] = useState<boolean | undefined>();
     const [enableStatistics, setEnabledStatistics] = useState<boolean | undefined>();
+    const [logInfos, setLogInfos] = useState<LogInfo[]>([]);
 
     const [systemLog, setSystemLog] = useState<LogEntry<SystemLogEntry>[]>();
     const [queryLog, setQueryLog] = useState<LogEntry<QueryLogEntry>[]>();
@@ -19,7 +21,6 @@ export const component = (P: { storeId: string }) => {
     const [taskBatchLog, setTaskBatchLog] = useState<LogEntry<TaskBatchLogEntry>[]>();
     const [metricsLog, setMetricsLog] = useState<LogEntry<MetricsLogEntry>[]>();
 
-    const [activeLogKey, setActiveLogKey] = useState<string>("system");
     const [propertyHits, setPropertyHits] = useState<string>();
     const [isRecordingPropertyHits, setIsRecordingPropertyHits] = useState<boolean>();
     const [isNotOpen, setIsNotOpen] = useState(false);
@@ -27,74 +28,98 @@ export const component = (P: { storeId: string }) => {
     useEffect(() => {
         const poller = new Poller(async () => {
             if (!P.storeId) return;
-            app.api.log.isLogEnabled(P.storeId, activeLogKey).then(setEnabledLog);
-            app.api.log.isStatisticsEnabled(P.storeId, activeLogKey).then(setEnabledStatistics);
-            const to = new Date(); // now
-            const from = new Date(to.getTime() - 60 * 60 * 1000); // 1 hour ago
-            const skip = 0;
-            const take = 100;
-            switch (activeLogKey) {
-                case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take)); break;
-                case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take)); break;
-                case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take)); break;
-                case "action": setActionLog(await app.api.log.extractActionLog(P.storeId, from, to, skip, take)); break;
-                case "task": setTaskLog(await app.api.log.extractTaskLog(P.storeId, from, to, skip, take)); break;
-                case "taskbatch": setTaskBatchLog(await app.api.log.extractTaskBatchLog(P.storeId, from, to, skip, take)); break;
-                case "metrics": setMetricsLog(await app.api.log.extractMetricsLog(P.storeId, from, to, skip, take)); break;
-                default:
-                    break;
+            if (app.ui.activeLogKey == "settings") {
+                app.api.log.getLogInfos(P.storeId).then(setLogInfos);
+            } else if (app.ui.activeLogKey == "propertyHits") {
+
+            } else {
+                app.api.log.isLogEnabled(P.storeId, app.ui.activeLogKey).then(setEnabledLog);
+                app.api.log.isStatisticsEnabled(P.storeId, app.ui.activeLogKey).then(setEnabledStatistics);
+                const to = new Date(); // now
+                const from = new Date(to.getTime() - 60 * 60 * 1000); // 1 hour ago
+                const skip = 0;
+                const take = 100;
+                switch (app.ui.activeLogKey) {
+                    case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take)); break;
+                    case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take)); break;
+                    case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take)); break;
+                    case "action": setActionLog(await app.api.log.extractActionLog(P.storeId, from, to, skip, take)); break;
+                    case "task": setTaskLog(await app.api.log.extractTaskLog(P.storeId, from, to, skip, take)); break;
+                    case "taskbatch": setTaskBatchLog(await app.api.log.extractTaskBatchLog(P.storeId, from, to, skip, take)); break;
+                    case "metrics": setMetricsLog(await app.api.log.extractMetricsLog(P.storeId, from, to, skip, take)); break;
+                    default:
+                        break;
+                }
             }
         });
         return () => { poller.dispose(); }
-    }, [activeLogKey, P.storeId]);
+    }, [app.ui.activeLogKey, P.storeId]);
     useEffect(() => {
         setIsNotOpen(app.ui.storeStates.get(P.storeId)?.state != "Open")
     }, [app.ui.storeStates.get(P.storeId)?.state])
-
     if (!P.storeId) return;
     if (!currentContainer) return;
     const setCurrentEnabledLog = async (enable: boolean) => {
         setEnabledLog(enable);
-        await app.api.log.enableLog(P.storeId, activeLogKey, enable);
+        await app.api.log.enableLog(P.storeId, app.ui.activeLogKey, enable);
     }
     const setCurrentEnabledStatistics = async (enable: boolean) => {
         setEnabledStatistics(enable);
-        await app.api.log.enableStatistics(P.storeId, activeLogKey, enable);
+        await app.api.log.enableStatistics(P.storeId, app.ui.activeLogKey, enable);
     }
-    const clearLog = async () => {
-        await app.api.log.clearLog(P.storeId, activeLogKey);
+    const setInfoEnabledLog = async (enable: boolean, logKey: string) => {
+        logInfos.find(l => l.key == logKey)!.enabledLog = enable;
+        setLogInfos(logInfos);
+        await app.api.log.enableLog(P.storeId, logKey, enable);
     }
-    const clearStatistics = async () => {
-        await app.api.log.clearLog(P.storeId, activeLogKey);
+    const setInfoEnabledStatistics = async (enable: boolean, logKey: string) => {
+        logInfos.find(l => l.key == logKey)!.enabledStatistics = enable;
+        setLogInfos(logInfos);
+        await app.api.log.enableStatistics(P.storeId, logKey, enable);
     }
-    const queryLogToolbar = <>
-        <Group>
-            <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
-            <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
-            <Button variant="light" onClick={() => clearLog()} >Clear Log</Button>
-            <Button variant="light" onClick={() => clearStatistics()} >Clear Statistics</Button>
-        </Group>
-        {/* <Button disabled={enabled === undefined || enabled === true} variant="light" onClick={() => setEnabledStatus(true)} >Enable</Button>
-        <Button disabled={enabled === undefined || enabled === false} variant="light" onClick={() => setEnabledStatus(false)} >Disable</Button> */}
-        {/* <Button disabled={enabledDetails === undefined || enabledDetails === true} variant="light" onClick={() => setEnabledDetailsStatus(true)} >Enable details</Button>
-        <Button disabled={enabledDetails === undefined || enabledDetails === false} variant="light" onClick={() => setEnabledDetailsStatus(false)} >Disable details</Button> */}
+    const clearLog = async (logKey?: string) => {
+        await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
+    }
+    const clearStatistics = async (logKey?: string) => {
+        await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
+    }
+    const logSettingsRow = (logKey: string, logName: string, enableLog: boolean, enableStatistics: boolean) => <>
+        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits") ?
+            <Group>
+                <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
+                <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
+                <Button variant="light" onClick={() => clearLog()} >Clear Log</Button>
+                <Button variant="light" onClick={() => clearStatistics()} >Clear Statistics</Button>
+            </Group>
+            : <></>}
+    </>
+    const logToolbar = <>
+        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits") ?
+            <Group>
+                <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
+                <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
+                <Button variant="light" onClick={() => clearLog()} >Clear Log</Button>
+                <Button variant="light" onClick={() => clearStatistics()} >Clear Statistics</Button>
+            </Group>
+            : <></>}
     </>
     return (<>
-        <Tabs defaultValue="system">
+        <Tabs defaultValue={app.ui.activeLogKey}>
             <Tabs.List>
-                <Tabs.Tab value="system" onClick={() => setActiveLogKey("system")}>System</Tabs.Tab>
-                <Tabs.Tab value="metrics" onClick={() => setActiveLogKey("metrics")}>Metrics</Tabs.Tab>
-                <Tabs.Tab value="query" onClick={() => setActiveLogKey("query")}>Queries</Tabs.Tab>
-                <Tabs.Tab value="transaction" onClick={() => setActiveLogKey("transaction")}>Transactions</Tabs.Tab>
-                {/* <Tabs.Tab value="action" onClick={() => setActiveLogKey("action")}>Actions</Tabs.Tab> */}
-                {/* <Tabs.Tab value="taskbatch" onClick={() => setActiveLogKey("taskbatch")}>Task batches</Tabs.Tab> */}
-                <Tabs.Tab value="task" onClick={() => setActiveLogKey("task")}>Tasks</Tabs.Tab>
-                <Tabs.Tab value="propertyHits" onClick={() => setActiveLogKey("propertyHits")}>Scans</Tabs.Tab>
+                <Tabs.Tab value="system" onClick={() => app.ui.activeLogKey = "system"}>System</Tabs.Tab>
+                <Tabs.Tab value="metrics" onClick={() => app.ui.activeLogKey = "metrics"}>Metrics</Tabs.Tab>
+                <Tabs.Tab value="query" onClick={() => app.ui.activeLogKey = "query"}>Queries</Tabs.Tab>
+                <Tabs.Tab value="transaction" onClick={() => app.ui.activeLogKey = "transaction"}>Transactions</Tabs.Tab>
+                <Tabs.Tab value="action" onClick={() => app.ui.activeLogKey = "action"}>Actions</Tabs.Tab>
+                <Tabs.Tab value="taskbatch" onClick={() => app.ui.activeLogKey = "taskbatch"}>Task batches</Tabs.Tab>
+                <Tabs.Tab value="task" onClick={() => app.ui.activeLogKey = "task"}>Tasks</Tabs.Tab>
+                <Tabs.Tab value="propertyHits" onClick={() => app.ui.activeLogKey = "propertyHits"}>Scans</Tabs.Tab>
+                <Tabs.Tab value="settings" onClick={() => app.ui.activeLogKey = "settings"}>Settings</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="system">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -120,7 +145,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="query">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -154,7 +179,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="transaction">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -184,7 +209,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="action">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -210,7 +235,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="task">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -240,7 +265,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="taskbatch">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                     <Table>
                         <Table.Thead>
                             <Table.Tr>
@@ -272,7 +297,7 @@ export const component = (P: { storeId: string }) => {
             <Tabs.Panel value="metrics">
                 <Stack>
                     <Space />
-                    {queryLogToolbar}
+                    {logToolbar}
                 </Stack>
                 <Table>
                     <Table.Thead>
@@ -305,16 +330,70 @@ export const component = (P: { storeId: string }) => {
                     </Table.Tbody>
                 </Table>
             </Tabs.Panel>
-            <Tabs.Panel value="taskqueue">
-                <Title>Task Queue:</Title>
-                <pre>Not implemented yet</pre>
-            </Tabs.Panel>
             <Tabs.Panel value="propertyHits">
                 <Title>Non indexed property hits:</Title>
                 <Button variant="light" color={isRecordingPropertyHits ? "red" : "green"}
                     onClick={() => app.api.log.setPropertyHitsRecordingStatus(app.ui.selectedStoreId!, !isRecordingPropertyHits)}
                 >{isRecordingPropertyHits ? "stop" : "start"}</Button>
                 <pre>{propertyHits}</pre>
+            </Tabs.Panel>
+            <Tabs.Panel value="settings">
+                <Stack>
+                    <Table >
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>Log</Table.Th>
+                                <Table.Th>Statistics</Table.Th>
+                                <Table.Th>Logging</Table.Th>
+                                <Table.Th>First</Table.Th>
+                                <Table.Th>Last</Table.Th>
+                                <Table.Th>Size</Table.Th>
+                                <Table.Th>Statistics</Table.Th>
+                                <Table.Th>Logs</Table.Th>
+
+                            </Table.Tr>
+                        </Table.Thead>
+                        {logInfos.map(info => (
+                            <Table.Tr>
+                                <Table.Td>{info.name}</Table.Td>
+                                <Table.Td>
+                                    <Switch disabled={isNotOpen} checked={info.enabledStatistics} onChange={(e) => setInfoEnabledStatistics(e.currentTarget.checked, info.key)} />
+                                </Table.Td>
+                                <Table.Td>
+                                    <Switch disabled={isNotOpen} checked={info.enabledLog} onChange={(e) => setInfoEnabledLog(e.currentTarget.checked, info.key)} />
+                                </Table.Td>
+                                <Table.Td
+                                    title={info.logFileSize > 1000 ? new Date(info.firstRecord).toTimeString() : "-"}
+                                >{info.logFileSize > 1000 ? new Date(info.firstRecord).toDateString() : "-"}</Table.Td>
+                                <Table.Td
+                                    title={info.logFileSize > 1000 ? new Date(info.lastRecord).toTimeString() : "-"}
+                                >{info.logFileSize > 1000 ? new Date(info.lastRecord).toDateString() : "-"}</Table.Td>
+                                <Table.Td>{info.totalFileSize > 1000 ? formatBytesString(info.totalFileSize) : "-"}</Table.Td>
+                                <Table.Td>
+                                    <Button variant="light" onClick={() => clearLog(info.key)} >Clear</Button>
+                                </Table.Td>
+                                <Table.Td>
+                                    <Button variant="light" onClick={() => clearStatistics(info.key)} >Clear</Button>
+                                </Table.Td>
+                            </Table.Tr>
+                        ))}
+                        <Table.Tr>
+                            <Table.Td>All logs</Table.Td>
+                            <Table.Td></Table.Td>
+                            <Table.Td></Table.Td>
+                            <Table.Td></Table.Td>
+                            <Table.Td></Table.Td>
+                            <Table.Td>{logInfos.reduce((a, b) => a + b.totalFileSize, 0) > 1000 ? formatBytesString(logInfos.reduce((a, b) => a + b.totalFileSize, 0)) : "-"}</Table.Td>
+                            <Table.Td>
+                                <Button variant="light" onClick={() => clearLog()} >All</Button>
+                            </Table.Td>
+                            <Table.Td>                                
+                                <Button variant="light" onClick={() => clearStatistics()} >All</Button>
+                            </Table.Td>                                 
+                            
+                        </Table.Tr>
+                    </Table>
+                </Stack>
             </Tabs.Panel>
         </Tabs>
     </>);

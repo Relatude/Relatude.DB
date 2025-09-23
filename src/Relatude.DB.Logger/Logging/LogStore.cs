@@ -32,6 +32,21 @@ public class LogStore : IDisposable, ILogStore {
             return 0;
         }
     }
+    public long GetLogFileSize(string logKey) {
+        if (_logs.TryGetValue(logKey, out var log)) {
+            return log.GetTotalFileSize();
+        } else {
+            return 0;
+        }
+    }
+    public long GetStatisticsFileSize(string logKey) {
+        if (_logs.TryGetValue(logKey, out var log)) {
+            return log.GetStatisticsFileSize();
+        } else {
+            return 0;
+        }
+    }
+
     public void DeleteLogOlderThan(string logKey, DateTime to) {
         if (_logs.TryGetValue(logKey, out var log)) log.EnforceDateLimit(to);
     }

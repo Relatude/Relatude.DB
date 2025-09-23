@@ -7,7 +7,7 @@ import { Poller } from "../../application/poller";
 
 export const component = () => {
   const app = useApp();
-  const [active, setActive] = useState<string>("system");
+
   const [serverLog, setServerLog] = useState<ServerLogEntry[]>();
   useEffect(() => {
     const poller = new Poller(async () => {
@@ -33,8 +33,8 @@ export const component = () => {
     <>
       <Tabs defaultValue="databases">
         <Tabs.List>
-          <Tabs.Tab value="databases" onClick={() => setActive("databases")}>Databases</Tabs.Tab>
-          <Tabs.Tab value="log" onClick={() => setActive("log")}>Server log</Tabs.Tab>
+          <Tabs.Tab value="databases" >Databases</Tabs.Tab>
+          <Tabs.Tab value="log" >Server events</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="databases">
           <Table>
@@ -74,8 +74,8 @@ export const component = () => {
           <Table>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Server log</Table.Th>
-                <Table.Th><Button variant="light" onClick={() => app.api.log.clearContainerLog(app.ui.selectedStoreId!)} >Clear</Button></Table.Th>
+                <Table.Th>Timestamp</Table.Th>
+                <Table.Th>Event</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>

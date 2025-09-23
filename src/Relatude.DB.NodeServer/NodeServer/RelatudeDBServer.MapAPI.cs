@@ -366,7 +366,21 @@ public partial class RelatudeDBServer {
             if (e == null) return null;
             return new { When = c.StartUpExceptionDateTimeUTC, e.Message, e.StackTrace, };
         });
-
+        app.MapPost(path("get-log-infos"), (Guid storeId) => {
+            var loggerInstance = logger(storeId);
+            var keysAndNames = loggerInstance.GetLogKeysAndNames();
+            return keysAndNames.Select(k => new {
+                k.Key,
+                Name = k.Value,
+                EnabledLog = loggerInstance.IsLogEnabled(k.Key),
+                EnabledStatistics = loggerInstance.IsStatisticsEnabled(k.Key),
+                FirstRecord = loggerInstance.LogStore.GetTimestampOfFirstRecord(k.Key),
+                LastRecord = loggerInstance.LogStore.GetTimestampOfLastRecord(k.Key),
+                TotalFileSize = loggerInstance.LogStore.GetFileSize(k.Key),
+                LogFileSize = loggerInstance.LogStore.GetLogFileSize(k.Key),
+                StatisticsFileSize = loggerInstance.LogStore.GetStatisticsFileSize(k.Key),
+            });
+        });
         app.MapPost(path("enable-log"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableLog(logKey, enable));
         app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => logger(storeId).IsLogEnabled(logKey));
         app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableStatistics(logKey, enable));

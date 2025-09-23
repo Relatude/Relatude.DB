@@ -6,6 +6,7 @@ import IoSelector from '../../components/ioSelector';
 import { FileMeta, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
 import { IconDots } from '@tabler/icons-react';
+import { formatBytesString, formatDateToString } from '../../utils/formatting';
 
 export const component = (p: { storeId: string }) => {
     const app = useApp();
@@ -27,17 +28,6 @@ export const component = (p: { storeId: string }) => {
             setSelectedIo(undefined);
         }
     }
-    const formatBytesString = (bytes: number) => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const dm = 2 < 0 ? 0 : 2;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    }
-    const formatDateToString = (date: Date) => {
-        return date.toLocaleDateString() + " " + date.getHours() + ":" + date.getMinutes();
-    }
     const updateFiles = async () => {
         const storeIsLoadedAndIoBelongsToStore = store?.id == p.storeId && store?.ioSettings?.find(io => io.id == selectedIo) != undefined;
         setFiles(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!) : undefined);
@@ -58,7 +48,7 @@ export const component = (p: { storeId: string }) => {
     const downloadFile = async (fileName: string) => {
         try {
             await app.api.maintenance.downloadFile(p.storeId, selectedIo!, fileName);
-        } catch (e) {
+        } catch (e: any) {
             alert(e.message);
         }
     }
@@ -121,7 +111,7 @@ export const component = (p: { storeId: string }) => {
         if (!confirm("Are you sure you want to permanently delete this file?")) return;
         const storeSettings = await app.api.settings.getSettings(p.storeId);
         try {
-            if(confirmInCaseOfDbFile(file)) await app.api.maintenance.deleteFile(p.storeId, selectedIo!, file);
+            if (confirmInCaseOfDbFile(file)) await app.api.maintenance.deleteFile(p.storeId, selectedIo!, file);
         } finally {
             await updateFiles();
         }

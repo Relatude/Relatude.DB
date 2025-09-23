@@ -182,7 +182,17 @@ export interface MetricsLogEntry {
     setCacheCount: number;
     setCacheSize: number;
 }
-
+export interface LogInfo{
+    key: string;
+    name: string;
+    enabledLog: boolean;
+    enabledStatistics: boolean;
+    firstRecord: string;
+    lastRecord: string;
+    totalFileSize: number;
+    logFileSize: number;
+    statisticsFileSize: number;
+}
 
 export interface Transaction {
 

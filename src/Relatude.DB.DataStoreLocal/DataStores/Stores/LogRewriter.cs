@@ -7,7 +7,7 @@ using Relatude.DB.DataStores.Transactions;
 
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
-    static readonly string _logRewriterStartFile = "log_rewrite.flag";
+    static readonly string _logRewriterStartFile = "rewrite.flag";
     public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
         using var stream = io.OpenRead(_logRewriterStartFile, 0);

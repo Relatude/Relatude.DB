@@ -14,7 +14,7 @@ public enum SystemLogEntryType {
 }
 
 public class StoreMetrics {
-    public int QueryCount{ get; set; }
+    public int QueryCount { get; set; }
     public int TransactionCount { get; set; }
     public int NodeCount { get; set; }
     public int RelationCount { get; set; }
@@ -44,8 +44,10 @@ public class Logger : IDisposable {
             return _logStore;
         }
     }
-    List<LogSettings> getSettings() {
-        return [
+
+    LogSettings[]? _settings;
+    LogSettings[] getSettings() {
+        _settings = [
             new() {
                 Name = "System",
                 Key = _systemLogKey,
@@ -212,6 +214,7 @@ public class Logger : IDisposable {
                     },
             },
         ];
+        return _settings;
     }
 
     public bool EnableSystemLog = true; // only system log, is enabled by default
@@ -347,7 +350,7 @@ public class Logger : IDisposable {
         }
     }
     public KeyValuePair<string, int>[] AnalyzePropertyHits() {
-        if(_datamodel == null) return [];
+        if (_datamodel == null) return [];
         lock (_propertyHits) {
             return _propertyHits.Select(kv => {
                 var property = _datamodel.Properties[kv.Key];
@@ -426,6 +429,10 @@ public class Logger : IDisposable {
         _logStore?.Dispose();
     }
 
+    public KeyValuePair<string, string>[] GetLogKeysAndNames() {
+        if (_settings == null) return [];
+        return _settings.Select(s => new KeyValuePair<string, string>(s.Key, s.Name)).ToArray();
+    }
     public void EnableLog(string logKey, bool enable) {
         if (logKey == _systemLogKey) EnableSystemLog = enable;
         else if (logKey == _queryLogKey) EnableSystemQueryLog = enable;

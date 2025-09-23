@@ -24,7 +24,7 @@ internal class Log : IDisposable {
         _setting = settings;
         _io = io;
         _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, _setting.FileNameExtension);
-        _logTextStream = new LogTextStream(io, _setting.Key, _setting.FileInterval);
+        _logTextStream = new LogTextStream(io, _setting.Key, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, ".txt");
         _statFileKey = (string.IsNullOrEmpty(_setting.FileNamePrefix) ? "" : _setting.FileNamePrefix + _setting.FileNameDelimiter) + _setting.Key + _setting.FileNameDelimiter + "statistics" + _setting.FileNameExtension;
         _backupStatFile = _statFileKey + ".bkup";
         loadAllStatistics();
@@ -135,7 +135,7 @@ internal class Log : IDisposable {
                 _logStream.Record(record, flushToDisk);
                 if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
             }
-            if (_setting.EnableStatistics || (forceStatistics.HasValue && forceStatistics.Value)) { 
+            if (_setting.EnableStatistics || (forceStatistics.HasValue && forceStatistics.Value)) {
                 _rowStat.RecordIfPossible(entry.Timestamp, true);
                 foreach (var value in entry.Values) {
                     if (_statByProp.TryGetValue(value.Key, out var stats)) {
@@ -153,13 +153,15 @@ internal class Log : IDisposable {
             return records.Select(r => getEntry(r));
         }
     }
-    public long GetTotalFileSize() {
+    public long GetTotalFileSize() => GetLogFileSize() + GetStatisticsFileSize();
+    public long GetLogFileSize() {
         lock (_lock) {
-            long size = 0;
-            size += _logStream.Size();
-            size += _logTextStream.Size();
-            size += _io.GetFileSizeOrZeroIfUnknown(_statFileKey);
-            return size;
+            return _logStream.Size() + _logTextStream.Size();
+        }
+    }
+    public long GetStatisticsFileSize() {
+        lock (_lock) {
+            return _io.GetFileSizeOrZeroIfUnknown(_statFileKey);
         }
     }
     static byte[] getStatBytes(IStatistics s) {

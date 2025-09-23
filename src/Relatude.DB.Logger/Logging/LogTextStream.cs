@@ -7,10 +7,16 @@ namespace Relatude.DB.Logging;
 internal class LogTextStream : IDisposable {
     FileResolution _res;
     string _logName;
+    readonly string _logPrefix;
+    readonly string _logNameDelim;
+    readonly string _logExtensions;
     IIOProvider _io;
-    public LogTextStream(IIOProvider io, string logName, FileResolution fileResolution) {
+    public LogTextStream(IIOProvider io, string logName, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions) {
         _io = io;
         _logName = logName;
+        _logPrefix = logPrefix;
+        _logNameDelim = logNameDelim;
+        _logExtensions = logExtensions;
         _res = fileResolution;
     }
 
@@ -55,7 +61,9 @@ internal class LogTextStream : IDisposable {
         }
         return filesToDelete.Count();
     }
-    string getStreamPrefix() => "log_" + _logName + "_txt_" + _res + "_";
+    //string getStreamPrefix() => "log_" + _logName + "_txt_" + _res + "_";
+    string getStreamPrefix() => (string.IsNullOrEmpty(_logPrefix) ? "" : _logPrefix + _logNameDelim) + _logName + _logNameDelim + _res.ToString().ToLower() + _logNameDelim;
+
     string getStreamFileName(DateTime floored) {
         return (getStreamPrefix() + _res switch {
             FileResolution.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),

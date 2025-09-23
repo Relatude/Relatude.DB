@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo } from "./models";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
@@ -220,41 +220,10 @@ const fixFileMetaDates = (file: FileMeta) => {
 class LogAPI {
     constructor(private server: API, private controller: string) { }
 
-
-
-    // NEW C# Code:
-    // app.MapPost(path("has-startup-exception"), (Guid storeId) => container(storeId).StartUpException != null);
-    // app.MapPost(path("get-startup-exception"), (Guid storeId) => {
-    //     var c = container(storeId);
-    //     var e = c.StartUpException;
-    //     if (e == null) return null;
-    //     return new { When = c.StartUpExceptionDateTimeUTC, e.Message, e.StackTrace, };
-    // });
-
-    // app.MapPost(path("enable-log"), (Guid storeId, string logKey, bool enable) => db(storeId).Datastore.Logger.EnableLog(logKey, enable));
-    // app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsLogEnabled(logKey));
-    // app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => db(storeId).Datastore.Logger.EnableStatistics(logKey, enable));
-    // app.MapPost(path("is-statistics-enabled"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.IsStatisticsEnabled(logKey));
-    // app.MapPost(path("clear-log"), (Guid storeId, string logKey) => db(storeId).Datastore.Logger.Clear(logKey));
-    // app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take) => isDbInitialized(storeId) ? db(storeId).Datastore.Logger.ExtractLog(logKey, from, to, skip, take, out var total) : default);
-
-    // app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => db(storeId).Datastore.Logger.RecordingPropertyHits = enabled);
-    // app.MapPost(path("is-recording-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.RecordingPropertyHits);
-    // app.MapPost(path("analyze-property-hits"), (Guid storeId) => db(storeId).Datastore.Logger.AnalyzePropertyHits());
-
-    // app.MapPost(path("analyze-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeSystemLogCount(intervalType, from, to));
-    // app.MapPost(path("analyze-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeSystemLogCountByType(intervalType, from, to));
-    // app.MapPost(path("analyze-query-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeQueryCount(intervalType, from, to));
-    // app.MapPost(path("analyze-query-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeQueryDuration(intervalType, from, to));
-    // app.MapPost(path("analyze-transaction-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionCount(intervalType, from, to));
-    // app.MapPost(path("analyze-transaction-duration"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionDuration(intervalType, from, to));
-    // app.MapPost(path("analyze-transaction-action"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeTransactionAction(intervalType, from, to));
-    // app.MapPost(path("analyze-action-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeActionCount(intervalType, from, to));
-    // app.MapPost(path("analyze-action-operations"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => db(storeId).Datastore.Logger.analyzeActionOperations(intervalType, from, to));
-
-    // NEW TS Code:
     hasStartupException = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'has-startup-exception', { storeId });
     getStartupException = (storeId: string) => this.server.queryJson<{ when: string, message: string, stackTrace: string } | null>(this.controller, 'get-startup-exception', { storeId });
+
+    getLogInfos = (storeId: string) => this.server.queryJson<LogInfo[]>(this.controller, 'get-log-infos', { storeId });
     enableLog = (storeId: string, logKey: string, enable: boolean) => this.server.execute(this.controller, 'enable-log', { storeId, logKey, enable: enable ? "true" : "false" });
     isLogEnabled = (storeId: string, logKey: string) => this.server.queryJson<boolean>(this.controller, 'is-log-enabled', { storeId, logKey })
     enableStatistics = (storeId: string, logKey: string, enable: boolean) => this.server.execute(this.controller, 'enable-statistics', { storeId, logKey, enable: enable ? "true" : "false" });
@@ -273,6 +242,7 @@ class LogAPI {
 
     setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
+
     analyzePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-property-hits', { storeId });
     analyzeSystemLogCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     analyzeSystemLogCountByType = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
