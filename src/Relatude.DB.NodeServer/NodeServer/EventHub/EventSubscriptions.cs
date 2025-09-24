@@ -1,11 +1,21 @@
 ﻿namespace Relatude.DB.NodeServer.EventHub;
 public class EventSubscriptions {
-    readonly Dictionary<Guid, EventSubscription> _eventSubscriptions = [];
-    public void EnqueueToMatchingSubscriptions(EventData eventData) {
+    readonly Dictionary<Guid, IEventSubscription> _eventSubscriptions = [];
+    public void EnqueueToMatchingSubscriptions<K>(EventData<K> eventData) {
         lock (_eventSubscriptions) {
             foreach (var subscription in _eventSubscriptions.Values) {
                 if (subscription.EventNames.Contains(eventData.Name)) {
                     subscription.EventQueue.AddLast(eventData);
+                }
+            }
+        }
+    }
+    public void EnqueueToMatchingSubscriptions<T, K>(EventDataBuilder<T, K> builder) {
+        lock (_eventSubscriptions) {
+            foreach (var subscription in _eventSubscriptions.Values) {
+                var eventData = builder.Data((EventSubscription<T>)subscription);
+                if (subscription.EventNames.Contains(builder.Name)) {
+                    subscription.EventQueue.AddLast(new EventData<K>(builder.Name, eventData, builder.MaxAge));
                 }
             }
         }
@@ -20,12 +30,12 @@ public class EventSubscriptions {
             _eventSubscriptions.Remove(subscriptionId);
         }
     }
-    public EventSubscription[] GetAllSubscriptions() {
+    public IEventSubscription[] GetAllSubscriptions() {
         lock (_eventSubscriptions) {
             return [.. _eventSubscriptions.Values];
         }
     }
-    public EventData? Dequeue(Guid subscriptionId) {
+    public IEventData? Dequeue(Guid subscriptionId) {
         lock (_eventSubscriptions) {
             if (_eventSubscriptions.TryGetValue(subscriptionId, out var subscription)) {
                 var now = DateTime.UtcNow;
@@ -40,8 +50,8 @@ public class EventSubscriptions {
             return null;
         }
     }
-    public Guid CreateSubscription(params string[] events) {
-        var subscription = new EventSubscription { EventNames = new HashSet<string>(events) };
+    public Guid CreateSubscription<T>(T subscriberData, params string[] events) {
+        var subscription = new EventSubscription<T> { DataGeneric = subscriberData,  EventNames = [..events] };
         lock (_eventSubscriptions) {
             _eventSubscriptions[subscription.SubscriptionId] = subscription;
         }
