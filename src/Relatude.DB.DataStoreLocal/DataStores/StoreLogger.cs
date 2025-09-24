@@ -4,28 +4,8 @@ using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
-using System.Text.Json.Serialization;
 namespace Relatude.DB.DataStores;
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SystemLogEntryType {
-    Info,
-    Warning,
-    Error,
-}
-
-public class StoreMetrics {
-    public int QueryCount { get; set; }
-    public int TransactionCount { get; set; }
-    public int NodeCount { get; set; }
-    public int RelationCount { get; set; }
-    public int NodeCacheCount { get; set; }
-    public int NodeCacheSize { get; set; }
-    public int SetCacheCount { get; set; }
-    public int SetCacheSize { get; set; }
-    public int TaskQueueCount { get; set; }
-    public int TaskPersistedQueueCount { get; set; }
-}
-public class Logger : IDisposable {
+public class StoreLogger : IDisposable, IStoreLogger {
 
     static string _systemLogKey = "system";
     static string _queryLogKey = "query";
@@ -39,12 +19,7 @@ public class Logger : IDisposable {
     readonly FileKeyUtility _fileKeys;
     LogStore _logStore;
     readonly Datamodel? _datamodel;
-    public LogStore LogStore {
-        get {
-            return _logStore;
-        }
-    }
-
+    public ILogStore LogStore => _logStore;
     LogSettings[]? _settings;
     LogSettings[] getSettings() {
         _settings = [
@@ -244,7 +219,7 @@ public class Logger : IDisposable {
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
 
-    public Logger(IIOProvider io, FileKeyUtility fileKeys, Datamodel? datamodel) {
+    public StoreLogger(IIOProvider io, FileKeyUtility fileKeys, Datamodel? datamodel) {
         _fileKeys = fileKeys;
         _io = io;
         _datamodel = datamodel;
@@ -471,4 +446,6 @@ public class Logger : IDisposable {
         else if (logKey == _metricsLogKey) return EnableMetricsLogStatistics;
         return false;
     }
+
+
 }

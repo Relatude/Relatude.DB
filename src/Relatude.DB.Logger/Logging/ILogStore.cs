@@ -29,6 +29,8 @@ namespace Relatude.DB.Logging {
         void FlushToDiskNow();
         IDictionary<string, List<StatisticsInfo>> GetAvailableStatisticsByProperty(string logKey);
         long GetFileSize(string logKey);
+        long GetLogFileSize(string logKey);
+        long GetStatisticsFileSize(string logKey);
         LogSettings GetSetting(string logKey);
         IEnumerable<LogSettings> GetSettings();
         DateTime? GetTimestampOfFirstRecord(string logKey);

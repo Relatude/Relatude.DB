@@ -193,7 +193,10 @@ export interface LogInfo{
     logFileSize: number;
     statisticsFileSize: number;
 }
-
+export interface PropertyHitEntry{
+    propertyName: string;
+    hitCount: number;
+}
 export interface Transaction {
 
 }

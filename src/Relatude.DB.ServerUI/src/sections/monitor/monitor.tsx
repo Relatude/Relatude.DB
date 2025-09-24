@@ -3,7 +3,7 @@ import { observer } from 'mobx-react';
 import { Button, Group, Space, Stack, Switch, Table, Tabs, Title } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import { Poller } from '../../application/poller';
-import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo } from '../../application/models';
+import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo, PropertyHitEntry } from '../../application/models';
 import { set } from 'mobx';
 import { formatBytesString } from '../../utils/formatting';
 export const component = (P: { storeId: string }) => {
@@ -21,8 +21,9 @@ export const component = (P: { storeId: string }) => {
     const [taskBatchLog, setTaskBatchLog] = useState<LogEntry<TaskBatchLogEntry>[]>();
     const [metricsLog, setMetricsLog] = useState<LogEntry<MetricsLogEntry>[]>();
 
-    const [propertyHits, setPropertyHits] = useState<string>();
+    const [propertyHits, setPropertyHits] = useState<PropertyHitEntry[]>([]);
     const [isRecordingPropertyHits, setIsRecordingPropertyHits] = useState<boolean>();
+
     const [isNotOpen, setIsNotOpen] = useState(false);
     let currentContainer = app.ui.containers.find(c => c.id === P.storeId);
     useEffect(() => {
@@ -31,6 +32,8 @@ export const component = (P: { storeId: string }) => {
             if (app.ui.activeLogKey == "settings") {
                 app.api.log.getLogInfos(P.storeId).then(setLogInfos);
             } else if (app.ui.activeLogKey == "propertyHits") {
+
+                app.api.log.analyzePropertyHits(P.storeId).then(setPropertyHits);
 
             } else {
                 app.api.log.isLogEnabled(P.storeId, app.ui.activeLogKey).then(setEnabledLog);
@@ -331,11 +334,31 @@ export const component = (P: { storeId: string }) => {
                 </Table>
             </Tabs.Panel>
             <Tabs.Panel value="propertyHits">
-                <Title>Non indexed property hits:</Title>
-                <Button variant="light" color={isRecordingPropertyHits ? "red" : "green"}
-                    onClick={() => app.api.log.setPropertyHitsRecordingStatus(app.ui.selectedStoreId!, !isRecordingPropertyHits)}
-                >{isRecordingPropertyHits ? "stop" : "start"}</Button>
-                <pre>{propertyHits}</pre>
+                <Stack>
+                    <Space />
+                    <Group>
+                        <Switch disabled={isNotOpen} checked={isRecordingPropertyHits}
+                            onChange={() => app.api.log.setPropertyHitsRecordingStatus(app.ui.selectedStoreId!, !isRecordingPropertyHits)}
+                            label="Record property scans" />
+                    </Group>
+                    <Table>
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>Property</Table.Th>
+                                <Table.Th>Scans</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {propertyHits?.map((entry, index) => (
+                                <Table.Tr key={index}>
+                                    <Table.Td>{entry.propertyName}</Table.Td>
+                                    <Table.Td>{entry.hitCount}</Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                </Stack>
+
             </Tabs.Panel>
             <Tabs.Panel value="settings">
                 <Stack>
@@ -387,10 +410,10 @@ export const component = (P: { storeId: string }) => {
                             <Table.Td>
                                 <Button variant="light" onClick={() => clearLog()} >All</Button>
                             </Table.Td>
-                            <Table.Td>                                
+                            <Table.Td>
                                 <Button variant="light" onClick={() => clearStatistics()} >All</Button>
-                            </Table.Td>                                 
-                            
+                            </Table.Td>
+
                         </Table.Tr>
                     </Table>
                 </Stack>

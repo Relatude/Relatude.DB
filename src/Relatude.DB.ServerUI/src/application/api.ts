@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry } from "./models";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
@@ -243,7 +243,7 @@ class LogAPI {
     setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
 
-    analyzePropertyHits = (storeId: string) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-property-hits', { storeId });
+    analyzePropertyHits = (storeId: string) => this.server.queryJson<PropertyHitEntry[]>(this.controller, 'analyze-property-hits', { storeId });
     analyzeSystemLogCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     analyzeSystemLogCountByType = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     analyzeQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });

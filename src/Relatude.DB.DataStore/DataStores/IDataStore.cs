@@ -18,9 +18,8 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
-    ILogStore LogStore { get; }
     IAIProvider AI { get; }
-    Logger Logger { get; }
+    IStoreLogger Logger { get; }
 
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }

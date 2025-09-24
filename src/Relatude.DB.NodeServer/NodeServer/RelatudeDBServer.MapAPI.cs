@@ -391,7 +391,7 @@ public partial class RelatudeDBServer {
 
         app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => logger(storeId).RecordingPropertyHits = enabled);
         app.MapPost(path("is-recording-property-hits"), (Guid storeId) => logger(storeId).RecordingPropertyHits);
-        app.MapPost(path("analyze-property-hits"), (Guid storeId) => logger(storeId).AnalyzePropertyHits());
+        app.MapPost(path("analyze-property-hits"), (Guid storeId) => logger(storeId).AnalyzePropertyHits().Select(kv => new { PropertyName = kv.Key, HitCount = kv.Value }));
 
         app.MapPost(path("analyze-system-log-count"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseSystemLogCount(intervalType, from, to));
         app.MapPost(path("analyze-system-log-count-by-type"), (Guid storeId, IntervalType intervalType, DateTime from, DateTime to) => logger(storeId).AnalyseSystemLogCountByType(intervalType, from, to));

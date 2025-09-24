@@ -305,13 +305,13 @@ internal class Scheduler(DataStoreLocal _db) {
         if (filesInCurrentHour.Count() == 0) {
             var sw = Stopwatch.StartNew();
             var fileKey = _db.FileKeys.Log_GetFileKeyForBackup(now, false);
-            _db.LogInfo("Backup started: " + fileKey);
+            _db.Log(SystemLogEntryType.Backup, "Backup started: " + fileKey);
             if (_s.TruncateBackups) {
                 _db.RewriteStore(false, fileKey, _db.IOBackup);
             } else {
                 _db.CopyStore(fileKey, _db.IOBackup);
             }
-            _db.LogInfo("Backup finished: " + fileKey + " in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            _db.Log(SystemLogEntryType.Backup, "Backup completed: " + fileKey + " in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         }
     }
     void deleteOlderBackupsIfDue() {

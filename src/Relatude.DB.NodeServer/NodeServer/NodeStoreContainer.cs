@@ -16,14 +16,13 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
 
     internal IDataStore? datastore { get; set; }
     internal object _lock = new object();
-    internal Logger? _logger;
+    internal IStoreLogger? _logger;
     public NodeStore? Store { get; private set; }
 
-
-    public Logger GetLogger() {
+    public IStoreLogger GetLogger() {
         lock (_lock) {
             if (IsOpenOrOpening()) return Store!.Datastore.Logger;
-            if (_logger == null) _logger = new Logger(getLoggerIO(), getLoggerFileKeys(), null);
+            if (_logger == null) _logger = new StoreLogger(getLoggerIO(), getLoggerFileKeys(), null);
             return _logger;
         }
     }

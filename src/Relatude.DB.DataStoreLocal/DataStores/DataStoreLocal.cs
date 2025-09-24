@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
     readonly IFileStore _defaultFileStore;
-    readonly Logger _logger;
+    readonly StoreLogger _logger;
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
     internal readonly IAIProvider? _ai;
@@ -134,7 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public FileKeyUtility FileKeys => _fileKeys;
     public ILogStore LogStore => _logger.LogStore;
     public IAIProvider AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
-    public Logger Logger => _logger;
+    public IStoreLogger Logger => _logger;
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;
     public SettingsLocal Settings => _settings;
