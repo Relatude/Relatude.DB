@@ -26,7 +26,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "System",
                 Key = _systemLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = true,
@@ -44,7 +44,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Queries",
                 Key = _queryLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
@@ -66,7 +66,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Transactions",
                 Key = _transactionLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
@@ -86,7 +86,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Actions",
                 Key = _actionLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
@@ -104,7 +104,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Tasks",
                 Key = _taskLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
@@ -124,7 +124,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "TaskBatches",
                 Key = _taskbatchLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,
@@ -146,7 +146,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Metrics",
                 Key = _metricsLogKey,
-                FileInterval = FileResolution.Day,
+                FileInterval = FileInterval.Day,
                 EnableLog = true,
                 EnableStatistics = true,
                 EnableLogTextFormat = false,

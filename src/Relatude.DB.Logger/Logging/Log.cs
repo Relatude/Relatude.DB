@@ -23,8 +23,8 @@ internal class Log : IDisposable {
     public Log(LogSettings settings, IIOProvider io, FileKeyUtility fileKeys) {
         _setting = settings;
         _io = io;
-        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, fileKeys.Logger_GetFilePrefix(), fileKeys.Logger_GetFilePartDelimiter(), fileKeys.Logger_GetBinaryExtension(), fileKeys.Logger_GetFileDatePartsDelimiter());
-        _logTextStream = new(io, _setting.Key, _setting.FileInterval, fileKeys.Logger_GetFilePrefix(), fileKeys.Logger_GetFilePartDelimiter(), fileKeys.Logger_GetTextExtension(), fileKeys.Logger_GetFileDatePartsDelimiter());
+        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, fileKeys);
+        _logTextStream = new(io, _setting.Key, _setting.FileInterval, fileKeys);
         _statFileKey = fileKeys.Logger_GetStatistics(_setting.Key);
         _backupStatFile = fileKeys.Logger_GetStatisticsBackUp(_setting.Key);
         loadAllStatistics();

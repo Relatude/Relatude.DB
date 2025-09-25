@@ -1,9 +1,21 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
+/// <summary>
+/// A common utility class for generating file keys and making sure naming is consistent and that the different stores do have conflicting names.
+/// The first part, separated by a dot, denotes the store type. 
+/// The last part, separated by a dot, (file extension) denotes the file type:
+///     .bin = binary file
+///     .txt = text file
+///     .bkup = backup file
+///     
+/// The middle part, separated by dots, is used for numbering or date/time stamps etc depending on the store
+/// The '-' char is special and reserved for delimiting date/time parts.
+/// The prefix can be used to separate different database instances in the same storage location.
+/// </summary>
 public class FileKeyUtility {
 
     string _prefix = "";
-    static HashSet<string> reserved = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
+    static HashSet<string> storeNames = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
     string walFilePattern => _prefix + "db.*.bin";
     string walFileBackupPattern => _prefix + "db.*.bkup";
     string walFileBackupPatternKeepForever => _prefix + "db.bkup.keep.*.bkup";
@@ -24,7 +36,7 @@ public class FileKeyUtility {
     string loggerAllFilePattern => _prefix + "log.*";
     string loggerPrefix => _prefix + "log";
     string loggerFilePartDelim => ".";
-    string loggerDatePartsDelim => "-";
+    string loggerDatePartsDelim => "-"; // cannot be changed!
     string loggerStatisticsSuffix => "statistics";
     string loggerBinaryExt => ".bin";
     string loggerTextExt => ".txt";
@@ -32,7 +44,6 @@ public class FileKeyUtility {
 
     string queueFileKey => _prefix + "queue";
     string queueFileKeyPattern => _prefix + "queue.*";
-
 
     public FileKeyUtility(string? prefix) {
         // filter prefix for letters, numbers, and underscores:
@@ -100,25 +111,47 @@ public class FileKeyUtility {
     public string MapperDll_GetFileKey(ulong hash) => mapperDllFilePattern.Replace("*", hash.ToString());
     public string[] MapperDll_GetAllFileKeys(IIOProvider io) => io.Search(mapperDllFilePattern).Order().ToArray();
 
-    public string Logger_GetFilePrefix() => loggerPrefix;
-    public string Logger_GetFilePartDelimiter() => loggerFilePartDelim;
-    public string Logger_GetFileDatePartsDelimiter() => loggerDatePartsDelim;
-    public string Logger_GetStatisticsSuffix() => loggerStatisticsSuffix;
-    public string Logger_GetBinaryExtension() => loggerBinaryExt;
-    public string Logger_GetTextExtension() => loggerTextExt;
     public string Logger_GetStatistics(string loggerKey) => loggerPrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt;
     public string Logger_GetStatisticsBackUp(string loggerKey) => Logger_GetStatistics(loggerKey) + loggerBkUpExt;
-
+    public string Logger_Prefix(string logName, FileInterval fileInterval) => loggerPrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
+    public string Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) {
+        return logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
+    }
+    public string Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) {
+        return logger_FileName(logName, fileInterval, floored, loggerTextExt);
+    }
+    public List<DateTime> Logger_FileDatesBin(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerBinaryExt);
+    public List<DateTime> Logger_FileDatesTxt(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerTextExt);
+    string logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) {
+        return (Logger_Prefix(logName, fileInterval) + fileInterval switch {
+            FileInterval.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),
+            FileInterval.Hour => floored.ToString("yyyy-MM-dd-HH"),
+            FileInterval.Day => floored.ToString("yyyy-MM-dd"),
+            FileInterval.Month => floored.ToString("yyyy-MM"),
+            _ => throw new NotImplementedException(),
+        }).ToLower() + fileExt;
+    }
+    DateTime logger_ParseFileName(string fullName, string logName, FileInterval fileInterval, string fileExt) {
+        var datePart = fullName[Logger_Prefix(logName, fileInterval).Length..];
+        datePart = datePart.Substring(0, datePart.Length - fileExt.Length);
+        var p = datePart.Split(loggerDatePartsDelim).Select(p => int.Parse(p)).ToArray();
+        return fileInterval switch {
+            FileInterval.Minute => new DateTime(p[0], p[1], p[2], p[3], p[4], 0, DateTimeKind.Utc),
+            FileInterval.Hour => new DateTime(p[0], p[1], p[2], p[3], 0, 0, DateTimeKind.Utc),
+            FileInterval.Day => new DateTime(p[0], p[1], p[2], 0, 0, 0, DateTimeKind.Utc),
+            FileInterval.Month => new DateTime(p[0], p[1], 1, 0, 0, 0, DateTimeKind.Utc),
+            _ => throw new NotImplementedException(),
+        };
+    }
+    List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
+        return io.Search(Logger_Prefix(logName, fileInterval) + "*" + fileExt).Select(f => logger_ParseFileName(f, logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
+    }
 
     public string Queue_GetFileKey(string ext) => queueFileKey + "." + ext;
-
 
     #region STATIC helpers:
 
     static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
-    public static bool IsTemporary(string fileKey) {
-        return !fileKey.MatchesWildcard(_anyPrefix.walFilePattern);
-    }
     public static string FileTypeDescription(string fileKey) {
         ValidateFileKeyString(fileKey);
         if (fileKey.MatchesWildcard(_anyPrefix.walFilePattern)) return "Database";
@@ -150,7 +183,7 @@ public class FileKeyUtility {
     public static bool IsFilePrefixValid(string prefix, [MaybeNullWhen(true)] out string? reason) {
         reason = null;
         if (string.IsNullOrEmpty(prefix)) return true;
-        foreach (var word in reserved) {
+        foreach (var word in storeNames) {
             if (prefix.Contains(word, StringComparison.OrdinalIgnoreCase)) {
                 reason = $"Prefix cannot contain reserved word '{word}'.";
                 return false;
@@ -168,7 +201,7 @@ public class FileKeyUtility {
         }
         return true;
     }
-    public static void ValidateFilePrefixString(string prefix) {
+    static void ValidateFilePrefixString(string prefix) {
         if (!IsFilePrefixValid(prefix, out var reason)) throw new ArgumentException("Invalid file prefix. " + reason);
     }
     #endregion
