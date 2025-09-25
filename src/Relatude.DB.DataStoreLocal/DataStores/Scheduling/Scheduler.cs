@@ -300,11 +300,11 @@ internal class Scheduler(DataStoreLocal _db) {
     }
     void backupIfDue() {
         var now = DateTime.UtcNow;
-        var files = _db.FileKeys.Log_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = _db.FileKeys.Log_GetBackUpDateTimeFromFileKey(f) });
+        var files = _db.FileKeys.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = _db.FileKeys.WAL_GetBackUpDateTimeFromFileKey(f) });
         var filesInCurrentHour = files.Where(f => f.Timestamp.Date == now.Date && f.Timestamp.Hour == now.Hour).Select(f => f.FileKey);
         if (filesInCurrentHour.Count() == 0) {
             var sw = Stopwatch.StartNew();
-            var fileKey = _db.FileKeys.Log_GetFileKeyForBackup(now, false);
+            var fileKey = _db.FileKeys.WAL_GetFileKeyForBackup(now, false);
             _db.Log(SystemLogEntryType.Backup, "Backup started: " + fileKey);
             if (_s.TruncateBackups) {
                 _db.RewriteStore(false, fileKey, _db.IOBackup);
@@ -316,8 +316,8 @@ internal class Scheduler(DataStoreLocal _db) {
     }
     void deleteOlderBackupsIfDue() {
         var now = DateTime.UtcNow;
-        var files = _db.FileKeys.Log_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = _db.FileKeys.Log_GetBackUpDateTimeFromFileKey(f) });
-        files = files.Where(f => _db.FileKeys.Log_KeepForever(f.FileKey) == false); // do not delete files that are marked to keep forever
+        var files = _db.FileKeys.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = _db.FileKeys.WAL_GetBackUpDateTimeFromFileKey(f) });
+        files = files.Where(f => _db.FileKeys.WAL_KeepForever(f.FileKey) == false); // do not delete files that are marked to keep forever
         HashSet<string> filesToKeep = new();
 
         // based on yearly backups, keep one per year:

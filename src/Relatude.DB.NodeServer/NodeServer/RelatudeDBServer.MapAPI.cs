@@ -124,7 +124,7 @@ public partial class RelatudeDBServer {
     // PRIVATE API, requires authentication (controlled by path in middleware):
     void mapStatus(WebApplication app, Func<string, string> path) {
         app.MapPost(path("status-all"), () => _containers.Values.Select(c => new { c.Settings.Id, c.Status }));
-        app.MapGet(path("events"), ServerEventHub.Subscribe<object>);
+        //app.MapGet(path("events"), ServerEventHub.Subscribe<object>);
         app.MapPost(path("change-subscription"), (Guid subscriptionId, string[] events) => ServerEventHub.ChangeSubscription(subscriptionId, events));
         app.MapPost(path("get-all-subscriptions"), ServerEventHub.GetAllSubscriptions);
         app.MapPost(path("get-subscription-count"), ServerEventHub.SubscriptionCount);
@@ -157,8 +157,8 @@ public partial class RelatudeDBServer {
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => container(storeId).Store!.Datastore.BackUpNow(truncate, keepForever, GetIO(ioId)));
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });
         app.MapPost(path("is-file-prefix-legal"), (string filePrefix) => new { IsLegal = FileKeyUtility.IsFilePrefixValid(filePrefix, out _) });
-        app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).Log_GetLatestFileKey(GetIO(ioId)));
-        app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).Log_NextFileKey(GetIO(ioId)));
+        app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(GetIO(ioId)));
+        app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).WAL_NextFileKey(GetIO(ioId)));
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
             var ioStream = GetIO(ioId).OpenRead(fileName, 0);
@@ -252,7 +252,7 @@ public partial class RelatudeDBServer {
             IIOProvider io;
             if (!settings.IoDatabase.HasValue || settings.IoDatabase == Guid.Empty) throw new Exception("IoDatabase is required for NodeStoreContainerSettings");
             io = GetIO(settings.IoDatabase.Value);
-            var dbFile = fileKeys.Log_GetLatestFileKey(io);
+            var dbFile = fileKeys.WAL_GetLatestFileKey(io);
             var fileStore = fileKeys.FileStore_GetLatestFileKey(io);
             var indexFile = fileKeys.StateFileKey;
             foreach (var file in fileKeys.GetAllFiles(io)) {
@@ -260,7 +260,7 @@ public partial class RelatudeDBServer {
                 if (indexFile == file.Key) continue;
                 if (dbFile == file.Key) continue;
                 if (fileStore == file.Key) continue;
-                if (fileKeys.Log_KeepForever(file.Key)) continue;
+                if (fileKeys.WAL_KeepForever(file.Key)) continue;
                 io.DeleteIfItExists(file.Key);
             }
         });
@@ -269,7 +269,7 @@ public partial class RelatudeDBServer {
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings");
             var fileKeys = new FileKeyUtility(settings.LocalSettings.FilePrefix);
             var io = GetIO(ioId);
-            var dbFile = fileKeys.Log_GetLatestFileKey(io);
+            var dbFile = fileKeys.WAL_GetLatestFileKey(io);
             var fileStore = fileKeys.FileStore_GetLatestFileKey(io);
             var indexFile = fileKeys.StateFileKey;
             foreach (var file in fileKeys.GetAllFiles(io)) {
@@ -387,7 +387,7 @@ public partial class RelatudeDBServer {
         app.MapPost(path("is-statistics-enabled"), (Guid storeId, string logKey) => logger(storeId).IsStatisticsEnabled(logKey));
         app.MapPost(path("clear-log"), (Guid storeId, string logKey) => logger(storeId).ClearLog(logKey));
         app.MapPost(path("clear-statistics"), (Guid storeId, string logKey) => logger(storeId).ClearStatistics(logKey));
-        app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take) => logger(storeId).ExtractLog(logKey, from, to, skip, take, out var total));
+        app.MapPost(path("extract-log"), (Guid storeId, string logKey, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates) => logger(storeId).ExtractLog(logKey, from, to, skip, take, orderByDescendingDates, out var total));
 
         app.MapPost(path("set-property-hits-recording-status"), (Guid storeId, bool enabled) => logger(storeId).RecordingPropertyHits = enabled);
         app.MapPost(path("is-recording-property-hits"), (Guid storeId) => logger(storeId).RecordingPropertyHits);

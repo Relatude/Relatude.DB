@@ -31,12 +31,15 @@ internal class LogStream : IDisposable {
     Guid _endMarker = new Guid("ef4d58fe-e6ee-4af0-a923-1decca3046c1");
     bool _compressed;
     int _bufferAutoFlushLimit;
-    public LogStream(IIOProvider io, string logName, bool compressed, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions) {
+    public LogStream(IIOProvider io, string logName, bool compressed, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions, string logDatePartsDelim) {
         _io = io;
         _logName = logName;
         _logPrefix = logPrefix;
         _logNameDelim = logNameDelim;
         _logExtensions = logExtensions;
+        if (string.IsNullOrWhiteSpace(_logExtensions)) throw new Exception("Log file extension must be provided. ");
+        if (!_logExtensions.StartsWith('.')) throw new Exception("Log file extension must start with a dot. ");
+        if (logDatePartsDelim != "-") throw new NotImplementedException("Only '-' is supported as logDatePartsDelim"); // just to verify, hardcoded below
         _compressed = compressed;
         _bufferAutoFlushLimit = 1 * 1024 * 1024; // 1 mb
         _res = fileResolution;
@@ -64,7 +67,7 @@ internal class LogStream : IDisposable {
             _lastAppendStream = null;
         }
     }
-    public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, out int total) {
+    public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, bool orderByDescendingDates, out int total) {
         flushBufferAndReleaseOpenFiles();
         if (from.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
         if (until.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
@@ -93,7 +96,8 @@ internal class LogStream : IDisposable {
             }
         }
         total = n;
-        return result.OrderByDescending(r => r.TimeStamp).Skip(skip).Take(take);
+        if(!orderByDescendingDates) return result.OrderBy(r => r.TimeStamp).Skip(skip).Take(take);
+        else return result.OrderByDescending(r => r.TimeStamp).Skip(skip).Take(take);
     }
     List<Tuple<DateTime, DateTime>> getIntervalFileDatesFromFreeRange(DateTime from, DateTime to) {
         var dt1 = from.Floor(_res);

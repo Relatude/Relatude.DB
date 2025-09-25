@@ -4,11 +4,12 @@ using Relatude.DB.Logging.Statistics;
 namespace Relatude.DB.Logging;
 public class LogStore : IDisposable, ILogStore {
     readonly Dictionary<string, Log> _logs;
+    readonly FileKeyUtility _fileKeys;
     IIOProvider _io;
-    static public LogStore EmptySink = new(new IOProviderMemory(), Array.Empty<LogSettings>());
-    public LogStore(IIOProvider io, IEnumerable<LogSettings> logSettings) {
+    public LogStore(IIOProvider io, IEnumerable<LogSettings> logSettings, FileKeyUtility fileKeys) {
         _io = io;
-        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io), StringComparer.OrdinalIgnoreCase);
+        _fileKeys = fileKeys;
+        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io, fileKeys), StringComparer.OrdinalIgnoreCase);
     }
     public bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null) {
         if (_logs.TryGetValue(logKey, out var log)) {
@@ -17,9 +18,9 @@ public class LogStore : IDisposable, ILogStore {
         }
         return false;
     }
-    public IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, out int total) {
+    public IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total) {
         if (_logs.TryGetValue(logKey, out var log)) {
-            return log.Extract(fromAndIncluding, upUntil, skip, take, out total);
+            return log.Extract(fromAndIncluding, upUntil, skip, take, orderByDescendingDates, out total);
         } else {
             total = 0;
             return new List<LogEntry>();
@@ -96,7 +97,7 @@ public class LogStore : IDisposable, ILogStore {
         return _logs.ContainsKey(logKey);
     }
     public void AddLog(LogSettings settings) {
-        _logs.Add(settings.Key, new Log(settings, _io));
+        _logs.Add(settings.Key, new Log(settings, _io, _fileKeys));
     }
     public LogSettings GetSetting(string logKey) {
         if (_logs.TryGetValue(logKey, out var log)) return log.Setting;

@@ -11,12 +11,15 @@ internal class LogTextStream : IDisposable {
     readonly string _logNameDelim;
     readonly string _logExtensions;
     IIOProvider _io;
-    public LogTextStream(IIOProvider io, string logName, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions) {
+    public LogTextStream(IIOProvider io, string logName, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions, string logDatePartsDelim) {
         _io = io;
         _logName = logName;
         _logPrefix = logPrefix;
         _logNameDelim = logNameDelim;
         _logExtensions = logExtensions;
+        if (string.IsNullOrWhiteSpace(_logExtensions)) throw new Exception("Log file extension must be provided. ");
+        if (!_logExtensions.StartsWith('.')) throw new Exception("Log file extension must start with a dot. ");
+        if(logDatePartsDelim!="-") throw new NotImplementedException("Only '-' is supported as logDatePartsDelim");  // just to verify, hardcoded below
         _res = fileResolution;
     }
 
@@ -51,7 +54,7 @@ internal class LogTextStream : IDisposable {
         }
     }
     public List<DateTime> GetLogFileDates() {
-        return _io.Search(getStreamPrefix() + "*").Select(f => parseFileName(f)).OrderBy(i => i).ToList();
+        return _io.Search(getStreamPrefix() + "*"+ _logExtensions).Select(f => parseFileName(f)).OrderBy(i => i).ToList();
     }
     public int DeleteLogFilesBefore(DateTime dt) {
         releaseOpenFiles();
@@ -71,10 +74,10 @@ internal class LogTextStream : IDisposable {
             FileResolution.Day => floored.ToString("yyyy-MM-dd"),
             FileResolution.Month => floored.ToString("yyyy-MM"),
             _ => throw new NotImplementedException(),
-        }).ToLower() + ".txt";
+        }).ToLower() + _logExtensions;
     }
     DateTime parseFileName(string fullName) {
-        var p = fullName.Substring(0, fullName.Length - 4)[getStreamPrefix().Length..].Split("-").Select(p => int.Parse(p)).ToArray();
+        var p = fullName.Substring(0, fullName.Length - _logExtensions.Length)[getStreamPrefix().Length..].Split("-").Select(p => int.Parse(p)).ToArray();
         return _res switch {
             FileResolution.Minute => new DateTime(p[0], p[1], p[2], p[3], p[4], 0, DateTimeKind.Utc),
             FileResolution.Hour => new DateTime(p[0], p[1], p[2], p[3], 0, 0, DateTimeKind.Utc),

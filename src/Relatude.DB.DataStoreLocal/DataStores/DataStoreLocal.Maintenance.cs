@@ -143,7 +143,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Copying, "Deleting old logs");
         try {
             validateDatabaseState();
-            foreach (var f in _fileKeys.Log_GetAllFileKeys(_io)) {
+            foreach (var f in _fileKeys.WAL_GetAllFileKeys(_io)) {
                 if (_wal.FileKey != f) _io.DeleteIfItExists(f);
             }
         } catch (Exception err) {
@@ -171,7 +171,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void Maintenance(MaintenanceAction a) {
-        if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) RewriteStore(true, _fileKeys.Log_NextFileKey(_io));
+        if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) RewriteStore(true, _fileKeys.WAL_NextFileKey(_io));
         if (a.HasFlag(MaintenanceAction.TruncateIndexes)) TruncateIndexes();
         if (a.HasFlag(MaintenanceAction.DeleteOldLogs)) DeleteOldLogs();
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();

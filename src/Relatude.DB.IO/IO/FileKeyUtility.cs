@@ -3,7 +3,7 @@ namespace Relatude.DB.IO;
 public class FileKeyUtility {
 
     string _prefix = "";
-    static HashSet<string> reserved = new() { "bin", "bkup", "db", "files", "keep" };
+    static HashSet<string> reserved = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
     string walFilePattern => _prefix + "db.*.bin";
     string walFileBackupPattern => _prefix + "db.*.bkup";
     string walFileBackupPatternKeepForever => _prefix + "db.bkup.keep.*.bkup";
@@ -21,10 +21,14 @@ public class FileKeyUtility {
 
     string mapperDllFilePattern => _prefix + "mapper.*.dll";
 
-    string queryLogFilePattern => _prefix + "log.*";
-    string queryLogPrefix => _prefix + "log";
-    string queryLogDelim => ".";
-    string queryLogExt => ".bin";
+    string loggerAllFilePattern => _prefix + "log.*";
+    string loggerPrefix => _prefix + "log";
+    string loggerFilePartDelim => ".";
+    string loggerDatePartsDelim => "-";
+    string loggerStatisticsSuffix => "statistics";
+    string loggerBinaryExt => ".bin";
+    string loggerTextExt => ".txt";
+    string loggerBkUpExt => ".bkup";
 
     string queueFileKey => _prefix + "queue";
     string queueFileKeyPattern => _prefix + "queue.*";
@@ -56,24 +60,23 @@ public class FileKeyUtility {
         return DateOnly.ParseExact(dtSection, dateOnlyTemplate, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-
-    public string Log_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));
-    public string[] Log_GetAllFileKeys(IIOProvider io) => io.Search(walFilePattern).Order().ToArray();
-    public string Log_GetLatestFileKey(IIOProvider io) => Log_GetAllFileKeys(io).LastOrDefault() ?? Log_GetFileKey(1);
-    public string Log_NextFileKey(IIOProvider io) {
-        var parts = Log_GetLatestFileKey(io).Split('.');
+    public string WAL_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));
+    public string[] WAL_GetAllFileKeys(IIOProvider io) => io.Search(walFilePattern).Order().ToArray();
+    public string WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
+    public string WAL_NextFileKey(IIOProvider io) {
+        var parts = WAL_GetLatestFileKey(io).Split('.');
         var numberSection = parts[^2];
-        return Log_GetFileKey(int.Parse(numberSection) + 1);
+        return WAL_GetFileKey(int.Parse(numberSection) + 1);
     }
-    public DateTime Log_GetBackUpDateTimeFromFileKey(string fileKey) {
+    public DateTime WAL_GetBackUpDateTimeFromFileKey(string fileKey) {
         var parts = fileKey.Split('.');
         var dtSection = parts[^2];
         var dt = DateTime.ParseExact(dtSection, dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
         return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
     }
-    public string[] Log_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern).Order()];
-    public string Log_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
-    public bool Log_KeepForever(string fileKey) => fileKey.MatchesWildcard(walFileBackupPatternKeepForever);
+    public string[] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern).Order()];
+    public string WAL_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
+    public bool WAL_KeepForever(string fileKey) => fileKey.MatchesWildcard(walFileBackupPatternKeepForever);
 
 
     public string FileStore_GetFileKey(int n) => fileStorePattern.Replace("*", n.ToString("00000000"));
@@ -97,9 +100,15 @@ public class FileKeyUtility {
     public string MapperDll_GetFileKey(ulong hash) => mapperDllFilePattern.Replace("*", hash.ToString());
     public string[] MapperDll_GetAllFileKeys(IIOProvider io) => io.Search(mapperDllFilePattern).Order().ToArray();
 
-    public string QueryLog_GetFilePrefix() => queryLogPrefix;
-    public string QueryLog_GetFileDelimiter() => queryLogDelim;
-    public string QueryLog_GetFileExtension() => queryLogExt;
+    public string Logger_GetFilePrefix() => loggerPrefix;
+    public string Logger_GetFilePartDelimiter() => loggerFilePartDelim;
+    public string Logger_GetFileDatePartsDelimiter() => loggerDatePartsDelim;
+    public string Logger_GetStatisticsSuffix() => loggerStatisticsSuffix;
+    public string Logger_GetBinaryExtension() => loggerBinaryExt;
+    public string Logger_GetTextExtension() => loggerTextExt;
+    public string Logger_GetStatistics(string loggerKey) => loggerPrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt;
+    public string Logger_GetStatisticsBackUp(string loggerKey) => Logger_GetStatistics(loggerKey) + loggerBkUpExt;
+
 
     public string Queue_GetFileKey(string ext) => queueFileKey + "." + ext;
 
@@ -121,7 +130,7 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "Index State";
         if (fileKey.MatchesWildcard(_anyPrefix.indexStoreFolderPattern)) return "Index Store";
         if (fileKey.MatchesWildcard(_anyPrefix.queueFileKeyPattern)) return "Task queue";
-        if (fileKey.MatchesWildcard(_anyPrefix.queryLogFilePattern)) return "Log file";        
+        if (fileKey.MatchesWildcard(_anyPrefix.loggerAllFilePattern)) return "Log file";
         return "-";
     }
     static HashSet<char> _legalFileKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789()-–_. ".ToHashSet();

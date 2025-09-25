@@ -24,6 +24,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "zustand": "^5.0.8",
     "@mantine/core": "^7.15.2",
     "@mantine/form": "^7.15.2",
     "@mantine/hooks": "^7.15.2",

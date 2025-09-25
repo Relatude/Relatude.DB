@@ -87,7 +87,7 @@ public interface IDataStore : IDisposable {
 public static class IDataStoreExtensions {
     public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
         if (destination == null) destination = store.IOBackup;
-        var fileKey = store.FileKeys.Log_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
+        var fileKey = store.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
         if (truncate) {
             store.RewriteStore(false, fileKey, destination);
         } else {

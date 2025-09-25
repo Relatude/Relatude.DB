@@ -1,9 +1,7 @@
 ﻿namespace Relatude.DB.Logging;
 public class LogSettings {
     public string Key { get; set; } = string.Empty;
-    public string FileNamePrefix { get; set; } = "log";
-    public string FileNameDelimiter { get; set; } = "_";
-    public string FileNameExtension { get; set; } = "";
+
     public string Name { get; set; } = string.Empty;
     public Dictionary<string, LogProperty> Properties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public FileResolution FileInterval { get; set; } = FileResolution.Day;

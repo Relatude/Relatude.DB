@@ -186,7 +186,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
             if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
         };
-        _wal = new(_fileKeys.Log_GetLatestFileKey(_io), _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback);
+        _wal = new(_fileKeys.WAL_GetLatestFileKey(_io), _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);

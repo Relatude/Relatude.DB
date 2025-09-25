@@ -52,7 +52,7 @@ public interface IStoreLogger {
     void Dispose();
     void EnableLog(string logKey, bool enable);
     void EnableStatistics(string logKey, bool enable);
-    LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, out int total);
+    LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total);
     void FlushToDiskNow();
     KeyValuePair<string, string>[] GetLogKeysAndNames();
     bool IsLogEnabled(string logKey);

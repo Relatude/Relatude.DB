@@ -26,9 +26,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "System",
                 Key = _systemLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -47,9 +44,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Queries",
                 Key = _queryLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -72,9 +66,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Transactions",
                 Key = _transactionLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -95,9 +86,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Actions",
                 Key = _actionLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -116,9 +104,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Tasks",
                 Key = _taskLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -139,9 +124,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "TaskBatches",
                 Key = _taskbatchLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -164,9 +146,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
             new() {
                 Name = "Metrics",
                 Key = _metricsLogKey,
-                FileNamePrefix = _fileKeys.QueryLog_GetFilePrefix(),
-                FileNameDelimiter = _fileKeys.QueryLog_GetFileDelimiter(),
-                FileNameExtension = _fileKeys.QueryLog_GetFileExtension(),
                 FileInterval = FileResolution.Day,
                 EnableLog = true,
                 EnableStatistics = true,
@@ -223,7 +202,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _fileKeys = fileKeys;
         _io = io;
         _datamodel = datamodel;
-        _logStore = new LogStore(_io, getSettings());
+        _logStore = new LogStore(_io, getSettings(), fileKeys);
     }
     public void RecordSystem(SystemLogEntryType type, string text, string? details = null) {
         if (!EnableSystemLog) return;
@@ -353,9 +332,9 @@ public class StoreLogger : IDisposable, IStoreLogger {
         if (_logStore == null) return;
         _logStore.DeleteStatistics(logKey);
     }
-    public LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, out int total) {
+    public LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
         if (_logStore == null) { total = 0; return []; }
-        return _logStore.ExtractLog(logKey, from, to, skip, take, out total).ToArray();
+        return _logStore.ExtractLog(logKey, from, to, skip, take, orderByDescendingDates, out total).ToArray();
     }
     public Interval<int>[] AnalyseSystemLogCount(IntervalType intervalType, DateTime from, DateTime to) {
         if (_logStore == null) return [];

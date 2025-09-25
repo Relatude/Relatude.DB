@@ -6,6 +6,7 @@ import { Poller } from '../../application/poller';
 import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo, PropertyHitEntry } from '../../application/models';
 import { set } from 'mobx';
 import { formatBytesString } from '../../utils/formatting';
+import { useStore } from '../../application/test';
 export const component = (P: { storeId: string }) => {
     const app = useApp();
 
@@ -25,7 +26,11 @@ export const component = (P: { storeId: string }) => {
     const [isRecordingPropertyHits, setIsRecordingPropertyHits] = useState<boolean>();
 
     const [isNotOpen, setIsNotOpen] = useState(false);
+
+    const sss = useStore();
+
     let currentContainer = app.ui.containers.find(c => c.id === P.storeId);
+    const allLogKeys = ["system", "query", "transaction", "action", "task", "taskbatch", "metrics"];
     useEffect(() => {
         const poller = new Poller(async () => {
             if (!P.storeId) return;
@@ -43,13 +48,13 @@ export const component = (P: { storeId: string }) => {
                 const skip = 0;
                 const take = 100;
                 switch (app.ui.activeLogKey) {
-                    case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take)); break;
-                    case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take)); break;
-                    case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take)); break;
-                    case "action": setActionLog(await app.api.log.extractActionLog(P.storeId, from, to, skip, take)); break;
-                    case "task": setTaskLog(await app.api.log.extractTaskLog(P.storeId, from, to, skip, take)); break;
-                    case "taskbatch": setTaskBatchLog(await app.api.log.extractTaskBatchLog(P.storeId, from, to, skip, take)); break;
-                    case "metrics": setMetricsLog(await app.api.log.extractMetricsLog(P.storeId, from, to, skip, take)); break;
+                    case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take, true)); break;
+                    case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take, true)); break;
+                    case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take, true)); break;
+                    case "action": setActionLog(await app.api.log.extractActionLog(P.storeId, from, to, skip, take, true)); break;
+                    case "task": setTaskLog(await app.api.log.extractTaskLog(P.storeId, from, to, skip, take, true)); break;
+                    case "taskbatch": setTaskBatchLog(await app.api.log.extractTaskBatchLog(P.storeId, from, to, skip, take, true)); break;
+                    case "metrics": setMetricsLog(await app.api.log.extractMetricsLog(P.storeId, from, to, skip, take, true)); break;
                     default:
                         break;
                 }
@@ -80,11 +85,33 @@ export const component = (P: { storeId: string }) => {
         setLogInfos(logInfos);
         await app.api.log.enableStatistics(P.storeId, logKey, enable);
     }
+    const clearAllLogs = async (logKey?: string) => {
+        await Promise.all(allLogKeys.map(key => app.api.log.clearLog(P.storeId, key)));
+    }
+    const clearAllStatistics = async (logKey?: string) => {
+        await Promise.all(allLogKeys.map(key => app.api.log.clearStatistics(P.storeId, key)));
+    }
     const clearLog = async (logKey?: string) => {
         await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
     }
     const clearStatistics = async (logKey?: string) => {
         await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
+    }
+    const allLogsEnabled = () => {
+        return logInfos.filter(l => allLogKeys.includes(l.key)).every(l => l.enabledLog);
+    }
+    const setAllLogsEnabled = async (enable: boolean) => {
+        await Promise.all(logInfos.filter(l => allLogKeys.includes(l.key)).map(l => app.api.log.enableLog(P.storeId, l.key, enable)));
+        logInfos.filter(l => allLogKeys.includes(l.key)).forEach(l => l.enabledLog = enable);
+        setLogInfos(logInfos);
+    }
+    const allStatisticsEnabled = () => {
+        return logInfos.filter(l => allLogKeys.includes(l.key)).every(l => l.enabledStatistics);
+    }
+    const setAllStatisticsEnabled = async (enable: boolean) => {
+        await Promise.all(logInfos.filter(l => allLogKeys.includes(l.key)).map(l => app.api.log.enableStatistics(P.storeId, l.key, enable)));
+        logInfos.filter(l => allLogKeys.includes(l.key)).forEach(l => l.enabledStatistics = enable);
+        setLogInfos(logInfos);
     }
     const logSettingsRow = (logKey: string, logName: string, enableLog: boolean, enableStatistics: boolean) => <>
         {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits") ?
@@ -106,6 +133,8 @@ export const component = (P: { storeId: string }) => {
             </Group>
             : <></>}
     </>
+
+
     return (<>
         <Tabs defaultValue={app.ui.activeLogKey}>
             <Tabs.List>
@@ -401,17 +430,23 @@ export const component = (P: { storeId: string }) => {
                             </Table.Tr>
                         ))}
                         <Table.Tr>
-                            <Table.Td>All logs</Table.Td>
-                            <Table.Td></Table.Td>
-                            <Table.Td></Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                            <Table.Td>All</Table.Td>
+                            <Table.Td>
+                                <Switch disabled={isNotOpen} checked={allStatisticsEnabled()} onChange={(e) => setAllStatisticsEnabled(e.currentTarget.checked)} />
+                            </Table.Td>
+                            <Table.Td>
+                                <Switch disabled={isNotOpen} checked={allLogsEnabled()} onChange={(e) => setAllLogsEnabled(e.currentTarget.checked)} />
+                            </Table.Td>
                             <Table.Td></Table.Td>
                             <Table.Td></Table.Td>
                             <Table.Td>{logInfos.reduce((a, b) => a + b.totalFileSize, 0) > 1000 ? formatBytesString(logInfos.reduce((a, b) => a + b.totalFileSize, 0)) : "-"}</Table.Td>
                             <Table.Td>
-                                <Button variant="light" onClick={() => clearLog()} >All</Button>
+                                <Button variant="light" onClick={() => clearAllLogs()} >Clear</Button>
                             </Table.Td>
                             <Table.Td>
-                                <Button variant="light" onClick={() => clearStatistics()} >All</Button>
+                                <Button variant="light" onClick={() => clearAllStatistics()} >Clear</Button>
                             </Table.Td>
 
                         </Table.Tr>

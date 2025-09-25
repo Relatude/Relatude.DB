@@ -20,13 +20,13 @@ internal class Log : IDisposable {
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
         return "stat_" + property + "_" + info.Resolution + "_" + settings.FirstDayOfWeek + "_" + info.StatisticsType;
     }
-    public Log(LogSettings settings, IIOProvider io) {
+    public Log(LogSettings settings, IIOProvider io, FileKeyUtility fileKeys) {
         _setting = settings;
         _io = io;
-        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, _setting.FileNameExtension);
-        _logTextStream = new LogTextStream(io, _setting.Key, _setting.FileInterval, _setting.FileNamePrefix, _setting.FileNameDelimiter, ".txt");
-        _statFileKey = (string.IsNullOrEmpty(_setting.FileNamePrefix) ? "" : _setting.FileNamePrefix + _setting.FileNameDelimiter) + _setting.Key + _setting.FileNameDelimiter + "statistics" + _setting.FileNameExtension;
-        _backupStatFile = _statFileKey + ".bkup";
+        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, fileKeys.Logger_GetFilePrefix(), fileKeys.Logger_GetFilePartDelimiter(), fileKeys.Logger_GetBinaryExtension(), fileKeys.Logger_GetFileDatePartsDelimiter());
+        _logTextStream = new(io, _setting.Key, _setting.FileInterval, fileKeys.Logger_GetFilePrefix(), fileKeys.Logger_GetFilePartDelimiter(), fileKeys.Logger_GetTextExtension(), fileKeys.Logger_GetFileDatePartsDelimiter());
+        _statFileKey = fileKeys.Logger_GetStatistics(_setting.Key);
+        _backupStatFile = fileKeys.Logger_GetStatisticsBackUp(_setting.Key);
         loadAllStatistics();
     }
     void loadAllStatistics() {
@@ -147,9 +147,9 @@ internal class Log : IDisposable {
             }
         }
     }
-    public IEnumerable<LogEntry> Extract(DateTime from, DateTime to, int skip, int take, out int total) {
+    public IEnumerable<LogEntry> Extract(DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
         lock (_lock) {
-            var records = _logStream.Extract(from, to, skip, take, out total);
+            var records = _logStream.Extract(from, to, skip, take, orderByDescendingDates, out total);
             return records.Select(r => getEntry(r));
         }
     }
@@ -553,7 +553,7 @@ internal class Log : IDisposable {
         while (currentFrom < lastRecord.Value) {
             var currentTo = new DateTime(currentFrom.Ticks + deltaTimePerChunk, DateTimeKind.Utc);
             if (currentTo > lastRecord.Value) currentTo = lastRecord.Value;
-            var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, out var total);
+            var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, false, out var total);
             lock (_lock) {
                 foreach (var entry in entries) {
                     _rowStat.RecordIfPossible(entry.Timestamp, true);

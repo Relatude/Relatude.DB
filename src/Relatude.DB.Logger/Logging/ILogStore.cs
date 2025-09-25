@@ -25,7 +25,7 @@ namespace Relatude.DB.Logging {
         void DeleteStatistics(string logKey);
         void Dispose();
         void EnforceLimits();
-        IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, out int total);
+        IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total);
         void FlushToDiskNow();
         IDictionary<string, List<StatisticsInfo>> GetAvailableStatisticsByProperty(string logKey);
         long GetFileSize(string logKey);
