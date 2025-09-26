@@ -18,11 +18,11 @@ In today’s applications, you often need to combine multiple storage systems to
 
 The underlying storage is an **append-only log file** with an **in-memory hash-based index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with instant queries.
 
-Each object is stored to disk in binary format. The property values of an object are stored as a list of values that are mapped and cast to the current schema on read. This provides flexibility in handling schema changes in existing data.
+Each object is stored to disk in binary format. The property values of an object are stored as a list of values that are mapped and casted to the current schema on read. This provides flexibility in handling schema changes in existing data.
 
 To reduce memory usage, you can use traditional disk-based indexes, allowing you to balance speed and memory consumption for your project. Because the system integrates all storage engines into one, you benefit from a **smarter cache**: it keeps detailed track of which updates invalidate which cache entries.
 
-For you as a developer, every query always represents the latest data—the cache is completely transparent. Internally, every query is broken down into set operations (A ∪ B, etc.), and every set operation is cached. This enables high cache reuse across multiple queries.
+For you as a developer, every query always represents the latest data. The cache is completely transparent. Internally, every query is broken down into set operations (A ∪ B, etc.), and every set operation is cached. This enables high cache reuse across multiple queries.
 
 ----------
 
@@ -94,12 +94,12 @@ Planned:
 ----------
 
 ## API Example
-
-`var store = RelatudeDB.DefaultStore; // Query users and include their friends  var users = store.Query<User>()
+```c#
+var store = RelatudeDB.DefaultStore; // Query users and include their friends  var users = store.Query<User>()
                  .Include(u => u.Friends)
                  .Where(u => u.Company == "Microsoft")
                  .Execute();` 
-
+```
 ----------
 
 ## Try It Out
@@ -110,13 +110,16 @@ It’s very easy to incorporate the server into your project. See the example pr
     
 2.  Add the [Relatude.DB.Server](https://www.nuget.org/packages/Relatude.DB.Server) NuGet package
     
-3.  Add these lines to your `Program.cs`:
-    
+3.  Add these two lines to your "Program.cs":
 
-`// Adding the RelatudeDB service builder.AddRelatudeDB();` 
-
-`// Loading and starting RelatudeDB app.UseRelatudeDB();` 
-
+After creating the builder:
+```C#
+    builder.AddRelatudeDB();` 
+```
+After creating the app:
+```C#
+    app.UseRelatudeDB();` 
+```
 4.  Access the web UI at `/relatude.db`. On first start, add your DBA username and password to the `relatude.db.json` file that will be created in the website root.
     
 
