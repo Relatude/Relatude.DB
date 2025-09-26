@@ -1,3 +1,5 @@
+:: Temporary deployment solution
+
 @echo off
 cls
 
