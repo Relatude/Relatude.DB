@@ -8,7 +8,7 @@ public interface IEventSubscription {
 }
 
 public class EventSubscription<T> : IEventSubscription {
-    public Guid SubscriptionId { get; init; }
+    public Guid SubscriptionId { get; init; } = Guid.NewGuid();
     public required HashSet<string> EventNames { get; init; }
     public LinkedList<IEventData> EventQueue { get; } = new();
     public object? DataGeneric { get; init; }
