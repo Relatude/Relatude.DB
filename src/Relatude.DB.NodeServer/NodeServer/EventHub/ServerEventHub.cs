@@ -6,12 +6,14 @@ using System.Text.Json;
 namespace Relatude.DB.NodeServer.EventHub;
 public static class ServerEventHub {
     static EventSubscriptions _subscriptions = new();
-    public static void Publish<T, K>(string name, K data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<K>(name, data, maxAge));
+    public static void Publish(string name, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<object>(name, new { }, maxAge));
+    public static void Publish<K>(string name, K data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<K>(name, data, maxAge));
     public static void Publish<T, K>(string name, Func<EventSubscription<T>, K> data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventDataBuilder<T, K>(name, data, maxAge));
     public static void ChangeSubscription(Guid subscriptionId, params string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
     public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
     public static IEventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
     public static int SubscriptionCount() => _subscriptions.Count();
+    public static async Task Subscribe(HttpContext context, params string[] events) => Subscribe<object>(context, new { }, events);
     public static async Task Subscribe<T>(HttpContext context, T subscriberData, params string[] events) {
 
         var response = context.Response;
