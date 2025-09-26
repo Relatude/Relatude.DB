@@ -98,7 +98,7 @@ Planned:
 var store = RelatudeDB.DefaultStore; // Query users and include their friends  var users = store.Query<User>()
                  .Include(u => u.Friends)
                  .Where(u => u.Company == "Microsoft")
-                 .Execute();` 
+                 .Execute(); 
 ```
 ----------
 
@@ -114,11 +114,11 @@ It’s very easy to incorporate the server into your project. See the example pr
 
 After creating the builder:
 ```C#
-    builder.AddRelatudeDB();` 
+    builder.AddRelatudeDB();
 ```
 After creating the app:
 ```C#
-    app.UseRelatudeDB();` 
+    app.UseRelatudeDB();
 ```
 4.  Access the web UI at `/relatude.db`. On first start, add your DBA username and password to the `relatude.db.json` file that will be created in the website root.
     
