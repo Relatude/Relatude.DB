@@ -124,7 +124,7 @@ public partial class RelatudeDBServer {
     // PRIVATE API, requires authentication (controlled by path in middleware):
     void mapStatus(WebApplication app, Func<string, string> path) {
         app.MapPost(path("status-all"), () => _containers.Values.Select(c => new { c.Settings.Id, c.Status }));
-        app.MapGet(path("events"), ServerEventHub.Subscribe<object>);
+        //app.MapGet(path("events"), ServerEventHub.Subscribe<object>);
         app.MapPost(path("change-subscription"), (Guid subscriptionId, string[] events) => ServerEventHub.ChangeSubscription(subscriptionId, events));
         app.MapPost(path("get-all-subscriptions"), ServerEventHub.GetAllSubscriptions);
         app.MapPost(path("get-subscription-count"), ServerEventHub.SubscriptionCount);
