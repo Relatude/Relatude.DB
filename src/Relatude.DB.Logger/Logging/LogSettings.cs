@@ -1,12 +1,12 @@
-﻿namespace Relatude.DB.Logging;
+﻿using Relatude.DB.IO;
+
+namespace Relatude.DB.Logging;
 public class LogSettings {
     public string Key { get; set; } = string.Empty;
-    public string FileNamePrefix { get; set; } = "log";
-    public string FileNameDelimiter { get; set; } = "_";
-    public string FileNameExtension { get; set; } = "";
+
     public string Name { get; set; } = string.Empty;
     public Dictionary<string, LogProperty> Properties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public FileResolution FileInterval { get; set; } = FileResolution.Day;
+    public FileInterval FileInterval { get; set; } = FileInterval.Day;
     public bool IsEnabled() => EnableLog || EnableStatistics;
     public bool EnableLog { get; set; } = true;
     public bool EnableStatistics { get; set; } = true;
@@ -24,16 +24,10 @@ public class LogSettings {
     /// As an example. If the value is 2 you are able to query statistics for the last 120 (60x2) days when you group by days.
     /// </summary>
     public int ResolutionRowStats { get; set; } = 10;
-    public DayOfWeek FirstDayOfWeek { get; set; }
+    public DayOfWeek FirstDayOfWeek { get; set; } 
     public int MaxAgeOfLogFilesInDays { get; set; } = 100;
     public int MaxTotalSizeOfLogFilesInMb { get; set; } = 100;
     public bool Compressed { get; set; }
-}
-public enum FileResolution {
-    Minute,
-    Hour,
-    Day,
-    Month,
 }
 public enum LogDataType {
     DateTime,

@@ -16,6 +16,9 @@ public class FileMeta {
     public int Readers { get; set; }
     public int Writers { get; set; }
     public string Description => FileKeyUtility.FileTypeDescription(Key);
+    public override string ToString() {
+        return $"{Key} ({Description}), {Size} bytes, Created: {CreationTimeUtc:u}, Modified: {LastModifiedUtc:u}, Readers: {Readers}, Writers: {Writers}";
+    }
 }
 
 

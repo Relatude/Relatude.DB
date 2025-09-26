@@ -21,30 +21,26 @@ internal class logRecordData {
 }
 // not threadsafe!
 internal class LogStream : IDisposable {
-    FileResolution _res;
+    readonly FileInterval _fileInterval;
     readonly string _logName;
-    readonly string _logPrefix;
-    readonly string _logNameDelim;
-    readonly string _logExtensions;
+    readonly FileKeyUtility _fileKeys;
     IIOProvider _io;
     Guid _startMarker = new Guid("e4aaf217-ef1a-4c58-867f-5e6d2337e935");
     Guid _endMarker = new Guid("ef4d58fe-e6ee-4af0-a923-1decca3046c1");
     bool _compressed;
     int _bufferAutoFlushLimit;
-    public LogStream(IIOProvider io, string logName, bool compressed, FileResolution fileResolution, string logPrefix, string logNameDelim, string logExtensions) {
+    public LogStream(IIOProvider io, string logName, bool compressed, FileInterval fileInterval, FileKeyUtility fileKeys) {
         _io = io;
         _logName = logName;
-        _logPrefix = logPrefix;
-        _logNameDelim = logNameDelim;
-        _logExtensions = logExtensions;
         _compressed = compressed;
+        _fileInterval = fileInterval;
+        _fileKeys = fileKeys;
         _bufferAutoFlushLimit = 1 * 1024 * 1024; // 1 mb
-        _res = fileResolution;
     }
     Dictionary<string, List<LogRecord>> _buffer = new();
     int _dataInBuffer = 0;
     public void Record(LogRecord record, bool flushToDisk = false) {
-        var fileKey = getStreamFileName(record.TimeStamp);
+        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, record.TimeStamp);
         if (_buffer.TryGetValue(fileKey, out var records)) {
             records.Add(record);
         } else {
@@ -64,7 +60,7 @@ internal class LogStream : IDisposable {
             _lastAppendStream = null;
         }
     }
-    public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, out int total) {
+    public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, bool orderByDescendingDates, out int total) {
         flushBufferAndReleaseOpenFiles();
         if (from.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
         if (until.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
@@ -93,14 +89,15 @@ internal class LogStream : IDisposable {
             }
         }
         total = n;
-        return result.OrderByDescending(r => r.TimeStamp).Skip(skip).Take(take);
+        if (!orderByDescendingDates) return result.OrderBy(r => r.TimeStamp).Skip(skip).Take(take);
+        else return result.OrderByDescending(r => r.TimeStamp).Skip(skip).Take(take);
     }
     List<Tuple<DateTime, DateTime>> getIntervalFileDatesFromFreeRange(DateTime from, DateTime to) {
-        var dt1 = from.Floor(_res);
+        var dt1 = from.Floor(_fileInterval);
         var result = new List<Tuple<DateTime, DateTime>>();
         while (dt1 < to) {
-            result.Add(new(dt1, dt1.Ceiling(_res)));
-            dt1 = dt1.AddInterval(_res);
+            result.Add(new(dt1, dt1.Ceiling(_fileInterval)));
+            dt1 = dt1.AddInterval(_fileInterval);
         }
         return result;
     }
@@ -140,8 +137,8 @@ internal class LogStream : IDisposable {
         _dataInBuffer = 0;
     }
     List<logRecordData> extractInterval(DateTime fromDt, DateTime toDt) {
-        var fileKey = getStreamFileName(fromDt);
-        if (fileKey != getStreamFileName(toDt)) throw new Exception("Data must be in the same interval. ");
+        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, fromDt);
+        if (fileKey != _fileKeys.Logger_FileNameBin(_logName, _fileInterval, toDt)) throw new Exception("Data must be in the same interval. ");
         // seek to first matching date
         List<logRecordData> result = new();
         if (_io.DoesNotExistOrIsEmpty(fileKey)) return result;
@@ -170,22 +167,23 @@ internal class LogStream : IDisposable {
     }
     public List<DateTime> GetLogFileDates() {
         flushBuffer(false);
-        return _io.Search(getStreamPrefix() + "*" + _logExtensions).Select(f => parseFileName(f)).OrderBy(i => i).ToList();
+        return _fileKeys.Logger_FileDatesBin(_io, _logName, _fileInterval);
     }
+
     public int DeleteLogFilesBefore(DateTime dt) {
         flushBufferAndReleaseOpenFiles();
         var filesToDelete = GetLogFileDates().Where(f => dt > f);
         foreach (var fileDt in filesToDelete) {
-            _io.DeleteIfItExists(getStreamFileName(fileDt));
+            _io.DeleteIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, fileDt));
         }
         return filesToDelete.Count();
     }
     public DateTime? GetTimestampOfFirstRecord() {
         flushBuffer(false);
         flushBufferAndReleaseOpenFiles();
-        var fileKey = getStreamFileName(GetLogFileDates().FirstOrDefault());
+        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, GetLogFileDates().FirstOrDefault());
         if (fileKey == null) return null;
-        if(_io.DoesNotExistOrIsEmpty(fileKey)) return null;
+        if (_io.DoesNotExistOrIsEmpty(fileKey)) return null;
         using var stream = _io.OpenRead(fileKey, 0);
         while (!stream.More()) return null;
         if (!stream.MoveToNextValidMarker(_startMarker)) return null;
@@ -194,7 +192,7 @@ internal class LogStream : IDisposable {
     public DateTime? GetTimestampOfLastRecord() {
         flushBuffer(false);
         flushBufferAndReleaseOpenFiles();
-        var fileKey = getStreamFileName(GetLogFileDates().LastOrDefault());
+        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, GetLogFileDates().LastOrDefault());
         if (fileKey == null) return null;
         if (_io.DoesNotExistOrIsEmpty(fileKey)) return null;
         using var stream = _io.OpenRead(fileKey, 0);
@@ -215,30 +213,6 @@ internal class LogStream : IDisposable {
         return dtLast;
     }
 
-    //string getStreamPrefix() => "log_" + _logName + "_" + _res.ToString().ToLower() + "_";
-    string getStreamPrefix() => (string.IsNullOrEmpty(_logPrefix) ? "" : _logPrefix + _logNameDelim) + _logName + _logNameDelim + _res.ToString().ToLower() + _logNameDelim;
-
-    string getStreamFileName(DateTime floored) {
-        return (getStreamPrefix() + _res switch {
-            FileResolution.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),
-            FileResolution.Hour => floored.ToString("yyyy-MM-dd-HH"),
-            FileResolution.Day => floored.ToString("yyyy-MM-dd"),
-            FileResolution.Month => floored.ToString("yyyy-MM"),
-            _ => throw new NotImplementedException(),
-        }).ToLower() + _logExtensions;
-    }
-    DateTime parseFileName(string fullName) {
-        var datePart = fullName[getStreamPrefix().Length..];
-        datePart = datePart.Substring(0, datePart.Length - _logExtensions.Length);
-        var p = datePart.Split("-").Select(p => int.Parse(p)).ToArray();
-        return _res switch {
-            FileResolution.Minute => new DateTime(p[0], p[1], p[2], p[3], p[4], 0, DateTimeKind.Utc),
-            FileResolution.Hour => new DateTime(p[0], p[1], p[2], p[3], 0, 0, DateTimeKind.Utc),
-            FileResolution.Day => new DateTime(p[0], p[1], p[2], 0, 0, 0, DateTimeKind.Utc),
-            FileResolution.Month => new DateTime(p[0], p[1], 1, 0, 0, 0, DateTimeKind.Utc),
-            _ => throw new NotImplementedException(),
-        };
-    }
     public void FlushToDisk() {
         flushBuffer(true);
     }
@@ -246,9 +220,9 @@ internal class LogStream : IDisposable {
         flushBufferAndReleaseOpenFiles();
         var files = GetLogFileDates();
         foreach (var f in files) {
-            var fileTo = f.AddInterval(_res);
+            var fileTo = f.AddInterval(_fileInterval);
             if (fileTo <= to)
-                _io.DeleteIfItExists(getStreamFileName(f));
+                _io.DeleteIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, f));
         }
     }
     public void Dispose() {
@@ -258,8 +232,8 @@ internal class LogStream : IDisposable {
         // omitting file for current interval, this is never deleted
         if (maxTotalSizeOfLogFilesInMb == 0) return;
         flushBufferAndReleaseOpenFiles();
-        var currentFile = getStreamFileName(DateTime.UtcNow.Floor(_res));
-        var files = GetLogFileDates().Select(d => getStreamFileName(d)).Where(f => f != currentFile).OrderBy(f => f);
+        var currentFile = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, DateTime.UtcNow.Floor(_fileInterval));
+        var files = GetLogFileDates().Select(d => _fileKeys.Logger_FileNameBin(_logName, _fileInterval, d)).Where(f => f != currentFile).OrderBy(f => f);
         var currentTotalSize = files.Sum(_io.GetFileSizeOrZeroIfUnknown) + _io.GetFileSizeOrZeroIfUnknown(currentFile);
         foreach (var f in files) {
             if (currentTotalSize <= maxTotalSizeOfLogFilesInMb * 1024 * 1024) return;
@@ -269,7 +243,7 @@ internal class LogStream : IDisposable {
     }
     internal long Size() {
         flushBufferAndReleaseOpenFiles();
-        var files = GetLogFileDates().Select(d => getStreamFileName(d));
+        var files = GetLogFileDates().Select(d => _fileKeys.Logger_FileNameBin(_logName, _fileInterval, d));
         return files.Sum(_io.GetFileSizeOrZeroIfUnknown);
     }
 }

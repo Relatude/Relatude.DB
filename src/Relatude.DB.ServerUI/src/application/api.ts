@@ -230,15 +230,15 @@ class LogAPI {
     isStatisticsEnabled = (storeId: string, logKey: string) => this.server.queryJson<boolean>(this.controller, 'is-statistics-enabled', { storeId, logKey })
     clearLog = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-log', { storeId, logKey });
     clearStatistics = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-statistics', { storeId, logKey });
-    extractLog = <T>(storeId: string, logKey: string, from: Date, to: Date, skip: number, take: number) => this.fixTimeStamp(this.server.queryJson<LogEntry<T>[]>(this.controller, 'extract-log', { storeId, logKey, from: from.toISOString(), to: to.toISOString(), skip, take }));
+    extractLog = <T>(storeId: string, logKey: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.fixTimeStamp(this.server.queryJson<LogEntry<T>[]>(this.controller, 'extract-log', { storeId, logKey, from: from.toISOString(), to: to.toISOString(), skip, take, orderByDescendingDates }));
 
-    extractSystemLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<SystemLogEntry>(storeId, "system", from, to, skip, take);
-    extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<QueryLogEntry>(storeId, "query", from, to, skip, take);
-    extractTransactionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TransactionLogEntry>(storeId, "transaction", from, to, skip, take);
-    extractActionLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<ActionLogEntry>(storeId, "action", from, to, skip, take);
-    extractTaskLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskLogEntry>(storeId, "task", from, to, skip, take);
-    extractTaskBatchLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<TaskBatchLogEntry>(storeId, "taskbatch", from, to, skip, take);
-    extractMetricsLog = (storeId: string, from: Date, to: Date, skip: number, take: number) => this.extractLog<MetricsLogEntry>(storeId, "metrics", from, to, skip, take);
+    extractSystemLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<SystemLogEntry>(storeId, "system", from, to, skip, take, orderByDescendingDates);
+    extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<QueryLogEntry>(storeId, "query", from, to, skip, take, orderByDescendingDates);
+    extractTransactionLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<TransactionLogEntry>(storeId, "transaction", from, to, skip, take, orderByDescendingDates);
+    extractActionLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<ActionLogEntry>(storeId, "action", from, to, skip, take, orderByDescendingDates);
+    extractTaskLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<TaskLogEntry>(storeId, "task", from, to, skip, take, orderByDescendingDates);
+    extractTaskBatchLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<TaskBatchLogEntry>(storeId, "taskbatch", from, to, skip, take, orderByDescendingDates);
+    extractMetricsLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<MetricsLogEntry>(storeId, "metrics", from, to, skip, take, orderByDescendingDates);
 
     setPropertyHitsRecordingStatus = (storeId: string, enabled: boolean) => this.server.execute(this.controller, 'set-property-hits-recording-status', { storeId, enabled: enabled ? "true" : "false" });
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
