@@ -3,35 +3,35 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34616.47
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Website.Simple", "..\examples\Website.Simple\Website.Simple.csproj", "{84AAAFB1-CCB2-4EEA-891B-BDEC7B0AC22C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Website.Simple", "\examples\Website.Simple\Website.Simple.csproj", "{84AAAFB1-CCB2-4EEA-891B-BDEC7B0AC22C}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Common", "Relatude.DB.Common\Relatude.DB.Common.csproj", "{BF3DF360-BAF8-4A56-BC4D-BB009CACE1B0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Common", "src\Relatude.DB.Common\Relatude.DB.Common.csproj", "{BF3DF360-BAF8-4A56-BC4D-BB009CACE1B0}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Azure", "Relatude.DB.Azure\Relatude.DB.Azure.csproj", "{1DF9EC2A-9AE9-4FDD-9725-18311E20D86F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Azure", "src\Relatude.DB.Azure\Relatude.DB.Azure.csproj", "{1DF9EC2A-9AE9-4FDD-9725-18311E20D86F}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStore", "Relatude.DB.DataStore\Relatude.DB.DataStore.csproj", "{496A70F0-9EE3-46DF-836C-4DF61DFB4E29}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStore", "src\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj", "{496A70F0-9EE3-46DF-836C-4DF61DFB4E29}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStoreLocal", "Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj", "{A068D5C3-03C4-438A-8EF1-357FAC3FBB45}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStoreLocal", "src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj", "{A068D5C3-03C4-438A-8EF1-357FAC3FBB45}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStoreRemote", "Relatude.DB.DataStoreRemote\Relatude.DB.DataStoreRemote.csproj", "{47CA99CC-7E38-4DF2-81AC-0E551F66653A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.DataStoreRemote", "src\Relatude.DB.DataStoreRemote\Relatude.DB.DataStoreRemote.csproj", "{47CA99CC-7E38-4DF2-81AC-0E551F66653A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.FileStorage", "Relatude.DB.FileStorage\Relatude.DB.FileStorage.csproj", "{451F19B3-17F0-44FD-AA24-DE9713DB4B7C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.FileStorage", "src\Relatude.DB.FileStorage\Relatude.DB.FileStorage.csproj", "{451F19B3-17F0-44FD-AA24-DE9713DB4B7C}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.GraphQL", "Relatude.DB.GraphQL\Relatude.DB.GraphQL.csproj", "{7DA054B4-066F-4F68-AEC6-88D8C44E2607}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.GraphQL", "src\Relatude.DB.GraphQL\Relatude.DB.GraphQL.csproj", "{7DA054B4-066F-4F68-AEC6-88D8C44E2607}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.IO", "Relatude.DB.IO\Relatude.DB.IO.csproj", "{E54395BA-3789-4DA2-862B-D8F6DDB06D0A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.IO", "src\Relatude.DB.IO\Relatude.DB.IO.csproj", "{E54395BA-3789-4DA2-862B-D8F6DDB06D0A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Logger", "Relatude.DB.Logger\Relatude.DB.Logger.csproj", "{2C34415C-C8BD-46F1-9653-2D8777219ACB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Logger", "src\Relatude.DB.Logger\Relatude.DB.Logger.csproj", "{2C34415C-C8BD-46F1-9653-2D8777219ACB}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Lucene", "Relatude.DB.Lucene\Relatude.DB.Lucene.csproj", "{10AC812E-7018-4B6C-824E-E2177FD32020}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Lucene", "src\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj", "{10AC812E-7018-4B6C-824E-E2177FD32020}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Model", "Relatude.DB.Model\Relatude.DB.Model.csproj", "{8FFF4B22-F672-4AE1-8525-E58428061E93}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Model", "src\Relatude.DB.Model\Relatude.DB.Model.csproj", "{8FFF4B22-F672-4AE1-8525-E58428061E93}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.NodeServer", "Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj", "{5A3148DC-7E78-45FF-8B7A-041EDB914B12}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.NodeServer", "src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj", "{5A3148DC-7E78-45FF-8B7A-041EDB914B12}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.NodeStore", "Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj", "{85F20E2B-974F-4D75-B5D8-B158CBF43F93}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.NodeStore", "src\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj", "{85F20E2B-974F-4D75-B5D8-B158CBF43F93}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Sqlite", "Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj", "{DA972EA9-9ED9-4524-A418-5D8E0AACBF51}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Sqlite", "src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj", "{DA972EA9-9ED9-4524-A418-5D8E0AACBF51}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Benchmarks", "Benchmarks", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
@@ -43,35 +43,35 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Database", "Database", "{76
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Nuget", "Nuget", "{1C867124-5950-4DBC-ABDE-85130291E23D}"
 	ProjectSection(SolutionItems) = preProject
-		..\nuget\build.bat = ..\nuget\build.bat
-		..\nuget\Relatude.DB.Local.nuspec.later = ..\nuget\Relatude.DB.Local.nuspec.later
-		..\nuget\Relatude.DB.Plugins.Azure.nuspec = ..\nuget\Relatude.DB.Plugins.Azure.nuspec
-		..\nuget\Relatude.DB.Plugins.Lucene.nuspec = ..\nuget\Relatude.DB.Plugins.Lucene.nuspec
-		..\nuget\Relatude.DB.Plugins.Sqlite.nuspec = ..\nuget\Relatude.DB.Plugins.Sqlite.nuspec
-		..\nuget\Relatude.DB.Remote.nuspec.later = ..\nuget\Relatude.DB.Remote.nuspec.later
-		..\nuget\Relatude.DB.Server.nuspec = ..\nuget\Relatude.DB.Server.nuspec
+		nuget\build.bat = nuget\build.bat
+		nuget\Relatude.DB.Local.nuspec.later = nuget\Relatude.DB.Local.nuspec.later
+		nuget\Relatude.DB.Plugins.Azure.nuspec = nuget\Relatude.DB.Plugins.Azure.nuspec
+		nuget\Relatude.DB.Plugins.Lucene.nuspec = nuget\Relatude.DB.Plugins.Lucene.nuspec
+		nuget\Relatude.DB.Plugins.Sqlite.nuspec = nuget\Relatude.DB.Plugins.Sqlite.nuspec
+		nuget\Relatude.DB.Remote.nuspec.later = nuget\Relatude.DB.Remote.nuspec.later
+		nuget\Relatude.DB.Server.nuspec = nuget\Relatude.DB.Server.nuspec
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution", "Solution", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
 	ProjectSection(SolutionItems) = preProject
-		..\.gitignore = ..\.gitignore
-		..\license.txt = ..\license.txt
-		..\README.md = ..\README.md
+		.gitignore = .gitignore
+		license.txt = license.txt
+		README.md = README.md
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark", "Benchmark.Runner\Benchmark.csproj", "{AE24D2F8-1740-46E6-842C-46884C005122}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark", "benchmarks\Benchmark.Runner\Benchmark.csproj", "{AE24D2F8-1740-46E6-842C-46884C005122}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Base", "Benchmark.Base\Benchmark.Base.csproj", "{0C954EB5-5689-4516-94A7-44CB0EF5B7EE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Base", "benchmarks\Benchmark.Base\Benchmark.Base.csproj", "{0C954EB5-5689-4516-94A7-44CB0EF5B7EE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Relatude.DB", "Benchmark.Relatude.DB\Benchmark.Relatude.DB.csproj", "{0E7DD495-4760-4D7D-932B-10C9FCB9CAED}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Relatude.DB", "benchmarks\Benchmark.Relatude.DB\Benchmark.Relatude.DB.csproj", "{0E7DD495-4760-4D7D-932B-10C9FCB9CAED}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.LiteDB", "Benchmark.LiteDB\Benchmark.LiteDB.csproj", "{3D30D0A2-CB72-4491-B2F9-2FEBF0A86967}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.LiteDB", "benchmarks\Benchmark.LiteDB\Benchmark.LiteDB.csproj", "{3D30D0A2-CB72-4491-B2F9-2FEBF0A86967}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.SQLite", "Benchmark.SQLite\Benchmark.SQLite.csproj", "{86B88486-B22F-43ED-B0C3-A92258776AE1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.SQLite", "benchmarks\Benchmark.SQLite\Benchmark.SQLite.csproj", "{86B88486-B22F-43ED-B0C3-A92258776AE1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.MSSQL", "Benchmark.MSSQL\Benchmark.MSSQL.csproj", "{3D0666D8-CE31-4FFB-A623-BA5626A66DEF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.MSSQL", "benchmarks\Benchmark.MSSQL\Benchmark.MSSQL.csproj", "{3D0666D8-CE31-4FFB-A623-BA5626A66DEF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.RavenDB", "Benchmark.RavenDB\Benchmark.RavenDB.csproj", "{0828AB1F-FE7C-47A4-BB4A-96500129A653}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.RavenDB", "benchmarks\Benchmark.RavenDB\Benchmark.RavenDB.csproj", "{0828AB1F-FE7C-47A4-BB4A-96500129A653}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
