@@ -2,7 +2,7 @@
 
 **Relatude.DB** is an open-source, **C#-native database engine** designed to provide a **unified storage solution** with everything you need to build the backend for your web applications. It combines multiple database paradigms into one cohesive system. The best way to describe it is as an **object-oriented graph database** with rich indexing and query capabilities.
 
-The project is in early development, but it is already used daily in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com).
+The project is in early development, but it is already used daily in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com) from the Norwegian company [Proventus](https://proventus.no).
 
 We chose to release Relatude.DB as open source because we want to build trust and be transparent about how your data is stored. We believe this transparency is fundamental for giving you control and true ownership of your data. We will offer cloud hosting as an option, but you are equally free to store the data in your own environment.
 
