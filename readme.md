@@ -1,72 +1,72 @@
 ﻿# Relatude.DB
 
-**Relatude.DB** is an open-source, **C#-native database engine** designed to provide a **unified storage solution** with everything you need to build modern applications. It combines multiple database paradigms into one cohesive system. The best way to describe it is as an **object-oriented graph database** with rich indexing and query capabilities.
+**Relatude.DB** is an open-source, **C#-native database engine** designed to provide a **unified storage solution** with everything you need to build the backend for your web applications. It combines multiple database paradigms into one cohesive system. The best way to describe it is as an **object-oriented graph database** with rich indexing and query capabilities.
 
-The project is still in early development, but it is already used daily in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com).
+The project is in early development, but it is already used daily in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com).
 
 We chose to release Relatude.DB as open source because we want to build trust and be transparent about how your data is stored. We believe this transparency is fundamental for giving you control and true ownership of your data. We will offer cloud hosting as an option, but you are equally free to store the data in your own environment.
 
 Another reason for publishing it as open source is to foster an active community. We see Relatude.DB as a **general-purpose storage solution** for any web application, not just a data layer for our own CMS. The system is designed to solve and simplify the typical challenges in building web applications. This includes offering a single, easy-to-install storage and query engine that covers all your data needs.
 
-In today’s applications, you often need to combine multiple storage systems to get the required functionality: text indexing, vector/AI search (RAG), structured queries, model generation, faceted search, GraphQL endpoints, SPAs, image scaling and media handling, file indexing, access control, revision management, multilingual support, backup, etc.
+In today’s applications, you often need to combine multiple storage systems to get the required functionality: text indexing, vector/AI search (RAG), structured queries, model generation, faceted search, GraphQL endpoints, image scaling and media handling, file indexing, access control, revision management, multilingual support, backup, etc.
 
-**Relatude.DB provides all of this in one NuGet package.** You can bring it into any project—small or large, prototyping or production.
+Relatude.DB provides all of this in **one NuGet package** you can bring it into any project — small or large, prototyping or production.
 
 ----------
 
-## Technical Implementation
+## Technical implementation
 
-The underlying storage is an **append-only log file** with an **in-memory hash-based index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with instant queries.
+The underlying storage is a binary **append-only log file** with an **in-memory index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with instant response to queries. All data is stored in ONE file and this file is all you need to copy or move the database. There are other temporary files, but these regenerates automatically. The log file contains every transaction executed, so every operation can be rolled back. As the file grows you can set limits to when it will be shortened in background processes. Backups also run in the background without affecting the live database. The **append only** architecture works well with high latency storages like blob as data can be streamed in the background over time.
 
-Each object is stored to disk in binary format. The property values of an object are stored as a list of values that are mapped and casted to the current schema on read. This provides flexibility in handling schema changes in existing data.
+The file format is binary and object properties are casted to the current schema on read. This provides flexibility in handling schema changes with existing data, similar to document databases.
 
-To reduce memory usage, you can use traditional disk-based indexes, allowing you to balance speed and memory consumption for your project. Because the system integrates all storage engines into one, you benefit from a **smarter cache**: it keeps detailed track of which updates invalidate which cache entries.
+To reduce memory usage, you can use more traditional disk-based indexes, allowing you to balance best speed / memory consumption for your project. 
 
-For you as a developer, every query always represents the latest data. The cache is completely transparent. Internally, every query is broken down into set operations (A ∪ B, etc.), and every set operation is cached. This enables high cache reuse across multiple queries.
+As the system combines multiple storages in one engine, you benefit from a **smarter built-in cache**: it keeps detailed track of which updates invalidate which cache entries. For you as a developer, every query always represents the latest data. The cache is completely transparent. Internally, every query is broken down into set operations (A ∪ B, etc.), and every set operation is cached. This enables high cache reuse across multiple queries.
 
 ----------
 
 ## Projects
 
-The solution folder **Database** contains the following projects:
+Database:
 
--   **Relatude.DB.Common** — Utilities and enums shared across all projects
+-   **Relatude.DB.Common** — Common utilities
     
--   **Relatude.DB.DataStore** — Datastore interfaces, query parser, and expression tree
+-   **Relatude.DB.DataStore** — Defining the DataStore and query language
     
--   **Relatude.DB.DataStoreLocal** — In-process datastore implementation with text/value indexes, queue system, cache, etc.
+-   **Relatude.DB.DataStoreLocal** — DataStore implementation
     
--   **Relatude.DB.DataStoreRemote** — Remote datastore client communicating with a DataStoreLocal instance
+-   **Relatude.DB.DataStoreRemote** — DataStore remote client
     
--   **Relatude.DB.FileStorage** — File storage provider (remote/local communication)
+-   **Relatude.DB.FileStorage** — File storage provider
     
--   **Relatude.DB.GraphQL** — GraphQL parser and implementation _(not started)_
+-   **Relatude.DB.GraphQL** — GraphQL endpoint _(not started)_
     
--   **Relatude.DB.IO** — IO provider interfaces and implementations for local disk and memory (testing)
+-   **Relatude.DB.IO** — IO providers
     
--   **Relatude.DB.Logger** — Logging and statistics system
+-   **Relatude.DB.Logger** — Logging and statistics
     
--   **Relatude.DB.Model** — Base classes for schema definitions
+-   **Relatude.DB.Model** — Schema definitions
     
--   **Relatude.DB.NodeServer** — Runtime/server for hosting multiple databases with an API for the admin UI
+-   **Relatude.DB.NodeServer** — Server runtime and admin UI backend
     
--   **Relatude.DB.NodeStore** — Typed API for working with the datastore, including query language, code generation, Roslyn compilation. Works with either DataStoreLocal or DataStoreRemote.
+-   **Relatude.DB.NodeStore** — Typed wrapper of DataStore and main API
     
--   **Relatude.DB.Server.UI** — Web-based admin UI written in TypeScript and React _(in progress)_
-    
-
-Optional plugins:
-
--   **Relatude.DB.Azure** — AI provider and IO provider based on Azure OpenAI and Azure Blob Storage
-    
--   **Relatude.DB.Sqlite** — Disk-based value and text indexes using SQLite
-    
--   **Relatude.DB.Lucene** — Disk-based text indexes using Lucene
+-   **Relatude.DB.Server.UI** — Admin UI frontend _(in early development)_
     
 
-Example project:
+Plugins:
 
--   **Website.Simple** — Minimal setup to run the database
+-   **Relatude.DB.Azure** — Azure Open AI and Azure Blob storage
+    
+-   **Relatude.DB.Sqlite** — Index providers based on SQLite
+    
+-   **Relatude.DB.Lucene** — Index providers based on Lucene
+    
+
+Examples:
+
+-   **Website.Simple** — Basic website running the database server
     
 
 ----------
@@ -75,16 +75,16 @@ Example project:
 
 Distributed as NuGet packages:
 
--   **Relatude.DB.Server** — Complete database server with no external dependencies
+-   **Relatude.DB.Server** — Database server with no external dependencies
     
--   **Relatude.DB.Plugins.Azure** — Plugins for Azure OpenAI services and Azure Blob Storage (vector indexing and blob storage)
+-   **Relatude.DB.Plugins.Azure** — AI and IO provider based on Azure OpenAI and Blob
     
--   **Relatude.DB.Plugins.Lucene** — Plugin for Lucene-based text indexing (disk-based alternative to memory)
+-   **Relatude.DB.Plugins.Lucene** — Text index provider based on Lucene
     
--   **Relatude.DB.Plugins.Sqlite** — Plugin for SQLite-based property indexes (disk-based alternative to memory)
+-   **Relatude.DB.Plugins.Sqlite** — Value index provider based on Sqlite
     
 
-Planned:
+Planned NuGets:
 
 -   **Relatude.DB.Local** — In-process local database engine (NodeStore + DataStoreLocal)
     
@@ -95,18 +95,19 @@ Planned:
 
 ## API Example
 ```c#
-var store = RelatudeDB.DefaultStore; // Query users and include their friends  var users = store.Query<User>()
+var users = store.Query<User>()
                  .Include(u => u.Friends)
                  .Where(u => u.Company == "Microsoft")
                  .Execute(); 
 ```
 ----------
 
-## Try It Out
+## Try it out
 
-It’s very easy to incorporate the server into your project. See the example project or follow these steps:
+It’s easy to incorporate the server in your exiting web project. 
+See the included example or follow these steps:
 
-1.  Create any C# web project in .NET 8
+1.  Create a C# web project in .NET 8  (any type)
     
 2.  Add the [Relatude.DB.Server](https://www.nuget.org/packages/Relatude.DB.Server) NuGet package
     
@@ -120,14 +121,16 @@ After creating the app:
 ```C#
     app.UseRelatudeDB();
 ```
-4.  Access the web UI at `/relatude.db`. On first start, add your DBA username and password to the `relatude.db.json` file that will be created in the website root.
+4.  Run the project and access the web UI at `/relatude.db`
     
+
+More examples and documentation will follow...
 
 ----------
 
 ## Features
 
-_(Some still under development)_
+_(under development)_
 
 ### Multiple Engines in One
 
