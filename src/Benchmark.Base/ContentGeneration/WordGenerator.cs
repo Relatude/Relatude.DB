@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Demo; 
+﻿
+namespace Benchmark.Base.ContentGeneration;
 public static class WordGenerator {
     private static readonly Random _random = new Random();
 
