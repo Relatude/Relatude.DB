@@ -13,9 +13,8 @@ public class EventSubscriptions {
     public void EnqueueToMatchingSubscriptions<T, K>(EventDataBuilder<T, K> builder) {
         lock (_eventSubscriptions) {
             foreach (var subscription in _eventSubscriptions.Values) {
-                var eventData = builder.Data((EventSubscription<T>)subscription);
-                if (subscription.EventNames.Contains(builder.Name)) {
-                    subscription.EventQueue.AddLast(new EventData<K>(builder.Name, eventData, builder.MaxAge));
+                if (subscription.EventNames.Contains(builder.Name) && subscription is EventSubscription<T> sub) {
+                    subscription.EventQueue.AddLast(new EventData<K>(builder.Name, builder.Data(sub), builder.MaxAge));
                 }
             }
         }
