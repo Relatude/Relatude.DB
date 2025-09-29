@@ -1,20 +1,28 @@
 ﻿using Benchmark.Base.Models;
+using Benchmark.Tester;
 
 namespace Benchmark.Base.ContentGeneration;
-public class Generator(int seed = 0) {
-    TextGenerator _textGenerator = new(seed);
-    public TestUser[] CreateUsers(int count) {
+public static class Generator {
+    public static TestData Generate(TestOptions options) {
+        TextGenerator textGenerator = new(options.GenerationSeed);
+        TestData data = new ();
+        data.Users = createUsers(options.UserCount, options.GenerationSeed, textGenerator);
+        data.Companies = createCompanies(options.CompanyCount, data.Users, options.GenerationSeed, textGenerator);
+        data.Documents = createDocuments(options.DocumentCount, data.Users, options.GenerationSeed, textGenerator);
+        return data;    
+    }
+    static TestUser[] createUsers(int count, int seed, TextGenerator textGenerator) {
         Random random = new(seed);
         TestUser[] users = new TestUser[count];
         for (int i = 0; i < count; i++) {
             users[i] = new TestUser {
                 Id = Guid.NewGuid(),
-                Name = _textGenerator.GenerateTitle(10 + random.Next(20))
+                Name = textGenerator.GenerateTitle(10 + random.Next(20))
             };
         }
         return users;
     }
-    public TestCompany[] CreateCompanies(int count, TestUser[] users) {
+    static TestCompany[] createCompanies(int count, TestUser[] users, int seed, TextGenerator textGenerator) {
         Random random = new(seed);
         TestCompany[] companies = new TestCompany[count];
         for (int i = 0; i < count; i++) {
@@ -25,7 +33,7 @@ public class Generator(int seed = 0) {
             }
             var company = new TestCompany {
                 Id = Guid.NewGuid(),
-                Name = _textGenerator.GenerateTitle(10 + random.Next(20)),
+                Name = textGenerator.GenerateTitle(10 + random.Next(20)),
                 Users = companyUsers.ToArray()
             };
             foreach (var user in company.Users) {
@@ -35,7 +43,7 @@ public class Generator(int seed = 0) {
         }
         return companies;
     }
-    public TestDocument[] CreateDocuments(int count, TestUser[] users) {
+    static TestDocument[] createDocuments(int count, TestUser[] users, int seed, TextGenerator textGenerator) {
         Random random = new(seed);
         TestDocument[] documents = new TestDocument[count];
         for (int i = 0; i < count; i++) {
@@ -44,8 +52,8 @@ public class Generator(int seed = 0) {
             var contentLength = 100 + random.Next(5000);
             documents[i] = new TestDocument {
                 Id = Guid.NewGuid(),
-                Title = _textGenerator.GenerateTitle(titleLength),
-                Content = _textGenerator.GenerateText(contentLength),
+                Title = textGenerator.GenerateTitle(titleLength),
+                Content = textGenerator.GenerateText(contentLength),
                 Author = author
             };
         }

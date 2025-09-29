@@ -68,8 +68,8 @@ public sealed partial class Transaction {
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction Relate<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
-        var p = getRelProp(expression);
+    public Transaction Relate<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
+        var p = getRelProp(expression!);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
