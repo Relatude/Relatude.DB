@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34616.47
@@ -59,7 +59,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution", "Solution", "{8E
 		README.md = README.md
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark", "benchmarks\Benchmark.Runner\Benchmark.csproj", "{AE24D2F8-1740-46E6-842C-46884C005122}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark", "benchmarks\Benchmark\Benchmark.csproj", "{AE24D2F8-1740-46E6-842C-46884C005122}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Base", "benchmarks\Benchmark.Base\Benchmark.Base.csproj", "{0C954EB5-5689-4516-94A7-44CB0EF5B7EE}"
 EndProject

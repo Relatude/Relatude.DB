@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="LiteDB" Version="6.0.0-prerelease.9.10.5" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Benchmark.Base\Benchmark.Base.csproj" />
   </ItemGroup>
 

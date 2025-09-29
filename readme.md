@@ -73,7 +73,7 @@ Examples:
 
 ## NuGets
 
-Distributed as NuGet packages:
+The database is distributed with the following NuGet packages:
 
 -   **Relatude.DB.Server** — Database server with no external dependencies
     

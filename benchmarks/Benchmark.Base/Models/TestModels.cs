@@ -1,9 +1,16 @@
 ﻿namespace Benchmark.Base.Models;
 
+public class TestData {
+    public TestUser[] Users { get; set; } = [];
+    public TestCompany[] Companies { get; set; } = [];
+    public TestDocument[] Documents { get; set; } = [];
+}
+
 public class TestUser {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public TestCompany? Company { get; set; } 
+    public int Age { get; set; }
+    public TestCompany? Company { get; set; }
     public TestDocument[] Documents { get; set; } = [];
 }
 
