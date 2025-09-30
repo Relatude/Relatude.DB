@@ -1,38 +1,44 @@
 ﻿using Benchmark.Base;
 using Benchmark.Base.Models;
-using Microsoft.Data.Sqlite;
+using Microsoft.Data.SqlClient;
 
-namespace Benchmark.SQLite;
-public class SQLiteDBTester : ITester {
+namespace Benchmark.MSSql;
+public class MsSqlDBTester : ITester {
     string _dataFolderPath = null!;
-    SqliteConnection _connection = null!;
-    public string Name => "SQLite";
+    SqlConnection _connection;
+    string _cnnStr = null!;
+    public string Name => "MsSql";
     public void Initalize(string dataFolderPath) {
         _dataFolderPath = dataFolderPath;
-    }
-    public void Open() {
-        var dbFileName = "sqlite.db";
+        var dbFileName = "mssql.db";
         if (!Directory.Exists(_dataFolderPath)) Directory.CreateDirectory(_dataFolderPath);
         var dbPath = Path.Combine(_dataFolderPath, dbFileName);
-        var cnnStr = "Data Source=" + dbPath;
-        _connection = new SqliteConnection(cnnStr);
-        _connection.Open();
-        var cmd = _connection.CreateCommand();
-        cmd.CommandText = "PRAGMA journal_mode=WAL";
-        cmd.ExecuteNonQuery();
-    }
 
+        // connection string direct to localdb instance:
+        _cnnStr = @"Server=(localdb)\MSSQLLocalDB;Integrated Security=true;Initial Catalog=BenchmarkDB;";
+
+        using (var connection = new SqlConnection(_cnnStr)) {
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = $"IF DB_ID('BenchmarkDB') IS NULL CREATE DATABASE BenchmarkDB";
+            cmd.ExecuteNonQuery();
+        }
+    }
+    public void Open() {        
+        _connection = new SqlConnection(_cnnStr);
+        _connection.Open();
+    }
     void executeCommand(string sql) {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
     }
     public void CreateSchema() {
-        executeCommand("CREATE TABLE test_user (id TEXT PRIMARY KEY, name TEXT, age INTEGER, company_id TEXT)");
-        executeCommand("CREATE INDEX test_user_company_id ON test_user(company_id)");
-        executeCommand("CREATE TABLE test_company (id TEXT PRIMARY KEY, name TEXT)");
-        executeCommand("CREATE TABLE test_document (id TEXT PRIMARY KEY, title TEXT, content TEXT, author_id TEXT)");
-        executeCommand("CREATE INDEX test_document_author_id ON test_document(author_id)");
+        executeCommand("IF OBJECT_ID('test_user', 'U') IS NULL CREATE TABLE test_user (id UNIQUEIDENTIFIER PRIMARY KEY, name NVARCHAR(100), age INT, company_id UNIQUEIDENTIFIER)");
+        //executeCommand("IF OBJECT_ID('test_user_company_id', 'I') IS NULL CREATE INDEX test_user_company_id ON test_user(company_id)");
+        executeCommand("IF OBJECT_ID('test_company', 'U') IS NULL CREATE TABLE test_company (id UNIQUEIDENTIFIER PRIMARY KEY, name NVARCHAR(100))");
+        executeCommand("IF OBJECT_ID('test_document', 'U') IS NULL CREATE TABLE test_document (id UNIQUEIDENTIFIER PRIMARY KEY, title NVARCHAR(200), content NVARCHAR(MAX), author_id UNIQUEIDENTIFIER)");
+        //executeCommand("IF OBJECT_ID('test_document_author_id', 'I') IS NULL CREATE INDEX test_document_author_id ON test_document(author_id)");
     }
     public void InsertUsers(TestUser[] users) {
         var transaction = _connection.BeginTransaction();
@@ -44,6 +50,12 @@ public class SQLiteDBTester : ITester {
             cmd.Parameters.AddWithValue("@name", user.Name);
             cmd.Parameters.AddWithValue("@age", user.Age);
             cmd.ExecuteNonQuery();
+            //using var cmd = _connection.CreateCommand();
+            //cmd.CommandText = "INSERT INTO test_user(id, name, age) VALUES(@id, @name, @age)";
+            //cmd.Parameters.AddWithValue("@id", user.Id);
+            //cmd.Parameters.AddWithValue("@name", user.Name);
+            //cmd.Parameters.AddWithValue("@age", user.Age);
+            //cmd.ExecuteNonQuery();
         }
         transaction.Commit();
     }

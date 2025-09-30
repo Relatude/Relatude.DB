@@ -172,19 +172,19 @@ public class StoreLogger : IDisposable, IStoreLogger {
     }
 
     public bool EnableSystemLog = true; // only system log, is enabled by default
-    public bool EnableSystemLogStatistics = true; // all statistics enabled by default for all logs...
+    public bool EnableSystemLogStatistics = false; // all statistics enabled by default for all logs...
     public bool EnableSystemQueryLog = false;
-    public bool EnableSystemQueryLogStatistics = true;
+    public bool EnableSystemQueryLogStatistics = false;
     public bool EnableTransactionLog = false;
-    public bool EnableTransactionLogStatistics = true;
+    public bool EnableTransactionLogStatistics = false;
     public bool EnableActionLog = false;
-    public bool EnableActionLogStatistics = true;
+    public bool EnableActionLogStatistics = false;
     public bool EnableTaskLog = false;
-    public bool EnableTaskLogStatistics = true;
+    public bool EnableTaskLogStatistics = false;
     public bool EnableTaskBatchLog = false;
-    public bool EnableTaskBatchLogStatistics = true;
+    public bool EnableTaskBatchLogStatistics = false;
     public bool EnableMetricsLog = false;
-    public bool EnableMetricsLogStatistics = true;
+    public bool EnableMetricsLogStatistics = false;
 
     public bool LoggingSystem => EnableSystemLog || EnableSystemLogStatistics;
     public bool LoggingTransactionsOrActions => EnableTransactionLog || EnableActionLog || EnableTransactionLogStatistics || EnableActionLogStatistics;

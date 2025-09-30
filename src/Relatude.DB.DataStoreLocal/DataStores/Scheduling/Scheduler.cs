@@ -27,9 +27,14 @@ internal class Scheduler(DataStoreLocal _db) {
     int backgroundTasksPulseIntervalMs = 60000; // backup if due and delete old, cache purge, save log stats, flush logs etc. run every minute, not needed to run too often
     TimeSpan _intervalOfDeletingExpiredTasks = TimeSpan.FromMinutes(5); // interval for running delete expired tasks, default is 5 minutes
 
+    //Timer _test = new Timer(_ => {
+    //    Console.WriteLine("Transactions last 10 sec:" + _db._transactionActivity.EstimateLast10Seconds().To1000N() + ", Queries last 10 sec:" + _db._queryActivity.EstimateLast10Seconds().To1000N());
+    //}, null, 10, 500); // just to have a timer for testing purposes
+
     public void Start() {
+
         // avoid zero interval:
-        if (_s.AutoSaveIndexStates && _s.AutoSaveIndexStatesIntervalInMinutes <= 0) _s.AutoSaveIndexStatesIntervalInMinutes = 45;
+        if (_s.AutoSaveIndexStates && _s.AutoSaveIndexStatesIntervalInMinutes <= 0) _s.AutoSaveIndexStatesIntervalInMinutes = 30;
         if (_s.AutoTruncate && _s.AutoTruncateIntervalInMinutes <= 0) _s.AutoTruncateIntervalInMinutes = 24 * 60;
 
         // initiating flush timer:
@@ -209,7 +214,7 @@ internal class Scheduler(DataStoreLocal _db) {
                 _lastQueryLogFlush = DateTime.UtcNow;
             }
             if ((DateTime.UtcNow - _lastQueryLogMaintenance).TotalSeconds > 60) {
-                    _db.Logger.SaveStatsAndDeleteExpiredData();
+                _db.Logger.SaveStatsAndDeleteExpiredData();
                 _lastQueryLogMaintenance = DateTime.UtcNow;
             }
         } catch (Exception err) {
@@ -220,6 +225,8 @@ internal class Scheduler(DataStoreLocal _db) {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoSaveIndexStates) return;
+            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
+            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
             var noActionsNotInStateFile = _db.GetLogActionsNotItInStatefile();
             var belowUpperLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountUpperLimit;
             if (belowUpperLimit) {

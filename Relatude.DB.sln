@@ -70,7 +70,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.MSSQL", "benchmar
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.RavenDB", "benchmarks\Benchmark.RavenDB\Benchmark.RavenDB.csproj", "{0828AB1F-FE7C-47A4-BB4A-96500129A653}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Site", "Benchmark.Site\Benchmark.Site.csproj", "{551A45CA-4DD1-4536-A633-B4144182EBA1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Site", "benchmarks\Benchmark.Site\Benchmark.Site.csproj", "{551A45CA-4DD1-4536-A633-B4144182EBA1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

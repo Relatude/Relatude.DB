@@ -1,5 +1,5 @@
-﻿using Benchmark.Base.Models;
-using Benchmark.Base.Operations;
+﻿using Benchmark.Base;
+using Benchmark.Base.Models;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
@@ -9,8 +9,9 @@ namespace Benchmark.Relatude.DB;
 public class RelatudeDBTester : ITester {
     string _dataFolderPath = null!;
     IDataStore _dataStore;
+    public string Name => "Relatude";
     NodeStore _store = null!;
-    bool _flushDisk = true; // flush to disk after every operation
+    bool _flushDisk = true; // flush to disk after every operation?
     public void Initalize(string dataFolderPath) {
         _dataFolderPath = dataFolderPath;
     }
@@ -21,7 +22,7 @@ public class RelatudeDBTester : ITester {
         dm.Add<TestCompany>();
         dm.Add<TestDocument>();
         var settings = new SettingsLocal();
-        settings.WriteSystemLogConsole = false;
+        settings.WriteSystemLogConsole = true;
         settings.EnableTextIndexByDefault = false;
         _dataStore = new DataStoreLocal(dm, settings, io);
         _dataStore.Open();
@@ -60,6 +61,9 @@ public class RelatudeDBTester : ITester {
     }
     public TestUser[] SearchUsersWithDocuments(int age) {
         return [];
+    }
+    public void FlushToDisk() {
+        _store.Flush();
     }
     public void DeleteUsers(int age) {
     }

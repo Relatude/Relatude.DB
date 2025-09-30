@@ -8,6 +8,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
+    internal FastRollingCounter _transactionActivity=new();
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool flushToDisk = false) {
         return Task.FromResult(Execute(transaction, flushToDisk));
     }
@@ -89,6 +90,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
                 updateActivityProgress(activityId, 100 * i++ / count);
+                _transactionActivity.Record();
                 foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
                     if (anyLocks) validateLocks(a, lockExcemptions);
                     executeAction(a); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )

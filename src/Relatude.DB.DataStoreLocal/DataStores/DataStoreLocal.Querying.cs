@@ -13,6 +13,7 @@ using Relatude.DB.Query.Parsing;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
+    internal FastRollingCounter _queryActivity = new();
     public Task<INodeData> GetAsync(Guid id) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
@@ -20,6 +21,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
+            _queryActivity.Record();
             return Task.FromResult(_nodes.Get(_guids.GetId(id)));
         } finally {
             deRegisterActivity(activityId);
@@ -31,6 +33,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return Task.FromResult(_nodes.Get(id));
         } finally {
@@ -47,6 +50,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             return _nodes.Get(_guids.GetId(id));
         } finally {
@@ -112,6 +116,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
+            _queryActivity.Record();
             if (_guids.TryGetId(id, out var uid)) {
                 nodeData = _nodes.Get(uid);
                 return true;
@@ -129,6 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
+            _queryActivity.Record();
             return _nodes.TryGet(id, out nodeData, out _);
         } finally {
             deRegisterActivity(activityId);
@@ -141,6 +147,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
+            _queryActivity.Record();
             return _guids.TryGetId(id, out guid);
         } finally {
             deRegisterActivity(activityId);
@@ -167,6 +174,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             var result = _nodes.Get(ids.Select(_guids.GetId).ToArray()); // must return a copy to avoid problems with locks
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
+            _queryActivity.Record();
             return result;
         } finally {
             deRegisterActivity(activityId);
@@ -178,6 +186,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             if (!_guids.TryGetId(id, out var uid)) return false;
             if (!_nodes.Contains(uid)) return false;
             var actualTypeId = _definition.GetTypeOfNode(uid);
@@ -193,6 +202,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             if (!_guids.TryGetId(from, out var fromId) || !_guids.TryGetId(to, out var toId)) return false;
             return _definition.Relations[relationId].Contains(fromId, toId, fromTargetToSource);
         } finally {
@@ -207,6 +217,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             if (!_guids.TryGetId(from, out var fromId)) return [];
             var relation = _definition.Relations[relProp.RelationId];
             var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
@@ -223,6 +234,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             if (!_guids.TryGetId(from, out var fromId)) {
                 node = null;
                 return false;
@@ -247,6 +259,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             if (!_guids.TryGetId(from, out var fromId)) return 0;
             var relation = _definition.Relations[relProp.RelationId];
             return relation.GetRelated(fromId, relProp.FromTargetToSource).Count;
@@ -272,6 +285,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = registerActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
+            _queryActivity.Record();
             var sw = Stopwatch.StartNew();
             var scope = _variables.CreateRootScope(parameters);
             var result = expression.Evaluate(scope);
