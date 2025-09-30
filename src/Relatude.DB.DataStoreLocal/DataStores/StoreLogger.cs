@@ -16,10 +16,25 @@ public class StoreLogger : IDisposable, IStoreLogger {
     static string _metricsLogKey = "metrics";
 
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
     LogStore _logStore;
     readonly Datamodel? _datamodel;
     public ILogStore LogStore => _logStore;
+
+    public bool EnableSystemLog = false; // only system log, is enabled by default
+    public bool EnableSystemLogStatistics = false; // all statistics enabled by default for all logs...
+    public bool EnableSystemQueryLog = false;
+    public bool EnableSystemQueryLogStatistics = false;
+    public bool EnableTransactionLog = false;
+    public bool EnableTransactionLogStatistics = false;
+    public bool EnableActionLog = false;
+    public bool EnableActionLogStatistics = false;
+    public bool EnableTaskLog = false;
+    public bool EnableTaskLogStatistics = false;
+    public bool EnableTaskBatchLog = false;
+    public bool EnableTaskBatchLogStatistics = false;
+    public bool EnableMetricsLog = false;
+    public bool EnableMetricsLogStatistics = false;
+
     LogSettings[]? _settings;
     LogSettings[] getSettings() {
         _settings = [
@@ -171,21 +186,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
         return _settings;
     }
 
-    public bool EnableSystemLog = true; // only system log, is enabled by default
-    public bool EnableSystemLogStatistics = false; // all statistics enabled by default for all logs...
-    public bool EnableSystemQueryLog = false;
-    public bool EnableSystemQueryLogStatistics = false;
-    public bool EnableTransactionLog = false;
-    public bool EnableTransactionLogStatistics = false;
-    public bool EnableActionLog = false;
-    public bool EnableActionLogStatistics = false;
-    public bool EnableTaskLog = false;
-    public bool EnableTaskLogStatistics = false;
-    public bool EnableTaskBatchLog = false;
-    public bool EnableTaskBatchLogStatistics = false;
-    public bool EnableMetricsLog = false;
-    public bool EnableMetricsLogStatistics = false;
-
     public bool LoggingSystem => EnableSystemLog || EnableSystemLogStatistics;
     public bool LoggingTransactionsOrActions => EnableTransactionLog || EnableActionLog || EnableTransactionLogStatistics || EnableActionLogStatistics;
     public bool LoggingTransactions => EnableTransactionLog || EnableTransactionLogStatistics;
@@ -199,7 +199,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
 
     public StoreLogger(IIOProvider io, FileKeyUtility fileKeys, Datamodel? datamodel) {
-        _fileKeys = fileKeys;
         _io = io;
         _datamodel = datamodel;
         _logStore = new LogStore(_io, getSettings(), fileKeys);

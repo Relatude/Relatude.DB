@@ -8,7 +8,7 @@ using Relatude.DB.Nodes;
 namespace Benchmark.Relatude.DB; 
 public class RelatudeDBTester : ITester {
     string _dataFolderPath = null!;
-    IDataStore _dataStore;
+    IDataStore _dataStore = null!;
     public string Name => "Relatude";
     NodeStore _store = null!;
     bool _flushDisk = true; // flush to disk after every operation?
@@ -22,7 +22,8 @@ public class RelatudeDBTester : ITester {
         dm.Add<TestCompany>();
         dm.Add<TestDocument>();
         var settings = new SettingsLocal();
-        settings.WriteSystemLogConsole = true;
+        settings.WriteSystemLogConsole = false;
+        settings.DoNotCacheMapperFile = true;
         settings.EnableTextIndexByDefault = false;
         _dataStore = new DataStoreLocal(dm, settings, io);
         _dataStore.Open();

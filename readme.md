@@ -126,6 +126,8 @@ After creating the app:
 
 More examples and documentation will follow...
 
+![Logo](./media/b1.png)
+
 ----------
 
 ## Features

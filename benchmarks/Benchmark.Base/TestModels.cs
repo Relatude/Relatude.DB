@@ -4,6 +4,8 @@ public class TestData {
     public TestUser[] Users { get; set; } = [];
     public TestCompany[] Companies { get; set; } = [];
     public TestDocument[] Documents { get; set; } = [];
+    public List<Tuple<Guid, Guid>> DocsToUsers { get; set; } = [];
+    public List<Tuple<Guid, Guid>> UsersToCompany { get; set; } = [];
 }
 
 public class TestUser {

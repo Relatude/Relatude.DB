@@ -7,8 +7,6 @@ internal class TestRunner {
     public static TestReport Run(ITester tester, TestOptions options, TestData testData) {
         var dataPath = Path.Combine(options.DataFileRootDefault, tester.Name);
         tester.Initalize(dataPath);
-        var docsToUsers = testData.Documents.Where(d => d.Author != null).Select(d => new Tuple<Guid, Guid>(d.Id, d.Author!.Id)).ToArray();
-        var usersToCompany = testData.Users.Where(u => u.Company != null).Select(u => new Tuple<Guid, Guid>(u.Id, u.Company!.Id)).ToArray();
         var report = new TestReport(tester.Name);
         if (options.RecreateDatabase) {
             tester.DeleteDataFiles();
@@ -29,13 +27,13 @@ internal class TestRunner {
             sw.Stop();
             report.Results.Add(new(nameof(tester.InsertDocuments), sw.Elapsed, testData.Documents.Length));
             sw.Restart();
-            tester.RelateDocumentsToUsers(docsToUsers);
+            tester.RelateDocumentsToUsers(testData.DocsToUsers);
             sw.Stop();
-            report.Results.Add(new(nameof(tester.RelateDocumentsToUsers), sw.Elapsed, docsToUsers.Length));
+            report.Results.Add(new(nameof(tester.RelateDocumentsToUsers), sw.Elapsed, testData.DocsToUsers.Count));
             sw.Restart();
-            tester.RelateUsersToCompanies(usersToCompany);
+            tester.RelateUsersToCompanies(testData.UsersToCompany);
             sw.Stop();
-            report.Results.Add(new(nameof(tester.RelateUsersToCompanies), sw.Elapsed, usersToCompany.Length));
+            report.Results.Add(new(nameof(tester.RelateUsersToCompanies), sw.Elapsed, testData.UsersToCompany.Count));
         }
         tester.Close();
         report.TotalFileSize = getDirSize(dataPath);

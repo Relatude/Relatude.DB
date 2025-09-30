@@ -10,6 +10,7 @@
     //public bool EnableQueryLog { get; set; } = false;
     //public bool EnableQueryLogDetails { get; set; } = false;
     public bool WriteSystemLogConsole { get; set; } = true;
+    public bool DoNotCacheMapperFile { get; set; } = false;
     public int DaysToKeepSystemLog { get; set; } = 10;
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;

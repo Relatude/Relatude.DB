@@ -190,7 +190,6 @@ public class DefaultQueueStore : IQueueStore {
                 _batchesById = [];
             }
             if (_batchesById.Count == 0) _io.DeleteIfItExists(_fileKey); // no batches, delete file
-            _stream = _io.OpenAppend(_fileKey);
         } else {
             _batchesById = [];
         }

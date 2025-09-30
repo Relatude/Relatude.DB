@@ -28,43 +28,41 @@ public class LiteDBTester : ITester {
         if (Directory.Exists(_path)) Directory.Delete(_path, true);
     }
     public void InsertUsers(TestUser[] users) {
-        foreach (var user in users) {
-            var company = user.Company;
-            user.Company = null;
-            _usersCollection.Insert(user);
-            user.Company = company;
-        }
+        _usersCollection.InsertBulk(users);
     }
     public void InsertCompanies(TestCompany[] companies) {
-        foreach (var company in companies) {
-            var users = company.Users;
-            company.Users = [];
-            _companiesCollection.Insert(company);
-            company.Users = users;
-        }
+        _companiesCollection.InsertBulk(companies);
     }
     public void InsertDocuments(TestDocument[] documents) {
-        foreach (var document in documents) {
-            var author = document.Author;
-            document.Author = null;
-            _documentsCollection.Insert(document);
-            document.Author = author;
-        }
+        _documentsCollection.InsertBulk(documents);
     }
     public void RelateDocumentsToUsers(IEnumerable<Tuple<Guid, Guid>> relations) {
-
+        foreach (var rel in relations) {
+            var doc = _documentsCollection.FindById(rel.Item1);
+            if (doc != null) {
+                doc.Author = _usersCollection.FindById(rel.Item2);
+                _documentsCollection.Update(doc);
+            }
+        }
     }
     public void RelateUsersToCompanies(IEnumerable<Tuple<Guid, Guid>> relations) {
-
+        foreach (var rel in relations) {
+            var user = _usersCollection.FindById(rel.Item1);
+            if (user != null) {
+                user.Company = _companiesCollection.FindById(rel.Item2);
+                _usersCollection.Update(user);
+            }
+        }
     }
     public TestUser[] GetAllUsers() {
-        return [];
+        return _usersCollection.FindAll().ToArray();
     }
 
     public TestUser? GetUserById(Guid id) {
         return _db.GetCollection<TestUser>("test_user").FindById(id);
     }
     public void DeleteUsers(int age) {
+        _usersCollection.DeleteMany(u => u.Age == age);
     }
     public void FlushToDisk() {
         _db.Checkpoint();
