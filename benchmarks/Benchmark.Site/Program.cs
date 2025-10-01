@@ -57,47 +57,51 @@ string test(HttpContext ctx) {
     sb.AppendLine("<table style=\"width:100%\">");
     sb.AppendLine("<tr>");
     sb.AppendLine("<td></td>");
+    sb.AppendLine("<td>cnt</td>");
     foreach (var report in reports) {
         sb.AppendLine("<td style=\"text-align:right\">" + report.Name.ToUpper() + "</td>");
     }
     sb.AppendLine("</tr>");
-    sb.AppendLine("<tr><td>&nbsp;</td></tr>");
     foreach (var testName in testNames) {
+        sb.AppendLine("<tr><td>&nbsp;</td></tr>");
         sb.AppendLine("<tr>");
         sb.AppendLine("<td >" + deCamelCase(testName) + "</td> ");
+        sb.AppendLine("<td >" + reports.First().Results.Where(r => r.TestName == testName).First().Operations.To1000N() + "</td> ");
+        var maxOperationsPerSec = reports.Max(r => r.Results.Where(res => res.TestName == testName).First().OperationsPerSecond);
         foreach (var report in reports) {
+
             var result = report.Results.Where(r => r.TestName == testName).First();
-            sb.AppendLine("<td style=\"text-align:right\">" + result.Operations.To1000N() + "</td>");
+            var resultPercentage = Math.Round(100 * result.OperationsPerSecond / maxOperationsPerSec);
+            var color = "hsl(" + (resultPercentage) + ", 100%, 85%)";
+            sb.AppendLine("<td style=\"text-align:center; background-color:" + color + "\">");
+            sb.AppendLine(Math.Round(result.Duration.TotalMilliseconds).To1000N() + "ms");
+            // sb.AppendLine(Math.Round(result.Duration.TotalMilliseconds).To1000N() + "ms - " + result.OperationsPerSecond + "op/sec");
+            //sb.AppendLine(Math.Round(resultPercentage) + "%");
+            sb.AppendLine("</td>");
         }
-        sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;cnt</td> ");
+        //sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;ms</td> ");
         sb.AppendLine("</tr>");
-        sb.AppendLine("<tr>");
-        sb.AppendLine("<td ></td> ");
-        foreach (var report in reports) {
-            var result = report.Results.Where(r => r.TestName == testName).First();
-            sb.AppendLine("<td style=\"text-align:right\">" + Math.Round(result.Duration.TotalMilliseconds).To1000N() + "</td>");
-        }
-        sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;ms</td> ");
-        sb.AppendLine("</tr>");
-        sb.AppendLine("<tr>");
-        sb.AppendLine("<td ></td> ");
-        foreach (var report in reports) {
-            var result = report.Results.Where(r => r.TestName == testName).First();
-            sb.AppendLine("<td style=\"text-align:right\">" + Math.Round(result.OperationsPerSecond).To1000N() + "</td>");
-        }
-        sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;per/sec</td> ");
-        sb.AppendLine("</tr>");
+
+        //sb.AppendLine("<tr>");
+        //sb.AppendLine("<td ></td> ");
+        //sb.AppendLine("<td ></td> ");
+        //foreach (var report in reports) {
+        //    var result = report.Results.Where(r => r.TestName == testName).First();
+        //    sb.AppendLine("<td style=\"text-align:right\">" + Math.Round(result.OperationsPerSecond).To1000N() + "</td>");
+        //}
+        //sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;per/sec</td> ");
+        //sb.AppendLine("</tr>");
     }
     sb.AppendLine("<tr><td>&nbsp;</td></tr>");
     sb.AppendLine("<tr>");
-    sb.AppendLine("<td>Total</td> ");
+    sb.AppendLine("<td>Total</td><td></td> ");
     foreach (var report in reports) {
         sb.AppendLine("<td style=\"text-align:right\">" + report.Results.Sum(r => r.Duration.TotalMilliseconds).To1000N() + "ms</td>");
     }
     sb.AppendLine("</tr>");
     sb.AppendLine("<tr><td>&nbsp;</td></tr>");
     sb.AppendLine("<tr>");
-    sb.AppendLine("<td>Size</td> ");
+    sb.AppendLine("<td>Size</td><td></td> ");
     foreach (var report in reports) {
         sb.AppendLine("<td style=\"text-align:right\">" + report.TotalFileSize.ToByteString() + "</td>");
     }

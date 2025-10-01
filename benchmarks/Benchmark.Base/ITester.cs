@@ -12,11 +12,13 @@ public interface ITester {
     void InsertCompanies(TestCompany[] companies);
     void InsertDocuments(TestDocument[] documents);
     void RelateUsersToCompanies(IEnumerable<Tuple<Guid, Guid>> relations);
-    void RelateDocumentsToUsers(IEnumerable< Tuple<Guid,Guid>> relations);
+    void RelateDocumentsToUsers(IEnumerable<Tuple<Guid, Guid>> relations);
     void FlushToDisk();
     TestUser? GetUserById(Guid id);
     TestUser[] GetAllUsers();
-    TestUser[] SearchUsersWithDocuments(int age);
+    int CountUsersOlderThan(int age);
+    void UpdateUserAge(Guid userId, int newAge);
+    TestUser[] GetUserAtAge(int age);
     void DeleteUsers(int age);
     void Close();
 }

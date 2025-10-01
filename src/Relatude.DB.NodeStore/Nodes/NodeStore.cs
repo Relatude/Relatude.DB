@@ -320,6 +320,7 @@ public sealed class NodeStore : IDisposable {
     public void RefreshLock(Guid lockId) => Datastore.RefreshLock(lockId);
     public void ReleaseLock(Guid lockId) => Datastore.ReleaseLock(lockId);
 
+    //public void UpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, object value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateProperty(nodeId, expression, value), flushToDisk);
     public void UpdateProperty(Guid nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateProperty(nodeId, propertyId, value), flushToDisk);
     public void UpdateProperty(int nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateProperty(nodeId, propertyId, value), flushToDisk);
     public void UpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => UpdateProperty(Mapper.GetIdGuid(node), Mapper.GetProperty(expression).Id, value, flushToDisk);

@@ -11,30 +11,79 @@ internal class TestRunner {
         if (options.RecreateDatabase) {
             tester.DeleteDataFiles();
         }
+        var sw = new Stopwatch();
         tester.Open();
         if (options.RecreateDatabase) {
+
             tester.CreateSchema();
-            var sw = Stopwatch.StartNew();
+
+            sw.Restart();
             tester.InsertUsers(testData.Users);
             sw.Stop();
             report.Results.Add(new(nameof(tester.InsertUsers), sw.Elapsed, testData.Users.Length));
+
             sw.Restart();
             tester.InsertCompanies(testData.Companies);
             sw.Stop();
             report.Results.Add(new(nameof(tester.InsertCompanies), sw.Elapsed, testData.Companies.Length));
+
             sw.Restart();
             tester.InsertDocuments(testData.Documents);
             sw.Stop();
             report.Results.Add(new(nameof(tester.InsertDocuments), sw.Elapsed, testData.Documents.Length));
+
             sw.Restart();
             tester.RelateDocumentsToUsers(testData.DocsToUsers);
             sw.Stop();
             report.Results.Add(new(nameof(tester.RelateDocumentsToUsers), sw.Elapsed, testData.DocsToUsers.Count));
+
             sw.Restart();
             tester.RelateUsersToCompanies(testData.UsersToCompany);
             sw.Stop();
             report.Results.Add(new(nameof(tester.RelateUsersToCompanies), sw.Elapsed, testData.UsersToCompany.Count));
         }
+
+        sw.Restart();
+        for (int i = 0; i < 100; i++) {
+            var users = tester.GetAllUsers();
+        }
+        sw.Stop();
+        report.Results.Add(new(nameof(tester.GetAllUsers), sw.Elapsed, 100 * (70 - 20)));
+
+        sw.Restart();
+        foreach (var user in testData.Users) {
+            tester.GetUserById(user.Id);
+        }
+        sw.Stop();
+        report.Results.Add(new(nameof(tester.GetUserById), sw.Elapsed, testData.Users.Length));
+
+        sw.Restart();
+        for (int i = 0; i < 1000; i++) {
+            for (int age = 20; age <= 70; age++) {
+                tester.CountUsersOlderThan(age);
+            }
+        }
+        sw.Stop();
+        report.Results.Add(new(nameof(tester.CountUsersOlderThan), sw.Elapsed, 100 * (70-20)));
+
+        sw.Restart();
+        var rnd=  new Random(12345);
+        for (int i = 0; i <100; i++) {
+            foreach (var user in testData.Users.Take(1000)) {
+                tester.UpdateUserAge(user.Id, user.Age + rnd.Next(-10,10));
+            }
+        }   
+        sw.Stop();
+        report.Results.Add(new(nameof(tester.UpdateUserAge), sw.Elapsed, 10*1000));
+
+        sw.Restart();
+        foreach (var user in testData.Users.Take(100)) {
+            tester.UpdateUserAge(user.Id, user.Age + 1);
+            tester.GetUserAtAge(user.Age);
+        }
+        sw.Stop();
+        report.Results.Add(new(nameof(tester.UpdateUserAge)+ "AndGetUserAtAge", sw.Elapsed, 100));
+
         tester.Close();
         report.TotalFileSize = getDirSize(dataPath);
         return report;

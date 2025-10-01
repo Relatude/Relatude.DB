@@ -117,8 +117,34 @@ public class MsSqlDBTester : ITester {
     public TestUser? GetUserById(Guid id) {
         throw new NotImplementedException();
     }
-    public TestUser[] SearchUsersWithDocuments(int age) {
-        throw new NotImplementedException();
+    public int CountUsersOlderThan(int age) {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age > @age";
+        cmd.Parameters.AddWithValue("@age", age);
+        return (int)cmd.ExecuteScalar()!;
+    }
+    public void UpdateUserAge(Guid userId, int newAge) {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "UPDATE test_user SET age=@age WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", userId);
+        cmd.Parameters.AddWithValue("@age", newAge);
+        cmd.ExecuteNonQuery();
+    }
+    public TestUser[] GetUserAtAge(int age) {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
+        cmd.Parameters.AddWithValue("@age", age);
+        using var reader = cmd.ExecuteReader();
+        var users = new List<TestUser>();
+        while (reader.Read()) {
+            var user = new TestUser {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                Age = reader.GetInt32(2)
+            };
+            users.Add(user);
+        }
+        return users.ToArray();
     }
     public void Close() {
         _connection.Close();

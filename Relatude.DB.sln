@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34616.47
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Website.Simple", "..\..\..\examples\Website.Simple\Website.Simple.csproj", "{84AAAFB1-CCB2-4EEA-891B-BDEC7B0AC22C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Website.Simple", "examples\Website.Simple\Website.Simple.csproj", "{84AAAFB1-CCB2-4EEA-891B-BDEC7B0AC22C}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Relatude.DB.Common", "src\Relatude.DB.Common\Relatude.DB.Common.csproj", "{BF3DF360-BAF8-4A56-BC4D-BB009CACE1B0}"
 EndProject

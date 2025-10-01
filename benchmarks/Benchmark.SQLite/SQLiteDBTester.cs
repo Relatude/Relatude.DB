@@ -20,6 +20,9 @@ public class SQLiteDBTester : ITester {
         var cmd = _connection.CreateCommand();
         cmd.CommandText = "PRAGMA journal_mode=WAL";
         cmd.ExecuteNonQuery();
+        // ensuring full diskflush for every transaction commit:
+        cmd.CommandText = "PRAGMA synchronous=FULL";
+        cmd.ExecuteNonQuery();
     }
 
     void executeCommand(string sql) {
@@ -30,6 +33,7 @@ public class SQLiteDBTester : ITester {
     public void CreateSchema() {
         executeCommand("CREATE TABLE test_user (id TEXT PRIMARY KEY, name TEXT, age INTEGER, company_id TEXT)");
         executeCommand("CREATE INDEX test_user_company_id ON test_user(company_id)");
+        executeCommand("CREATE INDEX test_user_age ON test_user(age)");
         executeCommand("CREATE TABLE test_company (id TEXT PRIMARY KEY, name TEXT)");
         executeCommand("CREATE TABLE test_document (id TEXT PRIMARY KEY, title TEXT, content TEXT, author_id TEXT)");
         executeCommand("CREATE INDEX test_document_author_id ON test_document(author_id)");
@@ -100,14 +104,63 @@ public class SQLiteDBTester : ITester {
         throw new NotImplementedException();
     }
     public TestUser[] GetAllUsers() {
-        throw new NotImplementedException();
+        var users = new List<TestUser>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name, age FROM test_user";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            users.Add(new TestUser {
+                Id = Guid.Parse(reader.GetString(0)),
+                Name = reader.GetString(1),
+                Age = reader.GetInt32(2),
+            });
+        }
+        return users.ToArray();
     }
     public TestUser? GetUserById(Guid id) {
-        throw new NotImplementedException();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name, age FROM test_user WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", id.ToString());
+        using var reader = cmd.ExecuteReader();
+        if (reader.Read()) {
+            return new TestUser {
+                Id = Guid.Parse(reader.GetString(0)),
+                Name = reader.GetString(1),
+                Age = reader.GetInt32(2),
+            };
+        }
+        return null;
     }
-    public TestUser[] SearchUsersWithDocuments(int age) {
-        throw new NotImplementedException();
+    public TestUser[] GetUserAtAge(int age) {
+        var users = new List<TestUser>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
+        cmd.Parameters.AddWithValue("@age", age);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            users.Add(new TestUser {
+                Id = Guid.Parse(reader.GetString(0)),
+                Name = reader.GetString(1),
+                Age = reader.GetInt32(2),
+            });
+        }
+        return users.ToArray();
     }
+    public int CountUsersOlderThan(int age) {        
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age > @age";
+        cmd.Parameters.AddWithValue("@age", age);
+        var result = cmd.ExecuteScalar();
+        return Convert.ToInt32(result);
+    }
+    public void UpdateUserAge(Guid userId, int newAge) {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "UPDATE test_user SET age=@age WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", userId.ToString());
+        cmd.Parameters.AddWithValue("@age", newAge);
+        cmd.ExecuteNonQuery();
+    }
+
     public void Close() {
         _connection.Close();
         _connection.Dispose();
