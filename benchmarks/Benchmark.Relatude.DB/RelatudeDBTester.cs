@@ -60,8 +60,8 @@ public class RelatudeDBTester : ITester {
     public TestUser? GetUserById(Guid id) {
         return _store.Get<TestUser>(id);
     }
-    public int CountUsersOlderThan(int age) {
-        return _store.Query<TestUser>().Where(u => u.Age > age).Count();
+    public int CountUsersOfAge(int age) {
+        return _store.Query<TestUser>().Where(u => u.Age == age).Count();
     }
     public TestUser[] GetUserAtAge(int age) {
         return _store.Query<TestUser>().Where(u => u.Age == age).Execute().ToArray();

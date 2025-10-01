@@ -146,9 +146,9 @@ public class SQLiteDBTester : ITester {
         }
         return users.ToArray();
     }
-    public int CountUsersOlderThan(int age) {        
+    public int CountUsersOfAge(int age) {        
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age > @age";
+        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age == @age";
         cmd.Parameters.AddWithValue("@age", age);
         var result = cmd.ExecuteScalar();
         return Convert.ToInt32(result);

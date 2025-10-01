@@ -83,8 +83,8 @@ public class LiteDBTester : ITester {
     public void FlushToDisk() {
         _db.Checkpoint();
     }
-    public int CountUsersOlderThan(int age) {
-        return _usersCollection.Count(u => u.Age > age);
+    public int CountUsersOfAge(int age) {
+        return _usersCollection.Count(u => u.Age == age);
     }
     public void Close() {
         _db.Dispose();

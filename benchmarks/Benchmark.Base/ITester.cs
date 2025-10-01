@@ -16,7 +16,7 @@ public interface ITester {
     void FlushToDisk();
     TestUser? GetUserById(Guid id);
     TestUser[] GetAllUsers();
-    int CountUsersOlderThan(int age);
+    int CountUsersOfAge(int age);
     void UpdateUserAge(Guid userId, int newAge);
     TestUser[] GetUserAtAge(int age);
     void DeleteUsers(int age);

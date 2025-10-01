@@ -1,7 +1,7 @@
 ﻿namespace Relatude.DB.NodeServer.EventHub;
 public class EventSubscriptions {
     readonly Dictionary<Guid, IEventSubscription> _eventSubscriptions = [];
-    public void EnqueueToMatchingSubscriptions<K>(EventData<K> eventData) {
+    public void EnqueueToMatchingSubscriptions(IEventData eventData) {
         lock (_eventSubscriptions) {
             foreach (var subscription in _eventSubscriptions.Values) {
                 if (subscription.EventNames.Contains(eventData.Name)) {
@@ -10,11 +10,11 @@ public class EventSubscriptions {
             }
         }
     }
-    public void EnqueueToMatchingSubscriptions<T, K>(EventDataBuilder<T, K> builder) {
+    public void EnqueueToMatchingSubscriptions<TSubscriptionContext, TEventData>(EventDataBuilder<TSubscriptionContext, TEventData> builder) {
         lock (_eventSubscriptions) {
             foreach (var subscription in _eventSubscriptions.Values) {
-                if (subscription.EventNames.Contains(builder.Name) && subscription is EventSubscription<T> sub) {
-                    subscription.EventQueue.AddLast(new EventData<K>(builder.Name, builder.Data(sub), builder.MaxAge));
+                if (subscription.EventNames.Contains(builder.Name) && subscription is EventSubscription<TSubscriptionContext> sub) {
+                    subscription.EventQueue.AddLast(new EventData<TEventData>(builder.Name, builder.BuildEventData(sub), builder.MaxAge));
                 }
             }
         }

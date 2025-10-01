@@ -60,11 +60,11 @@ internal class TestRunner {
         sw.Restart();
         for (int i = 0; i < 1000; i++) {
             for (int age = 20; age <= 70; age++) {
-                tester.CountUsersOlderThan(age);
+                tester.CountUsersOfAge(age);
             }
         }
         sw.Stop();
-        report.Results.Add(new(nameof(tester.CountUsersOlderThan), sw.Elapsed, 100 * (70-20)));
+        report.Results.Add(new(nameof(tester.CountUsersOfAge), sw.Elapsed, 100 * (70-20)));
 
         sw.Restart();
         var rnd=  new Random(12345);

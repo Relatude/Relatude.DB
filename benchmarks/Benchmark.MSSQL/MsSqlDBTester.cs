@@ -117,9 +117,9 @@ public class MsSqlDBTester : ITester {
     public TestUser? GetUserById(Guid id) {
         throw new NotImplementedException();
     }
-    public int CountUsersOlderThan(int age) {
+    public int CountUsersOfAge(int age) {
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age > @age";
+        cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age == @age";
         cmd.Parameters.AddWithValue("@age", age);
         return (int)cmd.ExecuteScalar()!;
     }
