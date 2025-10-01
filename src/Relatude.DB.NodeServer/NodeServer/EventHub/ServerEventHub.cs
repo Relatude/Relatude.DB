@@ -13,7 +13,7 @@ public static class ServerEventHub {
     public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
     public static IEventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
     public static int SubscriptionCount() => _subscriptions.Count();
-    public static async Task Subscribe(HttpContext context, params string[] events) => Subscribe<object>(context, new { }, events);
+    public static async Task Subscribe(HttpContext context, params string[] events) => await Subscribe<object>(context, new { }, events);
     public static async Task Subscribe<T>(HttpContext context, T subscriberData, params string[] events) {
 
         var response = context.Response;
