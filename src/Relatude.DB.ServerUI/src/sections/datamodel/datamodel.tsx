@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { useApp } from '../../start/useApp';
 import { Button } from '@mantine/core';
 import { ServerEventHub, EventData } from '../../application/serverEventHub';
+import { DataStoreStatus } from '../../application/models';
 
 let hubTest: ServerEventHub;
 export const Datamodel = (P: { storeId: string }) => {
@@ -10,6 +11,10 @@ export const Datamodel = (P: { storeId: string }) => {
     const [selectedModelId, setSelectedModelId] = useState<string>();
     const [code, setCode] = useState<string>();
     const [model, setModel] = useState<string>();
+
+
+
+    
     const selectModel = async (id: string) => {
         // setSelectedModelId(id);
         // const code = await ctx.api.datamodel.getCode(true);
@@ -37,9 +42,9 @@ export const Datamodel = (P: { storeId: string }) => {
         const result = await app.api.demo.populate(P.storeId, count);
         alert(`Created ${result.countCreated} items in ${result.elapsedMs} ms, ${Math.round(result.countCreated / (result.elapsedMs / 1000))} items/sec`);
     }
-    const testEvents = async () => {
+    const connectEvents = async () => {
         hubTest = new ServerEventHub(app.api, (event: EventData<unknown>) => {
-            console.log("Event", event);
+            //console.log("Event", event);
             //alert("Event: " + event.name + " " + JSON.stringify(event.data));
         }, (error) => {
             console.log("Event error", error);
@@ -47,9 +52,23 @@ export const Datamodel = (P: { storeId: string }) => {
             console.log("Connection error", error);
         });
         await hubTest.connect();
-        hubTest.addEventListener<string>("test", (data) => {
+        hubTest.addEventListener<string>("test", undefined, (data, filter) => {
             console.log("Test event", data);
         });
+    }
+    const subscribeEvents = async () => {
+        if (!hubTest) {
+            alert("Not connected");
+            return;
+        }
+        await hubTest.addEventListener<string>("ServerStatus", undefined, (data, filter) => {
+            console.log("ServerStatus event", data);
+        } );
+        await hubTest.addEventListener<DataStoreStatus>("DataStoreStatus", app.ui.selectedStoreId, (data, filter) => {
+            // console.log("DataStoreStatus event", data, filter);
+            setCode(JSON.stringify(data, null, 2));
+        });
+        
     }
     return (
         <>
@@ -57,7 +76,8 @@ export const Datamodel = (P: { storeId: string }) => {
                 <h1>Datamodel</h1>
                 <Button onClick={populateDemo}>Add demo content</Button>
                 <Button onClick={reIndexAll}>Re index content</Button>
-                <Button onClick={testEvents}>Test events</Button>
+                <Button onClick={connectEvents}>Connect</Button>
+                <Button onClick={subscribeEvents}>Subscribe</Button>
                 {/* {settings && settings.datamodelSources && settings.datamodelSources.map((source, index) => (
                     <div style={{ fontWeight: source.id == selectedModelId ? "bold" : "" }} onClick={(e) => selectModel(source.id)} key={source.id}>{source.name}</div>
                 ))} */}

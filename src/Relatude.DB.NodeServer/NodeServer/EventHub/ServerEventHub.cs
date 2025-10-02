@@ -4,18 +4,50 @@ using Relatude.DB.NodeServer.Json;
 using System.Text;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.EventHub;
-public static class ServerEventHub {
-    static EventSubscriptions _subscriptions = new();
-    public static void Publish(string name, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EmptyEventData(name, maxAge));
-    public static void Publish<TEventData>(string name, TEventData data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<TEventData>(name, data, maxAge));
-    public static void Publish<TSubscriptionContext, TEventData>(string name, Func<EventSubscription<TSubscriptionContext>, TEventData> data, TimeSpan? maxAge = null) => 
-        _subscriptions.EnqueueToMatchingSubscriptions(new EventDataBuilder<TSubscriptionContext, TEventData>(name, data, maxAge));
-    public static void ChangeSubscription(Guid subscriptionId, params string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
-    public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
-    public static IEventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
-    public static int SubscriptionCount() => _subscriptions.Count();
-    public static async Task Subscribe(HttpContext context, params string[] events) => await Subscribe<object>(context, new { }, events);
-    public static async Task Subscribe<TSubscriptionContext>(HttpContext context, TSubscriptionContext subscriptionContextData, params string[] events) {
+/// <summary>
+///  Server-Sent Events (SSE) hub for managing client connections, subscriptions, and event polling.
+///  Thread-safe.
+/// </summary>
+internal class ServerEventHub {
+    ServerSideConnectionDirectory _directory = new(); // thread-safe
+    PollerDirectory _pollers = new(); // thread-safe
+    Timer _pollPulseTimer;
+    int _minimumUpdateIntervalMs = 100; // minimum poll interval, to avoid too busy looping
+    int _maximumUpdateIntervalMs = 3000; // maximum poll interval, to avoid too long delays
+    RelatudeDBServer _server;
+    public ServerEventHub(RelatudeDBServer server) {
+        _pollPulseTimer = new Timer((o) => pollDuePollers(), null, 2000, Timeout.Infinite);
+        _server = server;
+    }
+    void pollDuePollers() {
+        var dueMs = 1000;
+        try {
+            foreach (var poller in _pollers.Where(t => t.DueTime <= DateTime.UtcNow)) {
+                try {
+                    if (!_directory.AnySubscribers(poller.Poller.EventName)) continue;
+                    var filters = _directory.GetFiltersOfSubscribers(poller.Poller.EventName);
+                    var events = poller.Poller.Poll(_server, filters, true, out int msNextCollect);
+                    poller.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
+                    if (events == null) continue;
+                    foreach (var b in events) _directory.EnqueueEvent(poller.Poller.EventName, b);
+                } catch (Exception err1) {
+                    Console.WriteLine("Error polling events for " + poller.Poller.EventName + ": " + err1.Message);
+                }
+            }
+            var nextDueTime = _pollers.MinDueTime();
+            dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
+        } catch (Exception err2) {
+            Console.WriteLine("Error in pollDuePollers: " + err2.Message);
+        } finally {
+            if (dueMs < _minimumUpdateIntervalMs) dueMs = _minimumUpdateIntervalMs;
+            if (dueMs > _maximumUpdateIntervalMs) dueMs = _maximumUpdateIntervalMs;
+            _pollPulseTimer.Change(dueMs, Timeout.Infinite);
+        }
+    }
+    public void RegisterPoller(IEventPoller poller) {
+        _pollers.Add(new PollerAndDueTime(poller, DateTime.UtcNow));
+    }
+    public async Task Connect(HttpContext context) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -28,34 +60,58 @@ public static class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var subscriptionId = _subscriptions.CreateSubscription(subscriptionContextData, events);
+        var connectionId = _directory.Connect(new EventContext(), out int cnnCount); // Possible to add connection context info, like user identity
         try {
-            await writeEvent(response, cancellation, new EventData<string>("subscriptionId", subscriptionId.ToString()));
-            Console.WriteLine("SSE client connected, subscriptionId: " + subscriptionId + ". Connections: " + _subscriptions.Count().ToString("N0"));
+            await writeEvent(response, cancellation, new ServerEventData("connectionId", null, connectionId.ToString()));
+            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));
             while (!cancellation.IsCancellationRequested) {
-                var eventData = _subscriptions.Dequeue(subscriptionId);
+                var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
                     await writeEvent(response, cancellation, eventData);
                 } else {
-                    if (!_subscriptions.IsSubscribing(subscriptionId)) break;
-                    await Task.Delay(500, cancellation);
-                    _subscriptions.ClearExpired();
+                    if (!_directory.IsConnected(connectionId)) break;
+                    await Task.Delay(_minimumUpdateIntervalMs, cancellation);
+                    _directory.ClearExpiredEvents();
                 }
             }
         } catch (TaskCanceledException) {
-            Console.WriteLine("SSE client disconnected, subscriptionId: " + subscriptionId + ". Connections: " + (_subscriptions.Count() - 1).ToString("N0"));
         } catch (Exception error) {
             Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
-            _subscriptions.CancelSubscription(subscriptionId);
+            cnnCount = _directory.Disconnect(connectionId);
+            Console.WriteLine("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (cnnCount).ToString("N0"));
         }
     }
-    static async Task writeEvent(HttpResponse response, CancellationToken cancellation, IEventData e) {
+    public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);
+    public void SetSubscriptions(Guid connectionId, EventSubscription[] subscriptions) {
+        _directory.SetSubscriptions(connectionId, subscriptions);
+        PollNow(connectionId); // immediate poll for quick update, if any
+    }
+    public void Subscribe(Guid connectionId, string name, string? filter) {
+        _directory.Subscribe(connectionId, name, filter);
+        PollNow(connectionId, name); // immediate poll for quick update, if any
+    }
+    public void Unsubscribe(Guid connectionId, string? name, string? filter) => _directory.Unsubscribe(connectionId, name, filter);
+    public void PollNow(Guid connectionId, string? eventName = null) {
+        foreach (var poller in _pollers.All()) {
+            if (eventName != null && poller.EventName != eventName) continue;
+            var filters = _directory.GetFiltersOfSubscribers(connectionId, poller.EventName);
+            try {
+                var events = poller.Poll(_server, filters, false, out _);
+                if (events == null) continue;
+                foreach (var b in events) _directory.EnqueueEvent(poller.EventName, b);
+            } catch (Exception ex) {
+                Console.WriteLine("Error polling events for " + poller.EventName + ": " + ex.Message);
+                continue;
+            }
+        }
+    }
+    async Task writeEvent(HttpResponse response, CancellationToken cancellation, ServerEventData e) {
         var stringData = buildEvent(e);
         await response.WriteAsync(stringData, cancellation);
         await response.Body.FlushAsync(cancellation);
     }
-    static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
+    string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
         var json = JsonSerializer.Serialize(dataObject, RelatudeDBJsonOptions.Default);
         var sb = new StringBuilder(json.Length + 64);
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');
@@ -71,4 +127,26 @@ public static class ServerEventHub {
         return sb.ToString();
     }
 }
-
+class PollerDirectory { // thread-safe
+    List<PollerAndDueTime> _pollers = [];
+    public void Add(PollerAndDueTime poller) {
+        lock (_pollers) {
+            _pollers.Add(poller);
+        }
+    }
+    public PollerAndDueTime[] Where(Func<PollerAndDueTime, bool> predicate) {
+        lock (_pollers) {
+            return [.. _pollers.Where(predicate)];
+        }
+    }
+    public IEventPoller[] All() {
+        lock (_pollers) {
+            return [.. _pollers.Select(p => p.Poller)];
+        }
+    }
+    public DateTime MinDueTime() {
+        lock (_pollers) {
+            return _pollers.Min(p => p.DueTime);
+        }
+    }
+}

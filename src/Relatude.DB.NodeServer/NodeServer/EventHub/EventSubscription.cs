@@ -1,16 +1,13 @@
 ﻿namespace Relatude.DB.NodeServer.EventHub;
-
-public interface IEventSubscription {
-    public Guid SubscriptionId { get; init; }
-    public HashSet<string> EventNames { get; init; }
-    public LinkedList<IEventData> EventQueue { get; }
-    public object? DataGeneric { get; init; }
-}
-
-public class EventSubscription<T> : IEventSubscription {
-    public Guid SubscriptionId { get; init; } = Guid.NewGuid();
-    public required HashSet<string> EventNames { get; init; }
-    public LinkedList<IEventData> EventQueue { get; } = new();
-    public object? DataGeneric { get; init; }
-    public T Data => (T)DataGeneric!;
+public class EventSubscription {
+    public EventSubscription() {
+        EventName = "";
+        Filter = null;
+    }
+    public EventSubscription(string name, string? filter) {
+        EventName = name;
+        Filter = filter;
+    }
+    public string EventName { get; init; }
+    public string? Filter { get; init; }
 }
