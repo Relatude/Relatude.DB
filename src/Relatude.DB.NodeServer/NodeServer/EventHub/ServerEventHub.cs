@@ -4,18 +4,14 @@ using Relatude.DB.NodeServer.Json;
 using System.Text;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.EventHub;
-public static class ServerEventHub {
+internal static class ServerEventHub {
     static EventSubscriptions _subscriptions = new();
-    public static void Publish(string name, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EmptyEventData(name, maxAge));
-    public static void Publish<TEventData>(string name, TEventData data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<TEventData>(name, data, maxAge));
-    public static void Publish<TSubscriptionContext, TEventData>(string name, Func<EventSubscription<TSubscriptionContext>, TEventData> data, TimeSpan? maxAge = null) => 
-        _subscriptions.EnqueueToMatchingSubscriptions(new EventDataBuilder<TSubscriptionContext, TEventData>(name, data, maxAge));
+    public static void Publish<T>(string name, T data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<T>(name, data, maxAge));
     public static void ChangeSubscription(Guid subscriptionId, params string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
     public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
-    public static IEventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
+    public static EventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
     public static int SubscriptionCount() => _subscriptions.Count();
-    public static async Task Subscribe(HttpContext context, params string[] events) => await Subscribe<object>(context, new { }, events);
-    public static async Task Subscribe<TSubscriptionContext>(HttpContext context, TSubscriptionContext subscriptionContextData, params string[] events) {
+    public static async Task Subscribe(HttpContext context) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -28,7 +24,7 @@ public static class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var subscriptionId = _subscriptions.CreateSubscription(subscriptionContextData, events);
+        var subscriptionId = _subscriptions.CreateSubscription();
         try {
             await writeEvent(response, cancellation, new EventData<string>("subscriptionId", subscriptionId.ToString()));
             Console.WriteLine("SSE client connected, subscriptionId: " + subscriptionId + ". Connections: " + _subscriptions.Count().ToString("N0"));

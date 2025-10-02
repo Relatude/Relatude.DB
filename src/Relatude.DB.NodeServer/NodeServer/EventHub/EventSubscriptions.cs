@@ -1,20 +1,11 @@
 ﻿namespace Relatude.DB.NodeServer.EventHub;
 public class EventSubscriptions {
-    readonly Dictionary<Guid, IEventSubscription> _eventSubscriptions = [];
+    readonly Dictionary<Guid, EventSubscription> _eventSubscriptions = [];
     public void EnqueueToMatchingSubscriptions(IEventData eventData) {
         lock (_eventSubscriptions) {
             foreach (var subscription in _eventSubscriptions.Values) {
                 if (subscription.EventNames.Contains(eventData.Name)) {
                     subscription.EventQueue.AddLast(eventData);
-                }
-            }
-        }
-    }
-    public void EnqueueToMatchingSubscriptions<TSubscriptionContext, TEventData>(EventDataBuilder<TSubscriptionContext, TEventData> builder) {
-        lock (_eventSubscriptions) {
-            foreach (var subscription in _eventSubscriptions.Values) {
-                if (subscription.EventNames.Contains(builder.Name) && subscription is EventSubscription<TSubscriptionContext> sub) {
-                    subscription.EventQueue.AddLast(new EventData<TEventData>(builder.Name, builder.BuildEventData(sub), builder.MaxAge));
                 }
             }
         }
@@ -29,7 +20,7 @@ public class EventSubscriptions {
             _eventSubscriptions.Remove(subscriptionId);
         }
     }
-    public IEventSubscription[] GetAllSubscriptions() {
+    public EventSubscription[] GetAllSubscriptions() {
         lock (_eventSubscriptions) {
             return [.. _eventSubscriptions.Values];
         }
@@ -49,8 +40,8 @@ public class EventSubscriptions {
             return null;
         }
     }
-    public Guid CreateSubscription<T>(T subscriberData, params string[] events) {
-        var subscription = new EventSubscription<T> { DataGeneric = subscriberData,  EventNames = [..events] };
+    public Guid CreateSubscription() {
+        var subscription = new EventSubscription();
         lock (_eventSubscriptions) {
             _eventSubscriptions[subscription.SubscriptionId] = subscription;
         }

@@ -5,7 +5,7 @@ public class EventTriggerEngine : IDisposable {
         _pulseTimer = new Timer(_ => pulse(), null, 1000, 1000);
     }
     void pulse() {
-        // Console.WriteLine("EventTriggerEngine Pulse");
+        // Console.WriteLine("EventTriggerEngine Pulse"); 
     }
     public void Dispose() {
         _pulseTimer?.Dispose();
