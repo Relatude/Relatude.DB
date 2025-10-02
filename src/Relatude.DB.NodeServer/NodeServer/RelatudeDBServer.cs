@@ -53,6 +53,7 @@ public partial class RelatudeDBServer {
     Dictionary<Guid, NodeStoreContainer> _containers = [];
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
+    
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
     public NodeStore Default => GetDefaultStoreAndWaitIfOpening();

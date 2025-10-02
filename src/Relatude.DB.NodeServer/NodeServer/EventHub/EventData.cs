@@ -1,12 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc.Diagnostics;
 
 namespace Relatude.DB.NodeServer.EventHub;
-internal class EventData<TEvenData>(string name, TEvenData data, TimeSpan? maxAge = null) : IEventData {
+internal class EventData<T>(string name, T data, TimeSpan? maxAge = null) : IEventData {
     public Guid Id { get; } = Guid.NewGuid();
     public DateTime Timestamp { get; } = DateTime.UtcNow;
     public TimeSpan MaxAge { get; set; } = maxAge ?? TimeSpan.FromSeconds(60);
     public string Name { get; } = name;
-    public TEvenData Data { get; } = data;
+    public T Data { get; } = data;
 }
 
 public interface IEventData {
