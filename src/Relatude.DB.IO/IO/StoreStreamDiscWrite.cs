@@ -1,5 +1,4 @@
-﻿using System.IO;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 
 namespace Relatude.DB.IO;
 public class StoreStreamDiscWrite : IAppendStream {
@@ -10,6 +9,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public string FileKey { get; }
     Action _disposeCallback;
 #if DEBUG
+    // measure to detect multithreading bugs, only one thread should access an append thread
     OnlyOneThreadRunning _flagAccessing = new();
 #endif
     public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
@@ -44,9 +44,9 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-        _checkSum.EvaluateChecksumIfRecording(data);
-        _stream.Write(data, 0, data.Length);
-        if (!_unflushed) _unflushed = true;
+            _checkSum.EvaluateChecksumIfRecording(data);
+            _stream.Write(data, 0, data.Length);
+            if (!_unflushed) _unflushed = true;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -59,15 +59,15 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-        if (!_unflushed) return;
-        if (_hasDisposed) return;
-        if (_stream.CanRead == false) return; // stream is closed
-        try {
-            _stream.Flush(true);
-        } catch {
-            // ignore, stream is closed
-        }
-        _unflushed = false;
+            if (!_unflushed) return;
+            if (_hasDisposed) return;
+            if (_stream.CanRead == false) return; // stream is closed
+            try {
+                _stream.Flush(true);
+            } catch {
+                // ignore, stream is closed
+            }
+            _unflushed = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -80,7 +80,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
             try {
 #endif
-            return _stream.Length;
+                return _stream.Length;
 #if DEBUG
             } finally {
                 _flagAccessing.Reset();
@@ -93,13 +93,13 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-        var length = _stream.Length;
-        if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
-        if (count > length - position) count = (int)(length - position);
-        long position1 = this._stream.Position;
-        _stream.Position = position;
-        _stream.Read(buffer, 0, count);
-        _stream.Position = position1;
+            var length = _stream.Length;
+            if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
+            if (count > length - position) count = (int)(length - position);
+            long position1 = this._stream.Position;
+            _stream.Position = position;
+            _stream.Read(buffer, 0, count);
+            _stream.Position = position1;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -115,16 +115,25 @@ public class StoreStreamDiscWrite : IAppendStream {
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-        if (_hasDisposed) return;
-        _hasDisposed = true;
-        _stream.Dispose();
-        _disposeCallback();
-        _unflushed = false;
+            if (_hasDisposed) return;
+            _hasDisposed = true;
+            _stream.Dispose();
+            _disposeCallback();
+            _unflushed = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
         }
 #endif
+    }
+
+    public override bool Equals(object? obj) {
+        return obj is StoreStreamDiscWrite write &&
+               EqualityComparer<OnlyOneThreadRunning>.Default.Equals(_flagAccessing, write._flagAccessing);
+    }
+
+    public override int GetHashCode() {
+        return HashCode.Combine(_flagAccessing);
     }
 }
 

@@ -4,14 +4,34 @@ using Relatude.DB.NodeServer.Json;
 using System.Text;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.EventHub;
-internal static class ServerEventHub {
-    static EventSubscriptions _subscriptions = new();
-    public static void Publish<T>(string name, T data, TimeSpan? maxAge = null) => _subscriptions.EnqueueToMatchingSubscriptions(new EventData<T>(name, data, maxAge));
-    public static void ChangeSubscription(Guid subscriptionId, params string[] events) => _subscriptions.ChangeSubscription(subscriptionId, events);
-    public static void Unsubscribe(Guid subscriptionId) => _subscriptions.Deactivate(subscriptionId);
-    public static EventSubscription[] GetAllSubscriptions() => _subscriptions.GetAllSubscriptions();
-    public static int SubscriptionCount() => _subscriptions.Count();
-    public static async Task Subscribe(HttpContext context) {
+internal class ServerEventHub {
+    ServerSideConnectionDirectory _directory = new(); // thread-safe
+    List<TriggerAndDueTime> _triggers = [];
+    Timer _triggerPulseTimer;
+    int _minimumUpdateIntervalMs = 100;
+    RelatudeDBServer _server;
+    public ServerEventHub(RelatudeDBServer server) {
+        _triggerPulseTimer = new Timer((o) => triggerPulse(), null, 2000, 1000);
+        _server = server;
+    }
+    void triggerPulse() {
+        foreach (var trigger in _triggers.Where(t => t.DueTime <= DateTime.UtcNow)) {
+            if (!_directory.AnySubscribers(trigger.Trigger.EventName)) continue;
+            var filters = _directory.GetFiltersOfSubscribers(trigger.Trigger.EventName);
+            var bullets = trigger.Trigger.CollectPayloads(_server, filters, out int msNextCollect);
+            trigger.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
+            if (bullets == null) continue;
+            foreach (var b in bullets) _directory.EnqueueToMatchingSubscriptions(trigger.Trigger.EventName, b);
+        }
+        var nextDueTime = _triggers.Min(t => t.DueTime);
+        var dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
+        dueMs = Math.Max(dueMs, _minimumUpdateIntervalMs); // at least 100ms
+        _triggerPulseTimer.Change(dueMs, 1000);
+    }
+    public void RegisterTrigger(IEventTrigger trigger) {
+        _triggers.Add(new TriggerAndDueTime(trigger, DateTime.UtcNow));
+    }
+    public async Task Connect(HttpContext context) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -24,34 +44,38 @@ internal static class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var subscriptionId = _subscriptions.CreateSubscription();
+        var connectionId = _directory.Connect();
         try {
-            await writeEvent(response, cancellation, new EventData<string>("subscriptionId", subscriptionId.ToString()));
-            Console.WriteLine("SSE client connected, subscriptionId: " + subscriptionId + ". Connections: " + _subscriptions.Count().ToString("N0"));
+            await writeEvent(response, cancellation, new ServerEventData("connectionId", (filter, ctx) => connectionId.ToString()));
+            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + _directory.Count().ToString("N0"));
             while (!cancellation.IsCancellationRequested) {
-                var eventData = _subscriptions.Dequeue(subscriptionId);
+                var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
                     await writeEvent(response, cancellation, eventData);
                 } else {
-                    if (!_subscriptions.IsSubscribing(subscriptionId)) break;
-                    await Task.Delay(500, cancellation);
-                    _subscriptions.ClearExpired();
+                    if (!_directory.IsConnected(connectionId)) break;
+                    await Task.Delay(_minimumUpdateIntervalMs, cancellation);
+                    _directory.ClearExpiredEvents();
                 }
             }
         } catch (TaskCanceledException) {
-            Console.WriteLine("SSE client disconnected, subscriptionId: " + subscriptionId + ". Connections: " + (_subscriptions.Count() - 1).ToString("N0"));
+            Console.WriteLine("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (_directory.Count() - 1).ToString("N0"));
         } catch (Exception error) {
             Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
-            _subscriptions.CancelSubscription(subscriptionId);
+            _directory.Disconnect(connectionId);
         }
     }
-    static async Task writeEvent(HttpResponse response, CancellationToken cancellation, IEventData e) {
+    public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);
+    public void Subscribe(Guid connectionId, string name, string? filter) => _directory.Subscribe(connectionId, name, filter);
+    public void Unsubscribe(Guid connectionId, string? name, string? filter) => _directory.Unsubscribe(connectionId, name, filter);
+    public int SubscriptionCount() => _directory.Count();
+    async Task writeEvent(HttpResponse response, CancellationToken cancellation, ServerEventData e) {
         var stringData = buildEvent(e);
         await response.WriteAsync(stringData, cancellation);
         await response.Body.FlushAsync(cancellation);
     }
-    static string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
+    string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
         var json = JsonSerializer.Serialize(dataObject, RelatudeDBJsonOptions.Default);
         var sb = new StringBuilder(json.Length + 64);
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');

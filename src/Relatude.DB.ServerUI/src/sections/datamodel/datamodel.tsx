@@ -37,7 +37,7 @@ export const Datamodel = (P: { storeId: string }) => {
         const result = await app.api.demo.populate(P.storeId, count);
         alert(`Created ${result.countCreated} items in ${result.elapsedMs} ms, ${Math.round(result.countCreated / (result.elapsedMs / 1000))} items/sec`);
     }
-    const testEvents = async () => {
+    const connectEvents = async () => {
         hubTest = new ServerEventHub(app.api, (event: EventData<unknown>) => {
             console.log("Event", event);
             //alert("Event: " + event.name + " " + JSON.stringify(event.data));
@@ -51,13 +51,24 @@ export const Datamodel = (P: { storeId: string }) => {
             console.log("Test event", data);
         });
     }
+    const subscribeEvents = async () => {
+        if (!hubTest) {
+            alert("Not connected");
+            return;
+        }
+        hubTest.addEventListener<string>("ServerStatus", (data) => {
+            console.log("Test event", data);
+        }
+        );
+    }
     return (
         <>
             <div>
                 <h1>Datamodel</h1>
                 <Button onClick={populateDemo}>Add demo content</Button>
                 <Button onClick={reIndexAll}>Re index content</Button>
-                <Button onClick={testEvents}>Test events</Button>
+                <Button onClick={connectEvents}>Connect</Button>
+                <Button onClick={subscribeEvents}>Subscribe</Button>
                 {/* {settings && settings.datamodelSources && settings.datamodelSources.map((source, index) => (
                     <div style={{ fontWeight: source.id == selectedModelId ? "bold" : "" }} onClick={(e) => selectModel(source.id)} key={source.id}>{source.name}</div>
                 ))} */}

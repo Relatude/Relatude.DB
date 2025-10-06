@@ -16,7 +16,7 @@ using Relatude.DB.Demo;
 namespace Relatude.DB.NodeServer;
 public partial class RelatudeDBServer {
     NodeStoreContainer container(Guid storeId) {
-        if (_containers.TryGetValue(storeId, out var container)) return container;
+        if (Containers.TryGetValue(storeId, out var container)) return container;
         throw new Exception("Container not found.");
     }
     NodeStore db(Guid storeId) {
@@ -123,11 +123,11 @@ public partial class RelatudeDBServer {
 
     // PRIVATE API, requires authentication (controlled by path in middleware):
     void mapStatus(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("status-all"), () => _containers.Values.Select(c => new { c.Settings.Id, c.Status }));
-        app.MapGet(path("events"), ServerEventHub.Subscribe);
-        app.MapPost(path("change-subscription"), ServerEventHub.ChangeSubscription);
-        app.MapPost(path("get-all-subscriptions"), ServerEventHub.GetAllSubscriptions);
-        app.MapPost(path("get-subscription-count"), ServerEventHub.SubscriptionCount);
+        app.MapPost(path("status-all"), () => Containers.Values.Select(c => new { c.Settings.Id, c.Status }));
+        app.MapGet(path("connect"), EventHub.Connect);
+        app.MapPost(path("subscribe"), (Guid connectionId, string name, string? filter) => EventHub.Subscribe(connectionId, name, filter));
+        app.MapPost(path("unsubscribe"), (Guid connectionId, string? name, string? filter) => EventHub.Unsubscribe(connectionId, name, filter));
+        app.MapPost(path("get-subscription-count"), EventHub.SubscriptionCount);
     }
     void mapSettings(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);
@@ -143,7 +143,7 @@ public partial class RelatudeDBServer {
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
-            if (_containers.Values.Count(c => c.IsOpenOrOpening()) == 0) {
+            if (Containers.Values.Count(c => c.IsOpenOrOpening()) == 0) {
                 lock (_ios) _ios.Clear();
                 lock (_ais) {
                     foreach (var ai in _ais.Values) ai.Dispose();
@@ -186,7 +186,7 @@ public partial class RelatudeDBServer {
             if (_tempIO!.DoesNotExistsOrIsEmpty(uploadId.ToString())) throw new Exception("Upload not found");
             var destIo = GetIO(ioId);
             ensurePrefix(storeId, ref fileName);
-            var fileKeys = new FileKeyUtility(_containers[storeId].Settings?.LocalSettings?.FilePrefix);
+            var fileKeys = new FileKeyUtility(Containers[storeId].Settings?.LocalSettings?.FilePrefix);
             if (fileKeys.StateFileKey.ToLower() == fileName.ToLower()) {
                 _tempIO!.DeleteIfItExists(uploadId.ToString());
                 throw new Exception("Uploading state file is not allowed. ");
@@ -280,7 +280,7 @@ public partial class RelatudeDBServer {
     }
     void mapServer(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-store-containers"), () => {
-            return _containers.Values.Select(c => new {
+            return Containers.Values.Select(c => new {
                 c.Settings.Id,
                 c.Settings.Name,
                 c.Settings.Description,
@@ -307,13 +307,13 @@ public partial class RelatudeDBServer {
             var id = Guid.NewGuid();
             var containerSettings = new NodeStoreContainerSettings() { Id = id, Name = "New Store" };
             var container = new NodeStoreContainer(containerSettings, this);
-            _containers.Add(id, container);
+            Containers.Add(id, container);
             updateWAFServerSettingsFile();
             return containerSettings;
         });
         app.MapPost(path("remove-store"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
-            _containers.Remove(storeId);
+            Containers.Remove(storeId);
             updateWAFServerSettingsFile();
         });
         app.MapPost(path("get-server-log"), () => getStartUpLog().Select(e => { return new { Timestamp = e.Item1, Description = e.Item2 }; }).ToArray());

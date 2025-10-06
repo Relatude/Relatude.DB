@@ -109,7 +109,7 @@ class StatusAPI {
     constructor(private server: API, private controller: string) { }
     stateAll = () => this.server.queryJson<{ id: string, state: StoreStates }[]>(this.controller, 'state-all');
     statusAll = () => this.server.queryJson<{ id: string, status: DataStoreStatus }[]>(this.controller, 'status-all');
-    createEventSource = () => new EventSource(this.server.baseUrl + this.controller + "/events", { withCredentials: true });
+    createEventSource = () => new EventSource(this.server.baseUrl + this.controller + "/subscribe", { withCredentials: true });
     changeSubscription = (subscriptionId: string, events: string[]) => this.server.execute(this.controller, 'change-subscription', { subscriptionId }, events);
 }
 class DatamodelAPI {

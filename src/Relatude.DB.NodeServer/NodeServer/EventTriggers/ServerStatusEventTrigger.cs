@@ -1,24 +1,16 @@
-﻿using Microsoft.AspNetCore.Hosting.Server;
-using Relatude.DB.Common;
-
+﻿using Relatude.DB.Common;
+using Relatude.DB.NodeServer.EventHub;
 namespace Relatude.DB.NodeServer.EventTriggers;
-
-public class ServerStatusEventTrigger : IDisposable {
-    RelatudeDBServer _server;
-    Timer _pulseTimer;
-    Dictionary<Guid, DataStoreStatus> _lastStatuses = [];
-    public ServerStatusEventTrigger( RelatudeDBServer server) {
-        _server = server;
-        _pulseTimer = new Timer(_ => pulse(), null, 1000, 1000);
-    }
-    void pulse() {
-        
-    }
-    bool updateIfChanged() {
-        _server.GetC
-        return false;
-    }
-    public void Dispose() {
-        _pulseTimer?.Dispose();
+public class ServerStatusEventTrigger : IEventTrigger {
+    Dictionary<Guid, DataStoreState> _last = [];
+    public string EventName => "ServerStatus";
+    public EventPayload[]? CollectPayloads(RelatudeDBServer server, string?[] filters, out int msNextCollect) {
+        msNextCollect = 1000;
+        var current = server.Containers.ToDictionary(c => c.Key, c => c.Value.Store != null ? c.Value.Store.State : DataStoreState.Closed);
+        var noChange = current.OrderBy(kv => kv.Key).SequenceEqual(_last.OrderBy(kv => kv.Key));
+        if (noChange) return null; // no change, no event
+        msNextCollect = 1000;
+        _last = current;
+        return [new(current)];
     }
 }

@@ -31,8 +31,12 @@ string deCamelCase(string camel) {
     return sb.ToString();
 }
 string test(HttpContext ctx) {
-    var options = new TestOptions();
 
+    var multiplier = 50;
+    var options = new TestOptions();
+    options.UserCount = 100 * multiplier;
+    options.CompanyCount = 100 * multiplier;
+    options.DocumentCount = 1000 * multiplier;
     var testData = Generator.Generate(options);
 
     ITester[] testers = [

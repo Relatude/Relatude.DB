@@ -2,6 +2,8 @@
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
+using Relatude.DB.NodeServer.EventHub;
+using Relatude.DB.NodeServer.EventTriggers;
 using Relatude.DB.Tasks;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -11,6 +13,8 @@ public partial class RelatudeDBServer {
         if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
         if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
         if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
+        EventHub = new ServerEventHub(this);
+        EventHub.RegisterTrigger(new ServerStatusEventTrigger());
     }
 
     // simple startup log to help with debugging startup issues
@@ -50,10 +54,10 @@ public partial class RelatudeDBServer {
             return _serverSettings;
         }
     }
-    Dictionary<Guid, NodeStoreContainer> _containers = [];
+    internal ServerEventHub EventHub { get; }
+    public Dictionary<Guid, NodeStoreContainer> Containers = [];
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
-    
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
     public NodeStore Default => GetDefaultStoreAndWaitIfOpening();
@@ -62,7 +66,7 @@ public partial class RelatudeDBServer {
         return GetStoreAndWaitIfOpening(_defaultContainer.Settings.Id, timeoutSec);
     }
     public NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 60 * 15) {
-        if (!_containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
+        if (!Containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         var sw = Stopwatch.StartNew();
         if (container.Settings.AutoOpen) { // if auto open is enabled, we have to wait for first initialization, otherwise .datastore will be null
             while (true) {
@@ -139,11 +143,11 @@ public partial class RelatudeDBServer {
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
                 var container = new NodeStoreContainer(containerSettings, this);
-                _containers.Add(containerSettings.Id, container);
+                Containers.Add(containerSettings.Id, container);
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
             }
         }
-        _containersToAutoOpen = _containers.Values.Where(c => c.Settings.AutoOpen).ToArray();
+        _containersToAutoOpen = Containers.Values.Where(c => c.Settings.AutoOpen).ToArray();
         serverLog("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
         _remaingToAutoOpenCount = _containersToAutoOpen.Length;
         foreach (var container in _containersToAutoOpen) {
@@ -200,19 +204,19 @@ public partial class RelatudeDBServer {
     }
 
     void updateWAFServerSettingsFile() {
-        _serverSettings.ContainerSettings = _containers.Values.Select(c => c.Settings).ToArray();
+        _serverSettings.ContainerSettings = Containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
-        if (_containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = _containers[_serverSettings.DefaultStoreId];
+        if (Containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = Containers[_serverSettings.DefaultStoreId];
     }
     void ensurePrefix(Guid storeId, ref string fileKey) {
-        var filePrefix = _containers[storeId].Settings?.LocalSettings?.FilePrefix;
+        var filePrefix = Containers[storeId].Settings?.LocalSettings?.FilePrefix;
         if (string.IsNullOrEmpty(filePrefix)) return;
         if (!fileKey.StartsWith('.')) filePrefix += ".";
         if (fileKey.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
         fileKey = filePrefix + fileKey;
     }
     NodeStore GetStore(Guid storeId) {
-        if (!_containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
+        if (!Containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         if (container.Store == null) throw new Exception("Store not initialized. ");
         return container.Store;
     }
