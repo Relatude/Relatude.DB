@@ -125,6 +125,7 @@ public partial class RelatudeDBServer {
     void mapStatus(WebApplication app, Func<string, string> path) {
         app.MapPost(path("status-all"), () => Containers.Values.Select(c => new { c.Settings.Id, c.Status }));
         app.MapGet(path("connect"), EventHub.Connect);
+        app.MapPost(path("set-subscriptions"), EventHub.SetSubscriptions);
         app.MapPost(path("subscribe"), EventHub.Subscribe);
         app.MapPost(path("unsubscribe"), EventHub.Unsubscribe);
     }

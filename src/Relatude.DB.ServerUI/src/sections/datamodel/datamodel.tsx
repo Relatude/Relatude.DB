@@ -47,7 +47,7 @@ export const Datamodel = (P: { storeId: string }) => {
             console.log("Connection error", error);
         });
         await hubTest.connect();
-        hubTest.addEventListener<string>("test", (data) => {
+        hubTest.addEventListener<string>("test", undefined, (data, filter) => {
             console.log("Test event", data);
         });
     }
@@ -56,7 +56,7 @@ export const Datamodel = (P: { storeId: string }) => {
             alert("Not connected");
             return;
         }
-        hubTest.addEventListener<string>("ServerStatus", (data) => {
+        hubTest.addEventListener<string>("ServerStatus", undefined, (data, filter) => {
             console.log("Test event", data);
         }
         );

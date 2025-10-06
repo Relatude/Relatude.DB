@@ -1,21 +1,24 @@
 import { API } from "./api";
 
+
 export interface EventData<T> {
     id: string;
     timestamp: Date;
-    maxAge: number;
-    name: string;
-    data: T;
+    eventName: string;
+    filter?: string;
+    payload: T;
 }
 export interface EventSubscription {
     eventName: string;
-    filter?:string;
+    filter?: string;
 }
 class EventListener<T> {
-    constructor(
-        public name: string,
-        public onEvent: (data: T) => void,
-        public onError?: (error: any) => void) { }
+    constructor(name: string, filter: string | undefined,
+        public onEvent: (data: T, filter?: string) => void,
+        public onError?: (error: any, filter?: string) => void) {
+        this.Subscription = { eventName: name, filter };
+    }
+    Subscription: EventSubscription;
 }
 export class ServerEventHub {
     constructor(
@@ -25,38 +28,38 @@ export class ServerEventHub {
         private onConnectionError: ((error: any) => void) | null = null,
     ) { }
     private _eventSource: EventSource | null = null;
-    private _subscriptionId: string | null = null;
-    private _onReceivedSubscriptionId: ((id: string) => void) | null = null;
-    private _onErrorReceivingSubscriptionId: ((error: any) => void) | null = null;
+    private _connectionId: string | null = null;
+    private _onReceivedConnectionId: ((id: string) => void) | null = null;
+    private _onErrorReceivingConnectionId: ((error: any) => void) | null = null;
     private _eventListeners: EventListener<any>[] = [];
     connect = () => {
         if (this._eventSource) this.disconnect();
         this._eventSource = this.api.status.connect();
         this._eventSource.onmessage = (event: MessageEvent) => {
-            if (!this._subscriptionId) this.onFirstMessage(event);
+            if (!this._connectionId) this.onFirstMessage(event);
             else this.onEventMessage(event);
         };
         this._eventSource.onerror = (error: any) => {
             if (this.onConnectionError) this.onConnectionError(error);
             else console.log("EventSource connection error", error);
         }
-        return new Promise((resolve, reject) => {
-            this._onReceivedSubscriptionId = resolve;
-            this._onErrorReceivingSubscriptionId = reject;
+        return new Promise<string>((resolve, reject) => {
+            this._onReceivedConnectionId = resolve;
+            this._onErrorReceivingConnectionId = reject;
         });
     }
-    addEventListener = async <T>(eventName: string, onEvent: (data: T) => void) => {
-        this._eventListeners.push(new EventListener<T>(eventName, onEvent));
-        await this.api.status.changeSubscription(this._subscriptionId!, this._eventListeners.map(l => l.name));
+    addEventListener = async <T>(eventName: string, eventFilter: string | undefined, onEvent: (data: T, filter?: string | undefined) => void) => {
+        this._eventListeners.push(new EventListener<T>(eventName, eventFilter, onEvent));
+        await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
     }
     removeEventListener = async <T>(eventName: string, onEvent: (data: T) => void) => {
-        this._eventListeners = this._eventListeners.filter(l => l.name != eventName || l.onEvent != onEvent);
-        await this.api.status.changeSubscription(this._subscriptionId!, this._eventListeners.map(l => l.name));
+        this._eventListeners = this._eventListeners.filter(l => l.Subscription.eventName != eventName || l.onEvent != onEvent);
+        await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
     }
     disconnect = () => {
-        this._subscriptionId == null;
-        this._onReceivedSubscriptionId = null;
-        this._onErrorReceivingSubscriptionId = null;
+        this._connectionId == null;
+        this._onReceivedConnectionId = null;
+        this._onErrorReceivingConnectionId = null;
         this._eventListeners = [];
         if (this._eventSource) {
             try {
@@ -68,27 +71,30 @@ export class ServerEventHub {
         }
     }
     private toEventData = <T>(message: MessageEvent): EventData<T> => JSON.parse(message.data) as EventData<T>;
-    private onFirstMessage = (event: MessageEvent) => { // first message contains subscription id
+    private onFirstMessage = (event: MessageEvent) => { // first message contains connection id
         try {
-            if (!this._onReceivedSubscriptionId) throw new Error("No handler for subscription id");
+            if (!this._onReceivedConnectionId) throw new Error("No handler for connection id");
             var eventData = this.toEventData<string>(event);
-            this._subscriptionId = eventData.data
-            if (!this._subscriptionId) throw new Error("Invalid subscription id");
-            this._onReceivedSubscriptionId(this._subscriptionId);
+            this._connectionId = eventData.payload;
+            if (!this._connectionId) throw new Error("Invalid connection id");
+            this._onReceivedConnectionId(this._connectionId);
         } catch (err) {
-            if (this._onErrorReceivingSubscriptionId) this._onErrorReceivingSubscriptionId(err);
+            if (this._onErrorReceivingConnectionId) this._onErrorReceivingConnectionId(err);
         }
     }
     private onEventMessage = (event: MessageEvent) => {
         try {
             const eventData = this.toEventData(event);
             if (this.onAnyEvent) this.onAnyEvent(eventData);
-            const listeners = this._eventListeners.filter(l => l.name == eventData.name);
+            const listeners = this._eventListeners.filter(l =>
+                l.Subscription.eventName == eventData.eventName
+                && (l.Subscription.filter == eventData.filter || !l.Subscription.filter)
+            );
             for (const l of listeners) {
                 try {
-                    l.onEvent(eventData.data);
+                    l.onEvent(eventData.payload, eventData.filter);
                 } catch (err) {
-                    if (l.onError) l.onError(err);
+                    if (l.onError) l.onError(err, eventData.filter);
                     else console.log("Error in event listener", err);
                 }
             }

@@ -126,14 +126,5 @@ public class StoreStreamDiscWrite : IAppendStream {
         }
 #endif
     }
-
-    public override bool Equals(object? obj) {
-        return obj is StoreStreamDiscWrite write &&
-               EqualityComparer<OnlyOneThreadRunning>.Default.Equals(_flagAccessing, write._flagAccessing);
-    }
-
-    public override int GetHashCode() {
-        return HashCode.Combine(_flagAccessing);
-    }
 }
 

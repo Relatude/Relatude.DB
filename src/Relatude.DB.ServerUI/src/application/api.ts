@@ -1,6 +1,7 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
 import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry } from "./models";
+import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
@@ -110,8 +111,9 @@ class StatusAPI {
     stateAll = () => this.server.queryJson<{ id: string, state: StoreStates }[]>(this.controller, 'state-all');
     statusAll = () => this.server.queryJson<{ id: string, status: DataStoreStatus }[]>(this.controller, 'status-all');
     connect = () => new EventSource(this.server.baseUrl + this.controller + "/connect", { withCredentials: true });
-    subscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'subscribe', { connectionId, name, filter});
-    unsubscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'unsubscribe', { connectionId, name, filter });    
+    setSubscriptions = (connectionId: string, subscriptions: EventSubscription[]) => this.server.execute(this.controller, 'set-subscriptions', { connectionId }, subscriptions);
+    subscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'subscribe', { connectionId, name, filter });
+    unsubscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'unsubscribe', { connectionId, name, filter });
 }
 class DatamodelAPI {
     constructor(private server: API, private controller: string) { }

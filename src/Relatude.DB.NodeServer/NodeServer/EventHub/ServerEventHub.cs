@@ -35,7 +35,7 @@ internal class ServerEventHub {
     public void RegisterPoller(IEventPoller poller) {
         _pollers.Add(new PollerAndDueTime(poller, DateTime.UtcNow));
     }
-    public async Task Connect(HttpContext context, EventSubscription[] subscriptions) {
+    public async Task Connect(HttpContext context) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -48,11 +48,10 @@ internal class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var connectionId = _directory.Connect(new EventContext()); // Possible to add connection context info, like user identity
+        var connectionId = _directory.Connect(new EventContext(), out int cnnCount); // Possible to add connection context info, like user identity
         try {
-            await writeEvent(response, cancellation, new ServerEventData("connectionId", connectionId.ToString()));
-            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + _directory.Count().ToString("N0"));
-            SetSubscriptions(connectionId, subscriptions);
+            await writeEvent(response, cancellation, new ServerEventData("connectionId", null, connectionId.ToString()));
+            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));            
             while (!cancellation.IsCancellationRequested) {
                 var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
@@ -64,11 +63,11 @@ internal class ServerEventHub {
                 }
             }
         } catch (TaskCanceledException) {
-            Console.WriteLine("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (_directory.Count() - 1).ToString("N0"));
         } catch (Exception error) {
             Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
-            _directory.Disconnect(connectionId);
+            cnnCount = _directory.Disconnect(connectionId);
+            Console.WriteLine("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (cnnCount).ToString("N0"));
         }
     }
     public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);

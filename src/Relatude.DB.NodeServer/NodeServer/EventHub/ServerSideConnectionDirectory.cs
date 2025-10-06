@@ -18,7 +18,7 @@ public class ServerSideConnectionDirectory {
                     if (subscription.EventName == eventName) {
                         if (subscription.Filter == null || subscription.Filter == factory.Filter) {
                             var payload = factory.GetPayload(connection.Context);
-                            connection.EventQueue.AddLast(new ServerEventData(eventName, payload));
+                            connection.EventQueue.AddLast(new ServerEventData(eventName, factory.Filter, payload));
                         }
                     }
                 }
@@ -83,16 +83,18 @@ public class ServerSideConnectionDirectory {
             return null;
         }
     }
-    public Guid Connect(EventContext ctx) {
+    public Guid Connect(EventContext ctx, out int count) {
         var connection = new ServerSideConnection(ctx);
         lock (_serverSideConnection) {
             _serverSideConnection[connection.ConnectionId] = connection;
+            count = _serverSideConnection.Count;
         }
         return connection.ConnectionId;
     }
-    public void Disconnect(Guid connectionId) {
+    public int Disconnect(Guid connectionId) {
         lock (_serverSideConnection) {
             _serverSideConnection.Remove(connectionId);
+            return _serverSideConnection.Count;
         }
     }
     public void Subscribe(Guid connectionId, string name, string? filter) {
@@ -112,11 +114,6 @@ public class ServerSideConnectionDirectory {
                 else
                     connection.Subscriptions.RemoveAll(s => s.EventName == name && s.Filter == filter);
             }
-        }
-    }
-    public int Count() {
-        lock (_serverSideConnection) {
-            return _serverSideConnection.Count;
         }
     }
     DateTime _lastCheckExpired = DateTime.MinValue;
