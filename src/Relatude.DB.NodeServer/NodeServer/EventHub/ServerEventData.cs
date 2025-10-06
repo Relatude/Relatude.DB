@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.NodeServer.EventHub;
 public class ServerEventData {
-    public ServerEventData(string eventName, EventPayload payload, TimeSpan? timeSpan = null) {
+    public ServerEventData(string eventName, object? payload, TimeSpan? timeSpan = null) {
         EventName = eventName;
         Timestamp = DateTime.UtcNow;
         MaxAge = timeSpan ?? TimeSpan.FromMinutes(5);
@@ -10,6 +10,6 @@ public class ServerEventData {
     public DateTime Timestamp { get; }
     public TimeSpan MaxAge { get; }
     public string EventName { get; }
-    public EventPayload Payload;
+    public object? Payload;
 }
 

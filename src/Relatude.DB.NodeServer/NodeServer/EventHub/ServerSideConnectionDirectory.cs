@@ -3,25 +3,22 @@
 /// A thread-safe directory of server-side connections and their event subscriptions.
 /// </summary>
 public class ServerSideConnectionDirectory {
-    class EventSubscription(string name, string? filter) {
-        public string EventName { get; } = name;
-        public string? Filter { get; } = filter;
-    }
-    class ServerSideConnection(IConnectionContext context) {
+    class ServerSideConnection(EventContext context) {
         public Guid ConnectionId { get; } = Guid.NewGuid();
-        public IConnectionContext Context { get; } = context;
+        public EventContext Context { get; } = context;
         public List<EventSubscription> Subscriptions { get; } = [];
         public LinkedList<ServerEventData> EventQueue { get; } = [];
     }
     readonly Dictionary<Guid, ServerSideConnection> _serverSideConnection = [];
-    public void EnqueueToMatchingSubscriptions(string eventName, EventPayload bullet) {
+    public void EnqueueEvent(string eventName, EventDataFactory factory) {
         // room for optimization....
         lock (_serverSideConnection) {
             foreach (var connection in _serverSideConnection.Values) {
                 foreach (var subscription in connection.Subscriptions) {
                     if (subscription.EventName == eventName) {
-                        if (subscription.Filter == null || subscription.Filter == bullet.Filter) {
-                            connection.EventQueue.AddLast(new ServerEventData(eventName, bullet.GetData()));
+                        if (subscription.Filter == null || subscription.Filter == factory.Filter) {
+                            var payload = factory.GetPayload(connection.Context);
+                            connection.EventQueue.AddLast(new ServerEventData(eventName, payload));
                         }
                     }
                 }
@@ -40,6 +37,21 @@ public class ServerSideConnectionDirectory {
                 if (connection.Subscriptions.Any(s => s.EventName == eventName)) return true;
             }
             return false;
+        }
+    }
+    public string?[] GetFiltersOfSubscribers(Guid connectionId, string eventName) {
+        // room for optimization....
+        lock (_serverSideConnection) {
+            if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
+                var filters = new HashSet<string?>();
+                foreach (var subscription in connection.Subscriptions) {
+                    if (subscription.EventName == eventName) {
+                        filters.Add(subscription.Filter);
+                    }
+                }
+                return [.. filters];
+            }
+            return [];
         }
     }
     public string?[] GetFiltersOfSubscribers(string eventName) {
@@ -71,8 +83,8 @@ public class ServerSideConnectionDirectory {
             return null;
         }
     }
-    public Guid Connect() {
-        var connection = new ServerSideConnection();
+    public Guid Connect(EventContext ctx) {
+        var connection = new ServerSideConnection(ctx);
         lock (_serverSideConnection) {
             _serverSideConnection[connection.ConnectionId] = connection;
         }
@@ -126,6 +138,14 @@ public class ServerSideConnectionDirectory {
                     connection.EventQueue.Remove(node);
                 }
                 node = next;
+            }
+        }
+    }
+    internal void SetSubscriptions(Guid connectionId, EventSubscription[] subscriptions) {
+        lock (_serverSideConnection) {
+            if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
+                connection.Subscriptions.Clear();
+                connection.Subscriptions.AddRange(subscriptions);
             }
         }
     }

@@ -7,6 +7,10 @@ export interface EventData<T> {
     name: string;
     data: T;
 }
+export interface EventSubscription {
+    eventName: string;
+    filter?:string;
+}
 class EventListener<T> {
     constructor(
         public name: string,
@@ -27,7 +31,7 @@ export class ServerEventHub {
     private _eventListeners: EventListener<any>[] = [];
     connect = () => {
         if (this._eventSource) this.disconnect();
-        this._eventSource = this.api.status.createEventSource();
+        this._eventSource = this.api.status.connect();
         this._eventSource.onmessage = (event: MessageEvent) => {
             if (!this._subscriptionId) this.onFirstMessage(event);
             else this.onEventMessage(event);

@@ -4,34 +4,38 @@ using Relatude.DB.NodeServer.Json;
 using System.Text;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.EventHub;
+/// <summary>
+///  Server-Sent Events (SSE) hub for managing client connections, subscriptions, and event polling.
+///  Thread-safe.
+/// </summary>
 internal class ServerEventHub {
     ServerSideConnectionDirectory _directory = new(); // thread-safe
-    List<TriggerAndDueTime> _triggers = [];
-    Timer _triggerPulseTimer;
-    int _minimumUpdateIntervalMs = 100;
+    PollerDirectory _pollers = new(); // thread-safe
+    Timer _pollPulseTimer;
+    int _minimumUpdateIntervalMs = 100; // minimum poll interval, to avoid too busy looping
     RelatudeDBServer _server;
     public ServerEventHub(RelatudeDBServer server) {
-        _triggerPulseTimer = new Timer((o) => triggerPulse(), null, 2000, 1000);
+        _pollPulseTimer = new Timer((o) => pollDuePollers(), null, 2000, 1000);
         _server = server;
     }
-    void triggerPulse() {
-        foreach (var trigger in _triggers.Where(t => t.DueTime <= DateTime.UtcNow)) {
-            if (!_directory.AnySubscribers(trigger.Trigger.EventName)) continue;
-            var filters = _directory.GetFiltersOfSubscribers(trigger.Trigger.EventName);
-            var bullets = trigger.Trigger.CollectPayloads(_server, filters, out int msNextCollect);
-            trigger.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
-            if (bullets == null) continue;
-            foreach (var b in bullets) _directory.EnqueueToMatchingSubscriptions(trigger.Trigger.EventName, b);
+    void pollDuePollers() {
+        foreach (var poller in _pollers.Where(t => t.DueTime <= DateTime.UtcNow)) {
+            if (!_directory.AnySubscribers(poller.Poller.EventName)) continue;
+            var filters = _directory.GetFiltersOfSubscribers(poller.Poller.EventName);
+            var events = poller.Poller.Poll(_server, filters, out int msNextCollect);
+            poller.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
+            if (events == null) continue;
+            foreach (var b in events) _directory.EnqueueEvent(poller.Poller.EventName, b);
         }
-        var nextDueTime = _triggers.Min(t => t.DueTime);
+        var nextDueTime = _pollers.MinDueTime();
         var dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
-        dueMs = Math.Max(dueMs, _minimumUpdateIntervalMs); // at least 100ms
-        _triggerPulseTimer.Change(dueMs, 1000);
+        dueMs = Math.Max(dueMs, _minimumUpdateIntervalMs);
+        _pollPulseTimer.Change(dueMs, 1000);
     }
-    public void RegisterTrigger(IEventTrigger trigger) {
-        _triggers.Add(new TriggerAndDueTime(trigger, DateTime.UtcNow));
+    public void RegisterPoller(IEventPoller poller) {
+        _pollers.Add(new PollerAndDueTime(poller, DateTime.UtcNow));
     }
-    public async Task Connect(HttpContext context) {
+    public async Task Connect(HttpContext context, EventSubscription[] subscriptions) {
 
         var response = context.Response;
         var headers = response.Headers;
@@ -44,10 +48,11 @@ internal class ServerEventHub {
 
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
-        var connectionId = _directory.Connect();
+        var connectionId = _directory.Connect(new EventContext()); // Possible to add connection context info, like user identity
         try {
-            await writeEvent(response, cancellation, new ServerEventData("connectionId", (filter, ctx) => connectionId.ToString()));
+            await writeEvent(response, cancellation, new ServerEventData("connectionId", connectionId.ToString()));
             Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + _directory.Count().ToString("N0"));
+            SetSubscriptions(connectionId, subscriptions);
             while (!cancellation.IsCancellationRequested) {
                 var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
@@ -67,9 +72,24 @@ internal class ServerEventHub {
         }
     }
     public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);
-    public void Subscribe(Guid connectionId, string name, string? filter) => _directory.Subscribe(connectionId, name, filter);
+    public void SetSubscriptions(Guid connectionId, EventSubscription[] subscriptions) {
+        _directory.SetSubscriptions(connectionId, subscriptions);
+        PollNow(connectionId); // immediate poll for quick update, if any
+    }
+    public void Subscribe(Guid connectionId, string name, string? filter) {
+        _directory.Subscribe(connectionId, name, filter);
+        PollNow(connectionId, name); // immediate poll for quick update, if any
+    }
     public void Unsubscribe(Guid connectionId, string? name, string? filter) => _directory.Unsubscribe(connectionId, name, filter);
-    public int SubscriptionCount() => _directory.Count();
+    public void PollNow(Guid connectionId, string? eventName = null) {
+        foreach (var poller in _pollers.All()) {
+            if (eventName != null && poller.EventName != eventName) continue;
+            var filters = _directory.GetFiltersOfSubscribers(connectionId, poller.EventName);
+            var events = poller.Poll(_server, filters, out _);
+            if (events == null) continue;
+            foreach (var b in events) _directory.EnqueueEvent(poller.EventName, b);
+        }
+    }
     async Task writeEvent(HttpResponse response, CancellationToken cancellation, ServerEventData e) {
         var stringData = buildEvent(e);
         await response.WriteAsync(stringData, cancellation);
@@ -91,4 +111,26 @@ internal class ServerEventHub {
         return sb.ToString();
     }
 }
-
+class PollerDirectory { // thread-safe
+    List<PollerAndDueTime> _pollers = [];
+    public void Add(PollerAndDueTime poller) {
+        lock (_pollers) {
+            _pollers.Add(poller);
+        }
+    }
+    public PollerAndDueTime[] Where(Func<PollerAndDueTime, bool> predicate) {
+        lock (_pollers) {
+            return [.. _pollers.Where(predicate)];
+        }
+    }
+    public IEventPoller[] All() {
+        lock (_pollers) {
+            return [.. _pollers.Select(p => p.Poller)];
+        }
+    }
+    public DateTime MinDueTime() {
+        lock (_pollers) {
+            return _pollers.Min(p => p.DueTime);
+        }
+    }
+}
