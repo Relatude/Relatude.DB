@@ -100,9 +100,9 @@ internal class Scheduler(DataStoreLocal _db) {
     static void initTaskQueue(IDataStore db, TaskQueue queue, string name) {
         var a = queue.BatchCountsPerState();
         if (a.Length == 0) {
-            db.LogInfo(name + " queue initiated.");
+            db.LogInfo(name + " queue initiated. (" + queue.QueueStoreTypeName + ")");
         } else {
-            db.LogInfo(name + " queue initiated with:");
+            db.LogInfo(name + " queue initiated (" + queue.QueueStoreTypeName + "):");
             for (int i = 0; i < a.Length; i++) {
                 var kv = a[i];
                 db.LogInfo(" - " + kv.Value + " " + kv.Key.ToString().Decamelize().ToLower());
@@ -190,15 +190,15 @@ internal class Scheduler(DataStoreLocal _db) {
         if (_backgroundTaskRunningFlag.IsRunning_IfNotFlagToRunning()) return;
         try {
             if (_db.State != DataStoreState.Open) return;
-            if (_s.AutoSaveIndexStates) runAutoSaveIndexStatesIfDue();
-            if (_db.State != DataStoreState.Open) return;
             if (_s.AutoBackUp) runAutoBackup();
             if (_db.State != DataStoreState.Open) return;
             if (_s.AutoTruncate) runAutoTruncateIfDue();
             if (_db.State != DataStoreState.Open) return;
+            if (_s.AutoSaveIndexStates) runAutoSaveIndexStatesIfDue();
+            if (_db.State != DataStoreState.Open) return;
             if (_s.AutoPurgeCache) runAutoPurgeCache();
             if (_db.State != DataStoreState.Open) return;
-            if (_db.Logger.LoggingAny) flushQueryLogIfRunning();
+            if (_db.Logger.LoggingAny) flushLoggerIfRunning();
         } catch (Exception err) {
             _db.LogError("Background task failed: ", err);
         } finally {
@@ -207,7 +207,7 @@ internal class Scheduler(DataStoreLocal _db) {
     }
     DateTime _lastQueryLogFlush = DateTime.UtcNow;
     DateTime _lastQueryLogMaintenance = DateTime.UtcNow;
-    void flushQueryLogIfRunning() {
+    void flushLoggerIfRunning() {
         try {
             if ((DateTime.UtcNow - _lastQueryLogFlush).TotalSeconds < 30) {
                 _db.Logger.FlushToDiskNow();
@@ -255,14 +255,41 @@ internal class Scheduler(DataStoreLocal _db) {
         _lastSaveIndexStates = DateTime.UtcNow;
     }
     void runAutoTruncateIfDue() {
-        if (!_db.IsThereAnythingToTruncate()) return;
         var now = DateTime.UtcNow;
         try {
-            if ((now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes) return;
+            if (!_s.AutoTruncate) return;
+            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
+            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
+            var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
+            var belowUpperLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountUpperLimit;
+            if (belowUpperLimit) {
+                var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
+                if (belowLowerLimit) {
+                    // _db.Log("Truncate not due yet, unsaved action count below lower limit. ");
+                    return;
+                }
+                var belowTimeLimit = (now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes;
+                if (belowTimeLimit) {
+                    // _db.Log("Truncate not due yet, based on time interval. ");
+                    return;
+                } else {
+                    _db.LogInfo("Auto truncate due, time interval and lower unsaved action count limit exceeded. ");
+                }
+            } else {
+                _db.LogInfo("Auto truncate due, upper unsaved action count limit exceeded. ");
+            }
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto truncate started");
             _db.Maintenance(MaintenanceAction.TruncateLog);
             _db.LogInfo("Auto truncate finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            if (_s.AutoTruncateDeleteOldFileOnSuccess) {
+                _db.LogInfo("Auto truncate delete old log files started");
+                try {
+                    _db.DeleteOldLogs();
+                } catch (Exception err) {
+                    _db.LogError("Auto truncate delete old log files failed: ", err);
+                }
+            }
         } catch (Exception err) {
             _db.LogError("Auto truncate failed: ", err);
         }

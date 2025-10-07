@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.NodeServer.EventHub;
 namespace Relatude.DB.NodeServer.EventTriggers;
-public class ServerStatusEventTrigger : IEventPoller {
+public class ServerStatusEventPoller : IEventPoller {
     Dictionary<Guid, DataStoreState> _last = [];
     public string EventName => "ServerStatus";
     public EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, bool onlyOnChange, out int msNextCollect) {

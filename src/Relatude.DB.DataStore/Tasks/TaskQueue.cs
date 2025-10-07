@@ -25,6 +25,7 @@ public class TaskQueue : IDisposable {
             _batchBufferByTypeAndJobId.Clear();
         }
     }
+    public string QueueStoreTypeName => _queue.GetType().Name.ToString();
     public int CountBatch(BatchState state) {
         lock (_lock) {
             emptyBuffer();

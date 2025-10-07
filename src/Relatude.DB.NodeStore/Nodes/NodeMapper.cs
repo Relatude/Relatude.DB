@@ -5,7 +5,12 @@ using System.Linq.Expressions;
 using System.Reflection;
 
 namespace Relatude.DB.Nodes;
-public class NodeMapper {  // threadsafe, and a faster alternative to System.Activator
+/// <summary>
+/// A mapper that can map between INodeData and model objects, and vice versa.
+/// It is using runtime generated libraries to optimize the performance.
+/// It is also used to get the node type id and property ids from model objects in queries.
+/// </summary>
+public class NodeMapper { 
     readonly Dictionary<Guid, IValueMapper> _nodeValueMapperByTypeId;
     readonly Dictionary<Type, KeyValuePair<IValueMapper, Guid>> _mapperByType;
     readonly NodeStore _store;

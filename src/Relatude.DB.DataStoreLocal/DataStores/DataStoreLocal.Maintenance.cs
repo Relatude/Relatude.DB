@@ -4,11 +4,11 @@ using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
-    public bool IsThereAnythingToTruncate() {
-        if (_state != DataStoreState.Open) return false;
+    public long GetNoPrimitiveActionsInLogThatCanBeTruncated() {
+        if (_state != DataStoreState.Open) return 0;
         _lock.EnterWriteLock();
         try {
-            return _noPrimitiveActionsInLogThatCanBeTruncated > 0;
+            return _noPrimitiveActionsInLogThatCanBeTruncated;
         } finally {
             _lock.ExitWriteLock();
         }
@@ -55,7 +55,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) { 
+    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
         var activityId = registerActvity(DataStoreActivityCategory.Rewriting, "Starting rewrite of log file", 0);
         try {
             rewriteStore(activityId, hotSwapToNewFile, newLogFileKey, destinationIO);
@@ -111,11 +111,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
                     // reset, since we have a new log file
                 }
-                if (hotSwapToNewFile) saveState(); // needed to refresh state file with new log file
-                //if (hotSwapToNewFile) _io.DeleteIfItExists(_fileKeys.StateFileKey);
+                //if (hotSwapToNewFile) saveState(); // needed to refresh state file with new log file
+                if (hotSwapToNewFile) _io.DeleteIfItExists(_fileKeys.StateFileKey);
             } finally {
                 _lock.ExitWriteLock();
             }
+            if (hotSwapToNewFile) SaveIndexStates(); // needed to refresh state file with new log file
             LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
             _rewriter = null;
         } catch (Exception err) {
@@ -138,13 +139,18 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    public void DeleteOldLogs() {
+    public int DeleteOldLogs() {
         _lock.EnterWriteLock();
+        var fileDeleted = 0;
         var activityId = registerActvity(DataStoreActivityCategory.Copying, "Deleting old logs");
         try {
             validateDatabaseState();
             foreach (var f in _fileKeys.WAL_GetAllFileKeys(_io)) {
-                if (_wal.FileKey != f) _io.DeleteIfItExists(f);
+                if (_wal.FileKey != f) {
+                    _io.DeleteIfItExists(f);
+                    LogInfo($"Deleted old log file {f}. ");
+                    fileDeleted++;
+                }
             }
         } catch (Exception err) {
             throw new Exception("Failed to delete old logs. ", err);
@@ -152,22 +158,32 @@ public sealed partial class DataStoreLocal : IDataStore {
             deRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
+        return fileDeleted;
     }
-    public void SaveIndexStates() {
-        _lock.EnterWriteLock();
-        var activityId = registerActvity(DataStoreActivityCategory.SavingState, "Saving index states");
-        try {
-            validateDatabaseState();
-            if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0) {
-                _wal.FlushToDisk();
-                saveState();
+    object _saveStateLock = new();
+    public void SaveIndexStates(bool forceRefresh = false) {
+        lock (_saveStateLock) { // to avoid multiple simultaneous calls
+            //_lock.EnterWriteLock();
+            _lock.EnterReadLock();
+            var activityId = registerActvity(DataStoreActivityCategory.SavingState, "Saving index states");
+            try {
+                validateDatabaseState();
+                if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
+                    LogInfo("Initiating index state write.");
+                    _wal.FlushToDisk();
+                    saveState();
+                    LogInfo("Index state write completed.");
+                } else {
+                    LogInfo("Index state write skipped as file reflects latest changes. ");
+                }
+            } catch (Exception err) {
+                _state = DataStoreState.Error;
+                throw new Exception("Failed to save index states. ", err);
+            } finally {
+                deRegisterActivity(activityId);
+                //_lock.ExitWriteLock();
+                _lock.ExitReadLock();
             }
-        } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Failed to save index states. ", err);
-        } finally {
-            deRegisterActivity(activityId);
-            _lock.ExitWriteLock();
         }
     }
     public void Maintenance(MaintenanceAction a) {

@@ -42,13 +42,13 @@ internal class LogRewriter {
     (Guid relId, RelData[] relations)[] _relations;
     readonly WALFile _newStore;
     readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
-    readonly ReadSegmentsFunc _loadSegments;
+    readonly ReadSegmentsFunc _threadSafeReadSegments;
     bool _finalizing = false;
     public LogRewriter(string newFileKey, Definition definition,
         IIOProvider destinationIO,
         (int nodeId, NodeSegment segment)[] nodes,
         (Guid relId, RelData[] relations)[] relations,
-        ReadSegmentsFunc loadSegments, // call back to old log file for reading segment content from old file
+        ReadSegmentsFunc threadSafeReadSegments, // call back to old log file for reading segment content from old file
         RegisterNodeSegmentCallbackFunc registerNodeSegment // call back to store to register node segments in cache ( NodeStore )
         ) {
         FileKey = newFileKey;
@@ -57,7 +57,7 @@ internal class LogRewriter {
         _destIO.DeleteIfItExists(FileKey);
         _nodes = nodes;
         _relations = relations;
-        _loadSegments = loadSegments;
+        _threadSafeReadSegments = threadSafeReadSegments;
         _registerNodeSegment = registerNodeSegment;
         _newSegements = new();
         _newStore = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => {
@@ -77,7 +77,7 @@ internal class LogRewriter {
         foreach (var chunk in chunks) {
             i++;
             reportProgress("Rewriting node " + i * chunkSize + " of " + _nodes.Length, 10+(70 * i / chunks.Length));
-            var segmentBytes = _loadSegments(chunk.Select(c => c.segment).ToArray(), out _);
+            var segmentBytes = _threadSafeReadSegments(chunk.Select(c => c.segment).ToArray(), out _);
             var actions = new List<PrimitiveActionBase>(segmentBytes.Length);
             foreach (var bytes in segmentBytes) {
                 var node = FromBytes.NodeData(dm, new MemoryStream(bytes));

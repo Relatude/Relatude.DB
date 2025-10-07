@@ -1,5 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
@@ -7,6 +6,8 @@ using Relatude.DB.Logging;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
 public interface IDataStore : IDisposable {
@@ -15,6 +16,7 @@ public interface IDataStore : IDisposable {
     void LogWarning(string text, string? details = null);
     void LogError(string description, Exception error);
     void Log(SystemLogEntryType type, string text, string? details = null);
+    TraceEntry[] GetSystemTrace(int skip, int take);
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
