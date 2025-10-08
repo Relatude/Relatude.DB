@@ -97,7 +97,7 @@ export const component = (P: { storeId: string }) => {
         await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
     }
     const clearStatistics = async (logKey?: string) => {
-        await app.api.log.clearLog(P.storeId, logKey || app.ui.activeLogKey);
+        await app.api.log.clearStatistics(P.storeId, logKey || app.ui.activeLogKey);
     }
     const allLogsEnabled = () => {
         return logInfos.filter(l => allLogKeys.includes(l.key)).every(l => l.enabledLog);

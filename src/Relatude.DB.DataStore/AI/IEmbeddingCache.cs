@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-
 namespace Relatude.DB.AI;
+/// <summary>
+/// Simple cache to reduce the number of calls to the embedding provider.
+/// </summary>
 public interface IEmbeddingCache : IDisposable {
     public void Set(ulong hash, float[] embedding);
     void SetMany(IEnumerable<Tuple<ulong, float[]>> values);

@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Benchmark.LiteDB\Benchmark.LiteDB.csproj" />
     <ProjectReference Include="..\Benchmark.MSSQL\Benchmark.MSSQL.csproj" />
+    <ProjectReference Include="..\Benchmark.RavenDB\Benchmark.RavenDB.csproj" />
     <ProjectReference Include="..\Benchmark.Relatude.DB\Benchmark.Relatude.DB.csproj" />
     <ProjectReference Include="..\Benchmark.SQLite\Benchmark.SQLite.csproj" />
   </ItemGroup>

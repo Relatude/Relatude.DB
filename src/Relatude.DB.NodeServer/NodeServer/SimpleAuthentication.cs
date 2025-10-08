@@ -2,6 +2,12 @@
 using System.Net;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer;
+/// <summary>
+/// A temporary simple authentication system, for a single master user.
+/// Based on encrypted tokens stored in cookies.
+/// Will be replaced by a more complete authentication system in the future.
+/// </summary>
+/// <param name="server"></param>
 public class SimpleAuthentication(RelatudeDBServer server) {
 
     RelatudeDBServerSettings settings => server.Settings; // retrieve settings each time, in case they change
@@ -86,7 +92,7 @@ public class SimpleAuthentication(RelatudeDBServer server) {
             return true;
 
         } catch (Exception err) {
-            Console.WriteLine("Token validation error: " + err);
+            RelatudeDBServer.Trace("Token validation error: " + err);
         }
         // any other outcome is a failure
         userId = null;

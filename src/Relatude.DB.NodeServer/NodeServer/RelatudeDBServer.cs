@@ -1,4 +1,5 @@
-﻿using Relatude.DB.AI;
+﻿using Microsoft.AspNetCore.Hosting.Server;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
@@ -8,6 +9,16 @@ using Relatude.DB.Tasks;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.NodeServer;
+/// <summary>
+/// Represents the main server for managing and interacting with Relatude database containers and services.
+/// </summary>
+/// <remarks>The <see cref="RelatudeDBServer"/> class provides functionality to initialize, configure, and manage
+/// database containers, authentication, and other server-related operations. It supports automatic opening of database
+/// containers, event handling for store lifecycle events, and integration with I/O and AI providers.  This class is
+/// designed to be the central entry point for interacting with the Relatude database system. It includes methods for
+/// starting the server, managing containers, and retrieving resources such as I/O and AI providers.  <para> To use this
+/// class, ensure that the server is properly initialized by calling <see cref="StartAsync"/>. Attempting to access
+/// certain properties or methods before initialization may result in exceptions. </para></remarks>
 public partial class RelatudeDBServer {
     public RelatudeDBServer(string? urlPath) {
         if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
@@ -26,15 +37,36 @@ public partial class RelatudeDBServer {
             _serverLog.Enqueue(new(DateTime.UtcNow, msg));
         }
     }
-    Tuple<DateTime, string>[] getStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
-    void clearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
+    public Tuple<DateTime, string>[] GetStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
+    public void ClearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
 
+    static object _traceLock = new ();
+    public static void Trace(string msg) {
+        lock(_traceLock){
+            Console.ForegroundColor = ConsoleColor.DarkBlue;
+            Console.Write("relatude.server: ");
+            Console.ResetColor();
+            Console.WriteLine(msg);
+        }
+    }
+
+    ServerAPI? _api;
     string _settingsFile = Defaults.SettingsFileName;
     string _rootDataFolderPath = string.Empty;
-    IIOProvider? _tempIO;
+    public IIOProvider? TempIO;
     ISettingsLoader? _settingsLoader;
     Dictionary<Guid, IIOProvider> _ios = [];
     Dictionary<string, IAIProvider> _ais = [];
+    public void ResetIOAndAIProviders() {
+        lock (_ios) _ios.Clear();
+        lock (_ais) {
+            foreach (var ai in _ais.Values) ai.Dispose();
+            _ais.Clear();
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
 
     public static event EventHandler<NodeStore>? OnStoreInit;
     public static event EventHandler<NodeStore>? OnStoreOpen;
@@ -50,11 +82,7 @@ public partial class RelatudeDBServer {
     internal string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
-    public RelatudeDBServerSettings Settings {
-        get {
-            return _serverSettings;
-        }
-    }
+    public RelatudeDBServerSettings Settings => _serverSettings;
     internal ServerEventHub EventHub { get; }
     public Dictionary<Guid, NodeStoreContainer> Containers = [];
     NodeStoreContainer[] _containersToAutoOpen = [];
@@ -89,7 +117,7 @@ public partial class RelatudeDBServer {
             Thread.Sleep(100);
         }
     }
-    int getStartingProgressEstimate() {
+    public int GetStartingProgressEstimate() {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
                 if (c.Datastore == null) return 0;
@@ -108,9 +136,9 @@ public partial class RelatudeDBServer {
         }
     }
     public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
-        if (anyRemaingToAutoOpen && ctx.Request.Path == "/") {
+        if (AnyRemaingToAutoOpen && ctx.Request.Path == "/") {
             ctx.Response.ContentType = "text/html";
-            var html = getResource("ClientStart.start.html");
+            var html = ServerAPI.GetResource("ClientStart.start.html");
             await ctx.Response.WriteAsync(html);
         } else {
             await next();
@@ -127,14 +155,14 @@ public partial class RelatudeDBServer {
 
         if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
-        _tempIO = new IODisk(tempFolderPath);
-        var tempFiles = _tempIO.GetFiles();
+        TempIO = new IODisk(tempFolderPath);
+        var tempFiles = TempIO.GetFiles();
         var tempSize = tempFiles.Sum(f => f.Size);
         var tempCount = tempFiles.Length;
         if (tempCount == 0) serverLog("No temp files found to clean.");
         else serverLog($"Cleaning temp folder, found {tempCount} file(s) and {tempSize.ToByteString()}.");
         foreach (var file in tempFiles) {
-            try { _tempIO.DeleteIfItExists(file.Key); } catch { }
+            try { TempIO.DeleteIfItExists(file.Key); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
         Stopwatch sw = Stopwatch.StartNew();
@@ -163,7 +191,7 @@ public partial class RelatudeDBServer {
         _autentication = new(this);
     }
     int _remaingToAutoOpenCount = 0;
-    bool anyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
+    public bool AnyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
     void autoOpenContainer(NodeStoreContainer container, bool throwException) {
         try {
             var sw = Stopwatch.StartNew();
@@ -204,19 +232,12 @@ public partial class RelatudeDBServer {
         }
     }
 
-    void updateWAFServerSettingsFile() {
+    public void UpdateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = Containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
         if (Containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = Containers[_serverSettings.DefaultStoreId];
     }
-    void ensurePrefix(Guid storeId, ref string fileKey) {
-        var filePrefix = Containers[storeId].Settings?.LocalSettings?.FilePrefix;
-        if (string.IsNullOrEmpty(filePrefix)) return;
-        if (!fileKey.StartsWith('.')) filePrefix += ".";
-        if (fileKey.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
-        fileKey = filePrefix + fileKey;
-    }
-    NodeStore GetStore(Guid storeId) {
+    public NodeStore GetStore(Guid storeId) {
         if (!Containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         if (container.Store == null) throw new Exception("Store not initialized. ");
         return container.Store;
@@ -292,5 +313,10 @@ public partial class RelatudeDBServer {
     public IAIProvider GetAI(Guid id, string? filePrefix, string? fallBackAiPath) {
         if (!TryGetAI(id, filePrefix, out var ai, fallBackAiPath)) throw new Exception("AIProvider not found");
         return ai;
+    }
+    internal void MapSimpleAPI(WebApplication app) {
+        if (_api != null) throw new Exception("API already mapped.");
+        _api = new ServerAPI(this);
+        _api.MapSimpleAPI(app);
     }
 }

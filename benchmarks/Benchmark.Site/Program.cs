@@ -3,6 +3,7 @@ using Benchmark.Base;
 using Benchmark.Base.ContentGeneration;
 using Benchmark.LiteDB;
 using Benchmark.MSSql;
+using Benchmark.RavenDB;
 using Benchmark.Relatude.DB;
 using Benchmark.SQLite;
 using Benchmark.Tester;
@@ -32,7 +33,7 @@ string deCamelCase(string camel) {
 }
 string test(HttpContext ctx) {
 
-    var multiplier = 50;
+    var multiplier = 10;
     var options = new TestOptions();
     options.UserCount = 100 * multiplier;
     options.CompanyCount = 100 * multiplier;
@@ -41,7 +42,8 @@ string test(HttpContext ctx) {
 
     ITester[] testers = [
         //new MsSqlDBTester(),
-        new LiteDBTester(),
+        //new RavenDBEmbeddedTester(),
+        //new LiteDBTester(),
         new SQLiteDBTester(),
         new RelatudeDBTester(),
         ];
@@ -79,7 +81,7 @@ string test(HttpContext ctx) {
             var color = "hsl(" + (resultPercentage) + ", 100%, 85%)";
             sb.AppendLine("<td style=\"text-align:center; background-color:" + color + "\">");
             sb.AppendLine(Math.Round(result.Duration.TotalMilliseconds).To1000N() + "ms");
-            // sb.AppendLine(Math.Round(result.Duration.TotalMilliseconds).To1000N() + "ms - " + result.OperationsPerSecond + "op/sec");
+            sb.AppendLine("<br/>"+ Math.Round(result.OperationsPerSecond) + "op/sec");
             //sb.AppendLine(Math.Round(resultPercentage) + "%");
             sb.AppendLine("</td>");
         }

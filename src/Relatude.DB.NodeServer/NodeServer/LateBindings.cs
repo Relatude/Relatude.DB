@@ -5,6 +5,10 @@ using Relatude.DB.IO;
 using Relatude.DB.Tasks;
 
 namespace Relatude.DB.NodeServer;
+/// <summary>
+/// Utility class to create instances of types from optional dependencies using late binding.
+/// With focus on providing better error messages when the dependency is missing.
+/// </summary>
 public static class LateBindings {
     private static Type findType(string typeName, string moduleName, string nugetName) {
         var type = Type.GetType(typeName);

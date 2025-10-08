@@ -31,13 +31,13 @@ internal class ServerEventHub {
                     if (events == null) continue;
                     foreach (var b in events) _directory.EnqueueEvent(poller.Poller.EventName, b);
                 } catch (Exception err1) {
-                    Console.WriteLine("Error polling events for " + poller.Poller.EventName + ": " + err1.Message);
+                    RelatudeDBServer.Trace("Error polling events for " + poller.Poller.EventName + ": " + err1.Message);
                 }
             }
             var nextDueTime = _pollers.MinDueTime();
             dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
         } catch (Exception err2) {
-            Console.WriteLine("Error in pollDuePollers: " + err2.Message);
+            RelatudeDBServer.Trace("Error in pollDuePollers: " + err2.Message);
         } finally {
             if (dueMs < _minimumUpdateIntervalMs) dueMs = _minimumUpdateIntervalMs;
             if (dueMs > _maximumUpdateIntervalMs) dueMs = _maximumUpdateIntervalMs;
@@ -63,7 +63,7 @@ internal class ServerEventHub {
         var connectionId = _directory.Connect(new EventContext(), out int cnnCount); // Possible to add connection context info, like user identity
         try {
             await writeEvent(response, cancellation, new ServerEventData("connectionId", null, connectionId.ToString()));
-            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));
+            RelatudeDBServer.Trace("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));
             while (!cancellation.IsCancellationRequested) {
                 var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
@@ -76,10 +76,10 @@ internal class ServerEventHub {
             }
         } catch (TaskCanceledException) {
         } catch (Exception error) {
-            Console.WriteLine("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
+            RelatudeDBServer.Trace("SSE Error: " + error.Message + "\n" + error.StackTrace + "\n");
         } finally {
             cnnCount = _directory.Disconnect(connectionId);
-            Console.WriteLine("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (cnnCount).ToString("N0"));
+            RelatudeDBServer.Trace("SSE client disconnected, connectionId: " + connectionId + ". Connections: " + (cnnCount).ToString("N0"));
         }
     }
     public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);
@@ -101,7 +101,7 @@ internal class ServerEventHub {
                 if (events == null) continue;
                 foreach (var b in events) _directory.EnqueueEvent(poller.EventName, b);
             } catch (Exception ex) {
-                Console.WriteLine("Error polling events for " + poller.EventName + ": " + ex.Message);
+                RelatudeDBServer.Trace("Error polling events for " + poller.EventName + ": " + ex.Message);
                 continue;
             }
         }

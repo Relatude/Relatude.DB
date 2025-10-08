@@ -12,6 +12,11 @@ using Relatude.DB.DataStores.Files;
 using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 
 namespace Relatude.DB.NodeServer;
+/// <summary>
+/// A wrapper for a NodeStore instance with its settings and lifecycle management
+/// </summary>
+/// <param name="settings"></param>
+/// <param name="server"></param>
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
     internal IDataStore? Datastore { get; set; }

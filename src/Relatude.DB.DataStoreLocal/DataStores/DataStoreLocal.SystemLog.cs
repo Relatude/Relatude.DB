@@ -7,23 +7,27 @@ public sealed partial class DataStoreLocal : IDataStore {
     SimpleSystemLogTracer _tracer = new();
     public void LogInfo(string text, string? details = null) => Log(SystemLogEntryType.Info, text, details);
     public void LogWarning(string text, string? details = null) => Log(SystemLogEntryType.Warning, text, details);
+    static object _consoleColorLock = new();
     public void Log(SystemLogEntryType type, string text, string? details = null) {
         try {
             if (_settings.WriteSystemLogConsole) {
-                var originalColor = Console.ForegroundColor;
-                Console.ForegroundColor = ConsoleColor.DarkCyan;
-                Console.Write("relatude.db ");
-                var color= type switch {
-                    SystemLogEntryType.Info => ConsoleColor.DarkGreen,
-                    SystemLogEntryType.Warning => ConsoleColor.DarkYellow,
-                    SystemLogEntryType.Error => ConsoleColor.DarkRed,
-                    SystemLogEntryType.Backup => ConsoleColor.DarkMagenta,
-                    _ => ConsoleColor.Gray
-                };
-                Console.ForegroundColor = color;
-                Console.Write(type.ToString().ToLower() + ": ");
-                Console.ForegroundColor = originalColor;
-                Console.WriteLine(text + (details == null ? null : Environment.NewLine + details));
+                lock (_consoleColorLock) {
+                    var originalColor = Console.ForegroundColor;
+                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                    Console.Write("relatude.db ");
+                    var color = type switch {
+                        SystemLogEntryType.Info => ConsoleColor.DarkGreen,
+                        SystemLogEntryType.Warning => ConsoleColor.DarkYellow,
+                        SystemLogEntryType.Error => ConsoleColor.DarkRed,
+                        SystemLogEntryType.Backup => ConsoleColor.DarkMagenta,
+                        _ => ConsoleColor.Gray
+                    };
+                    Console.ForegroundColor = color;
+                    Console.Write(type.ToString().ToLower());
+                    Console.ForegroundColor = originalColor;
+                    Console.Write(": ");
+                    Console.WriteLine(text + (details == null ? null : Environment.NewLine + details));
+                }
             }
         } catch { }
         try {

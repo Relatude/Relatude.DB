@@ -13,15 +13,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         _nodes.UpdateNodeDataPositionInLogFile(id, seg);
     }
     Guid getCheckSumForStateFileAndIndexes() {
+        // anything that can affect indexes or state file:
         var s = System.Text.Json.JsonSerializer.Serialize(Datamodel);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings);
-        //s += _settings.PersistedValueIndexFolderPath;
-        //s += _settings.UsePersistedValueIndexesByDefault;
-        //s += _settings.UsePersistedTextIndexesByDefault;
-        //s += _settings.en .EnablePersistedIndexStore;
-        //s += _settings.UseSqliteForPersitedTextIndexes;
-        //s += _settings.EnableTextIndexByDefault;
-        //s += _settings.EnableSemanticIndexByDefault;
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedTextIndexEngine);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexEngine);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.UsePersistedTextIndexesByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.UsePersistedValueIndexesByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableTextIndexByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.FilePrefix);
         return s.GenerateGuid();
     }
     void saveState() {

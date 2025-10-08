@@ -1,6 +1,9 @@
 ﻿using Relatude.DB.Nodes;
 
 namespace Relatude.DB.NodeServer;
+/// <summary>
+/// A static class to hold the current RelatudeDBServer instance for easy access in contexts where dependency injection is not available.
+/// </summary>
 public static class RelatudeDBRuntime {
     static RelatudeDBServer? _current;
     static public RelatudeDBServer Server => _current ?? throw new InvalidOperationException("RelatudeDBServerContext not initialized. ");
