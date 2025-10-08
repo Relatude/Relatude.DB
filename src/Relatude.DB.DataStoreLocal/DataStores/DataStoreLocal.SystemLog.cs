@@ -11,7 +11,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void Log(SystemLogEntryType type, string text, string? details = null) {
         try {
             if (_settings.WriteSystemLogConsole) {
-                lock (_consoleColorLock) {
+                lock (_consoleColorLock) { 
                     var originalColor = Console.ForegroundColor;
                     Console.ForegroundColor = ConsoleColor.DarkCyan;
                     Console.Write("relatude.db ");

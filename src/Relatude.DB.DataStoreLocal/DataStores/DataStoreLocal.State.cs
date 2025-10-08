@@ -12,9 +12,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         // this happens when a node is updated, and the new data is written to the log file
         _nodes.UpdateNodeDataPositionInLogFile(id, seg);
     }
+    int _fileVersion = 100;
     Guid getCheckSumForStateFileAndIndexes() {
         // anything that can affect indexes or state file:
         var s = System.Text.Json.JsonSerializer.Serialize(Datamodel);
+        s += System.Text.Json.JsonSerializer.Serialize(_fileVersion);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedTextIndexEngine);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexEngine);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.UsePersistedTextIndexesByDefault);
@@ -24,11 +26,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.FilePrefix);
         return s.GenerateGuid();
+        //var g = s.GenerateGuid();
+        //Log(SystemLogEntryType.Info, "Model hash: " + g);
+        //File.WriteAllText("C:\\WAF_Temp\\" + g, s);
+        //return g;
     }
     void saveState() {
         _io.DeleteIfItExists(_fileKeys.StateFileKey);
         using var stream = _io.OpenAppend(_fileKeys.StateFileKey);
-        stream.WriteVerifiedInt(100); // fileversion
+        stream.WriteVerifiedInt(_fileVersion); // fileversion
         stream.WriteVerifiedLong(_wal.LastTimestamp);
         stream.WriteVerifiedLong(_wal.GetPositionOfLastTransaction());
         stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
@@ -51,7 +57,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         long lastTimestamp;
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
-        _noPrimitiveActionsInLogThatCanBeTruncated = 0;
+        _noPrimitiveActionsInLogThatCanBeTruncated = 0; 
         var sw = Stopwatch.StartNew();
 
         if (PersistedIndexStore != null) {
@@ -88,11 +94,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                 using var stream = _io.OpenRead(_fileKeys.StateFileKey, 0);
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
-                if (version != 100) throw new Exception("   State file version mismatch. ");
+                if (version != _fileVersion) throw new Exception("   State file version mismatch. ");
                 lastTimestamp = stream.ReadVerifiedLong();
                 positionOfLastTransactionSavedToStateFile = stream.ReadVerifiedLong();
                 var storedModelHash = stream.ReadGuid();
-                if (storedModelHash != currentModelHash) throw new Exception("Datamodel have changed, checksum does not match.");
+                if (storedModelHash != currentModelHash) 
+                    throw new Exception("Datamodel have changed, checksum does not match.");
                 var logFileSize = stream.ReadVerifiedLong();
                 var fileId = stream.ReadGuid();
                 if (fileId != _wal.FileId) throw new Exception("Statefile does not belong to log file. It cannot be used. ");

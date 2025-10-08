@@ -14,7 +14,7 @@ using Relatude.DB.NodeServer.EventHub;
 using Microsoft.AspNetCore.Mvc;
 using Relatude.DB.Demo;
 namespace Relatude.DB.NodeServer;
-public partial class ServerAPI(RelatudeDBServer server) {
+public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;
     string ApiUrlRoot => server.ApiUrlRoot;
     void ensurePrefix(Guid storeId, ref string fileKey) {
@@ -31,7 +31,7 @@ public partial class ServerAPI(RelatudeDBServer server) {
     NodeStore db(Guid storeId) {
         return container(storeId).Store ?? throw new Exception("Store not initialized. ");
     }
-    bool isDbInitialized(Guid storeId) => container(storeId).Store! != null;
+    bool isDbInitialized(Guid storeId) => container(storeId).Store != null;
     public void MapSimpleAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
@@ -157,7 +157,7 @@ public partial class ServerAPI(RelatudeDBServer server) {
         app.MapPost(path("reset-io-locks"), (Guid storeId, Guid ioId) => server.GetIO(ioId).ResetLocks());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
-        app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => container(storeId).Store!.Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
+        app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });
         app.MapPost(path("is-file-prefix-legal"), (string filePrefix) => new { IsLegal = FileKeyUtility.IsFilePrefixValid(filePrefix, out _) });
         app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId)));
@@ -180,18 +180,18 @@ public partial class ServerAPI(RelatudeDBServer server) {
         });
         app.MapPost(path("initiate-upload"), () => { return new { Value = Guid.NewGuid().ToString() }; });
         app.MapPost(path("upload-part"), async (HttpContext ctx, Guid uploadId) => {
-            using var ioStream = server.TempIO!.OpenAppend(uploadId.ToString());
+            using var ioStream = server.TempIO.OpenAppend(uploadId.ToString());
             using var writeStream = new WriteStreamWrapper(ioStream);
             await ctx.Request.Body.CopyToAsync(writeStream);
         });
-        app.MapPost(path("cancel-upload"), (HttpContext ctx, Guid uploadId) => server.TempIO!.DeleteIfItExists(uploadId.ToString()));
+        app.MapPost(path("cancel-upload"), (HttpContext ctx, Guid uploadId) => server.TempIO.DeleteIfItExists(uploadId.ToString()));
         app.MapPost(path("complete-upload"), (HttpContext ctx, Guid storeId, Guid ioId, Guid uploadId, string fileName, bool overwrite) => {
-            if (server.TempIO!.DoesNotExistsOrIsEmpty(uploadId.ToString())) throw new Exception("Upload not found");
+            if (server.TempIO.DoesNotExistsOrIsEmpty(uploadId.ToString())) throw new Exception("Upload not found");
             var destIo = server.GetIO(ioId);
             ensurePrefix(storeId, ref fileName);
             var fileKeys = new FileKeyUtility(server.Containers[storeId].Settings?.LocalSettings?.FilePrefix);
             if (fileKeys.StateFileKey.ToLower() == fileName.ToLower()) {
-                server.TempIO!.DeleteIfItExists(uploadId.ToString());
+                server.TempIO.DeleteIfItExists(uploadId.ToString());
                 throw new Exception("Uploading state file is not allowed. ");
             }
             destIo.DeleteIfItExists(fileKeys.StateFileKey); // delete the state file to avoid old statefile and newer log file!
@@ -199,7 +199,7 @@ public partial class ServerAPI(RelatudeDBServer server) {
                 diskIO.MoveFile(tempDiskIO, uploadId.ToString(), fileName, overwrite);
                 return;
             }
-            using var ioSourceStream = server.TempIO!.OpenRead(uploadId.ToString(), 0);
+            using var ioSourceStream = server.TempIO.OpenRead(uploadId.ToString(), 0);
             if (!destIo.DoesNotExistsOrIsEmpty(fileName) && !overwrite) throw new Exception("File already exists");
             destIo.DeleteIfItExists(fileName);
             using var ioDestStream = destIo.OpenAppend(fileName);
@@ -217,12 +217,12 @@ public partial class ServerAPI(RelatudeDBServer server) {
             if (store == null) return null;
             return await store.Datastore.GetInfoAsync();
         });
-        app.MapPost(path("clean-temp-files"), () => server.TempIO!.GetFiles().ForEach(file => { try { server.TempIO!.DeleteIfItExists(file.Key); } catch { } }));
-        app.MapPost(path("get-size-temp-files"), () => new { TotalSize = server.TempIO!.GetFiles().Sum(file => file.Size) });
+        app.MapPost(path("clean-temp-files"), () => server.TempIO.GetFiles().ForEach(file => { try { server.TempIO.DeleteIfItExists(file.Key); } catch { } }));
+        app.MapPost(path("get-size-temp-files"), () => new { TotalSize = server.TempIO.GetFiles().Sum(file => file.Size) });
         app.MapGet(path("download-truncated-db"), (Guid storeId) => {
             var fileKey = Guid.NewGuid().ToString();
             db(storeId).Datastore.RewriteStore(false, fileKey, server.TempIO);
-            var ioStream = server.TempIO!.OpenRead(fileKey, 0);
+            var ioStream = server.TempIO.OpenRead(fileKey, 0);
             var stream = new ReadStreamWrapper(ioStream);
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
@@ -234,7 +234,7 @@ public partial class ServerAPI(RelatudeDBServer server) {
             var fileKey = Guid.NewGuid().ToString();
             var datastore = container(storeId).Store!.Datastore;
             datastore.CopyStore(fileKey, server.TempIO);
-            var ioStream = server.TempIO!.OpenRead(fileKey, 0);
+            var ioStream = server.TempIO.OpenRead(fileKey, 0);
             var stream = new ReadStreamWrapper(ioStream);
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";

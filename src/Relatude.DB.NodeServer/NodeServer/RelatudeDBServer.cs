@@ -40,9 +40,9 @@ public partial class RelatudeDBServer {
     public Tuple<DateTime, string>[] GetStartUpLog() { lock (_serverLog) { return _serverLog.ToArray(); } }
     public void ClearStartUpLog() { lock (_serverLog) { _serverLog.Clear(); } }
 
-    static object _traceLock = new ();
+    static object _traceLock = new();
     public static void Trace(string msg) {
-        lock(_traceLock){
+        lock (_traceLock) {
             Console.ForegroundColor = ConsoleColor.DarkBlue;
             Console.Write("relatude.server: ");
             Console.ResetColor();
@@ -50,10 +50,11 @@ public partial class RelatudeDBServer {
         }
     }
 
-    ServerAPI? _api;
+    ServerAPIMapper? _api;
     string _settingsFile = Defaults.SettingsFileName;
     string _rootDataFolderPath = string.Empty;
-    public IIOProvider? TempIO;
+    IIOProvider? _tempIO;
+    public IIOProvider TempIO => Validator.ThrowIfNull(_tempIO);
     ISettingsLoader? _settingsLoader;
     Dictionary<Guid, IIOProvider> _ios = [];
     Dictionary<string, IAIProvider> _ais = [];
@@ -71,11 +72,11 @@ public partial class RelatudeDBServer {
     public static event EventHandler<NodeStore>? OnStoreInit;
     public static event EventHandler<NodeStore>? OnStoreOpen;
     public static event EventHandler<NodeStore>? OnStoreDispose;
-    SimpleAuthentication? _autentication;
+    SimpleAuthentication? _authentication;
     public SimpleAuthentication Authentication {
         get {
-            if (_autentication == null) throw new Exception("Authentication not initialized. Make sure to call RelatudeDBServer.StartAsync() before using the server.");
-            return _autentication;
+            if (_authentication == null) throw new Exception("Authentication not initialized. Make sure to call RelatudeDBServer.StartAsync() before using the server.");
+            return _authentication;
         }
     }
     internal string RootDataFolderPath => _rootDataFolderPath;
@@ -138,7 +139,7 @@ public partial class RelatudeDBServer {
     public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
         if (AnyRemaingToAutoOpen && ctx.Request.Path == "/") {
             ctx.Response.ContentType = "text/html";
-            var html = ServerAPI.GetResource("ClientStart.start.html");
+            var html = ServerAPIMapper.GetResource("ClientStart.start.html");
             await ctx.Response.WriteAsync(html);
         } else {
             await next();
@@ -155,8 +156,8 @@ public partial class RelatudeDBServer {
 
         if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
-        TempIO = new IODisk(tempFolderPath);
-        var tempFiles = TempIO.GetFiles();
+        _tempIO = new IODisk(tempFolderPath);
+        var tempFiles = _tempIO.GetFiles();
         var tempSize = tempFiles.Sum(f => f.Size);
         var tempCount = tempFiles.Length;
         if (tempCount == 0) serverLog("No temp files found to clean.");
@@ -188,7 +189,7 @@ public partial class RelatudeDBServer {
                 ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => autoOpenContainer(container, false), container, true);
             }
         }
-        _autentication = new(this);
+        _authentication = new(this);
     }
     int _remaingToAutoOpenCount = 0;
     public bool AnyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
@@ -316,7 +317,7 @@ public partial class RelatudeDBServer {
     }
     internal void MapSimpleAPI(WebApplication app) {
         if (_api != null) throw new Exception("API already mapped.");
-        _api = new ServerAPI(this);
+        _api = new ServerAPIMapper(this);
         _api.MapSimpleAPI(app);
     }
 }
