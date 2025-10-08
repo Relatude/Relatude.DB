@@ -14,7 +14,7 @@ using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 namespace Relatude.DB.NodeServer;
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
-    internal IDataStore? datastore { get; set; }
+    internal IDataStore? Datastore { get; set; }
     internal object _lock = new object();
     internal IStoreLogger? _logger;
     public NodeStore? Store { get; private set; }
@@ -31,8 +31,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public Datamodel? Datamodel { get; private set; }
     public DataStoreStatus Status {
         get {
-            if (datastore == null) return new DataStoreStatus(DataStoreState.Closed, []);
-            return datastore.GetStatus();
+            if (Datastore == null) return new DataStoreStatus(DataStoreState.Closed, []);
+            return Datastore.GetStatus();
         }
     }
     public bool IsOpenOrOpening() => Store != null && (Store.State == DataStoreState.Open || Store.State == DataStoreState.Opening);
@@ -120,7 +120,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             var sw = Stopwatch.StartNew();
-            datastore = new DataStoreLocal(
+            Datastore = new DataStoreLocal(
                     Datamodel,
                     settings.LocalSettings,
                     ioDatabase,
@@ -132,17 +132,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     queueStore);
             Interlocked.Increment(ref _initializationCounter);
             var runners = server.GetRegisteredTaskRunners(this);
-            foreach (var runner in runners) datastore.RegisterRunner(runner);
-            Store = new NodeStore(datastore);
+            foreach (var runner in runners) Datastore.RegisterRunner(runner);
+            Store = new NodeStore(Datastore);
             server.RaiseEventStoreInit(this, Store);
             try {
-                datastore.Open(false, false);
+                Datastore.Open(false, false);
             } catch {
-                datastore.Dispose();
-                datastore = null;
+                Datastore.Dispose();
+                Datastore = null;
                 throw;
             }
-            datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
+            Datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
@@ -150,7 +150,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void CloseIfOpen() {
-        datastore = null;
+        Datastore = null;
         if (Store != null) {
             Store.Dispose();
             server.RaiseEventStoreDispose(this, Store);

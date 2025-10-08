@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -235,6 +235,11 @@ class LogAPI {
     clearStatistics = (storeId: string, logKey: string) => this.server.execute(this.controller, 'clear-statistics', { storeId, logKey });
     extractLog = <T>(storeId: string, logKey: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.fixTimeStamp(this.server.queryJson<LogEntry<T>[]>(this.controller, 'extract-log', { storeId, logKey, from: from.toISOString(), to: to.toISOString(), skip, take, orderByDescendingDates }));
 
+    getSystemTrace = async (storeId: string, skip: number, take: number) => {
+        var entires = await this.server.queryJson<SystemTraceEntry[]>(this.controller, 'get-system-trace', { storeId, skip, take });
+        entires.forEach(e => e.timestamp = new Date(e.timestamp));
+        return entires;
+    }
     extractSystemLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<SystemLogEntry>(storeId, "system", from, to, skip, take, orderByDescendingDates);
     extractQueryLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<QueryLogEntry>(storeId, "query", from, to, skip, take, orderByDescendingDates);
     extractTransactionLog = (storeId: string, from: Date, to: Date, skip: number, take: number, orderByDescendingDates: boolean) => this.extractLog<TransactionLogEntry>(storeId, "transaction", from, to, skip, take, orderByDescendingDates);

@@ -3,7 +3,7 @@ import { observer } from 'mobx-react';
 import { Button, Group, Space, Stack, Switch, Table, Tabs, Title } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import { Poller } from '../../application/poller';
-import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo, PropertyHitEntry } from '../../application/models';
+import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from '../../application/models';
 import { set } from 'mobx';
 import { formatBytesString } from '../../utils/formatting';
 import { useStore } from '../../application/test';
@@ -14,6 +14,7 @@ export const component = (P: { storeId: string }) => {
     const [enableStatistics, setEnabledStatistics] = useState<boolean | undefined>();
     const [logInfos, setLogInfos] = useState<LogInfo[]>([]);
 
+    const [systemTrace, setSystemTrace] = useState<SystemTraceEntry[]>();
     const [systemLog, setSystemLog] = useState<LogEntry<SystemLogEntry>[]>();
     const [queryLog, setQueryLog] = useState<LogEntry<QueryLogEntry>[]>();
     const [transactionLog, setTransactionLog] = useState<LogEntry<TransactionLogEntry>[]>();
@@ -48,6 +49,7 @@ export const component = (P: { storeId: string }) => {
                 const skip = 0;
                 const take = 100;
                 switch (app.ui.activeLogKey) {
+                    case "trace": setSystemTrace(await app.api.log.getSystemTrace(P.storeId, skip, take)); break;
                     case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take, true)); break;
                     case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take, true)); break;
                     case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take, true)); break;
@@ -124,7 +126,7 @@ export const component = (P: { storeId: string }) => {
             : <></>}
     </>
     const logToolbar = <>
-        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits") ?
+        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits" && app.ui.activeLogKey != "trace") ?         
             <Group>
                 <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
                 <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />
@@ -138,6 +140,7 @@ export const component = (P: { storeId: string }) => {
     return (<>
         <Tabs defaultValue={app.ui.activeLogKey}>
             <Tabs.List>
+                <Tabs.Tab value="trace" onClick={() => app.ui.activeLogKey = "trace"}>Trace</Tabs.Tab>
                 <Tabs.Tab value="system" onClick={() => app.ui.activeLogKey = "system"}>System</Tabs.Tab>
                 <Tabs.Tab value="metrics" onClick={() => app.ui.activeLogKey = "metrics"}>Metrics</Tabs.Tab>
                 <Tabs.Tab value="query" onClick={() => app.ui.activeLogKey = "query"}>Queries</Tabs.Tab>
@@ -148,6 +151,32 @@ export const component = (P: { storeId: string }) => {
                 <Tabs.Tab value="propertyHits" onClick={() => app.ui.activeLogKey = "propertyHits"}>Scans</Tabs.Tab>
                 <Tabs.Tab value="settings" onClick={() => app.ui.activeLogKey = "settings"}>Settings</Tabs.Tab>
             </Tabs.List>
+            <Tabs.Panel value="trace">
+                <Stack>
+                    <Space />
+                    {logToolbar}
+                    <Table>
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>System trace</Table.Th>
+                                <Table.Th>Type</Table.Th>
+                                <Table.Th>Text</Table.Th>
+                                <Table.Th>Details</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {systemTrace?.map((entry, index) => (
+                                <Table.Tr key={index}>
+                                    <Table.Td>{entry.timestamp.toLocaleTimeString()}</Table.Td>
+                                    <Table.Td>{entry.type}</Table.Td>
+                                    <Table.Td>{entry.text}</Table.Td>
+                                    <Table.Td>{entry.details ? <Button variant="light" onClick={() => alert(entry.details)} >Details</Button> : <></>}</Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                </Stack>
+            </Tabs.Panel>
             <Tabs.Panel value="system">
                 <Stack>
                     <Space />

@@ -37,4 +37,8 @@ public class DataStoreActivity {
     public DataStoreActivity Copy() {
         return new DataStoreActivity(Id, ParentId, Category, Description, PercentageProgress);
     }
+    public override bool Equals(object? obj) {
+        if (obj is not DataStoreActivity other) return false;
+        return Id == other.Id && ParentId == other.ParentId && Category == other.Category && Description == other.Description && PercentageProgress == other.PercentageProgress;
+    }
 }

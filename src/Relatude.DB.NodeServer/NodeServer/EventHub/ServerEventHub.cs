@@ -13,24 +13,36 @@ internal class ServerEventHub {
     PollerDirectory _pollers = new(); // thread-safe
     Timer _pollPulseTimer;
     int _minimumUpdateIntervalMs = 100; // minimum poll interval, to avoid too busy looping
+    int _maximumUpdateIntervalMs = 3000; // maximum poll interval, to avoid too long delays
     RelatudeDBServer _server;
     public ServerEventHub(RelatudeDBServer server) {
-        _pollPulseTimer = new Timer((o) => pollDuePollers(), null, 2000, 1000);
+        _pollPulseTimer = new Timer((o) => pollDuePollers(), null, 2000, Timeout.Infinite);
         _server = server;
     }
     void pollDuePollers() {
-        foreach (var poller in _pollers.Where(t => t.DueTime <= DateTime.UtcNow)) {
-            if (!_directory.AnySubscribers(poller.Poller.EventName)) continue;
-            var filters = _directory.GetFiltersOfSubscribers(poller.Poller.EventName);
-            var events = poller.Poller.Poll(_server, filters, out int msNextCollect);
-            poller.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
-            if (events == null) continue;
-            foreach (var b in events) _directory.EnqueueEvent(poller.Poller.EventName, b);
+        var dueMs = 1000;
+        try {
+            foreach (var poller in _pollers.Where(t => t.DueTime <= DateTime.UtcNow)) {
+                try {
+                    if (!_directory.AnySubscribers(poller.Poller.EventName)) continue;
+                    var filters = _directory.GetFiltersOfSubscribers(poller.Poller.EventName);
+                    var events = poller.Poller.Poll(_server, filters, true, out int msNextCollect);
+                    poller.DueTime = DateTime.UtcNow.AddMilliseconds(msNextCollect);
+                    if (events == null) continue;
+                    foreach (var b in events) _directory.EnqueueEvent(poller.Poller.EventName, b);
+                } catch (Exception err1) {
+                    Console.WriteLine("Error polling events for " + poller.Poller.EventName + ": " + err1.Message);
+                }
+            }
+            var nextDueTime = _pollers.MinDueTime();
+            dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
+        } catch (Exception err2) {
+            Console.WriteLine("Error in pollDuePollers: " + err2.Message);
+        } finally {
+            if (dueMs < _minimumUpdateIntervalMs) dueMs = _minimumUpdateIntervalMs;
+            if (dueMs > _maximumUpdateIntervalMs) dueMs = _maximumUpdateIntervalMs;
+            _pollPulseTimer.Change(dueMs, Timeout.Infinite);
         }
-        var nextDueTime = _pollers.MinDueTime();
-        var dueMs = (int)(nextDueTime - DateTime.UtcNow).TotalMilliseconds;
-        dueMs = Math.Max(dueMs, _minimumUpdateIntervalMs);
-        _pollPulseTimer.Change(dueMs, 1000);
     }
     public void RegisterPoller(IEventPoller poller) {
         _pollers.Add(new PollerAndDueTime(poller, DateTime.UtcNow));
@@ -51,7 +63,7 @@ internal class ServerEventHub {
         var connectionId = _directory.Connect(new EventContext(), out int cnnCount); // Possible to add connection context info, like user identity
         try {
             await writeEvent(response, cancellation, new ServerEventData("connectionId", null, connectionId.ToString()));
-            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));            
+            Console.WriteLine("SSE client connected, connectionId: " + connectionId + ". Connections: " + cnnCount.ToString("N0"));
             while (!cancellation.IsCancellationRequested) {
                 var eventData = _directory.Dequeue(connectionId);
                 if (eventData != null) {
@@ -84,9 +96,14 @@ internal class ServerEventHub {
         foreach (var poller in _pollers.All()) {
             if (eventName != null && poller.EventName != eventName) continue;
             var filters = _directory.GetFiltersOfSubscribers(connectionId, poller.EventName);
-            var events = poller.Poll(_server, filters, out _);
-            if (events == null) continue;
-            foreach (var b in events) _directory.EnqueueEvent(poller.EventName, b);
+            try {
+                var events = poller.Poll(_server, filters, false, out _);
+                if (events == null) continue;
+                foreach (var b in events) _directory.EnqueueEvent(poller.EventName, b);
+            } catch (Exception ex) {
+                Console.WriteLine("Error polling events for " + poller.EventName + ": " + ex.Message);
+                continue;
+            }
         }
     }
     async Task writeEvent(HttpResponse response, CancellationToken cancellation, ServerEventData e) {

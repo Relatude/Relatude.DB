@@ -3,7 +3,7 @@ using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using System.Text.Json.Serialization;
-namespace Relatude.DB.DataStores; 
+namespace Relatude.DB.DataStores;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SystemLogEntryType {
     Info,
@@ -11,7 +11,12 @@ public enum SystemLogEntryType {
     Error,
     Backup,
 }
-
+public class TraceEntry(DateTime timestamp, SystemLogEntryType type, string text, string? details = null) {
+    public DateTime Timestamp { get; } = timestamp;
+    public SystemLogEntryType Type { get; } = type;
+    public string Text { get; } = text;
+    public string? Details { get; } = details;
+}
 public class StoreMetrics {
     public int QueryCount { get; set; }
     public int TransactionCount { get; set; }

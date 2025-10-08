@@ -5,5 +5,5 @@ public class PollerAndDueTime(IEventPoller poller, DateTime dueTime) {
 }
 public interface IEventPoller {
     string EventName { get; }
-    EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, out int msNextCollect);
+    EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, bool onlyOnChange, out int msNextCollect);
 }

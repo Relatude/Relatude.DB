@@ -130,6 +130,12 @@ export interface LogEntry<T> {
     timestamp: Date;
     values: T;
 }
+export interface SystemTraceEntry {
+    timestamp: Date;
+    type: "Info" | "Warning" | "Error";
+    text: string;
+    details?: string;
+}
 export interface SystemLogEntry {
     type: "Info" | "Warning" | "Error";
     text: string;

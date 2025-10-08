@@ -5,6 +5,10 @@ namespace Relatude.DB.Common;
 public class ActivityBranch(DataStoreActivity activity, ActivityBranch[] children) {
     public DataStoreActivity Activity { get; } = activity;
     public ActivityBranch[] Children { get; } = children;
+    public override bool Equals(object? obj) {
+        if (obj is not ActivityBranch other) return false;
+        return Activity.Equals(other.Activity) && Children.SequenceEqual(other.Children);
+    }
 }
 public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activities) {
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -29,5 +33,9 @@ public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activitie
         foreach (var c in children) orphans.Remove(c.Id);
         var childTrees = children.Select(c => buildBranch(c, orphans)).ToArray();
         return new(activity, childTrees);
+    }
+    public override bool Equals(object? obj) {
+        if (obj is not DataStoreStatus other) return false;
+        return State == other.State && ActivityTree.SequenceEqual(other.ActivityTree);
     }
 }

@@ -381,6 +381,7 @@ public partial class RelatudeDBServer {
                 StatisticsFileSize = loggerInstance.LogStore.GetStatisticsFileSize(k.Key),
             });
         });
+        app.MapPost(path("get-system-trace"), (Guid storeId, int skip, int take) => db(storeId).Datastore.GetSystemTrace(skip, take));
         app.MapPost(path("enable-log"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableLog(logKey, enable));
         app.MapPost(path("is-log-enabled"), (Guid storeId, string logKey) => logger(storeId).IsLogEnabled(logKey));
         app.MapPost(path("enable-statistics"), (Guid storeId, string logKey, bool enable) => logger(storeId).EnableStatistics(logKey, enable));

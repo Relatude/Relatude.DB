@@ -22,7 +22,7 @@ public sealed class OneDemoArticleManyDemoArticleChildren : OneToOne<DemoArticle
 
 public sealed class DemoArticleChild {
     public Guid Id { get; set; }
-    public DateTimeOffset DateOfBirth { get; set; }
+    public DateTimeOffset DateOfBirth3 { get; set; }
 
     [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = true)]
     public DemoArticle? Parent { get; set; }

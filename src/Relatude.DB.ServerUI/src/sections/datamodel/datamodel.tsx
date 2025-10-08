@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { useApp } from '../../start/useApp';
 import { Button } from '@mantine/core';
 import { ServerEventHub, EventData } from '../../application/serverEventHub';
+import { DataStoreStatus } from '../../application/models';
 
 let hubTest: ServerEventHub;
 export const Datamodel = (P: { storeId: string }) => {
@@ -10,6 +11,10 @@ export const Datamodel = (P: { storeId: string }) => {
     const [selectedModelId, setSelectedModelId] = useState<string>();
     const [code, setCode] = useState<string>();
     const [model, setModel] = useState<string>();
+
+
+
+
     const selectModel = async (id: string) => {
         // setSelectedModelId(id);
         // const code = await ctx.api.datamodel.getCode(true);
@@ -39,7 +44,7 @@ export const Datamodel = (P: { storeId: string }) => {
     }
     const connectEvents = async () => {
         hubTest = new ServerEventHub(app.api, (event: EventData<unknown>) => {
-            console.log("Event", event);
+            //console.log("Event", event);
             //alert("Event: " + event.name + " " + JSON.stringify(event.data));
         }, (error) => {
             console.log("Event error", error);
@@ -56,10 +61,14 @@ export const Datamodel = (P: { storeId: string }) => {
             alert("Not connected");
             return;
         }
-        hubTest.addEventListener<string>("ServerStatus", undefined, (data, filter) => {
-            console.log("Test event", data);
-        }
-        );
+        await hubTest.addEventListener<string>("ServerStatus", undefined, (data, filter) => {
+            console.log("ServerStatus event", data);
+        });
+        await hubTest.addEventListener<DataStoreStatus>("DataStoreStatus", app.ui.selectedStoreId, (data, filter) => {
+            // console.log("DataStoreStatus event", data, filter);
+            setCode(JSON.stringify(data, null, 2));
+        });
+
     }
     return (
         <>
