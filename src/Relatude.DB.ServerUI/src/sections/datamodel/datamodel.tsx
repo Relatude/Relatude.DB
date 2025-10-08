@@ -14,7 +14,7 @@ export const Datamodel = (P: { storeId: string }) => {
 
 
 
-    
+
     const selectModel = async (id: string) => {
         // setSelectedModelId(id);
         // const code = await ctx.api.datamodel.getCode(true);
@@ -63,12 +63,12 @@ export const Datamodel = (P: { storeId: string }) => {
         }
         await hubTest.addEventListener<string>("ServerStatus", undefined, (data, filter) => {
             console.log("ServerStatus event", data);
-        } );
+        });
         await hubTest.addEventListener<DataStoreStatus>("DataStoreStatus", app.ui.selectedStoreId, (data, filter) => {
             // console.log("DataStoreStatus event", data, filter);
             setCode(JSON.stringify(data, null, 2));
         });
-        
+
     }
     return (
         <>
