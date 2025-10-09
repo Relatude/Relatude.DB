@@ -370,3 +370,4 @@ nuget.exe
 
 # JetBrains IDE
 .idea
+/examples/Website.Simple/relatude.db.temp

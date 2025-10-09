@@ -5,90 +5,60 @@ import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
 type QueryObject = any; // string[][] | Record<string, string> | string | URLSearchParams;
+type responseType = "json" | "text" | "void";
+type bodyType = "json" | "arraybuffer";
 export class API {
     constructor(
         public baseUrl: string,
-        retry: retryCallback) {
-        this.retry = retry;
+        public retry: retryCallback) {
     }
-    retry: retryCallback;
+    query = async <T>(controller: string, action: string, noRetry: boolean, bodyType: bodyType, responseType: responseType, query?: QueryObject, body?: object): Promise<T> => {
+        try {
+            let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
+            if (query) url += "?" + new URLSearchParams(query);
+            let init: RequestInit;
+            if (bodyType === "json") {
+                const haveBody = body !== undefined && body !== null;
+                init = {
+                    credentials: "include",
+                    method: 'POST',
+                    headers: haveBody ? { "Content-Type": "application/json" } : undefined,
+                    body: haveBody ? JSON.stringify(body) : undefined
+                };
+            } else if (bodyType === "arraybuffer") {
+                init = {
+                    credentials: "include",         
+                    method: 'POST',
+                    body: body as ArrayBuffer
+                };
+            } else {
+                throw new Error("Unknown body type.");
+            }
+            const response = await fetch(url, init);
+            if (response.status !== 200) throw new Error(response.status + ": Failed to query \"" + url + "\". ");
+            if (responseType === "void") return undefined as unknown as T;
+            if (responseType === "text") return response.text() as Promise<T>;
+            if (responseType === "json") return response.json() as Promise<T>;
+            throw new Error("Unknown response type.");
+        } catch (error: any) {
+            if (!noRetry && await this.retry(error.message)) return this.query<T>(controller, action, noRetry, bodyType, responseType, query, body);
+            throw new Error(error.message);
+        }
+    }
     queryJson = async <T>(controller: string, action: string, query?: QueryObject, body?: object, noRetry: boolean = false): Promise<T> => {
-        let statusCode: number | undefined;
-        let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
-        if (query) url += "?" + new URLSearchParams(query);
-        try {
-            let response: Response;
-            if (body) {
-                response = await fetch(url, { credentials: "include", method: 'POST', body: JSON.stringify(body), headers: { "Content-Type": "application/json" } },);
-            } else {
-                response = await fetch(url, { credentials: "include", method: 'POST' },);
-            }
-            statusCode = response.status;
-            if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
-            return await response.json() as T;
-        } catch (error: any) {
-            const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
-            if (!noRetry && await this.retry(errMsg)) return this.queryJson<T>(controller, action, query, body);
-            throw new Error(errMsg);
-        }
+        return this.query<T>(controller, action, noRetry, "json", "json", query, body);
     }
-    queryString = async (controller: string, action: string, query?: QueryObject, body?: object, noRetry: boolean = false): Promise<string> => {
-        let statusCode: number | undefined;
-        let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
-        if (query) url += "?" + new URLSearchParams(query);
-        try {
-            let response: Response;
-            if (body) {
-                response = await fetch(url, { credentials: "include", method: 'POST', body: JSON.stringify(body), headers: { "Content-Type": "application/json" } },);
-            } else {
-                response = await fetch(url, { credentials: "include", method: 'POST' },);
-            }
-            statusCode = response.status;
-            if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
-            return await response.text();
-        } catch (error: any) {
-            const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
-            if (!noRetry && await this.retry(errMsg)) return this.queryString(controller, action, query, body);
-            throw new Error(errMsg);
-        }
+    queryText = async (controller: string, action: string, query?: QueryObject, body?: object, noRetry: boolean = false): Promise<string> => {
+        return this.query<string>(controller, action, noRetry, "json", "text", query, body);
     }
-    execute = async (controller: string, action: string, query?: QueryObject, body?: object): Promise<void> => {
-        let statusCode: number | undefined;
-        let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
-        if (query) url += "?" + new URLSearchParams(query);
-        try {
-            let response: Response;
-            if (body) {
-                response = await fetch(url, { credentials: "include", method: 'POST', body: JSON.stringify(body), headers: { "Content-Type": "application/json" } },);
-            } else {
-                response = await fetch(url, { credentials: "include", method: 'POST' },);
-            }
-            statusCode = response.status;
-            if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
-            return
-        } catch (error: any) {
-            const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
-            if (await this.retry(errMsg)) return this.execute(controller, action, query, body);
-            throw new Error(errMsg);
-        }
+    execute = async (controller: string, action: string, query?: QueryObject, body?: object, noRetry: boolean = false): Promise<void> => {
+        return this.query<void>(controller, action, noRetry, "json", "void", query, body);
     }
     upload = async (controller: string, action: string, query: QueryObject, data: ArrayBuffer): Promise<void> => {
-        let statusCode: number | undefined;
-        let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
-        if (query) url += "?" + new URLSearchParams(query);
-        try {
-            let response: Response;
-            response = await fetch(url, { credentials: "include", method: 'POST', body: data },);
-            statusCode = response.status;
-            if (statusCode !== 200) throw new Error("Failed to query \"" + url + "\"");
-            return
-        } catch (error: any) {
-            const errMsg = (statusCode ? statusCode + ": " : "") + error.message;
-            if (await this.retry(errMsg)) return this.upload(controller, action, query, data);
-            throw new Error(errMsg);
-        }
+        return this.query<void>(controller, action, false, "arraybuffer", "void", query, data);
+
     }
-    download = (controller: string, action: string, query?: QueryObject) => {
+    userDownload = (controller: string, action: string, query?: QueryObject) => {
         let url = this.baseUrl + (controller ? (controller + "/") : "") + action;
         if (query) url += "?" + new URLSearchParams(query);
         window.open(url, '_blank');
@@ -117,7 +87,7 @@ class StatusAPI {
 }
 class DatamodelAPI {
     constructor(private server: API, private controller: string) { }
-    getCode = (storeId: string, addAttributes: boolean) => this.server.queryString(this.controller, 'get-code', { storeId, addAttributes: addAttributes ? "true" : "false" });
+    getCode = (storeId: string, addAttributes: boolean) => this.server.queryText(this.controller, 'get-code', { storeId, addAttributes: addAttributes ? "true" : "false" });
     getModel = async (storeId: string) => {
         const model = await this.server.queryJson<DatamodelModel>(this.controller, 'get-model', { storeId });
         return new Datamodel(model);
@@ -151,8 +121,8 @@ class MaintenanceAPI {
     constructor(private server: API, private controller: string) { }
     deleteAllButDb = (storeId: string) => this.server.execute(this.controller, 'delete-all-but-db', { storeId });
     deleteAllFiles = (storeId: string, ioId: string) => this.server.execute(this.controller, 'delete-all-files', { storeId, ioId });
-    downloadFullDb = (storeId: string) => this.server.download(this.controller, 'download-full-db', { storeId });
-    downloadTruncatedDb = (storeId: string) => this.server.download(this.controller, 'download-truncated-db', { storeId });
+    downloadFullDb = (storeId: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId });
+    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });
     resetIoLocks(storeId: string, ioId: string) { return this.server.execute(this.controller, 'reset-io-locks', { storeId, ioId }); }
     isFileKeyLegal = async (fileKey: string | null) => !fileKey ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-key-legal', { fileKey: fileKey! })).isLegal;
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
@@ -166,8 +136,8 @@ class MaintenanceAPI {
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });
     fileExist = (storeId: string, ioId: string, fileName: string) => this.server.queryJson<boolean>(this.controller, 'file-exist', { storeId, ioId, fileName });
     backUpNow = (storeId: string, ioId: string, truncate: boolean, keepForever: boolean) => this.server.execute(this.controller, 'backup-now', { storeId, ioId: ioId, truncate: truncate ? "true" : "false", keepForever: keepForever ? "true" : "false" });
-    getFileKeyOfDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryString(this.controller, 'get-file-key-of-db', { storeId, ioId });
-    getFileKeyOfNextDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryString(this.controller, 'get-file-key-of-db-next', { storeId, ioId });
+    getFileKeyOfDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db', { storeId, ioId });
+    getFileKeyOfNextDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db-next', { storeId, ioId });
     validateDownloadFileRead = async (storeId: string, ioId: string, fileName: string) => {
         const macthes = await this.getStoreFiles(storeId, ioId).then(files => files.filter(f => f.key === fileName));
         if (macthes.length === 0) throw new Error("File not found");
@@ -184,7 +154,7 @@ class MaintenanceAPI {
                 throw error;
             }
         }
-        this.server.download(this.controller, 'download-file', { storeId, ioId, fileName });
+        this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });
     initiateUpload = async (storeId: string) => (await this.server.queryJson<{ value: string }>(this.controller, 'initiate-upload', { storeId })).value;
@@ -204,7 +174,7 @@ class ServerAPI {
     setNameAndDescription = (name: string, description: string) => this.server.execute(this.controller, 'set-name-and-description', { name, description });
     createStore = () => this.server.queryJson<NodeStoreContainer>(this.controller, 'create-store');
     removeStore = (storeId: string) => this.server.execute(this.controller, 'remove-store', { storeId });
-    getDefaultStoreId = () => this.server.queryString(this.controller, 'get-default-store-id');
+    getDefaultStoreId = () => this.server.queryText(this.controller, 'get-default-store-id');
     setDefaultStoreId = (storeId: string) => this.server.execute(this.controller, 'set-default-store-id', { storeId });
     clearDefaultStoreId = () => this.setDefaultStoreId('00000000-0000-0000-0000-000000000000');
     getServerLog = async () => {

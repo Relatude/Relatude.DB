@@ -5,13 +5,13 @@ public class ReadStreamWrapper : System.IO.Stream {
         _stream = stream;
     }
     public override bool CanRead => true;
-    public override bool CanSeek => false;
+    public override bool CanSeek => true;
     public override bool CanWrite => false;
     public override long Length => _stream.Length;
-    public override long Position { get => _stream.Position; set => throw new NotImplementedException(); }
+    public override long Position { get => _stream.Position; set => _stream.Position = value; }
 
     public override void Flush() {
-        throw new NotImplementedException();
+        
     }
     public override int Read(byte[] buffer, int offset, int count) {
         var data = _stream.Read(count);
@@ -20,9 +20,23 @@ public class ReadStreamWrapper : System.IO.Stream {
     }
 
     public override long Seek(long offset, SeekOrigin origin) {
-        throw new NotImplementedException();
+        int newPosition;
+        switch (origin) {
+            case SeekOrigin.Begin:
+                newPosition = (int)offset;
+                break;
+            case SeekOrigin.Current:
+                newPosition = (int)(_stream.Position + offset);
+                break;
+            case SeekOrigin.End:
+                newPosition = (int)(_stream.Length + offset);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(origin), origin, null);
+        }
+        _stream.Position = newPosition;
+        return _stream.Position;
     }
-
     public override void SetLength(long value) {
         throw new NotImplementedException();
     }

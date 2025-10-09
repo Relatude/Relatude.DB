@@ -166,7 +166,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             ensurePrefix(storeId, ref fileName);
             var ioStream = server.GetIO(ioId).OpenRead(fileName, 0);
             var stream = new ReadStreamWrapper(ioStream);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName);
+            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName, null, null, true);
         });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
