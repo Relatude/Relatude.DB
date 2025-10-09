@@ -29,8 +29,8 @@
     public bool AutoBackUp { get; set; } = false;
     public int NoHourlyBackUps { get; set; } = 10;
     public int NoDailyBackUps { get; set; } = 10;
-    public int NoWeeklyBackUps { get; set; } = 10;
-    public int NoMontlyBackUps { get; set; } = 10;
+    public int NoWeeklyBackUps { get; set; } = 4;
+    public int NoMontlyBackUps { get; set; } = 12;
     public int NoYearlyBackUps { get; set; } = 10;
     public bool TruncateBackups { get; set; } = false;
 

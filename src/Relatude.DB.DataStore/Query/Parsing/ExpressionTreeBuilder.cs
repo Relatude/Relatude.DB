@@ -232,7 +232,7 @@ public class ExpressionTreeBuilder {
             return fc;
             throw new NotSupportedException("The method \"" + e + "\" is not supported. ");
         }
-        if (name == "search") {
+        if (name == "search" || name == "wheresearch") {
             if (e.Subject == null) throw new NullReferenceException();
             foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string argument allowed in search expression. ");
             var source = Build(e.Subject, dm);
@@ -246,8 +246,24 @@ public class ExpressionTreeBuilder {
                 }
                 semanticRatio = v;
             }
-            var maxHitsEvaluated = 1000;
+            float? minimumVectorSimilarity = null;
             if (e.Arguments.Count > 2) {
+                var minimumVectorSimilarityO = (ValueConstantSyntax)e.Arguments[2];
+                if (!float.TryParse(minimumVectorSimilarityO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
+                    throw new Exception("Minimum vector similarity must be a number. ");
+                }
+                minimumVectorSimilarity = v;
+            }
+            bool? orSearch = null;
+            if (e.Arguments.Count > 3) {
+                var orSearchO = (ValueConstantSyntax)e.Arguments[3];
+                if (!bool.TryParse(orSearchO.ValueAsString, out var v)) {
+                    throw new Exception("Or search must be true or false. ");
+                }
+                orSearch = v;
+            }
+            var maxHitsEvaluated = 1000;
+            if (e.Arguments.Count > 4) {
                 var maxHitsEvaluatedO = (ValueConstantSyntax)e.Arguments[2];
                 if (!int.TryParse(maxHitsEvaluatedO.ValueAsString, out var v)) {
                     throw new Exception("Max hits evaluated must be a number. ");
@@ -255,31 +271,35 @@ public class ExpressionTreeBuilder {
                 maxHitsEvaluated = v;
             }
             var maxWordsEvaluated = 1000;
-            if (e.Arguments.Count > 3) {
+            if (e.Arguments.Count > 5) {
                 var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[3];
                 if (!int.TryParse(maxWordsEvaluatedO.ValueAsString, out var v)) {
                     throw new Exception("Max words evaluated must be a number. ");
                 }
                 maxWordsEvaluated = v;
             }
-            return new SearchMethod(source, searchTextO.ValueAsString, semanticRatio, maxHitsEvaluated, maxWordsEvaluated);
-        }
-        if (name == "wheresearch") {
-            if (e.Subject == null) throw new NullReferenceException();
-            foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string argument allowed in search expression. ");
-            var source = Build(e.Subject, dm);
-            if (e.Arguments.Count < 1) throw new Exception("Missing search parameter. ");
-            var searchTextO = (ValueConstantSyntax)e.Arguments[0];
-            double? semanticRatio = null;
-            if (e.Arguments.Count > 1) {
-                var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
-                if (!double.TryParse(semanticRatioO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
-                    throw new Exception("Semantic ratio must be a number. ");
-                }
-                semanticRatio = v;
+            if (name == "wheresearch") {
+                return new WhereSearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxHitsEvaluated, maxWordsEvaluated);
+            } else {
+                return new SearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxHitsEvaluated, maxWordsEvaluated);
             }
-            return new WhereSearchMethod(source, searchTextO.ValueAsString, semanticRatio);
         }
+        //if (name == "wheresearch") {
+        //    if (e.Subject == null) throw new NullReferenceException();
+        //    foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string argument allowed in search expression. ");
+        //    var source = Build(e.Subject, dm);
+        //    if (e.Arguments.Count < 1) throw new Exception("Missing search parameter. ");
+        //    var searchTextO = (ValueConstantSyntax)e.Arguments[0];
+        //    double? semanticRatio = null;
+        //    if (e.Arguments.Count > 1) {
+        //        var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
+        //        if (!double.TryParse(semanticRatioO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
+        //            throw new Exception("Semantic ratio must be a number. ");
+        //        }
+        //        semanticRatio = v;
+        //    }
+        //    return new WhereSearchMethod(source, searchTextO.ValueAsString, semanticRatio);
+        //}
         if (name == "page") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);

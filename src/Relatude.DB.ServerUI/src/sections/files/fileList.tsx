@@ -151,6 +151,7 @@ export const component = (p: { storeId: string }) => {
     }
     const totalSize = files?.reduce((acc, file) => acc + file.size, 0) ?? 0;
     const selectedIOIsDatabase = selectedIo ? app.ui.isIoUsedForCurrentDatabase(selectedIo) : false;
+    const domainName = location.hostname;
     return (<>
         <IoSelector ioSettings={store?.ioSettings} selectedIo={selectedIo} onChange={(id) => setSelectedIo(id)} />
         {selectedIo && <Upload text="Upload file" storeId={p.storeId} ioId={selectedIo} onComplete={onCompleteUpload} onError={onFileError} onCancel={updateFiles} multiple />}
@@ -207,7 +208,7 @@ export const component = (p: { storeId: string }) => {
                                         <ActionIcon variant="transparent" ><IconDots></IconDots></ActionIcon>
                                     </Menu.Target>
                                     <Menu.Dropdown>
-                                        <Menu.Item onClick={() => downloadFile(file.key)} disabled={file.writers > 0}  >Download</Menu.Item>
+                                        <Menu.Item onClick={() => downloadFile(domainName + "." + file.key)} disabled={file.writers > 0}  >Download</Menu.Item>
                                         {canRename && <Menu.Item onClick={() => renameFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Rename</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => deleteFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Delete</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => copyFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Copy</Menu.Item>}

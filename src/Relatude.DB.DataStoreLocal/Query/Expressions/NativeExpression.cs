@@ -349,12 +349,14 @@ namespace Relatude.DB.Query.Expressions {
             _db = db;
         }
         public IdSet Filter(IdSet set) {
-            var ids = _property.SearchForIdSet(_value, ratioSemantic, orSearch, _db);
-            return _sets.Intersection(set, ids);
+            throw new NotImplementedException("Search method with max hits not implemented in native expression.");
+            //var ids = _property.SearchForIdSet(_value, ratioSemantic, orSearch, _db);
+            //return _sets.Intersection(set, ids);
         }
         public int MaxCount() {
-            if (_property.WordIndex == null) throw new NullReferenceException(nameof(_property.WordIndex));
-            return _property.SearchForIdSet(_value, ratioSemantic, false, _db).Count;
+            throw new NotImplementedException("Search method with max hits not implemented in native expression.");
+            //if (_property.WordIndex == null) throw new NullReferenceException(nameof(_property.WordIndex));
+            //return _property.SearchForIdSet(_value, ratioSemantic, false, _db).Count;
         }
         public override string ToString() {
             return _property.CodeName + ".Contains(" + _value.ToStringLiteral() + ")";

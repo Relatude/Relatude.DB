@@ -28,11 +28,12 @@ internal class SemanticIndex : IIndex {
         _searchIndexStateId = SetRegister.NewStateId();
     }
     string ensureMaxLength(string value) => value.Length > _ai.Settings.MaxCharsOfEach ? value[.._ai.Settings.MaxCharsOfEach] : value;
-    internal List<RawSearchHit> SearchForHitData(string value, int maxHits) {
+    internal List<RawSearchHit> SearchForHitData(string value, int maxHits, float minimumVectorSimilarity) {
         value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         List<VectorHit> vectorHits;
-        vectorHits = _index.Search(vector, 0, maxHits, defaultMinimumVectorSimilarity);
+        minimumVectorSimilarity = minimumVectorSimilarity > 0 ? minimumVectorSimilarity : defaultMinimumVectorSimilarity;
+        vectorHits = _index.Search(vector, 0, maxHits, minimumVectorSimilarity);
         List<RawSearchHit> result = new(vectorHits.Count);
         foreach (var hit in vectorHits) {
             result.Add(new() {
@@ -46,12 +47,13 @@ internal class SemanticIndex : IIndex {
     float calculateScoreFromVectorCosineSimilarity(float cosineSimilarity) {
         return cosineSimilarity;
     }
-    public IdSet SearchForIdSetUnranked(string value) {
+    public IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity) {
+        minimumVectorSimilarity = minimumVectorSimilarity > 0 ? minimumVectorSimilarity : defaultMinimumVectorSimilarity;
         value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();        
-        return _register.SearchSemantic(_searchIndexStateId, value, defaultMinimumVectorSimilarity, () => {
+        return _register.SearchSemantic(_searchIndexStateId, value, minimumVectorSimilarity, () => {
             List<VectorHit> result;
-            result = _index.Search(vector, 0, int.MaxValue, defaultMinimumVectorSimilarity);
+            result = _index.Search(vector, 0, int.MaxValue, minimumVectorSimilarity);
             return result.Select(v => v.NodeId).ToHashSet();
         });
     }
