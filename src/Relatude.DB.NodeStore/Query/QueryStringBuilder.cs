@@ -270,26 +270,25 @@ internal sealed class QueryStringBuilder {
         }
     }
 
-    internal void WhereSearch(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxHitsEvaluated = null, int? maxWordsEvaluated = null) {
+    internal void WhereSearch(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null) {
         if (string.IsNullOrEmpty(text)) return;
         _sb.Append(".WhereSearch(");
         _sb.Append(text.ToStringLiteral());
-        _sb.Append(", " + semanticRatio != null && semanticRatio.HasValue ? semanticRatio.Value.ToString(CultureInfo.InvariantCulture) : "null");
-        _sb.Append(", " + minimumVectorSimilarity != null && minimumVectorSimilarity.HasValue ? minimumVectorSimilarity.Value.ToString(CultureInfo.InvariantCulture) : "null");
-        _sb.Append(", " + orSearch != null && orSearch.HasValue ? (orSearch.Value ? "true" : "false") : "null");
-        _sb.Append(", " + maxHitsEvaluated != null && maxHitsEvaluated.HasValue ? maxHitsEvaluated.Value.ToString() : "null");
-        _sb.Append(", " + maxWordsEvaluated != null && maxWordsEvaluated.HasValue ? maxWordsEvaluated.Value.ToString() : "null");
+        _sb.Append(", " + (semanticRatio != null ? semanticRatio.Value.ToString(CultureInfo.InvariantCulture) : "null"));
+        _sb.Append(", " + (minimumVectorSimilarity != null ? minimumVectorSimilarity.Value.ToString(CultureInfo.InvariantCulture) : "null"));
+        _sb.Append(", " + (orSearch != null ? (orSearch.Value ? "true" : "false") : "null"));
+        _sb.Append(", " + (maxWordsEvaluatedWhenFuzzy != null ? maxWordsEvaluatedWhenFuzzy.Value.ToString() : "null"));
         _sb.Append(")");
     }
-    internal void Search(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxHitsEvaluated = null, int? maxWordsEvaluated = null) {
+    internal void Search(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null, int? maxHitsEvaluatedBeforeRanked = null) {
         if (text == null) return;
         _sb.Append(".Search(");
         _sb.Append(text.ToStringLiteral());
-        _sb.Append(", " + semanticRatio != null && semanticRatio.HasValue ? semanticRatio.Value.ToString(CultureInfo.InvariantCulture) : "null");
-        _sb.Append(", " + minimumVectorSimilarity != null && minimumVectorSimilarity.HasValue ? minimumVectorSimilarity.Value.ToString(CultureInfo.InvariantCulture) : "null");
-        _sb.Append(", " + orSearch != null && orSearch.HasValue ? (orSearch.Value ? "true" : "false") : "null");
-        _sb.Append(", " + maxHitsEvaluated != null && maxHitsEvaluated.HasValue ? maxHitsEvaluated.Value.ToString() : "null");
-        _sb.Append(", " + maxWordsEvaluated != null && maxWordsEvaluated.HasValue ? maxWordsEvaluated.Value.ToString() : "null");
+        _sb.Append(", " + (semanticRatio != null ? semanticRatio.Value.ToString(CultureInfo.InvariantCulture) : "null"));
+        _sb.Append(", " + (minimumVectorSimilarity != null ? minimumVectorSimilarity.Value.ToString(CultureInfo.InvariantCulture) : "null"));
+        _sb.Append(", " + (orSearch != null ? (orSearch.Value ? "true" : "false") : "null"));
+        _sb.Append(", " + (maxWordsEvaluatedWhenFuzzy != null ? maxWordsEvaluatedWhenFuzzy.Value.ToString() : "null"));
+        _sb.Append(", " + (maxHitsEvaluatedBeforeRanked != null ? maxHitsEvaluatedBeforeRanked.Value.ToString() : "null"));
         _sb.Append(')');
     }
     internal void Where(Guid id) {

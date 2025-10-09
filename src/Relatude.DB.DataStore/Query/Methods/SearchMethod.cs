@@ -8,18 +8,18 @@ public class SearchMethod : IExpression {
     readonly double? _ratioSemantic = null;
     readonly float? _minimumVectorSimilarity = null;
     readonly bool? _orSearch = null;
-    readonly int _maxHitsEvaluated;
-    readonly int _maxWordVariations;
+    readonly int? _maxHitsEvaluated;
+    readonly int? _maxWordVariations;
     int _pageIndex = 0;
-    int _pageSize = 0;
-    public SearchMethod(IExpression input, string searchText, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int maxHitsEvaluated, int maxWordVariations) {
+    int _pageSize = int.MaxValue; // default page size
+    public SearchMethod(IExpression input, string searchText, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations, int? maxHitsEvaluated) {
         _input = input;
-        _ratioSemantic = ratioSemantic;
         _searchText = searchText;
-        _pageIndex = 0;
-        _pageSize = 100; // default page size
-        _maxHitsEvaluated = maxHitsEvaluated;
+        _ratioSemantic = ratioSemantic;
+        _minimumVectorSimilarity = minimumVectorSimilarity;
+        _orSearch = orSearch;
         _maxWordVariations = maxWordVariations;
+        _maxHitsEvaluated = maxHitsEvaluated;
     }
     public object Evaluate(IVariables vars) {
         if (_input.Evaluate(vars) is not ISearchCollection searchCollection)

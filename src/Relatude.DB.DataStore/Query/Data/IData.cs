@@ -49,8 +49,8 @@ public interface IFacetSource : IStoreNodeDataCollection {
     Datamodel Datamodel { get; }
 }
 public interface ISearchCollection : IStoreNodeDataCollection {
-    ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated);
-    IStoreNodeDataCollection FilterBySearch(string text, Guid propertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int maxHitsEvaluated, int maxWordVariations);
+    ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated);
+    IStoreNodeDataCollection FilterBySearch(string text, Guid propertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations);
 }
 public interface IStoreNodeData {
     IDataStore Store { get; }

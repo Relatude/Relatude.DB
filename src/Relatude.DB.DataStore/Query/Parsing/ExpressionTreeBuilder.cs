@@ -241,47 +241,57 @@ public class ExpressionTreeBuilder {
             double? semanticRatio = null;
             if (e.Arguments.Count > 1) {
                 var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
-                if (!double.TryParse(semanticRatioO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
-                    throw new Exception("Semantic ratio must be a number. ");
+                if (!semanticRatioO.IsNull) {
+                    if (!double.TryParse(semanticRatioO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
+                        throw new Exception("Semantic ratio must be a number. ");
+                    }
+                    semanticRatio = v;
                 }
-                semanticRatio = v;
             }
             float? minimumVectorSimilarity = null;
             if (e.Arguments.Count > 2) {
                 var minimumVectorSimilarityO = (ValueConstantSyntax)e.Arguments[2];
-                if (!float.TryParse(minimumVectorSimilarityO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
-                    throw new Exception("Minimum vector similarity must be a number. ");
+                if (!minimumVectorSimilarityO.IsNull) {
+                    if (!float.TryParse(minimumVectorSimilarityO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
+                        throw new Exception("Minimum vector similarity must be a number. ");
+                    }
+                    minimumVectorSimilarity = v;
                 }
-                minimumVectorSimilarity = v;
             }
             bool? orSearch = null;
             if (e.Arguments.Count > 3) {
                 var orSearchO = (ValueConstantSyntax)e.Arguments[3];
-                if (!bool.TryParse(orSearchO.ValueAsString, out var v)) {
-                    throw new Exception("Or search must be true or false. ");
+                if (!orSearchO.IsNull) {
+                    if (!bool.TryParse(orSearchO.ValueAsString, out var v)) {
+                        throw new Exception("Or search must be true or false. ");
+                    }
+                    orSearch = v;
                 }
-                orSearch = v;
             }
-            var maxHitsEvaluated = 1000;
+            int? maxWordsEvaluated = null;
             if (e.Arguments.Count > 4) {
-                var maxHitsEvaluatedO = (ValueConstantSyntax)e.Arguments[2];
-                if (!int.TryParse(maxHitsEvaluatedO.ValueAsString, out var v)) {
-                    throw new Exception("Max hits evaluated must be a number. ");
+                var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[4];
+                if (!maxWordsEvaluatedO.IsNull) {
+                    if (!int.TryParse(maxWordsEvaluatedO.ValueAsString, out var v)) {
+                        throw new Exception("Max words evaluated must be a number. ");
+                    }
+                    maxWordsEvaluated = v;
                 }
-                maxHitsEvaluated = v;
             }
-            var maxWordsEvaluated = 1000;
+            int? maxHitsEvaluated = null;
             if (e.Arguments.Count > 5) {
-                var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[3];
-                if (!int.TryParse(maxWordsEvaluatedO.ValueAsString, out var v)) {
-                    throw new Exception("Max words evaluated must be a number. ");
+                var maxHitsEvaluatedO = (ValueConstantSyntax)e.Arguments[5];
+                if (!maxHitsEvaluatedO.IsNull) {
+                    if (!int.TryParse(maxHitsEvaluatedO.ValueAsString, out var v)) {
+                        throw new Exception("Max hits evaluated must be a number. ");
+                    }
+                    maxHitsEvaluated = v;
                 }
-                maxWordsEvaluated = v;
             }
             if (name == "wheresearch") {
-                return new WhereSearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxHitsEvaluated, maxWordsEvaluated);
+                return new WhereSearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated);
             } else {
-                return new SearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxHitsEvaluated, maxWordsEvaluated);
+                return new SearchMethod(source, searchTextO.ValueAsString, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated, maxHitsEvaluated);
             }
         }
         //if (name == "wheresearch") {

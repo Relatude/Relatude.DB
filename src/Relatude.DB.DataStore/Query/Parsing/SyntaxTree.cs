@@ -100,12 +100,16 @@ public abstract class SyntaxUnit {
         };
     }
     internal static bool isNextElement(char firstNoneWhiteSpaceChar, string code, int pos, string word) {
-        if (firstNoneWhiteSpaceChar != word[0]) return false;
-        if (pos + word.Length > code.Length) return false;
-        if (code[pos..(pos + word.Length)] != word) return false;
+        if (word == "false") {
+            int aa = 1;
+        }
+        if (firstNoneWhiteSpaceChar != word[0]) return false; // first char does not match
+        if (pos + word.Length > code.Length) return false; // not enough code left for word
+        if (code[pos..(pos + word.Length)] == word) return true; // match
         if (pos + word.Length == code.Length) return true; // last expression, so ok
-        var c = code[pos + word.Length]; // next char must be whitespace, operator or end bracket
-        return char.IsWhiteSpace(c) || c == ')' || OperatorExpressionSyntax.IsOperatorChar(c);
+        return false;
+        //var c = code[pos + word.Length]; // next char must be whitespace, operator or end bracket
+        //return char.IsWhiteSpace(c) || c == ')' || OperatorExpressionSyntax.IsOperatorChar(c);
     }
     protected static SyntaxUnitTypes whatIsNext(string code, int pos, SyntaxUnit? prevUnit) {
         pos = SkipWhiteSpace(code, pos);
@@ -196,7 +200,7 @@ public class ValueConstantSyntax : SyntaxUnit {
     public string ValueAsString { get => _valueAsString != null ? _valueAsString : (ValueAsObject == null ? string.Empty : ValueAsObject.ToString() + string.Empty); }
     string? _valueAsString { get; }
     public object? ValueAsObject { get; }
-
+    public bool IsNull => !InQuotes && _valueAsString == "null";
     //public T GetValue<T>() {
     //    if (_valueAsString != null) {
     //        if (typeof(T) == typeof(string)) return (T)(object)_valueAsString;

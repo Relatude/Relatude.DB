@@ -63,10 +63,10 @@ public class CharArrayTrie : IDisposable {
             return 0;
         }
     }
-    public int SearchCount(TermSet query, bool orSearch) {
-        return SearchIdsUnsorted(query, orSearch).Count; // TODO: optimize this to not return all ids, also if only one search term not need for hashset...
+    public int SearchCount(TermSet query, bool orSearch, int maxWordsEval) {
+        return SearchIdsUnsorted(query, orSearch,maxWordsEval).Count; // TODO: optimize this to not return all ids, also if only one search term not need for hashset...
     }
-    public HashSet<int> SearchIdsUnsorted(TermSet expressions, bool orSearch) {
+    public HashSet<int> SearchIdsUnsorted(TermSet expressions, bool orSearch, int maxWordsEval) {
         // Be careful with changes as some logic doubles with Search() method...
         if (expressions.Terms.Length == 0) return [];
         List<HashSet<int>> results = [];
@@ -77,9 +77,9 @@ public class CharArrayTrie : IDisposable {
             if (word.Length > 0) {
                 var variations = new List<char[]>() { word.ToArray() };
                 if (expression.Infix && _infixTrie != null) variations.AddRange(_infixTrie.Retrieve(word));
-                if (expression.Fuzzy) variations.AddRange(fuzzyVariations(expression.Word, int.MaxValue));
+                if (expression.Fuzzy) variations.AddRange(fuzzyVariations(expression.Word, maxWordsEval));
                 foreach (var w in variations) {
-                    foreach (var hits in expression.Prefix ? _trie.SearchPrefix(w, int.MaxValue) : _trie.SearchExact(w)) {
+                    foreach (var hits in expression.Prefix ? _trie.SearchPrefix(w, maxWordsEval) : _trie.SearchExact(w)) {
                         if (hits == null) throw new NullReferenceException();
                         foreach (var wordHit in hits.Values) {
                             ids.Add(wordHit.NodeId);

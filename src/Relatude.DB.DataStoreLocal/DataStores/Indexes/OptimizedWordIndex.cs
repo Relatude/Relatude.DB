@@ -14,7 +14,7 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
     public void RegisterAddDuringStateLoad(int id, object value, long timestampId) => _o.RegisterAddDuringStateLoad(id, value, timestampId);
     public void RegisterRemoveDuringStateLoad(int id, object value, long timestampId) => _o.RegisterRemoveDuringStateLoad(id, value, timestampId);
 
-    public IdSet SearchForIdSetUnranked(TermSet search, bool orSearch) { _o.Dequeue(); return _i.SearchForIdSetUnranked(search, orSearch); }
+    public IdSet SearchForIdSetUnranked(TermSet search, bool orSearch, int maxWordsEval) { _o.Dequeue(); return _i.SearchForIdSetUnranked(search, orSearch, maxWordsEval); }
     public List<RawSearchHit> SearchForRankedHitData(TermSet value, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, bool orSearch, out int totalHits) {
         _o.Dequeue();
         return _i.SearchForRankedHitData(value, pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHits);

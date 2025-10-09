@@ -146,12 +146,12 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
     public QueryOfFacets<TNode, TInclude> Facets() {
         return new QueryOfFacets<TNode, TInclude>(this);
     }
-    public IQueryOfNodes<TNode, TInclude> WhereSearch(string? text, double? semanticRatio = null) {
-        _q.WhereSearch(text, semanticRatio);
+    public IQueryOfNodes<TNode, TInclude> WhereSearch(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null) {
+        _q.WhereSearch(text, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluatedWhenFuzzy);
         return this;
     }
-    public QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null) {
-        _q.Search(text, semanticRatio);
+    public QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null, int? maxHitsEvaluatedBeforeRanked = null) {
+        _q.Search(text, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluatedWhenFuzzy, maxHitsEvaluatedBeforeRanked);
         return new QueryOfSearch<TNode, TInclude>(this);
     }
 

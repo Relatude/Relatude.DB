@@ -81,7 +81,7 @@ public class WordIndexLucene : IPersistentWordIndex {
     public int GetQueuedTaskCount() => 0;
     public void ReadState(IReadStream stream) { }
     public void SaveState(IAppendStream stream) { }
-    public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch) {
+    public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
             var queryParser = new QueryParser(_version, "value", _analyzer);

@@ -128,16 +128,16 @@ internal class StringProperty : Property, IPropertyContainsValue {
         }
         return null;
     }
-    public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, DataStoreLocal db) {
+    public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength);
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
-            var wordHits = WordIndex == null ? IdSet.Empty : WordIndex.SearchForIdSetUnranked(textSearches, orSearch);
+            var wordHits = WordIndex == null ? IdSet.Empty : WordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
             var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
             return _sets.Union(wordHits, sematicHits);
         } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
             if (WordIndex == null) throw new NullReferenceException(nameof(WordIndex));
-            return WordIndex.SearchForIdSetUnranked(textSearches, orSearch);
+            return WordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
         } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
             if (semanticIndex == null) throw new NullReferenceException(nameof(SemanticIndex));
             return semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);

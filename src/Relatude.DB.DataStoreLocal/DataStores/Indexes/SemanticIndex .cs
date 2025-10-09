@@ -9,13 +9,11 @@ namespace Relatude.DB.DataStores.Indexes;
 internal class SemanticIndex : IIndex {
     readonly IVectorIndex _index;
     readonly IAIProvider _ai;
-    readonly float defaultMinimumVectorSimilarity = 0.0f;
     readonly SetRegister _register;
     long _searchIndexStateId;
     readonly DataStoreLocal _db;
     public SemanticIndex(SetRegister sets, string uniqueKey, IAIProvider ai, DataStoreLocal db) {
         _register = sets;
-        defaultMinimumVectorSimilarity = (float)ai.Settings.DefaultMinimumSimilarity;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
@@ -32,7 +30,6 @@ internal class SemanticIndex : IIndex {
         value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         List<VectorHit> vectorHits;
-        minimumVectorSimilarity = minimumVectorSimilarity > 0 ? minimumVectorSimilarity : defaultMinimumVectorSimilarity;
         vectorHits = _index.Search(vector, 0, maxHits, minimumVectorSimilarity);
         List<RawSearchHit> result = new(vectorHits.Count);
         foreach (var hit in vectorHits) {
@@ -48,7 +45,6 @@ internal class SemanticIndex : IIndex {
         return cosineSimilarity;
     }
     public IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity) {
-        minimumVectorSimilarity = minimumVectorSimilarity > 0 ? minimumVectorSimilarity : defaultMinimumVectorSimilarity;
         value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();        
         return _register.SearchSemantic(_searchIndexStateId, value, minimumVectorSimilarity, () => {

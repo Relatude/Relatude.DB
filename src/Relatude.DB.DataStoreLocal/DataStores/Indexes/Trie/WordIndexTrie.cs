@@ -18,8 +18,8 @@ internal class WordIndexTrie : IWordIndex {
     void newSetState() {
         _searchIndexStateId = SetRegister.NewStateId();
     }
-    public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch) {
-        return _register.SearchForIdSetUnranked(_searchIndexStateId, value, orSearch, () => _trie.SearchIdsUnsorted(value, orSearch));
+    public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
+        return _register.SearchForIdSetUnranked(_searchIndexStateId, value, orSearch, () => _trie.SearchIdsUnsorted(value, orSearch, maxWordsEval));
     }
     public void Add(int nodeId, object value) {
 #if DEBUG
