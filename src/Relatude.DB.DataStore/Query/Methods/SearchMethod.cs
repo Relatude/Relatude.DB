@@ -6,11 +6,13 @@ public class SearchMethod : IExpression {
     readonly IExpression _input;
     readonly string _searchText;
     readonly double? _ratioSemantic = null;
-    int _pageIndex = 0;
-    int _pageSize = 0;
+    readonly float? _minimumVectorSimilarity = null;
+    readonly bool? _orSearch = null;
     readonly int _maxHitsEvaluated;
     readonly int _maxWordVariations;
-    public SearchMethod(IExpression input, string searchText, double? ratioSemantic, int maxHitsEvaluated, int maxWordVariations) {
+    int _pageIndex = 0;
+    int _pageSize = 0;
+    public SearchMethod(IExpression input, string searchText, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int maxHitsEvaluated, int maxWordVariations) {
         _input = input;
         _ratioSemantic = ratioSemantic;
         _searchText = searchText;
@@ -23,7 +25,7 @@ public class SearchMethod : IExpression {
         if (_input.Evaluate(vars) is not ISearchCollection searchCollection)
             throw new Exception("Search method can only be used on a collection that implements ISearchCollection");
         Guid searchProperty = NodeConstants.SystemTextIndexPropertyId;
-        return searchCollection.Search(_searchText, searchProperty, _ratioSemantic, _pageIndex, _pageSize, _maxHitsEvaluated, _maxWordVariations);
+        return searchCollection.Search(_searchText, searchProperty, _ratioSemantic, _minimumVectorSimilarity, _orSearch, _pageIndex, _pageSize, _maxHitsEvaluated, _maxWordVariations);
     }
     internal void SetPaging(int pageIndex, int pageSize) {
         _pageIndex = pageIndex;

@@ -5,7 +5,7 @@ namespace Benchmark.LiteDB;
 public class LiteDBTester : ITester {
     public string Name => "LiteDB";
     string _path = null!;
-    LiteDatabase _db;
+    LiteDatabase _db = null!;
     ILiteCollection<TestUser> _usersCollection = null!;
     ILiteCollection<TestCompany> _companiesCollection = null!;
     ILiteCollection<TestDocument> _documentsCollection = null!;

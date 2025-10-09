@@ -42,15 +42,15 @@ public interface ISearchQueryResultData : IIncludeBranches {
     int PageIndexUsed { get; }
     int? PageSizeUsed { get; }
     string Search { get; }
-    int TotalCount { get; }    
+    int TotalCount { get; }
 }
 public interface IFacetSource : IStoreNodeDataCollection {
     Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize);
     Datamodel Datamodel { get; }
 }
 public interface ISearchCollection : IStoreNodeDataCollection {
-    ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated);
-    IStoreNodeDataCollection FilterBySearch(string text, Guid propertyId, double? ratioSemantic);
+    ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated);
+    IStoreNodeDataCollection FilterBySearch(string text, Guid propertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int maxHitsEvaluated, int maxWordVariations);
 }
 public interface IStoreNodeData {
     IDataStore Store { get; }
