@@ -57,7 +57,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         long lastTimestamp;
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
-        _noPrimitiveActionsInLogThatCanBeTruncated = 0; 
+        _noPrimitiveActionsInLogThatCanBeTruncated = 0;
         var sw = Stopwatch.StartNew();
 
         if (PersistedIndexStore != null) {
@@ -98,7 +98,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 lastTimestamp = stream.ReadVerifiedLong();
                 positionOfLastTransactionSavedToStateFile = stream.ReadVerifiedLong();
                 var storedModelHash = stream.ReadGuid();
-                if (storedModelHash != currentModelHash) 
+                if (storedModelHash != currentModelHash)
                     throw new Exception("Datamodel have changed, checksum does not match.");
                 var logFileSize = stream.ReadVerifiedLong();
                 var fileId = stream.ReadGuid();
@@ -136,7 +136,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
         updateActivity(activityId, "Reading log file", 0);
         sw.Restart();
-        var lastProgress = 0;
+        var lastProgress = 0D;
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
@@ -155,17 +155,21 @@ public sealed partial class DataStoreLocal : IDataStore {
                         var estimatedByteProgressInTransaction = sizeOfCurrentTransaction * remainingInTrans;
                         var readBytes = logReader.Position - estimatedByteProgressInTransaction;
                         var totalBytes = logReader.FileSize;
-                        var estimatedTotalProgress = (int)((readBytes) * 100 / totalBytes);
+                        var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
+                        var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 3000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
+                        var estimatedTotalProgress = readBytes * 100D / totalBytes;
                         var deltaBytes = readBytes - lastBytesRead;
                         var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
                         var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
                         lastProgress = (int)sw.ElapsedMilliseconds;
-                        var desc = "   - " + estimatedTotalProgress
+                        var desc = "   - " + (int)estimatedTotalProgress
                             + "% - " + readBytes.ToByteString()
                             //+ " (" + totalBytes.ToByteString() + ")"
                             + " - " + bytesPerSecond.ToByteString() + "/s"
                             //+ " - " + transactionCount.To1000N() + " transactions"
-                            + " - " + actionCount.To1000N() + " actions";
+                            + " - " + actionCount.To1000N() + " actions"
+                            + remaining;
+                        //    0-100% - 1.2GB (4.5GB) - 12MB/s - 2345 transactions - 34567 actions - 1m23s remaining
                         LogInfo(desc);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
                         updateActivity(activityId, desc.Trim(), progressBar);

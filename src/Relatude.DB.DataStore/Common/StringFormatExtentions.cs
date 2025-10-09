@@ -15,5 +15,13 @@ public static class StringFormatExtentions {
     public static string To1000N(this int n) => n.ToString("N0");
     public static string To1000N(this double n) => n.ToString("N0");
     public static string To1000N(this float n) => n.ToString("N0");
+    public static string ToTimeString(this TimeSpan timeSpan) {
+        if (timeSpan.TotalHours >= 1) {
+            return string.Format("{0:D2}:{1:D2}:{2:D2}", (int)timeSpan.TotalHours, timeSpan.Minutes, timeSpan.Seconds);
+        } else {
+            return string.Format("{0:D2}:{1:D2}", timeSpan.Minutes, timeSpan.Seconds);
+        }
+    }
+
 }
 
