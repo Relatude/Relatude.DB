@@ -48,48 +48,64 @@ public class AzureAiProvider : IAIProvider {
         return r.Value.Content.FirstOrDefault()?.Text ?? "";
     }
     class resultSet(string text) {
-        public ulong Hash = text.XXH64Hash();
-        public string Text = text;
-        public float[]? Embedding;
+        public readonly ulong Hash = text.XXH64Hash(); // hash of the text
+        public readonly string Text = text;
+        public float[]? Embedding; // null if not in cache
     }
     public async Task<List<float[]>> GetEmbeddingsAsync(IEnumerable<string> paragraphs) {
 
-        if (Settings.ApiKey == "DUMMY") {
-            LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.");
-            var createDummy = (string v) => {
-                var hash = v.XXH64Hash();
-                if (_cache.TryGet(hash, out var createDummyVector)) return createDummyVector;
-                createDummyVector = new float[1536];
-                for (int i = 0; i < createDummyVector.Length; i++) {
-                    createDummyVector[i] = (float)(new Random().NextDouble() * 2 - 1);
-                }
-                _cache.Set(hash, createDummyVector);
-                Thread.Sleep(40);
-                return createDummyVector;
-            };
-            return paragraphs.Select(p => createDummy(p)).ToList();
-        }
+        if (Settings.ApiKey == "DUMMY") return dummyData(paragraphs); // for testing without calling external service
 
-        var valueSet = paragraphs.Select(p => new resultSet(p)).ToList();
-        foreach (var v in valueSet) _cache.TryGet(v.Hash, out v.Embedding);
-        var missing = valueSet.Where(r => r.Embedding == null).Select(v => v.Text).ToList();
+        var valueSet = paragraphs.Select(p => new resultSet(p)).ToArray(); // all values to process
+        List<resultSet> missing = []; // values not in cache
+
+        // check cache for existing embeddings and collect missing:
+        foreach (var v in valueSet) if (!_cache.TryGet(v.Hash, out v.Embedding)) missing.Add(v);
+
         if (missing.Count > 0) {
-            var totalTextLength = missing.Sum(m => m.Length);
+
+            // call external service to get missing embeddings:
             var sw = Stopwatch.StartNew();
-            var clientResult = await _embeddingClient.GenerateEmbeddingsAsync(missing);
+            var rawEmbeddings = await _embeddingClient.GenerateEmbeddingsAsync(missing.Select(m => m.Text));
             sw.Stop();
             LogCallback?.Invoke($"Embedding http request for {missing.Count} items. {sw.ElapsedMilliseconds.To1000N()}ms. ");
-            var result = clientResult.Value.Select(v => v.ToFloats().ToArray()).ToList();
-            var pos = 0;
-            foreach (var v in valueSet) {
-                if (v.Embedding == null) v.Embedding = result[pos++];
+
+            // convert to float[][]:
+            var embeddings = rawEmbeddings.Value.Select(v => v.ToFloats().ToArray()).ToArray();
+
+            // populate results back to missing list: ( this will also set the Embeddings in valueSet since they point to the same object )
+            if (embeddings.Length != missing.Count) throw new Exception("Embedding count mismatch");
+            for (var pos = 0; pos < embeddings.Length; pos++) missing[pos].Embedding = embeddings[pos];
+
+            // validate that all embeddings are present and of correct length:
+            foreach (var m in missing) {
+                if (m.Embedding == null) throw new Exception("Embedding not found after generation");
+                if (m.Embedding.Length != embeddings[0].Length) throw new Exception("Embedding length mismatch");
             }
-            _cache.SetMany(result.Select((r, i) => new Tuple<ulong, float[]>(valueSet[i].Hash, r)));
+
+            // store new embeddings in cache:
+            _cache.SetMany(missing.Select(m => new Tuple<ulong, float[]>(m.Hash, m.Embedding!)));
+
         }
         return valueSet.Select(v => {
             if (v.Embedding == null) throw new Exception("Embedding not found");
             return v.Embedding;
         }).ToList();
+    }
+    List<float[]> dummyData(IEnumerable<string> paragraphs) {
+        LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.");
+        var createDummy = (string v) => {
+            var hash = v.XXH64Hash();
+            if (_cache.TryGet(hash, out var createDummyVector)) return createDummyVector;
+            createDummyVector = new float[1536];
+            for (int i = 0; i < createDummyVector.Length; i++) {
+                createDummyVector[i] = (float)(new Random().NextDouble() * 2 - 1);
+            }
+            _cache.Set(hash, createDummyVector);
+            Thread.Sleep(40);
+            return createDummyVector;
+        };
+        return paragraphs.Select(p => createDummy(p)).ToList();
     }
     public void Dispose() {
         _cache.Dispose();

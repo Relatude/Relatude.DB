@@ -7,6 +7,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
     SqliteConnection _cn = default!;
     string? _localFilePath;
     bool _open = false;
+    string _tableName = "CachedEmbeddings";
     void openIfClosed() {
         lock (_lock) {
             if (_cn != null) return;
@@ -18,7 +19,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             pragma.CommandText = "PRAGMA journal_mode=WAL";
             pragma.ExecuteNonQuery();
             using var command = _cn.CreateCommand();
-            command.CommandText = "CREATE TABLE IF NOT EXISTS Embeddings (Hash TEXT PRIMARY KEY, Embedding BLOB)";
+            command.CommandText = "CREATE TABLE IF NOT EXISTS "+ _tableName + " (Hash TEXT PRIMARY KEY, Embedding BLOB)";
             command.ExecuteNonQuery();
             _open = true;
         }
@@ -30,7 +31,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO Embeddings (Hash, Embedding) VALUES (@Hash, @Embedding)";
+            cmd.CommandText = "INSERT OR REPLACE INTO "+ _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
             cmd.Parameters.AddWithValue("@Hash", hash.ToString());
             cmd.Parameters.AddWithValue("@Embedding", toBytes(embedding));
             cmd.ExecuteNonQuery();
@@ -43,7 +44,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             using var transaction = _cn.BeginTransaction();
             foreach (var value in values) {
                 using var cmd = _cn.CreateCommand();
-                cmd.CommandText = "INSERT OR REPLACE INTO Embeddings (Hash, Embedding) VALUES (@Hash, @Embedding)";
+                cmd.CommandText = "INSERT OR REPLACE INTO "+ _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
                 cmd.Parameters.AddWithValue("@Hash", value.Item1.ToString());
                 cmd.Parameters.AddWithValue("@Embedding", toBytes(value.Item2));
                 cmd.ExecuteNonQuery();
@@ -71,7 +72,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "SELECT Embedding FROM Embeddings WHERE Hash = @Hash";
+            cmd.CommandText = "SELECT Embedding FROM "+ _tableName + " WHERE Hash = @Hash";
             cmd.Parameters.AddWithValue("@Hash", hash.ToString());
             using var reader = cmd.ExecuteReader();
             if (reader.Read()) {
@@ -86,7 +87,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "DELETE FROM Embeddings";
+            cmd.CommandText = "DELETE FROM "+ _tableName + "";
             cmd.ExecuteNonQuery();
         }
     }

@@ -29,7 +29,7 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IQueryOfNodes<TNode, TInclude> WhereRelatesAny<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, IEnumerable<Guid> nodeId);
     IQueryOfNodes<TNode, TInclude> WhereIn<TProperty>(Expression<Func<TNode, TProperty>> property, IEnumerable<TProperty> values);
 
-    QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null);
+    QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, 
     IQueryOfNodes<TNode, TInclude> OrderBy(Expression<Func<TNode, object>> expression, bool descending = false);
     IQueryOfNodes<TNode, TInclude> OrderByDescending(Expression<Func<TNode, object>> expression);
 
