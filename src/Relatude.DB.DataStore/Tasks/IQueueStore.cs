@@ -5,6 +5,7 @@ namespace Relatude.DB.Tasks;
 public interface IQueueStore : IDisposable {
     void Enqueue(IBatch task, ITaskRunner runner);
     IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners);
+    bool AnyPendingOrRunning();
     int CountBatch(BatchState state);
     int CountTasks(BatchState state);
     BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount);

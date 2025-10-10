@@ -3,7 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.IO;
 
 namespace Relatude.DB.Tasks;
-// Not threadsafe
+// Not threadsafe, handled by outer TaskQueue
 public class DefaultQueueStore : IQueueStore {
     IIOProvider? _io;
     readonly bool _persistToDisk;
@@ -119,6 +119,7 @@ public class DefaultQueueStore : IQueueStore {
     }
     public int CountBatch(BatchState state) => _batchesById.Values.Count(b => b.Meta.State == state);
     public int CountTasks(BatchState state) => _batchesById.Values.Where(b => b.Meta.State == state).Sum(b => b.TaskCount);
+    public bool AnyPendingOrRunning() => _batchesById.Values.Any(b => b.Meta.State == BatchState.Pending || b.Meta.State == BatchState.Running);
     public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount) {
         totalCount = 0;
         var batches = _batchesById.Values

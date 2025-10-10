@@ -96,11 +96,15 @@ public class AzureAiProvider : IAIProvider {
         LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.");
         var createDummy = (string v) => {
             var hash = v.XXH64Hash();
+            var rnd = new Random((int)(hash % int.MaxValue)); // seed with hash to always get the same result for the same input
             if (_cache.TryGet(hash, out var createDummyVector)) return createDummyVector;
             createDummyVector = new float[1536];
             for (int i = 0; i < createDummyVector.Length; i++) {
-                createDummyVector[i] = (float)(new Random().NextDouble() * 2 - 1);
+                createDummyVector[i] = (float)(rnd.NextDouble() * 2 - 1);
             }
+            // normalize:
+            var len = Math.Sqrt(createDummyVector.Select(x => x * x).Sum());
+            if (len > 0) for (int j = 0; j < createDummyVector.Length; j++) createDummyVector[j] /= (float)len;
             _cache.Set(hash, createDummyVector);
             Thread.Sleep(40);
             return createDummyVector;

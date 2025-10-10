@@ -2,7 +2,7 @@
 using System.Text;
 using Relatude.DB.Common;
 namespace Relatude.DB.Tasks;
-// Not threadsafe
+// Not threadsafe, handled by outer TaskQueue
 public class SqliteQueueStore : IQueueStore {
     readonly SqliteConnection _connection;
     int? _cachedNoPendingTasks = null;
@@ -161,7 +161,16 @@ public class SqliteQueueStore : IQueueStore {
         if (state == BatchState.Pending) _cachedNoPendingTasks = cnt;
         return cnt;
     }
-    string sqlSafeString(string value) => $"'{value.Replace("'", "''")}'"; // simple SQL injection prevention  
+    public bool AnyPendingOrRunning() {
+        if (_cachedNoPendingTasks.HasValue) return _cachedNoPendingTasks.Value > 0;
+        var cnt = (int)executeScalar<long>("SELECT COUNT(*) FROM tasks WHERE state IN (@state1, @state2)",
+            P("@state1", (int)BatchState.Pending),
+            P("@state2", (int)BatchState.Running));
+        _cachedNoPendingTasks = cnt;
+        return cnt > 0;
+    }
+    // simple SQL injection prevention
+    string sqlSafeString(string value) => $"'{value.Replace("'", "''")}'";
     public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount) {
         var stateList = string.Join(",", states.Select(s => (int)s));
         var typeIdList = string.Join(",", typeIds.Select(sqlSafeString));

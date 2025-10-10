@@ -32,6 +32,12 @@ public class TaskQueue : IDisposable {
             return _queue.CountBatch(state);
         }
     }
+    public bool AnyPendingOrRunning() {
+        lock (_lock) {
+            emptyBuffer();
+            return _queue.AnyPendingOrRunning();
+        }
+    }
     public int CountTasks(BatchState state) {
         lock (_lock) {
             emptyBuffer();

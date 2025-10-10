@@ -17,6 +17,25 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     public void Set(int nodeId, float[] vector) => _index[nodeId] = vector;
     public void Clear(int nodeId) => _index.Remove(nodeId);
 
+
+    public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
+#if DEBUG
+        var result1 = SearchOld(u, skip, take, minCosineSimilarity);
+        var result2 = SearchNew(u, skip, take, minCosineSimilarity);
+        if (result1.Count != result2.Count) throw new Exception("Search result count mismatch");
+        foreach (var (r1, r2) in result1.Zip(result2)) {
+            if (r1.NodeId != r2.NodeId) throw new Exception("Search result NodeId mismatch");
+            var denominator = Math.Abs(r1.Similarity) + Math.Abs(r2.Similarity);
+            if (denominator < 0.00001f) continue; // both are zero
+            var percentageDiff = Math.Abs(r1.Similarity - r2.Similarity) / (denominator / 2);
+            if (percentageDiff > 0.0001f) throw new Exception("Search result Similarity mismatch");
+        }
+        return result1;
+#else
+        return SearchNew(u, skip, take, minCosineSimilarity);
+#endif
+    }
+
     #region Old search (without SIMD and top-k optimization)
     public List<VectorHit> SearchOld(float[] u, int skip, int take, float minCosineSimilarity) {
         var hits = multiThreaded ? multi(u, minCosineSimilarity) : single(u, minCosineSimilarity);
@@ -48,7 +67,8 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     }
     #endregion
 
-    public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
+    #region New search with SIMD and top-k optimization
+    List<VectorHit> SearchNew(float[] u, int skip, int take, float minCosineSimilarity) {
         int k = Math.Max(0, skip) + Math.Max(0, take);
         if (k == 0) k = 32;
 
@@ -102,8 +122,9 @@ public class FlatMemoryVectorIndex : IVectorIndex {
             return tmp.Skip(skip).Take(take).Select(x => new VectorHit(x.id, x.sim)).ToList();
         }
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]    
-    static void topKPush( 
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void topKPush(
         PriorityQueue<(int id, float sim), float> pq,
         (int id, float sim) item,
         float priority,
@@ -135,7 +156,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         }
         return sum;
     }
-
+    #endregion
 
     public void ReadState(IReadStream stream) {
         var nodeCount = stream.ReadVerifiedInt();

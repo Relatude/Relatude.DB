@@ -87,6 +87,17 @@ public interface IDataStore : IDisposable {
 }
 
 public static class IDataStoreExtensions {
+    public static bool IsTaskQueueBusy(this IDataStore store) {
+        if (store.State != DataStoreState.Open) throw new InvalidOperationException("DataStore is not open");
+        if(store.TaskQueue.CountTasks(BatchState.Pending) > 0) return true;
+        if (store.TaskQueue.CountTasks(BatchState.Running) > 0) return true;
+        if (store.TaskQueuePersisted != null) {
+            if (store.TaskQueuePersisted.CountTasks(BatchState.Pending) > 0) return true;
+            if (store.TaskQueuePersisted.CountTasks(BatchState.Running) > 0) return true;
+        }
+        return false;
+    }
+
     public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
         if (destination == null) destination = store.IOBackup;
         var fileKey = store.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);

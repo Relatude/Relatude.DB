@@ -7,7 +7,7 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions;
 
 
-internal static class UtilsText {
+public static class UtilsText {
     const int _callCountLimit = 1000; // max number of total contents per indexing
     const int _recursiveLevelLimit = 3; // max number recursive levels for relation properties
 
