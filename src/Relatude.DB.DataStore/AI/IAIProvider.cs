@@ -18,7 +18,7 @@ public class AIProviderSettings {
     public double DefaultSemanticRatio { get; set; } = 0.5;
     public double DefaultMinimumSimilarity { get; set; } = 0.17;
     public AIProviderCacheType CacheType { get; set; } = AIProviderCacheType.SqlLite; // defaults to SqlLite!
-    public int MaxCharsInBatch{ get; set; } = 50000;
-    public int MaxCountInBatch { get; set; } = 500;
-    public int MaxCharsOfEach { get; set; } = 5000;
+    public int MaxCharsInBatch{ get; set; } = 50000; // Maximum total length of all documents or search strings in a single batch
+    public int MaxCountInBatch { get; set; } = 500; // Maximum number of documents or search strings in a single batch
+    public int MaxCharsOfEach { get; set; } = 20000; // Maximum length of a document or search string to be embedded
 }

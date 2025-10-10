@@ -25,9 +25,7 @@ internal class SemanticIndex : IIndex {
     void newSetState() {
         _searchIndexStateId = SetRegister.NewStateId();
     }
-    string ensureMaxLength(string value) => value.Length > _ai.Settings.MaxCharsOfEach ? value[.._ai.Settings.MaxCharsOfEach] : value;
     internal List<RawSearchHit> SearchForHitData(string value, int maxHits, float minimumVectorSimilarity) {
-        value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         List<VectorHit> vectorHits;
         vectorHits = _index.Search(vector, 0, maxHits, minimumVectorSimilarity);
@@ -45,7 +43,6 @@ internal class SemanticIndex : IIndex {
         return cosineSimilarity;
     }
     public IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity) {
-        value = ensureMaxLength(value);
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();        
         return _register.SearchSemantic(_searchIndexStateId, value, minimumVectorSimilarity, () => {
             List<VectorHit> result;
@@ -82,14 +79,10 @@ internal class SemanticIndex : IIndex {
     public void ClearCache() {
     }
     internal string GetSample(string search, string sourceText) {
-        search = ensureMaxLength(search);
-        sourceText = ensureMaxLength(sourceText);
         // more to be done later here....
         return sourceText;
     }
     internal string GetContextText(string search, string sourceText) {
-        search = ensureMaxLength(search);
-        sourceText = ensureMaxLength(sourceText);
         // more to be done later here....
         return sourceText;
     }

@@ -67,7 +67,7 @@ public class WordIndexSqlLite : IWordIndex {
                 using var reader = cmd.ExecuteReader();
                 var result = new List<int>();
                 while (reader.Read()) result.Add(reader.GetInt32(0));
-                Console.WriteLine("Search '" + value + "' with " + result.Count + " hit(s) took " + sw.ElapsedMilliseconds + " ms");
+                // Console.WriteLine("Search '" + value + "' with " + result.Count + " hit(s) took " + sw.ElapsedMilliseconds + " ms");
                 return result;
             } catch {
                 return [];

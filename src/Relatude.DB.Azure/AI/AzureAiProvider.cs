@@ -52,8 +52,9 @@ public class AzureAiProvider : IAIProvider {
         public readonly string Text = text;
         public float[]? Embedding; // null if not in cache
     }
+    string ensureMaxLength(string value) => value.Length > Settings.MaxCharsOfEach ? value[..Settings.MaxCharsOfEach] : value;
     public async Task<List<float[]>> GetEmbeddingsAsync(IEnumerable<string> paragraphs) {
-
+        paragraphs = paragraphs.Select(ensureMaxLength); // ensure max length of each
         if (Settings.ApiKey == "DUMMY") return dummyData(paragraphs); // for testing without calling external service
 
         var valueSet = paragraphs.Select(p => new resultSet(p)).ToArray(); // all values to process
