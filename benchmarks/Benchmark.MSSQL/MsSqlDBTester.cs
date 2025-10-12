@@ -8,7 +8,7 @@ public class MsSqlDBTester : ITester {
     SqlConnection _connection;
     string _cnnStr = null!;
     public string Name => "MsSql";
-    public void Initalize(string dataFolderPath) {
+    public void Initalize(string dataFolderPath, TestOptions options) {
         _dataFolderPath = dataFolderPath;
         var dbFileName = "mssql.db";
         if (!Directory.Exists(_dataFolderPath)) Directory.CreateDirectory(_dataFolderPath);
@@ -108,7 +108,7 @@ public class MsSqlDBTester : ITester {
         }
         transaction.Commit();
     }
-    public void DeleteUsers(int age) {
+    public void DeleteUsersOfAge(int age) {
         throw new NotImplementedException();
     }
     public TestUser[] GetAllUsers() {
@@ -130,7 +130,7 @@ public class MsSqlDBTester : ITester {
         cmd.Parameters.AddWithValue("@age", newAge);
         cmd.ExecuteNonQuery();
     }
-    public TestUser[] GetUserAtAge(int age) {
+    public TestUser[] GetUsersAtAge(int age) {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
         cmd.Parameters.AddWithValue("@age", age);

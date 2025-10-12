@@ -107,7 +107,7 @@ public class AzureAiProvider : IAIProvider {
             var len = Math.Sqrt(createDummyVector.Select(x => x * x).Sum());
             if (len > 0) for (int j = 0; j < createDummyVector.Length; j++) createDummyVector[j] /= (float)len;
             _cache.Set(hash, createDummyVector);
-            Thread.Sleep(40);
+            //Thread.Sleep(40);
             return createDummyVector;
         };
         return paragraphs.Select(p => createDummy(p)).ToList();

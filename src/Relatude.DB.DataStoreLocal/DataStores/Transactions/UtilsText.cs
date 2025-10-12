@@ -94,7 +94,6 @@ public static class UtilsText {
                 }
             }
         }
-        Console.WriteLine($"Semantic extract for node {node.Id}:" + sb.ToString());
         return sb.ToString();
     }
 }

@@ -23,7 +23,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         await fileStore.DeleteAsync(fileValue);
         var t = new TransactionData();
         t.UpdateProperty(nodeId, propertyId, FileValue.Empty);
-        execute_withTransformOption(t, false, true, out _);
+        execute_outer(t, false, true, out _);
     }
     public async Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName) {
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
@@ -34,7 +34,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileValue = await fileStore.InsertAsync(inputStream, fileName);
         var t = new TransactionData();
         t.UpdateProperty(nodeId, propertyId, fileValue);
-        execute_withTransformOption(t, false, true, out _);
+        execute_outer(t, false, true, out _);
     }
     public async Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName) {
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
@@ -44,7 +44,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileValue = await fileStore.InsertAsync(source, fileName);
         var t = new TransactionData();
         t.UpdateProperty(nodeId, propertyId, fileValue);
-        execute_withTransformOption(t, false, true, out _);
+        execute_outer(t, false, true, out _);
     }
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {
         var node = Get(nodeId);

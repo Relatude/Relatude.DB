@@ -292,15 +292,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
             sw.Stop();
             var durationMs = (double)sw.Elapsed.Ticks / TimeSpan.TicksPerMillisecond;
-            var rows = 0;
-            if (result is ICollectionData t) {
+            var resultCount = 1;
+            if (result is ICollectionBase t) {
                 t.DurationMs = durationMs;
-                rows = t.Count;
-            } else if (result is SearchQueryResultData tr) {
-                tr.DurationMs = durationMs;
-                rows = tr.Count;
+                resultCount = t.Count;
             }
-            if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, durationMs, rows, scope.Metrics);
+            if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, sw.Elapsed, resultCount, scope.Metrics);
             Interlocked.Increment(ref _noQueriesSinceClearCache);
             return result;
         } finally {

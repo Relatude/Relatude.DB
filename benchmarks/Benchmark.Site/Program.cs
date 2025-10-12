@@ -5,116 +5,51 @@ using Benchmark.LiteDB;
 using Benchmark.MSSql;
 using Benchmark.RavenDB;
 using Benchmark.Relatude.DB;
+using Benchmark.Site.Tester;
 using Benchmark.SQLite;
 using Benchmark.Tester;
 using Relatude.DB.Common;
 using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 using System.Text;
-
+using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
-app.MapGet("/", test);
-
-app.Run();
-string deCamelCase(string camel) {
-    if (string.IsNullOrEmpty(camel)) return camel;
-    var sb = new StringBuilder();
-    for (int i = 0; i < camel.Length; i++) {
-        var c = camel[i];
-        if (char.IsUpper(c) && i > 0) {
-            sb.Append(' ');
-            sb.Append(char.ToLower(c));
-        } else {
-            sb.Append(c);
-        }
-    }
-    return sb.ToString();
-}
-string test(HttpContext ctx) {
-
-    var multiplier = 10;
+app.MapPost("/start", () => {
+    var multiplier = 500;
     var options = new TestOptions();
-    options.UserCount = 100 * multiplier;
+    options.FlushDiskOnEveryOperation = false;
+    options.UserCount = 1000 * multiplier;
     options.CompanyCount = 100 * multiplier;
     options.DocumentCount = 1000 * multiplier;
+    options.Duration = TimeSpan.FromMilliseconds(1000);
     var testData = Generator.Generate(options);
+    Status.Current.Running = true;
 
     ITester[] testers = [
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
-        //new LiteDBTester(),
+        new LiteDBTester(),
         new SQLiteDBTester(),
         new RelatudeDBTester(),
         ];
 
-    List<TestReport> reports = [];
-
+    Status.Current.Initialize(testers.Select(t => t.Name).ToArray(), TestRunner.GetTestNames());
     foreach (var tester in testers) {
-        reports.Add(TestRunner.Run(tester, options, testData));
+        TestRunner.Run(tester, options, testData, Status.Current);
     }
+    Status.Current.Running = false;
+});
 
-    var testNames = reports.SelectMany(r => r.Results).Select(r => r.TestName).Distinct();
-    var sb = new StringBuilder();
-    sb.AppendLine("<!DOCTYPE html>");
-    sb.AppendLine("<html lang=\"nb-no\" dir=\"ltr\" >");
-    sb.AppendLine("<body>");
-    sb.AppendLine("<h1>Benchmark results</h1>");
-    sb.AppendLine("<table style=\"width:100%\">");
-    sb.AppendLine("<tr>");
-    sb.AppendLine("<td></td>");
-    sb.AppendLine("<td>cnt</td>");
-    foreach (var report in reports) {
-        sb.AppendLine("<td style=\"text-align:right\">" + report.Name.ToUpper() + "</td>");
+app.MapGet("/status", async (HttpContext ctx) => {
+    ctx.Response.Headers.ContentType = "text/event-stream";
+    while (!ctx.RequestAborted.IsCancellationRequested) {
+        var json = JsonSerializer.Serialize(Status.Current, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        await ctx.Response.WriteAsync($"data: " + json + "\n\n");
+        await ctx.Response.Body.FlushAsync();
+        await Task.Delay(200);
     }
-    sb.AppendLine("</tr>");
-    foreach (var testName in testNames) {
-        sb.AppendLine("<tr><td>&nbsp;</td></tr>");
-        sb.AppendLine("<tr>");
-        sb.AppendLine("<td >" + deCamelCase(testName) + "</td> ");
-        sb.AppendLine("<td >" + reports.First().Results.Where(r => r.TestName == testName).First().Operations.To1000N() + "</td> ");
-        var maxOperationsPerSec = reports.Max(r => r.Results.Where(res => res.TestName == testName).First().OperationsPerSecond);
-        foreach (var report in reports) {
-
-            var result = report.Results.Where(r => r.TestName == testName).First();
-            var resultPercentage = Math.Round(100 * result.OperationsPerSecond / maxOperationsPerSec);
-            var color = "hsl(" + (resultPercentage) + ", 100%, 85%)";
-            sb.AppendLine("<td style=\"text-align:center; background-color:" + color + "\">");
-            sb.AppendLine(Math.Round(result.Duration.TotalMilliseconds).To1000N() + "ms");
-            sb.AppendLine("<br/>"+ Math.Round(result.OperationsPerSecond) + "op/sec");
-            //sb.AppendLine(Math.Round(resultPercentage) + "%");
-            sb.AppendLine("</td>");
-        }
-        //sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;ms</td> ");
-        sb.AppendLine("</tr>");
-
-        //sb.AppendLine("<tr>");
-        //sb.AppendLine("<td ></td> ");
-        //sb.AppendLine("<td ></td> ");
-        //foreach (var report in reports) {
-        //    var result = report.Results.Where(r => r.TestName == testName).First();
-        //    sb.AppendLine("<td style=\"text-align:right\">" + Math.Round(result.OperationsPerSecond).To1000N() + "</td>");
-        //}
-        //sb.AppendLine("<td>&nbsp;&nbsp;&nbsp;per/sec</td> ");
-        //sb.AppendLine("</tr>");
-    }
-    sb.AppendLine("<tr><td>&nbsp;</td></tr>");
-    sb.AppendLine("<tr>");
-    sb.AppendLine("<td>Total</td><td></td> ");
-    foreach (var report in reports) {
-        sb.AppendLine("<td style=\"text-align:right\">" + report.Results.Sum(r => r.Duration.TotalMilliseconds).To1000N() + "ms</td>");
-    }
-    sb.AppendLine("</tr>");
-    sb.AppendLine("<tr><td>&nbsp;</td></tr>");
-    sb.AppendLine("<tr>");
-    sb.AppendLine("<td>Size</td><td></td> ");
-    foreach (var report in reports) {
-        sb.AppendLine("<td style=\"text-align:right\">" + report.TotalFileSize.ToByteString() + "</td>");
-    }
-    sb.AppendLine("</tr>");
-    sb.AppendLine("</table>");
-    sb.AppendLine("</body>");
-    sb.AppendLine("</html>");
-    ctx.Response.Headers["Content-Type"] = "text/html; charset=utf-8";
-    return sb.ToString();
-}
+});
+app.Run();

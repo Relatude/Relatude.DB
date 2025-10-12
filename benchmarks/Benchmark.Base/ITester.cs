@@ -3,7 +3,7 @@
 namespace Benchmark.Base;
 
 public interface ITester {
-    void Initalize(string dataFolderPath);
+    void Initalize(string dataFolderPath, TestOptions options);
     string Name { get; }
     void CreateSchema();
     void Open();
@@ -18,7 +18,14 @@ public interface ITester {
     TestUser[] GetAllUsers();
     int CountUsersOfAge(int age);
     void UpdateUserAge(Guid userId, int newAge);
-    TestUser[] GetUserAtAge(int age);
-    void DeleteUsers(int age);
+    TestUser[] GetUsersAtAge(int age);
+    void DeleteUsersOfAge(int age);
     void Close();
+}
+
+public static class ITesterExtensions {
+    public static void UpdateAndGetUsers(this ITester tester, Guid userId, int age) {
+        tester.UpdateUserAge(userId, age + 1);
+        tester.GetUsersAtAge(age);
+    }
 }

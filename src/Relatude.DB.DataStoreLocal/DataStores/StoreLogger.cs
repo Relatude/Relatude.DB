@@ -212,12 +212,12 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _logStore?.Record(_systemLogKey, entry);
         _logStore?.FlushToDiskNow(_systemLogKey);
     }
-    public void RecordQuery(string query, double durationMs, int resultCount, Metrics metrics) {
+    public void RecordQuery(string query, TimeSpan duration, int resultCount, Metrics metrics) {
         if (!EnableSystemQueryLog) return;
-        if (durationMs < MinDurationMsBeforeLogging) return;
+        if (duration.TotalMilliseconds < MinDurationMsBeforeLogging) return;
         LogEntry entry = new();
         entry.Values.Add("query", query);
-        entry.Values.Add("duration", durationMs);
+        entry.Values.Add("duration", duration.TotalMilliseconds);
         entry.Values.Add("resultCount", resultCount);
         entry.Values.Add("nodeCount", metrics.NodeCount);
         entry.Values.Add("uniqueNodeCount", metrics.UniqueNodeCount);
@@ -225,11 +225,11 @@ public class StoreLogger : IDisposable, IStoreLogger {
         entry.Values.Add("nodesReadFromDisk", metrics.NodesReadFromDisk);
         _logStore?.Record(_queryLogKey, entry);
     }
-    public void RecordTransaction(long transactionId, double duration, int actionCount, int primitiveActionCount, bool diskFlush) {
+    public void RecordTransaction(long transactionId, TimeSpan duration, int actionCount, int primitiveActionCount, bool diskFlush) {
         if (!EnableTransactionLog) return;
         LogEntry entry = new();
         entry.Values.Add("transactionId", transactionId);
-        entry.Values.Add("duration", duration);
+        entry.Values.Add("duration", duration.TotalMilliseconds);
         entry.Values.Add("actionCount", actionCount);
         entry.Values.Add("primitiveActionCount", primitiveActionCount);
         entry.Values.Add("diskFlush", diskFlush ? "Yes" : "-");

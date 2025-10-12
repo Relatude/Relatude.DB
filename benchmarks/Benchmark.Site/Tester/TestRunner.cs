@@ -1,92 +1,123 @@
 ﻿using Benchmark.Base;
 using Benchmark.Base.Models;
+using Benchmark.Site.Tester;
 using Benchmark.Tester;
 using System.Diagnostics;
 namespace Benchmark;
 internal class TestRunner {
-    public static TestReport Run(ITester tester, TestOptions options, TestData testData) {
+    public static string[] GetTestNames() {
+        return [
+            nameof(ITester.Open),
+            nameof(ITester.InsertUsers),
+            nameof(ITester.InsertCompanies),
+            nameof(ITester.InsertDocuments),
+            nameof(ITester.RelateDocumentsToUsers),
+            nameof(ITester.RelateUsersToCompanies),
+            nameof(ITester.GetAllUsers),
+            nameof(ITester.GetUserById),
+            nameof(ITester.CountUsersOfAge),
+            nameof(ITester.DeleteUsersOfAge),
+            nameof(ITester.UpdateUserAge),
+            nameof(ITesterExtensions.UpdateAndGetUsers),
+            nameof(ITester.Close)
+        ];
+    }
+    public static void Run(ITester tester, TestOptions options, TestData testData, Status status) {
+        
         var dataPath = Path.Combine(options.DataFileRootDefault, tester.Name);
-        tester.Initalize(dataPath);
-        var report = new TestReport(tester.Name);
-        if (options.RecreateDatabase) {
-            tester.DeleteDataFiles();
-        }
-        var sw = new Stopwatch();
+        
+        status.Start(tester.Name, nameof(tester.Open));
+        tester.Initalize(dataPath, options);
+        if (options.RecreateDatabase) tester.DeleteDataFiles();
         tester.Open();
+        status.Complete(1);
+
         if (options.RecreateDatabase) {
 
             tester.CreateSchema();
 
-            sw.Restart();
+            status.Start(tester.Name, nameof(tester.InsertUsers));
             tester.InsertUsers(testData.Users);
-            sw.Stop();
-            report.Results.Add(new(nameof(tester.InsertUsers), sw.Elapsed, testData.Users.Length));
+            status.Complete(testData.Users.Length);
 
-            sw.Restart();
+            status.Start(tester.Name, nameof(tester.InsertCompanies));
             tester.InsertCompanies(testData.Companies);
-            sw.Stop();
-            report.Results.Add(new(nameof(tester.InsertCompanies), sw.Elapsed, testData.Companies.Length));
+            status.Complete(testData.Companies.Length);
 
-            sw.Restart();
+            status.Start(tester.Name, nameof(tester.InsertDocuments));
             tester.InsertDocuments(testData.Documents);
-            sw.Stop();
-            report.Results.Add(new(nameof(tester.InsertDocuments), sw.Elapsed, testData.Documents.Length));
+            status.Complete(testData.Documents.Length);
 
-            sw.Restart();
+            status.Start(tester.Name, nameof(tester.RelateDocumentsToUsers));
             tester.RelateDocumentsToUsers(testData.DocsToUsers);
-            sw.Stop();
-            report.Results.Add(new(nameof(tester.RelateDocumentsToUsers), sw.Elapsed, testData.DocsToUsers.Count));
+            status.Complete(testData.DocsToUsers.Count);
 
-            sw.Restart();
+            status.Start(tester.Name, nameof(tester.RelateUsersToCompanies));
             tester.RelateUsersToCompanies(testData.UsersToCompany);
-            sw.Stop();
-            report.Results.Add(new(nameof(tester.RelateUsersToCompanies), sw.Elapsed, testData.UsersToCompany.Count));
+            status.Complete(testData.UsersToCompany.Count);
         }
 
-        sw.Restart();
-        for (int i = 0; i < 100; i++) {
+        var rnd = new Random(options.RandomSeed);
+
+        int count = 0;
+        status.Start(tester.Name, nameof(tester.GetAllUsers));
+        while (status.Elapsed() < options.Duration) {
             var users = tester.GetAllUsers();
+            count += users.Length;
         }
-        sw.Stop();
-        report.Results.Add(new(nameof(tester.GetAllUsers), sw.Elapsed, 100 * (70 - 20)));
+        status.Complete(count);
 
-        sw.Restart();
-        foreach (var user in testData.Users) {
-            tester.GetUserById(user.Id);
+        count = 0;
+        var max = testData.Users.Length;
+        status.Start(tester.Name, nameof(tester.GetUserById));
+        while (status.Elapsed() < options.Duration) {
+            var user = testData.Users[rnd.Next(0, max)];
+            user = tester.GetUserById(user.Id);
+            count++;
         }
-        sw.Stop();
-        report.Results.Add(new(nameof(tester.GetUserById), sw.Elapsed, testData.Users.Length));
+        status.Complete(count);
 
-        sw.Restart();
-        for (int i = 0; i < 1000; i++) {
+        count = 0;
+        status.Start(tester.Name, nameof(tester.CountUsersOfAge));
+        while (status.Elapsed() < options.Duration) {
             for (int age = 20; age <= 70; age++) {
                 tester.CountUsersOfAge(age);
+                count++;
             }
         }
-        sw.Stop();
-        report.Results.Add(new(nameof(tester.CountUsersOfAge), sw.Elapsed, 100 * (70-20)));
+        status.Complete(count);
 
-        sw.Restart();
-        var rnd=  new Random(12345);
-        for (int i = 0; i <100; i++) {
-            foreach (var user in testData.Users.Take(1000)) {
-                tester.UpdateUserAge(user.Id, user.Age + rnd.Next(-10,10));
-            }
-        }   
-        sw.Stop();
-        report.Results.Add(new(nameof(tester.UpdateUserAge), sw.Elapsed, 10*1000));
-
-        sw.Restart();
-        foreach (var user in testData.Users.Take(100)) {
-            tester.UpdateUserAge(user.Id, user.Age + 1);
-            tester.GetUserAtAge(user.Age);
+        count = 0;
+        status.Start(tester.Name, nameof(tester.DeleteUsersOfAge));
+        while (status.Elapsed() < options.Duration) {
+            var user = testData.Users[rnd.Next(0, max)];
+            tester.DeleteUsersOfAge(rnd.Next(10, 100));
+            count++;
         }
-        sw.Stop();
-        report.Results.Add(new(nameof(tester.UpdateUserAge)+ "AndGetUserAtAge", sw.Elapsed, 100));
+        status.Complete(count);
 
+        count = 0;
+        status.Start(tester.Name, nameof(tester.UpdateUserAge));
+        while (status.Elapsed() < options.Duration) {
+            var user = testData.Users[rnd.Next(0, max)];
+            tester.UpdateUserAge(user.Id, rnd.Next(10, 100));
+            count++;
+        }
+        status.Complete(count);
+
+        count = 0;
+        status.Start(tester.Name, nameof(ITesterExtensions.UpdateAndGetUsers));
+        while (status.Elapsed() < options.Duration) {
+            var user = testData.Users[rnd.Next(0, max)];
+            tester.UpdateAndGetUsers(user.Id, user.Age);
+            count++;
+        }
+        status.Complete(count);
+
+        status.Start(tester.Name, nameof(tester.Close));
         tester.Close();
-        report.TotalFileSize = getDirSize(dataPath);
-        return report;
+        status.Complete(1);
+
     }
     static long getDirSize(string path) {
         var dir = new DirectoryInfo(path);

@@ -9,7 +9,7 @@ public class LiteDBTester : ITester {
     ILiteCollection<TestUser> _usersCollection = null!;
     ILiteCollection<TestCompany> _companiesCollection = null!;
     ILiteCollection<TestDocument> _documentsCollection = null!;
-    public void Initalize(string dataFolderPath) {
+    public void Initalize(string dataFolderPath, TestOptions options) {
         _path = dataFolderPath;
         if (!Directory.Exists(_path)) Directory.CreateDirectory(_path);
     }
@@ -74,10 +74,10 @@ public class LiteDBTester : ITester {
             _usersCollection.Update(user);
         }
     }
-    public TestUser[] GetUserAtAge(int age) {
+    public TestUser[] GetUsersAtAge(int age) {
         return _usersCollection.Find(u => u.Age == age).ToArray();
     }
-    public void DeleteUsers(int age) {
+    public void DeleteUsersOfAge(int age) {
         _usersCollection.DeleteMany(u => u.Age == age);
     }
     public void FlushToDisk() {

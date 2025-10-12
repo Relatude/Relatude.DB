@@ -8,26 +8,31 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
-    internal FastRollingCounter _transactionActivity=new();
-    public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool flushToDisk = false) {
+    internal FastRollingCounter _transactionActivity = new();
+    public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null) {
         return Task.FromResult(Execute(transaction, flushToDisk));
     }
-    public TransactionResult Execute(TransactionData transaction, bool flushToDisk = false) {
+    public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null) {
+        bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
-            var transId = execute_withTransformOption(transaction, true, flushToDisk, out var primitiveActionCount);
-            if (_logger.LoggingActions)
-                foreach (var a in transaction.Actions) _logger.RecordAction(transId.TransactionId, a.OperationName(), a.ToString());
-            if (_logger.LoggingTransactions)
-                _logger.RecordTransaction(transId.TransactionId, sw.Elapsed.TotalMilliseconds, transaction.Actions.Count, primitiveActionCount, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk);
-            return transId;
+
+            var result = execute_outer(transaction, true, flush, out var primitiveActionCount);
+
+            // logging:
+            if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
+            if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
+            
+            return result;
         } else {
-            return execute_withTransformOption(transaction, true, flushToDisk, out _);
+
+            return execute_outer(transaction, true, flush, out _);
+
         }
     }
 
-    TransactionResult execute_withTransformOption(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
+    TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
         _lock.EnterWriteLock();
         var activityId = registerActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
@@ -38,9 +43,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
-            execute(transaction, transformValues, _settings.ForceDiskFlushOnEveryTransaction || flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId);
-            foreach (var t in newTasks) EnqueueTask(t.Key, t.Value);
-            return new TransactionResult(transaction.Timestamp, resultingOperations);
+            execute_inner(transaction, transformValues, flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId);
+            foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
+            return new (transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
             LogError("Transaction Error. ", err);
@@ -54,7 +59,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    void execute(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount,
+    void execute_inner(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount,
         ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
         HashSet<Guid>? lockExcemptions = null;
         if (transaction.LockExcemptions != null) {
@@ -167,32 +172,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     void validateDatabaseState() {
         if (_state != Common.DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
     }
-    //public Task<object> IncrementValueAsync(Guid nodeId, Guid propertyId, object value, bool flushToDisk = false) {
-    //    return IncrementValueAsync(_guids.GetId(nodeId), propertyId, value, flushToDisk);
-    //}
-    //public Task<object> IncrementValueAsync(int nodeId, Guid propertyId, object value, bool flushToDisk = false) {
-    //    var lockId = RequestLockAsync(nodeId, 1000, 2000).Result;
-    //    try {
-    //        var property = _definition.Properties[propertyId];
-    //        var node = Get(nodeId);
-    //        value = property.ForceValueType(value, out _);
-    //        if (!node.TryGetValue(propertyId, out var v)) v = property.GetDefaultValue();
-    //        if (v is int vint) v = vint + (int)value;
-    //        else if (v is long vlong) v = vlong + (long)value;
-    //        else if (v is float vfloat) v = vfloat + (float)value;
-    //        else if (v is double vdouble) v = vdouble + (double)value;
-    //        else if (v is decimal vdecimal) v = vdecimal + (decimal)value;
-    //        else if (v is string vstring) v = vstring + (string)value;
-    //        else throw new InvalidOperationException("Cannot add values of this datatype. ");
-    //        node.AddOrUpdate(propertyId, v);
-    //        var t = new TransactionData();
-    //        t.UpdateNode(node);
-    //        Execute(t);
-    //        return Task.FromResult(v);
-    //    } finally {
-    //        ReleaseLock(lockId);
-    //    }
-    //}
+
     public Task<Guid> RequestGlobalLockAsync(double lockDurationInMs, double maxWaitTimeInMs) {
         _lock.EnterWriteLock();
         validateDatabaseState();

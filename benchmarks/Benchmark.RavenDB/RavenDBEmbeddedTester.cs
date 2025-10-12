@@ -7,7 +7,7 @@ public class RavenDBEmbeddedTester : ITester {
     IDocumentStore? _store;
     string _dataPath = string.Empty;
     public string Name => "Raven DB Embedded";
-    public void Initalize(string dataFolderPath) {
+    public void Initalize(string dataFolderPath, TestOptions options) {
         _dataPath = dataFolderPath;
     }
     public void Open() {
@@ -32,7 +32,7 @@ public class RavenDBEmbeddedTester : ITester {
             Directory.Delete(_dataPath, true);
         }
     }
-    public void DeleteUsers(int age) {
+    public void DeleteUsersOfAge(int age) {
         using var session = _store!.OpenSession();
         var users = session!.Query<TestUser>().Where(u => u.Age == age).ToList();
         foreach (var user in users) {
@@ -47,7 +47,7 @@ public class RavenDBEmbeddedTester : ITester {
         using var session = _store!.OpenSession();
         return session!.Query<TestUser>().ToArray();
     }
-    public TestUser[] GetUserAtAge(int age) {
+    public TestUser[] GetUsersAtAge(int age) {
         using var session = _store!.OpenSession();
         return session!.Query<TestUser>().Where(u => u.Age == age).ToArray();
     }

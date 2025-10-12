@@ -64,11 +64,11 @@ public interface IStoreLogger {
     bool IsStatisticsEnabled(string logKey);
     void RecordAction(long transactionId, string operation, string details);
     void RecordPropertyHit(Guid propertyId);
-    void RecordQuery(string query, double durationMs, int resultCount, Metrics metrics);
+    void RecordQuery(string query, TimeSpan duration, int resultCount, Metrics metrics);
     void RecordStoreMetrics(StoreMetrics storeMetrics);
     void RecordSystem(SystemLogEntryType type, string text, string? details = null);
     void RecordTask(string taskTypeName, bool success, Guid batchId, string taskId, string details);
     void RecordTaskBatch(Guid id, BatchTaskResult batchResult);
-    void RecordTransaction(long transactionId, double duration, int actionCount, int primitiveActionCount, bool diskFlush);
+    void RecordTransaction(long transactionId, TimeSpan duration, int actionCount, int primitiveActionCount, bool diskFlush);
     void SaveStatsAndDeleteExpiredData();
 }

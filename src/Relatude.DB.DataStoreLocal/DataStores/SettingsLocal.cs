@@ -14,7 +14,7 @@
     public int DaysToKeepSystemLog { get; set; } = 10;
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
-    public bool ForceDiskFlushOnEveryTransaction { get; set; } = false;
+    public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
 
     public bool AutoFlushDiskInBackground { get; set; } = true;
     public double AutoFlushDiskIntervalInSeconds { get; set; } = 1;
@@ -48,7 +48,7 @@
     public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Memory;
     public string? PersistedValueIndexFolderPath { get; set; }
 
-    public bool EnableTextIndexByDefault { get; set; } = true;
+    public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
     public bool UsePersistedTextIndexesByDefault { get; set; } = false;

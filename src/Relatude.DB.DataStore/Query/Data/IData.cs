@@ -6,18 +6,20 @@ using System.Text;
 using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Query.Data;
-public interface ICollectionData {
-    IEnumerable<object> Values { get; }
+public interface ICollectionBase {
+    double DurationMs { get; set; }
     int Count { get; }
+    int TotalCount { get; }
+}
+public interface ICollectionData : ICollectionBase {
+    IEnumerable<object> Values { get; }
     ICollectionData ReOrder(IEnumerable<int> newPos);
     ICollectionData Filter(bool[] keep);
     ICollectionData Page(int pageIndex, int pageSize);
     ICollectionData Take(int take);
     ICollectionData Skip(int skip);
-    int TotalCount { get; }
     int PageIndexUsed { get; }
     int? PageSizeUsed { get; }
-    double DurationMs { get; set; }
     PropertyType GetPropertyType(string name);
 }
 public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
@@ -34,15 +36,12 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     bool TryOrderByIndexes(string propertyName, bool descending);
     IStoreNodeDataCollection FilterByTypes(Guid[] types);
 }
-public interface ISearchQueryResultData : IIncludeBranches {
+public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {
     bool Capped { get; }
-    int Count { get; }
-    double DurationMs { get; set; }
     List<SearchResultHitData> Hits { get; }
     int PageIndexUsed { get; }
     int? PageSizeUsed { get; }
     string Search { get; }
-    int TotalCount { get; }
 }
 public interface IFacetSource : IStoreNodeDataCollection {
     Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize);

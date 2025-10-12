@@ -3,12 +3,12 @@
 namespace Benchmark.Base.ContentGeneration;
 public static class Generator {
     public static TestData Generate(TestOptions options) {
-        TextGenerator textGenerator = new(options.GenerationSeed);
+        TextGenerator textGenerator = new(options.RandomSeed);
         TestData data = new ();
-        data.Users = createUsers(options.UserCount, options.GenerationSeed, textGenerator);
-        data.Companies = createCompanies(options.CompanyCount, options.GenerationSeed, textGenerator);
-        data.Documents = createDocuments(options.DocumentCount, options.GenerationSeed, textGenerator);
-        Random random = new(options.GenerationSeed);
+        data.Users = createUsers(options.UserCount, options.RandomSeed, textGenerator);
+        data.Companies = createCompanies(options.CompanyCount, options.RandomSeed, textGenerator);
+        data.Documents = createDocuments(options.DocumentCount, options.RandomSeed, textGenerator);
+        Random random = new(options.RandomSeed);
         foreach (var doc in data.Documents) {
             var user = data.Users[random.Next(data.Users.Length)];
             data.DocsToUsers.Add(new(doc.Id, user.Id));

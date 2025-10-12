@@ -28,8 +28,8 @@ public interface IDataStore : IDisposable {
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
 
-    Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool flushToDisk = false);
-    TransactionResult Execute(TransactionData transaction, bool flushToDisk = false);
+    Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null);
+    TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null);
     Task<INodeData> GetAsync(Guid id);
     Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids);
     Task<INodeData> GetAsync(int id);
@@ -107,7 +107,7 @@ public static class IDataStoreExtensions {
             store.CopyStore(fileKey, destination);
         }
     }
-    public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool flushToDisk = false) {
+    public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool? flushToDisk = null) {
         var transaction = new TransactionData();
         transaction.UpdateProperty(nodeId, propertyId, value);
         store.Execute(transaction, flushToDisk);

@@ -7,7 +7,7 @@ public class SQLiteDBTester : ITester {
     string _dataFolderPath = null!;
     SqliteConnection _connection = null!;
     public string Name => "SQLite";
-    public void Initalize(string dataFolderPath) {
+    public void Initalize(string dataFolderPath, TestOptions options) {
         _dataFolderPath = dataFolderPath;
     }
     public void Open() {
@@ -100,8 +100,11 @@ public class SQLiteDBTester : ITester {
         }
         transaction.Commit();
     }
-    public void DeleteUsers(int age) {
-        throw new NotImplementedException();
+    public void DeleteUsersOfAge(int age) {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM test_user WHERE age=@age";
+        cmd.Parameters.AddWithValue("@age", age);
+        cmd.ExecuteNonQuery();
     }
     public TestUser[] GetAllUsers() {
         var users = new List<TestUser>();
@@ -131,7 +134,7 @@ public class SQLiteDBTester : ITester {
         }
         return null;
     }
-    public TestUser[] GetUserAtAge(int age) {
+    public TestUser[] GetUsersAtAge(int age) {
         var users = new List<TestUser>();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
