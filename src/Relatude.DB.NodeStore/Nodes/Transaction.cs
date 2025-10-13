@@ -617,6 +617,10 @@ public sealed partial class Transaction {
         _transactionData.UpdateNode(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
+    public Transaction UpdateOrFail(object node) {
+        _transactionData.UpdateNodeOrFail(_store.Mapper.CreateNodeDataFromObject(node, null));
+        return this;
+    }
     public Transaction DeleteOrFail(Guid nodeGuid) {
         _transactionData.DeleteNodeOrFail(nodeGuid);
         return this;

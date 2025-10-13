@@ -1,8 +1,6 @@
 ﻿using Benchmark.Base;
 using Benchmark.Base.Models;
 using Benchmark.Site.Tester;
-using Benchmark.Tester;
-using System.Diagnostics;
 namespace Benchmark;
 internal class TestRunner {
     public static string[] GetTestNames() {
@@ -23,9 +21,9 @@ internal class TestRunner {
         ];
     }
     public static void Run(ITester tester, TestOptions options, TestData testData, Status status) {
-        
+
         var dataPath = Path.Combine(options.DataFileRootDefault, tester.Name);
-        
+
         status.Start(tester.Name, nameof(tester.Open));
         tester.Initalize(dataPath, options);
         if (options.RecreateDatabase) tester.DeleteDataFiles();
@@ -55,13 +53,14 @@ internal class TestRunner {
             status.Start(tester.Name, nameof(tester.RelateUsersToCompanies));
             tester.RelateUsersToCompanies(testData.UsersToCompany);
             status.Complete(testData.UsersToCompany.Count);
+
         }
 
         var rnd = new Random(options.RandomSeed);
 
         int count = 0;
         status.Start(tester.Name, nameof(tester.GetAllUsers));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             var users = tester.GetAllUsers();
             count += users.Length;
         }
@@ -70,7 +69,7 @@ internal class TestRunner {
         count = 0;
         var max = testData.Users.Length;
         status.Start(tester.Name, nameof(tester.GetUserById));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             var user = testData.Users[rnd.Next(0, max)];
             user = tester.GetUserById(user.Id);
             count++;
@@ -79,7 +78,7 @@ internal class TestRunner {
 
         count = 0;
         status.Start(tester.Name, nameof(tester.CountUsersOfAge));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             for (int age = 20; age <= 70; age++) {
                 tester.CountUsersOfAge(age);
                 count++;
@@ -89,7 +88,7 @@ internal class TestRunner {
 
         count = 0;
         status.Start(tester.Name, nameof(tester.DeleteUsersOfAge));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             var user = testData.Users[rnd.Next(0, max)];
             tester.DeleteUsersOfAge(rnd.Next(10, 100));
             count++;
@@ -98,7 +97,7 @@ internal class TestRunner {
 
         count = 0;
         status.Start(tester.Name, nameof(tester.UpdateUserAge));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             var user = testData.Users[rnd.Next(0, max)];
             tester.UpdateUserAge(user.Id, rnd.Next(10, 100));
             count++;
@@ -107,7 +106,7 @@ internal class TestRunner {
 
         count = 0;
         status.Start(tester.Name, nameof(ITesterExtensions.UpdateAndGetUsers));
-        while (status.Elapsed() < options.Duration) {
+        while (status.KeepRunning()) {
             var user = testData.Users[rnd.Next(0, max)];
             tester.UpdateAndGetUsers(user.Id, user.Age);
             count++;

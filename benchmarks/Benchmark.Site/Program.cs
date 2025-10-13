@@ -18,25 +18,26 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapPost("/start", () => {
-    var multiplier = 500;
+    var multiplier = 10;
     var options = new TestOptions();
-    options.FlushDiskOnEveryOperation = false;
+    options.FlushDiskOnEveryOperation = true;
     options.UserCount = 1000 * multiplier;
     options.CompanyCount = 100 * multiplier;
     options.DocumentCount = 1000 * multiplier;
-    options.Duration = TimeSpan.FromMilliseconds(1000);
+    options.Duration = TimeSpan.FromMilliseconds(5000);
+    options.SelectedTests = [nameof(ITester.UpdateUserAge)];
     var testData = Generator.Generate(options);
     Status.Current.Running = true;
 
     ITester[] testers = [
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
-        new LiteDBTester(),
-        new SQLiteDBTester(),
+        //new LiteDBTester(),
+        //new SQLiteDBTester(),
         new RelatudeDBTester(),
         ];
 
-    Status.Current.Initialize(testers.Select(t => t.Name).ToArray(), TestRunner.GetTestNames());
+    Status.Current.Initialize(testers.Select(t => t.Name).ToArray(), TestRunner.GetTestNames(), options);
     foreach (var tester in testers) {
         TestRunner.Run(tester, options, testData, Status.Current);
     }

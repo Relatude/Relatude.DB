@@ -10,6 +10,7 @@ public class TestOptions {
     public bool DeleteAllOnExit { get; set; } = true;
     public int MaxDegreeOfParallelism { get; set; } = 1;
     public TimeSpan Duration { get; set; } = TimeSpan.FromSeconds(10);
+    public string[]? SelectedTests { get; set; }
 
     public static string GetTempDataFolder(string folderName) {
         string rootPath;

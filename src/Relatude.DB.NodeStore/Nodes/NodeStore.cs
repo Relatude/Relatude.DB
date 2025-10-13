@@ -14,7 +14,19 @@ using Relatude.DB.Transactions;
 using Relatude.DB.AI;
 
 namespace Relatude.DB.Nodes;
-
+//public enum NodeOperation : byte {
+//    Insert, // insert a new node, fail if a node with same ID already exists ( if ID is set )
+//    InsertIfNotExists, // insert a new node, do nothing if a node with the ID already exists
+//    DeleteOrFail, // delete a node, fail if the node does not exist
+//    Delete, // delete a node, ignore if the node does not exist
+//    Update, // update a node, ignore if the node does not exist and only update if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
+//    UpdateOrFail, // update a node, fail if the node does not exist
+//    ForceUpdate, // update a node, ignore if the node does not exist, but update even if not different ( faster if changed as no comparison, slower if not changed )
+//    Upsert, // insert a new node or update an existing one, check if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
+//    ForceUpsert, // insert a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
+//    ChangeType, // change the type of a node, fail if node does not exist
+//    ReIndex, // triggers a re-index of the node, will not fail if the node does not exist
+//}
 public sealed class NodeStore : IDisposable {
     public readonly IDataStore Datastore;
     public readonly NodeMapper Mapper;
@@ -57,10 +69,61 @@ public sealed class NodeStore : IDisposable {
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
+    /// <summary>
+    /// Inserts a node into the database asynchronously. 
+    /// Referenced nodes are related and also inserted if they do not exist.
+    /// Fails if there is a node ID and it is not unique.
+    /// </summary>
+    /// <param name="node">The node object</param>
+    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
+    /// <returns>Information about the resulting database operations. </returns>
     public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node), flushToDisk);
+    /// <summary>
+    /// Inserts the specified collection of nodes into the database asynchronously.
+    /// </summary>
+    /// <remarks>The method performs the insertion operation within a transaction. </remarks>
+    /// <param name="nodes">The collection of nodes to insert. Each node represents an object to be added to the database.</param>
+    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
+    /// <returns>Information about the resulting database operations. </returns>
     public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes), flushToDisk);
+    /// <summary>
+    /// Updates the specified node within the transaction asynchronously.
+    /// </summary>
+    /// <param name="node">The node object</param>
+    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
+    /// <returns>Information about the resulting database operations. </returns>
     public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Update(node), flushToDisk);
+    /// <summary>
+    /// Inserts the specified collection of nodes into the database asynchronously.
+    /// </summary>
+    /// <param name="node">The node object</param>
+    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
+    /// <returns>Information about the resulting database operations. </returns>
+    public Task<TransactionResult> UpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+        var Transaction = new Transaction(this);
+        foreach (var node in nodes) Transaction.Update(node);
+        return ExecuteAsync(Transaction, flushToDisk);
+    }
+    public Task<TransactionResult> UpdateOrFailAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateOrFail(node), flushToDisk);
+    public Task<TransactionResult> UpdateOrFailAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+        var Transaction = new Transaction(this);
+        foreach (var node in nodes) Transaction.UpdateOrFail(node);
+        return ExecuteAsync(Transaction, flushToDisk);
+    }
+
     public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
+    public Task<TransactionResult> DeleteAsync(IEnumerable<Guid> ids, bool flushToDisk = false) {
+        var Transaction = new Transaction(this);
+        foreach (var id in ids) Transaction.Delete(id);
+        return ExecuteAsync(Transaction, flushToDisk);
+    }
+    public Task<TransactionResult> DeleteOrFailAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public Task<TransactionResult> DeleteOrFailAsync(IEnumerable<Guid> ids, bool flushToDisk = false) {
+        var Transaction = new Transaction(this);
+        foreach (var id in ids) Transaction.DeleteOrFail(id);
+        return ExecuteAsync(Transaction, flushToDisk);
+    }
+
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
     public IQueryOfNodes<object, object> Query() => new QueryOfNodes<object, object>(this);
@@ -90,48 +153,54 @@ public sealed class NodeStore : IDisposable {
     /// <param name="ignoreRelated">If true, referenced nodes will be ignored. Insert will not change relations. </param>
     /// <param name="flushToDisk"></param>
     /// <returns>Transaction timestamp</returns>
-    public long Insert(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
-    public long Insert(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public long Insert<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public long InsertIfNotExists(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
-    public long InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
-    public long InsertIfNotExists<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult Insert<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
 
-    public long ForceUpdate(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdate(node), flushToDisk);
-    public long ForceUpdate<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+    public TransactionResult ForceUpdate(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdate(node), flushToDisk);
+    public TransactionResult ForceUpdate<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
         foreach (var node in nodes) Transaction.ForceUpdate(node);
         return Execute(Transaction, flushToDisk);
     }
-    public long Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
-    public long Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+    public TransactionResult Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
+    public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
         foreach (var node in nodes) Transaction.Update(node);
         return Execute(Transaction, flushToDisk);
     }
-    public long ForceUpsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpsert(node), flushToDisk);
-    public long ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+    public TransactionResult UpdateOrFail(object node, bool flushToDisk = false) => Execute(new Transaction(this).UpdateOrFail(node), flushToDisk);
+    public TransactionResult UpdateOrFail<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+        var Transaction = new Transaction(this);
+        foreach (var node in nodes) Transaction.UpdateOrFail(node);
+        return Execute(Transaction, flushToDisk);
+    }
+    public TransactionResult ForceUpsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpsert(node), flushToDisk);
+    public TransactionResult ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
         foreach (var node in nodes) Transaction.ForceUpsert(node);
         return Execute(Transaction, flushToDisk);
     }
-    public long Upsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).Upsert(node), flushToDisk);
-    public long Upsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+    public TransactionResult Upsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).Upsert(node), flushToDisk);
+    public TransactionResult Upsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
         foreach (var node in nodes) Transaction.Upsert(node);
         return Execute(Transaction, flushToDisk);
     }
 
-    public long Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
-    public long Delete(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
-    public long Delete(IEnumerable<Guid> ids, bool flushToDisk = false) {
+    public TransactionResult Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
+    public TransactionResult Delete(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
+    public TransactionResult Delete(IEnumerable<Guid> ids, bool flushToDisk = false) {
         var Transaction = new Transaction(this);
         foreach (var id in ids) Transaction.Delete(id);
         return Execute(Transaction, flushToDisk);
     }
-    public long DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
-    public long DeleteOrFail(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
-    public long DeleteOrFail(IEnumerable<Guid> ids, bool flushToDisk = false) {
+    public TransactionResult DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public TransactionResult DeleteOrFail(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public TransactionResult DeleteOrFail(IEnumerable<Guid> ids, bool flushToDisk = false) {
         var Transaction = new Transaction(this);
         foreach (var id in ids) Transaction.DeleteOrFail(id);
         return Execute(Transaction, flushToDisk);
@@ -143,64 +212,64 @@ public sealed class NodeStore : IDisposable {
     public void ChangeType<T>(Guid nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
     public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
 
-    public long Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromNode, expression, toNode), flushToDisk);
-    public long Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
+    public TransactionResult Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromNode, expression, toNode), flushToDisk);
+    public TransactionResult Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
     //public long Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
-    public long Relate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
-    public long Relate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toIds), flushToDisk);
-    public long Relate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
+    public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toIds), flushToDisk);
+    public TransactionResult Relate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
 
-    public long Relate<T>(OneOne<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public long Relate<T, TRelationSelfReference>(OneOne<T, TRelationSelfReference> relation, T fromNode, T toNode)
+    public TransactionResult Relate<T>(OneOne<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
+    public TransactionResult Relate<T, TRelationSelfReference>(OneOne<T, TRelationSelfReference> relation, T fromNode, T toNode)
     where TRelationSelfReference : OneOne<T, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode));
-    public long Relate<T>(ManyMany<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public long Relate<T, TRelationSelfReference>(ManyMany<T, TRelationSelfReference> relation, T fromNode, T toNode)
+    public TransactionResult Relate<T>(ManyMany<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
+    public TransactionResult Relate<T, TRelationSelfReference>(ManyMany<T, TRelationSelfReference> relation, T fromNode, T toNode)
     where TRelationSelfReference : ManyMany<T, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode));
-    public long Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public long Relate<TFrom, TTo, TRelationSelfReference>(OneToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
+    public TransactionResult Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
+    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(OneToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
     where TRelationSelfReference : OneToMany<TFrom, TTo, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public long Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => throw new NotImplementedException();
-    public long Relate<TFrom, TTo, TRelationSelfReference>(OneToOne<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
+    public TransactionResult Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => throw new NotImplementedException();
+    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(OneToOne<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
     where TRelationSelfReference : OneToOne<TFrom, TTo, TRelationSelfReference> => throw new NotImplementedException();
-    public long Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public long Relate<TFrom, TTo, TRelationSelfReference>(ManyToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
+    public TransactionResult Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
+    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(ManyToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
     where TRelationSelfReference : ManyToMany<TFrom, TTo, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
 
-    public long UnRelate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromNode, expression, toNode), flushToDisk);
-    public long UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toId), flushToDisk);
-    public long UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toIds), flushToDisk);
-    public long UnRelate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).UnRelate(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult UnRelate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromNode, expression, toNode), flushToDisk);
+    public TransactionResult UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toId), flushToDisk);
+    public TransactionResult UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toIds), flushToDisk);
+    public TransactionResult UnRelate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).UnRelate(fromId, propertyId, toId), flushToDisk);
 
-    public long SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNode), flushToDisk);
-    public long SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
-    public long SetRelation<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
-    public long SetRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNode), flushToDisk);
+    public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult SetRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toId), flushToDisk);
 
-    public long SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNodes), flushToDisk);
-    public long SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toIds), flushToDisk);
-    public long SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
-    public long SetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
-    public long SetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNodes), flushToDisk);
+    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toIds), flushToDisk);
 
-    public long ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromNode, expression).SetRelation(fromNode, expression, toNodes), flushToDisk);
-    public long ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromNode, expression).SetRelation(fromNode, expression, toIds), flushToDisk);
-    public long ClearAndSetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromId, expression).SetRelation(fromId, expression, toIds), flushToDisk);
-    public long ClearAndSetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromId, expression).SetRelation(fromId, expression, toIds), flushToDisk);
-    public long ClearAndSetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false)
+    public TransactionResult ClearAndSetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false)
         => Execute(new Transaction(this).ClearRelations(fromId, propertyId).SetRelation(fromId, propertyId, toIds), flushToDisk);
 
-    public long ClearRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromNode, expression, toNode), flushToDisk);
-    public long ClearRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
-    public long ClearRelation<T>(int fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
-    public long ClearRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
-    public long ClearRelations<T>(T fromNode, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromNode, expression), flushToDisk);
-    public long ClearRelations<T>(int fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
-    public long ClearRelations<T>(Guid fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
-    public long ClearRelations(Guid fromId, Guid propertyId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelations(fromId, propertyId), flushToDisk);
+    public TransactionResult ClearRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromNode, expression, toNode), flushToDisk);
+    public TransactionResult ClearRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult ClearRelation<T>(int fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult ClearRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult ClearRelations<T>(T fromNode, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromNode, expression), flushToDisk);
+    public TransactionResult ClearRelations<T>(int fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
+    public TransactionResult ClearRelations<T>(Guid fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
+    public TransactionResult ClearRelations(Guid fromId, Guid propertyId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelations(fromId, propertyId), flushToDisk);
 
     public long Count() => Query<object>().Count();
     public long Count<T>() => Query<T>().Count();
@@ -246,11 +315,10 @@ public sealed class NodeStore : IDisposable {
     public IEnumerable<T> GetRelated<T>(NodeDataWithRelations[] node) { // used by mapper internally
         foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item);
     }
-    public Task<long> ExecuteAsync(ActionModel[] actions, bool flushToDisk = false) {
+    public Task<TransactionResult> ExecuteAsync(ActionModel[] actions, bool flushToDisk = false) {
         throw new NotImplementedException();
     }
-    public long Execute(Transaction transaction, bool flushToDisk = false) => ExecuteWithDetails(transaction, flushToDisk).TransactionId;
-    public TransactionResult ExecuteWithDetails(Transaction transaction, bool flushToDisk = false) {
+    public TransactionResult Execute(Transaction transaction, bool flushToDisk = false) {
         if (transaction.Count == 0) return TransactionResult.Empty;
         try {
             transaction.PrepareRelevantPlugins();

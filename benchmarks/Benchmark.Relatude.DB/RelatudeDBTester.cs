@@ -34,7 +34,7 @@ public class RelatudeDBTester : ITester {
     public void CreateSchema() {
     }
     public void InsertUsers(TestUser[] users) {
-        _store.Insert(users, true, _flush);
+        var result = _store.Insert(users, true, _flush);        
     }
     public void InsertCompanies(TestCompany[] companies) {
         _store.Insert(companies, true, _flush);

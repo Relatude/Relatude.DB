@@ -22,6 +22,7 @@ public class TransactionData {
     public void InsertIfNotExists(INodeData node) => Add(NodeAction.InsertIfNotExists(node));
     public void ForceUpdateNode(INodeData node) => Add(NodeAction.ForceUpdate(node));
     public void UpdateNode(INodeData node) => Add(NodeAction.Update(node));
+    public void UpdateNodeOrFail(INodeData node) => Add(NodeAction.UpdateOrFail(node));
     public void ForceUpsertNode(INodeData node) => Add(NodeAction.ForceUpsert(node));
     public void UpsertNode(INodeData node) => Add(NodeAction.Upsert(node));
 

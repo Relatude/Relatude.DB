@@ -91,7 +91,7 @@ internal static class ActionFactory {
                 break;
             case NodeOperation.DeleteOrFail: { // delete if exists, otherwise throw exception
                     var id = getIdAndVerifyIdAndGuidIfGuidIsGiven(db, nodeAction);
-                    var oldNode = db._nodes.Get(id);
+                    var oldNode = db._nodes.Get(id); // will throw if not found
                     // adding transactions to first remove any relation related to node,
                     // NB: important to not use "yield return" here as the values of the relation will change during the loop
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.DeleteNode;
@@ -120,23 +120,42 @@ internal static class ActionFactory {
             case NodeOperation.ForceUpdate: {
                     var node = nodeAction.Node;
                     ensureIdAndGuid(db, node);
-                    var oldNode = db._nodes.Get(node.__Id);
-                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
-                    if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
-                    Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
-                    Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node);
+                    if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) {// is new
+                        // ignore if node does not exist
+                    } else {
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
+                        if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
+                        Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
+                        Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node);
+                    }
                 }
                 break;
             case NodeOperation.Update: {
                     var node = nodeAction.Node;
                     ensureIdAndGuid(db, node);
-                    var isNew = !db._nodes.Contains(node.__Id);
-                    if (isNew) {
+                    if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new
+                        // ignore if node does not exist
+                    } else {
+                        if (Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition)) {
+                            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
+                            yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
+                            if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
+                            Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
+                            Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                            yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node);
+                        }
+                    }
+
+                }
+                break;
+            case NodeOperation.UpdateOrFail: {
+                    var node = nodeAction.Node;
+                    ensureIdAndGuid(db, node);
+                    if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new                        
                         throw new Exception("Node with id " + node.Id + " does not exist, cannot update if different. Use insert or upsert instead. ");
                     } else {
-                        var oldNode = db._nodes.Get(node.__Id);
                         if (Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition)) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
@@ -151,16 +170,14 @@ internal static class ActionFactory {
                 break;
             case NodeOperation.Upsert: {
                     var node = nodeAction.Node;
-                    ensureIdsAndCreateIdIfMissing(db, node);
-                    var isNew = !db._nodes.Contains(node.__Id);
-                    if (isNew) {
+                    ensureIdsAndCreateIdIfMissing(db, node); // is new
+                    if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) {
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                         Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node);
                     } else {
-                        var oldNode = db._nodes.Get(node.__Id);
                         if (Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition)) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
@@ -266,7 +283,8 @@ internal static class ActionFactory {
             if (uints.Count > 0) throw new("Cannot update property for multiple nodes and a type. ");
             uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value).Enumerate());
         }
-        var nodes = db._nodes.Get(uints.Where(db._nodes.Contains).ToArray()).Select(n => n.Copy()); // ignore nodes that does not exist
+        // ignore nodes that does not exist, copy to avoid changing original node in case of error:
+        var nodes = db._nodes.Get(uints.Where(db._nodes.Contains).ToArray()).Select(n => n.Copy());
         foreach (var node in nodes) {
             switch (a.Operation) {
                 case NodePropertyOperation.Update: {

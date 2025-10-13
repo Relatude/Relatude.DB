@@ -3,12 +3,12 @@ using Relatude.DB.Common;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
 public sealed partial class Transaction {
-    public async Task<long> ExecuteAsync(bool flushToDisk = false) {
+    public async Task<TransactionResult> ExecuteAsync(bool flushToDisk = false) {
         var result = await _store.ExecuteAsync(this, flushToDisk);
         _transactionData = new();
-        return result.TransactionId;
+        return result;
     }
-    public long Execute(bool flushToDisk = false) {
+    public TransactionResult Execute(bool flushToDisk = false) {
         var stateId = _store.Execute(this, flushToDisk);
         _transactionData = new();
         return stateId;
