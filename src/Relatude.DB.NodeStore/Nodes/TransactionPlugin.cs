@@ -109,9 +109,7 @@ public interface IRelationTransactionPlugin : IPlugin {
     bool IsRelevant(RelationAction action);
 }
 public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T : notnull {
-#pragma warning disable CS8618 // Non-nullable field, will be set by the NodeStore
-    public NodeStore Store { get; set; }
-#pragma warning restore CS8618 // Non-nullable field
+    public NodeStore Store { get; set; } = null!; // will be set by the NodeStore
     NodeTypeModel? _nodeTypeModel;
     NodeTypeModel nodeTypeModel {
         get {
@@ -123,18 +121,27 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         }
     }
     public void OnBefore(IdKey id, ActionBase action, Transaction transaction) {
-        if (action is NodeAction nodeAction) OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Store, nodeAction));
-        else if (action is NodePropertyAction nodePropertyAction)
+        if (action is NodeAction nodeAction) {
+            OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Store, nodeAction));
+        } else if (action is NodePropertyAction nodePropertyAction) {
             OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Store, transaction));
+        }
     }
     public void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation) {
-        if (action is NodeAction nodeAction) OnAfterNodeAction(id, nodeAction.Operation, resultingOperation);
-        else if (action is NodePropertyAction nodePropertyAction) OnAfterPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation);
+        if (action is NodeAction nodeAction) {
+            OnAfterNodeAction(id, nodeAction.Operation, resultingOperation);
+        } else if (action is NodePropertyAction nodePropertyAction) {
+            OnAfterPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation);
+        }
     }
     public void OnAfterError(IdKey id, ActionBase action, Exception error) {
-        if (action is NodeAction nodeAction) OnErrorNodeAction(id, nodeAction.Operation, error);
-        else if (action is NodePropertyAction nodePropertyAction) OnErrorPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, error);
+        if (action is NodeAction nodeAction) {
+            OnErrorNodeAction(id, nodeAction.Operation, error);
+        } else if (action is NodePropertyAction nodePropertyAction) {
+            OnErrorPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, error);
+        }
     }
+
     // building up a cache to look up node types by one call, needed for performance while evaluating which nodes are relevant for a specific plugin
     public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys) {
         if (action is NodeAction nodeAction) {
@@ -201,4 +208,11 @@ public abstract class RelationTransactionPlugin<T> : IRelationTransactionPlugin 
     public void OnError(IdKey id, RelationAction action, Exception error) {
         throw new NotImplementedException();
     }
+
+
+    public virtual void OnBeforeRelationAction(RelationOperation operation, Transaction transaction) { }
+    public virtual void OnAfterRelationAction(RelationOperation operation, ResultingOperation resultingOperation) { }
+    public virtual void OnErrorRelationAction(RelationOperation operation, Exception error) { }
+
+
 }

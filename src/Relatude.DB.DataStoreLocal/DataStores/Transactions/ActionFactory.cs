@@ -13,7 +13,7 @@ internal static class ActionFactory {
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             _ => throw new NotImplementedException(),
         };
-        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value; // only possible as only one thread is using this at a time
+        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value; 
         try {
             return src.ToArray(); // force conversion of action first, then return the array
         } catch (Exception err) {
@@ -242,13 +242,14 @@ internal static class ActionFactory {
             var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
             var date = a.ChangeUtc > default(DateTime) ? a.ChangeUtc : DateTime.UtcNow;
             var operation = a.Operation == RelationOperation.Add ? PrimitiveOperation.Add : PrimitiveOperation.Remove;
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = operation == PrimitiveOperation.Add ? ResultingOperation.AddedRelation : ResultingOperation.RemovedRelation;
             yield return new PrimitiveRelationAction(operation, a.RelationId, source, target, date);
         } else if (a.Operation == RelationOperation.Set) {
             var source = a.Source > default(int) ? a.Source : db._guids.GetId(a.SourceGuid);
             var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
             var r = db._definition.Relations[a.RelationId];
             if (r.Contains(source, target)) yield break; // nothing to do
-                                                         // NB: important to not use "yield return" here as the values of the relation will change during the loop
+            // NB: important to not use "yield return" here as the values of the relation will change during the loop
             List<PrimitiveRelationAction> _relRemoveOperations = [];
             foreach (var rel in r.GetOtherRelationsThatNeedsToRemovedBeforeAdd(source, target)) {
                 _relRemoveOperations.Add(new(PrimitiveOperation.Remove, a.RelationId, rel.Source, rel.Target, a.ChangeUtc));
