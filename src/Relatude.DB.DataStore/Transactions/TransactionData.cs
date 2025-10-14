@@ -18,18 +18,18 @@ public class TransactionData {
     public void Add(ActionBase action) => Actions.Add(action);
 
     //public void RemoveCulture(Guid nodeGuid, int lcid) => Add(NodeAction.RemoveCulture(nodeGuid, lcid));
-    public void InsertNode(INodeData node) => Add(NodeAction.Insert(node));
+    public void InsertOrFail(INodeData node) => Add(NodeAction.InsertOrFail(node));
     public void InsertIfNotExists(INodeData node) => Add(NodeAction.InsertIfNotExists(node));
     public void ForceUpdateNode(INodeData node) => Add(NodeAction.ForceUpdate(node));
-    public void UpdateNode(INodeData node) => Add(NodeAction.Update(node));
-    public void UpdateNodeOrFail(INodeData node) => Add(NodeAction.UpdateOrFail(node));
-    public void ForceUpsertNode(INodeData node) => Add(NodeAction.ForceUpsert(node));
-    public void UpsertNode(INodeData node) => Add(NodeAction.Upsert(node));
+    public void UpdateIfExists(INodeData node) => Add(NodeAction.UpdateIfExists(node));
+    public void UpdateOrFail(INodeData node) => Add(NodeAction.UpdateOrFail(node));
+    public void ForceUpsert(INodeData node) => Add(NodeAction.ForceUpsert(node));
+    public void Upsert(INodeData node) => Add(NodeAction.Upsert(node));
 
-    public void DeleteNodeOrFail(int nodeId) => Add(NodeAction.DeleteOrFail(nodeId));
-    public void DeleteNodeOrFail(Guid nodeGuid) => Add(NodeAction.DeleteOrFail(nodeGuid));
-    public void DeleteNode(int nodeId) => Add(NodeAction.Delete(nodeId));
-    public void DeleteNode(Guid nodeGuid) => Add(NodeAction.Delete(nodeGuid));
+    public void DeleteOrFail(int nodeId) => Add(NodeAction.DeleteOrFail(nodeId));
+    public void DeleteOrFail(Guid nodeGuid) => Add(NodeAction.DeleteOrFail(nodeGuid));
+    public void DeleteIfExists(int nodeId) => Add(NodeAction.DeleteIfExists(nodeId));
+    public void DeleteIfExists(Guid nodeGuid) => Add(NodeAction.DeleteIfExists(nodeGuid));
 
     public void AddRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Add, relationId) { Source = source, Target = target, ChangeUtc = DateTime.UtcNow });
     public void AddRelation(Guid relationId, int source, int target, DateTime dtUtc) => Add(new RelationAction(RelationOperation.Add, relationId) { Source = source, Target = target, ChangeUtc = dtUtc });

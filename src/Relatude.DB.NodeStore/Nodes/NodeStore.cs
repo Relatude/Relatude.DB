@@ -92,7 +92,7 @@ public sealed class NodeStore : IDisposable {
     /// <param name="node">The node object</param>
     /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
     /// <returns>Information about the resulting database operations. </returns>
-    public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Update(node), flushToDisk);
+    public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateIfExists(node), flushToDisk);
     /// <summary>
     /// Inserts the specified collection of nodes into the database asynchronously.
     /// </summary>
@@ -101,7 +101,7 @@ public sealed class NodeStore : IDisposable {
     /// <returns>Information about the resulting database operations. </returns>
     public Task<TransactionResult> UpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.Update(node);
+        foreach (var node in nodes) Transaction.UpdateIfExists(node);
         return ExecuteAsync(Transaction, flushToDisk);
     }
     public Task<TransactionResult> UpdateOrFailAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateOrFail(node), flushToDisk);
@@ -111,10 +111,10 @@ public sealed class NodeStore : IDisposable {
         return ExecuteAsync(Transaction, flushToDisk);
     }
 
-    public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
+    public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(id), flushToDisk);
     public Task<TransactionResult> DeleteAsync(IEnumerable<Guid> ids, bool flushToDisk = false) {
         var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.Delete(id);
+        foreach (var id in ids) Transaction.DeleteIfExists(id);
         return ExecuteAsync(Transaction, flushToDisk);
     }
     public Task<TransactionResult> DeleteOrFailAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(id), flushToDisk);
@@ -166,10 +166,10 @@ public sealed class NodeStore : IDisposable {
         foreach (var node in nodes) Transaction.ForceUpdate(node);
         return Execute(Transaction, flushToDisk);
     }
-    public TransactionResult Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
-    public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
+    public TransactionResult UpdateIfExists(object node, bool flushToDisk = false) => Execute(new Transaction(this).UpdateIfExists(node), flushToDisk);
+    public TransactionResult UpdateIfExists<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.Update(node);
+        foreach (var node in nodes) Transaction.UpdateIfExists(node);
         return Execute(Transaction, flushToDisk);
     }
     public TransactionResult UpdateOrFail(object node, bool flushToDisk = false) => Execute(new Transaction(this).UpdateOrFail(node), flushToDisk);
@@ -178,6 +178,9 @@ public sealed class NodeStore : IDisposable {
         foreach (var node in nodes) Transaction.UpdateOrFail(node);
         return Execute(Transaction, flushToDisk);
     }
+    public TransactionResult Update(object node, bool flushToDisk = false) => UpdateOrFail(node, flushToDisk);
+    public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => UpdateOrFail(nodes, flushToDisk);
+
     public TransactionResult ForceUpsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpsert(node), flushToDisk);
     public TransactionResult ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
         var Transaction = new Transaction(this);
@@ -191,11 +194,11 @@ public sealed class NodeStore : IDisposable {
         return Execute(Transaction, flushToDisk);
     }
 
-    public TransactionResult Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
-    public TransactionResult Delete(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
-    public TransactionResult Delete(IEnumerable<Guid> ids, bool flushToDisk = false) {
+    public TransactionResult DeleteIfExists(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public TransactionResult DeleteIfExists(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public TransactionResult DeleteIfExists(IEnumerable<Guid> ids, bool flushToDisk = false) {
         var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.Delete(id);
+        foreach (var id in ids) Transaction.DeleteIfExists(id);
         return Execute(Transaction, flushToDisk);
     }
     public TransactionResult DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
@@ -205,6 +208,14 @@ public sealed class NodeStore : IDisposable {
         foreach (var id in ids) Transaction.DeleteOrFail(id);
         return Execute(Transaction, flushToDisk);
     }
+    public TransactionResult Delete(int id, bool flushToDisk = false) => DeleteOrFail(id, flushToDisk);
+    public TransactionResult Delete(Guid id, bool flushToDisk = false) => DeleteOrFail(id, flushToDisk);
+    public TransactionResult Delete(IEnumerable<Guid> ids, bool flushToDisk = false) => DeleteOrFail(ids, flushToDisk);
+
+    //public TransactionResult DeleteWhere<T>(Expression<Func<T, bool>> expression) => new QueryOfNodes<T, T>(this).Where(expression)
+
+    public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
+    public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
     public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);

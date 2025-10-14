@@ -5,26 +5,26 @@ public struct NodeSegment(long absolutePosition, int length) {
     public readonly int Length = length;
 }
 public enum NodeOperation : byte {
-    Insert, // insert a new node, fail if a node with same ID already exists ( if ID is set )
-    InsertIfNotExists, // insert a new node, do nothing if a node with the ID already exists
-    DeleteOrFail, // delete a node, fail if the node does not exist
-    Delete, // delete a node, ignore if the node does not exist
-    Update, // update a node, ignore if the node does not exist and only update if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
-    UpdateOrFail, // update a node, fail if the node does not exist
-    ForceUpdate, // update a node, ignore if the node does not exist, but update even if not different ( faster if changed as no comparison, slower if not changed )
-    Upsert, // insert a new node or update an existing one, check if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
-    ForceUpsert, // insert a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
-    ChangeType, // change the type of a node, fail if node does not exist
-    ReIndex, // triggers a re-index of the node, will not fail if the node does not exist
+    InsertOrFail, // [DEFAULT] inserts a new node, fails if a node with same ID already exists ( if ID is set )
+    InsertIfNotExists, // inserts a new node, do nothing if a node with the ID already exists
+    DeleteOrFail, // [DEFAULT] deletes a node, fails if the node does not exist
+    DeleteIfExists, // deletes a node, ignored if the node does not exist
+    UpdateIfExists, // updates a node, ignored if the node does not exist and only updates if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
+    UpdateOrFail, // [DEFAULT] updates a node, fails if the node does not exist
+    ForceUpdate, // updates a node, fails if the node does not exist, but update even if not different ( faster if changed as no comparison, slower if not changed )
+    Upsert, // inserts a new node or updates an existing one, checks if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
+    ForceUpsert, // inserts a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
+    ChangeType, // changes the type of a node, fails if node does not exist
+    ReIndex, // triggers a re-index of the node, ignored if the node does not exist
 }
 public class NodeAction : ActionBase {
-    public static NodeAction Insert(INodeData node) => new(NodeOperation.Insert, node);
+    public static NodeAction InsertOrFail(INodeData node) => new(NodeOperation.InsertOrFail, node);
     public static NodeAction InsertIfNotExists(INodeData node) => new(NodeOperation.InsertIfNotExists, node);
-    public static NodeAction Delete(int id) => new(NodeOperation.Delete, new NodeDataOnlyId(id));
-    public static NodeAction Delete(Guid id) => new(NodeOperation.Delete, new NodeDataOnlyId(id));
+    public static NodeAction DeleteIfExists(int id) => new(NodeOperation.DeleteIfExists, new NodeDataOnlyId(id));
+    public static NodeAction DeleteIfExists(Guid id) => new(NodeOperation.DeleteIfExists, new NodeDataOnlyId(id));
     public static NodeAction DeleteOrFail(int id) => new(NodeOperation.DeleteOrFail, new NodeDataOnlyId(id));
     public static NodeAction DeleteOrFail(Guid id) => new(NodeOperation.DeleteOrFail, new NodeDataOnlyId(id));
-    public static NodeAction Update(INodeData node) => new(NodeOperation.Update, node);
+    public static NodeAction UpdateIfExists(INodeData node) => new(NodeOperation.UpdateIfExists, node);
     public static NodeAction UpdateOrFail(INodeData node) => new(NodeOperation.UpdateOrFail, node);
     public static NodeAction ForceUpdate(INodeData node) => new(NodeOperation.ForceUpdate, node);
     public static NodeAction Upsert(INodeData node) => new(NodeOperation.Upsert, node);

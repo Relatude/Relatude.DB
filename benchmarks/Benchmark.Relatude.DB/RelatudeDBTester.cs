@@ -76,7 +76,7 @@ public class RelatudeDBTester : ITester {
     }
     public void DeleteUsersOfAge(int age) {
         var ids = _store.Query<TestUser>(u => u.Age == age).SelectId().Execute();
-        _store.Delete(ids, _flush);
+        _store.DeleteIfExists(ids, _flush);
     }
     public void Close() {
         _store.Dispose();

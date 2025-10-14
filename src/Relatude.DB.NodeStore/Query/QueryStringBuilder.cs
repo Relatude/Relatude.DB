@@ -8,6 +8,7 @@ using Relatude.DB.Datamodels;
 using System.Collections;
 using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 using System.Globalization;
+using Relatude.DB.Transactions;
 
 namespace Relatude.DB.Query;
 internal sealed class QueryStringBuilder {

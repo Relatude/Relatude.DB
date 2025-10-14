@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Relatude.DB.Nodes;
+using Relatude.DB.Transactions;
 namespace Relatude.DB.Query;
 public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNode>> {
     int Count();
@@ -46,7 +47,7 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, IEnumerable<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, ICollection<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, int? top = null);
-
+    
     //long Update<TProperty>(Expression<Func<TNode, TProperty>> property, object newValue);
 
 }

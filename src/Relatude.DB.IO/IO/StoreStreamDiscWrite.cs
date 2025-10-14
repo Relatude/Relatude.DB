@@ -1,22 +1,22 @@
-﻿using Relatude.DB.Common;
-
-namespace Relatude.DB.IO;
+﻿namespace Relatude.DB.IO;
 public class StoreStreamDiscWrite : IAppendStream {
-    FileStream _stream;
-    string _filePath;
-    bool _readOnly;
-    ChecksumUtil _checkSum = new();
+    readonly FileStream _stream;
+    readonly string _filePath;
+    readonly bool _flushToDisk;
+    readonly bool _readOnly;
+    readonly ChecksumUtil _checkSum = new();
     public string FileKey { get; }
     Action _disposeCallback;
 #if DEBUG
     // measure to detect multithreading bugs, only one thread should access an append thread
     OnlyOneThreadRunning _flagAccessing = new();
 #endif
-    public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
+    public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, bool flushToDisk, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
         FileKey = fileKey;
         _readOnly = readOnly;
+        _flushToDisk = flushToDisk;
         var dirPath = Path.GetDirectoryName(_filePath);
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
@@ -28,7 +28,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         Exception? lastException = null;
         for (int i = 1; i <= numberOfRetries; ++i) {
             try {
-                var s = new FileStream(filePath, FileMode.OpenOrCreate, _readOnly ? FileAccess.Read : FileAccess.ReadWrite);//, FileShare.None, 1024 * 1024 * 10);
+                var s = new FileStream(filePath, FileMode.OpenOrCreate, _readOnly ? FileAccess.Read : FileAccess.ReadWrite, FileShare.None, 4096 * 10, FileOptions.RandomAccess);
                 s.Position = s.Length;
                 return s;
             } catch (Exception e) {
@@ -63,7 +63,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             if (_hasDisposed) return;
             if (_stream.CanRead == false) return; // stream is closed
             try {
-                _stream.Flush(true);
+                _stream.Flush(_flushToDisk);
             } catch {
                 // ignore, stream is closed
             }

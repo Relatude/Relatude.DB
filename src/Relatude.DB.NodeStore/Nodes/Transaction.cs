@@ -559,9 +559,9 @@ public sealed partial class Transaction {
         return Insert(node, out _, ignoreRelated);
     }
     public Transaction Insert(object node, out Guid id, bool ignoreRelated = false) {
-        return _insert(node, out id, ignoreRelated);
+        return _insertOrFail(node, out id, ignoreRelated);
     }
-    private Transaction _insert(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted = null) {
+    private Transaction _insertOrFail(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted = null) {
         // // when last parameter (inserted) is not null, it will force InsertIfNotExists
         if (inserted != null && inserted.TryGetValue(node, out id)) return this;
 
@@ -569,18 +569,18 @@ public sealed partial class Transaction {
         _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
         var nodeData = _store.Mapper.CreateNodeDataFromObject(node, related);
         id = nodeData.Id;
-        if (inserted == null) _transactionData.InsertNode(nodeData); // force add on first insert, causing exception if node already exists
+        if (inserted == null) _transactionData.InsertOrFail(nodeData); // force add on first insert, causing exception if node already exists
         else _transactionData.InsertIfNotExists(nodeData); // only add child if new, if they do exists do not add or update, just traverse relations
         if (related == null) return this;
         inserted ??= [];
         inserted.Add(node, id);
         foreach (var single in related.Singles) {
-            _insert(single.To, out var idTo, ignoreRelated, inserted);
+            _insertOrFail(single.To, out var idTo, ignoreRelated, inserted);
             SetRelation(id, single.PropertyId, idTo);
         }
         foreach (var multiple in related.Multiples) {
             foreach (var to in multiple.Tos) {
-                _insert(to, out var idTo, ignoreRelated, inserted);
+                _insertOrFail(to, out var idTo, ignoreRelated, inserted);
                 SetRelation(id, multiple.PropertyId, idTo);
             }
         }
@@ -595,48 +595,51 @@ public sealed partial class Transaction {
         return InsertIfNotExists(node, out _, ignoreRelated);
     }
     public Transaction InsertIfNotExists(object node, out Guid id, bool ignoreRelated = false) {
-        return _insert(node, out id, ignoreRelated, []); // when last parameter is not null, it will force InsertIfNotExists
+        return _insertOrFail(node, out id, ignoreRelated, []); // when last parameter is not null, it will force InsertIfNotExists
     }
 
 
     public Transaction ForceUpsert(object node) {
         _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.ForceUpsertNode(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.ForceUpsert(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction Upsert(object node) {
         _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.UpsertNode(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.Upsert(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction ForceUpdate(object node) {
         _transactionData.ForceUpdateNode(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
-    public Transaction Update(object node) {
-        _transactionData.UpdateNode(_store.Mapper.CreateNodeDataFromObject(node, null));
+    public Transaction UpdateIfExists(object node) {
+        _transactionData.UpdateIfExists(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction UpdateOrFail(object node) {
-        _transactionData.UpdateNodeOrFail(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.UpdateOrFail(_store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
+    public Transaction Update(object node) => UpdateOrFail(node);
     public Transaction DeleteOrFail(Guid nodeGuid) {
-        _transactionData.DeleteNodeOrFail(nodeGuid);
+        _transactionData.DeleteOrFail(nodeGuid);
         return this;
     }
     public Transaction DeleteOrFail(int id) {
-        _transactionData.DeleteNodeOrFail(id);
+        _transactionData.DeleteOrFail(id);
         return this;
     }
-    public Transaction Delete(Guid nodeGuid) {
-        _transactionData.DeleteNode(nodeGuid);
+    public Transaction DeleteIfExists(Guid nodeGuid) {
+        _transactionData.DeleteIfExists(nodeGuid);
         return this;
     }
-    public Transaction Delete(int id) {
-        _transactionData.DeleteNode(id);
+    public Transaction DeleteIfExists(int id) {
+        _transactionData.DeleteIfExists(id);
         return this;
     }
+    public Transaction Delete(int id) => DeleteOrFail(id);
+    public Transaction Delete(Guid id) => DeleteOrFail(id);
 
     public int Count => _transactionData.Actions.Count;
 }
