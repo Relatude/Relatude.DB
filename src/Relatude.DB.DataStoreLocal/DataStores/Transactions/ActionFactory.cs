@@ -11,9 +11,9 @@ internal static class ActionFactory {
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
-            _ => throw new NotImplementedException(),
+            _ => throw new NotSupportedException(),
         };
-        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value; 
+        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
         try {
             return src.ToArray(); // force conversion of action first, then return the array
         } catch (Exception err) {
@@ -237,43 +237,59 @@ internal static class ActionFactory {
         }
     }
     static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, RelationAction a, List<KeyValuePair<TaskData, string?>> newTasks) {
-        if (a.Operation == RelationOperation.Add || a.Operation == RelationOperation.Remove) {
+        if (a.Operation == RelationOperation.Add) {
             var source = a.Source > default(int) ? a.Source : db._guids.GetId(a.SourceGuid);
             var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
             var date = a.ChangeUtc > default(DateTime) ? a.ChangeUtc : DateTime.UtcNow;
-            var operation = a.Operation == RelationOperation.Add ? PrimitiveOperation.Add : PrimitiveOperation.Remove;
-            if (!_lastResultingOperation.HasValue) _lastResultingOperation = operation == PrimitiveOperation.Add ? ResultingOperation.AddedRelation : ResultingOperation.RemovedRelation;
+            var operation = PrimitiveOperation.Add;
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.AddedRelation;
+            yield return new PrimitiveRelationAction(operation, a.RelationId, source, target, date);
+        } else if (a.Operation == RelationOperation.Remove) {
+            var source = a.Source != 0 ? a.Source : db._guids.GetId(a.SourceGuid);
+            var target = a.Target != 0 ? a.Target : db._guids.GetId(a.TargetGuid);
+            var date = a.ChangeUtc > default(DateTime) ? a.ChangeUtc : DateTime.UtcNow;
+            var operation = PrimitiveOperation.Remove;
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedRelation;
             yield return new PrimitiveRelationAction(operation, a.RelationId, source, target, date);
         } else if (a.Operation == RelationOperation.Set) {
-            var source = a.Source > default(int) ? a.Source : db._guids.GetId(a.SourceGuid);
-            var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
+            var source = a.Source != 0 ? a.Source : db._guids.GetId(a.SourceGuid);
+            var target = a.Target != 0 ? a.Target : db._guids.GetId(a.TargetGuid);
             var r = db._definition.Relations[a.RelationId];
             if (r.Contains(source, target)) yield break; // nothing to do
             // NB: important to not use "yield return" here as the values of the relation will change during the loop
             List<PrimitiveRelationAction> _relRemoveOperations = [];
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.SetRelation;
             foreach (var rel in r.GetOtherRelationsThatNeedsToRemovedBeforeAdd(source, target)) {
                 _relRemoveOperations.Add(new(PrimitiveOperation.Remove, a.RelationId, rel.Source, rel.Target, a.ChangeUtc));
             }
             foreach (var ra in _relRemoveOperations) yield return ra;
             yield return new PrimitiveRelationAction(PrimitiveOperation.Add, a.RelationId, source, target, a.ChangeUtc);
         } else if (a.Operation == RelationOperation.Clear) {
-            // if uid is set use it, if guid is set look up uid, if empty return 0, indicating not given
+            // if id is set use it, if guid is set look up uid, if empty return 0, indicating not given
             var source = a.Source != 0 ? a.Source : (a.SourceGuid != Guid.Empty ? db._guids.GetId(a.SourceGuid) : 0);
             var target = a.Target != 0 ? a.Target : (a.TargetGuid != Guid.Empty ? db._guids.GetId(a.TargetGuid) : 0);
             var relation = db._definition.Relations[a.RelationId];
             if (source != 0 && target != 0) {
                 if (!relation.Contains(source, target)) yield break; // nothing to do
+                if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedRelation;
                 yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, source, target, a.ChangeUtc);
             } else if (source == 0 && target != 0) {
                 foreach (var r in relation.Values) { // remove all relations to target
-                    if (r.Target == target) yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
+                    if (r.Target == target) {
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelationsToTarget;
+                        yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
+                    }
                 }
             } else if (source != 0 && target == 0) {
                 foreach (var r in relation.Values) { // remove all relations from source
-                    if (r.Source == source) yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
+                    if (r.Source == source) {
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelationsFromSource;
+                        yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
+                    }
                 }
             } else { // source == 0 && target == 0                
                 foreach (var r in relation.Values) { // remove all relations
+                    if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelations;
                     yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
                 }
             }

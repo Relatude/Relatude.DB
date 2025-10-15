@@ -113,7 +113,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             return executed;
         } catch (ExceptionWithoutIntegrityLoss) { // rollback
-            // rollback with oposite actions in reverse order:
+            // rollback with opposite actions in reverse order:
             for (var n = executed.Count - 1; n >= 0; n--) {
                 // Console.WriteLine("Rollback: " + executed[n]);
                 executeAction(executed[n].Opposite());
