@@ -8,7 +8,8 @@ public class ParameterModel {
     public static Parameter Convert(ParameterModel model) {
         if (model.Name == null) throw new InvalidOperationException("Parameter name cannot be null.");
         if (model.Value == null) throw new InvalidOperationException("Parameter value cannot be null.");
-        object value = model.DataType switch {
+        object? value = model.DataType switch {
+            "null" => null,
             "string" => model.Value,
             "int" => int.Parse(model.Value),
             "long" => long.Parse(model.Value),

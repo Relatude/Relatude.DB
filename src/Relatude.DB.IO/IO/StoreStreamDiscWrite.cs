@@ -1,4 +1,6 @@
-﻿namespace Relatude.DB.IO;
+﻿using Relatude.DB.Common;
+
+namespace Relatude.DB.IO;
 public class StoreStreamDiscWrite : IAppendStream {
     readonly FileStream _stream;
     readonly string _filePath;

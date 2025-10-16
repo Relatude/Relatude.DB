@@ -49,7 +49,7 @@ namespace Relatude.DB.Query {
             throw new Exception("Idenitier \"" + name + "\" is unknown. ");
         }
         // Declares and new variable name and sets its value
-        public void DeclarerAndSet(string name, object exp) {
+        public void DeclarerAndSet(string name, object? exp) {
             _vars.Add(name, new() { Value = exp });
         }
         // Declares and new variable name and sets its value

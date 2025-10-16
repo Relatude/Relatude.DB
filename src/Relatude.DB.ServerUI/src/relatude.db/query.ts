@@ -2,7 +2,7 @@ import { Connection } from "./connection";
 import { Expression } from "./Expression";
 import { ResultSet, ResultSetSearch } from "./result";
 
-export type ParameterDataType= "string" | "int" | "long" | "double" | "bool" | "DateTime" | "TimeSpan" | "Guid" | "string[]" | "Guid[]";
+export type ParameterDataType = "null" |"string" | "int" | "long" | "double" | "bool" | "DateTime" | "TimeSpan" | "Guid" | "string[]" | "Guid[]";
 export class Parameter {
     constructor(public name: string, public value: string, public dataType: ParameterDataType) { }
 }
@@ -26,7 +26,12 @@ class queryBuilder {
                 const pNameUsed = "P" + this.parameters.length;
                 let pType: ParameterDataType = "string";
                 if (paramTypes && paramTypes[i]) pType = paramTypes[i];
-                this.parameters.push(new Parameter(pNameUsed, paramValues[i].toString(), pType));
+                const isNull = paramValues[i] === null || paramValues[i] === undefined;
+                if(isNull){
+                    this.parameters.push(new Parameter(pNameUsed, "", "null"));
+                }else{
+                    this.parameters.push(new Parameter(pNameUsed, paramValues[i].toString(), pType));
+                }
                 segment = segment.replace(new RegExp(pNameInSegment, 'g'), pNameUsed);
             }
         }
@@ -68,16 +73,24 @@ export class QueryOfNodes<T> implements IQuery {
     builder: queryBuilder;
     constructor(from: string, connection: Connection, storeId: string) {
         this.builder = new queryBuilder(connection, storeId);
-        this.builder.add(from);        
+        this.builder.add(from);
     }
     public getBuilder(): queryBuilder {
         return this.builder;
     }
     parameters: Parameter[] = [];
-    public Search(search: string, semanticRatio: number = 0, maxHitsEvaluated: number = 10000, maxWordVariations: number = 1000) {
-        this.builder.add("search(@P0, @P1, @P2, @P3)", 
-            [search, semanticRatio, maxHitsEvaluated, maxWordVariations],
-            ["string", "double", "int", "int"]
+    // QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, 
+    // bool? orSearch = null, int? maxWordsEvaluated = null, int? maxHitsEvaluated = null);
+    public Search(
+        search: string,
+        semanticRatio: number = 0,
+        minimumVectorSimilarity: null | number = null,
+        orSearch: null | boolean = null,
+        maxWordVariations: null | number = null,
+        maxHitsEvaluated: null | number = null) {
+        this.builder.add("search(@P0, @P1, @P2, @P3, @P4, @P5)",
+            [search, semanticRatio, minimumVectorSimilarity, orSearch, maxWordVariations, maxHitsEvaluated],
+            ["string", "double", "double", "bool", "int", "int"]
         );
         return new QueryOfSearch<T>(this.builder);
     }
@@ -86,7 +99,7 @@ export class QueryOfNodes<T> implements IQuery {
         return this;
     }
     public WhereSearch(search: string, semanticRatio: number = 0) {
-        this.builder.add("whereSearch(@P0, @P1)", [search, semanticRatio],["string", "double"]);
+        this.builder.add("whereSearch(@P0, @P1)", [search, semanticRatio], ["string", "double"]);
         return this;
     }
     public Where(exp: Expression) {
@@ -100,10 +113,10 @@ export class QueryOfNodes<T> implements IQuery {
     public Execute = () => this.builder.Execute<ResultSet<T>>();
 }
 export class QueryOfSearch<T> implements IQuery {
-    constructor(public builder: queryBuilder) { }    
+    constructor(public builder: queryBuilder) { }
     public Page(pageIndex: number, pageSize: number) {
-         this.builder.add("page(@P0, @P1)", [pageIndex, pageSize], ["int", "int"]);
-         return this;
+        this.builder.add("page(@P0, @P1)", [pageIndex, pageSize], ["int", "int"]);
+        return this;
     }
     public Execute = () => this.builder.Execute<ResultSetSearch<T>>();
 }

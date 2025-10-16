@@ -243,7 +243,7 @@ public class ExpressionTreeBuilder {
                 var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
                 if (!semanticRatioO.IsNull) {
                     if (!double.TryParse(semanticRatioO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
-                        throw new Exception("Semantic ratio must be a number. ");
+                        throw new Exception("Semantic ratio paramater must be a number. ");
                     }
                     semanticRatio = v;
                 }
@@ -253,7 +253,7 @@ public class ExpressionTreeBuilder {
                 var minimumVectorSimilarityO = (ValueConstantSyntax)e.Arguments[2];
                 if (!minimumVectorSimilarityO.IsNull) {
                     if (!float.TryParse(minimumVectorSimilarityO.ValueAsString, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) {
-                        throw new Exception("Minimum vector similarity must be a number. ");
+                        throw new Exception("Minimum vector similarity paramater must be a number. ");
                     }
                     minimumVectorSimilarity = v;
                 }
@@ -263,7 +263,7 @@ public class ExpressionTreeBuilder {
                 var orSearchO = (ValueConstantSyntax)e.Arguments[3];
                 if (!orSearchO.IsNull) {
                     if (!bool.TryParse(orSearchO.ValueAsString, out var v)) {
-                        throw new Exception("Or search must be true or false. ");
+                        throw new Exception("OrSearch paramater must be true or false. ");
                     }
                     orSearch = v;
                 }
@@ -273,7 +273,7 @@ public class ExpressionTreeBuilder {
                 var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[4];
                 if (!maxWordsEvaluatedO.IsNull) {
                     if (!int.TryParse(maxWordsEvaluatedO.ValueAsString, out var v)) {
-                        throw new Exception("Max words evaluated must be a number. ");
+                        throw new Exception("Max words paramater evaluated must be a number. ");
                     }
                     maxWordsEvaluated = v;
                 }

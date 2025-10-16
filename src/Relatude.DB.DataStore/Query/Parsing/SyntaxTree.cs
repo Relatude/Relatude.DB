@@ -194,7 +194,7 @@ public class ValueConstantSyntax : SyntaxUnit {
         _valueAsString = value;
         InQuotes = inQuotes;
     }
-    public ValueConstantSyntax(object value, string code, int pos1, int pos2) : base(code, pos1, pos2) {
+    public ValueConstantSyntax(object? value, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         ValueAsObject = value;
     }
     public string ValueAsString { get => _valueAsString != null ? _valueAsString : (ValueAsObject == null ? string.Empty : ValueAsObject.ToString() + string.Empty); }

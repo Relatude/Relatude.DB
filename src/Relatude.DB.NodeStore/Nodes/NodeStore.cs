@@ -1,7 +1,5 @@
 ﻿using OneOf;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
+using Relatude.DB.AI;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -11,22 +9,27 @@ using Relatude.DB.Query;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
-using Relatude.DB.AI;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
+
 
 namespace Relatude.DB.Nodes;
+
 //public enum NodeOperation : byte {
-//    Insert, // insert a new node, fail if a node with same ID already exists ( if ID is set )
-//    InsertIfNotExists, // insert a new node, do nothing if a node with the ID already exists
-//    DeleteOrFail, // delete a node, fail if the node does not exist
-//    Delete, // delete a node, ignore if the node does not exist
-//    Update, // update a node, ignore if the node does not exist and only update if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
-//    UpdateOrFail, // update a node, fail if the node does not exist
-//    ForceUpdate, // update a node, ignore if the node does not exist, but update even if not different ( faster if changed as no comparison, slower if not changed )
-//    Upsert, // insert a new node or update an existing one, check if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
-//    ForceUpsert, // insert a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
-//    ChangeType, // change the type of a node, fail if node does not exist
-//    ReIndex, // triggers a re-index of the node, will not fail if the node does not exist
+//    InsertOrFail, // [DEFAULT] inserts a new node, fails if a node with same ID already exists ( if ID is set )
+//    InsertIfNotExists, // inserts a new node, do nothing if a node with the ID already exists
+//    DeleteOrFail, // [DEFAULT] deletes a node, fails if the node does not exist
+//    DeleteIfExists, // deletes a node, ignored if the node does not exist
+//    UpdateIfExists, // updates a node, ignored if the node does not exist and only updates if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
+//    UpdateOrFail, // [DEFAULT] updates a node, fails if the node does not exist
+//    ForceUpdate, // updates a node, fails if the node does not exist, but update even if not different ( faster if changed as no comparison, slower if not changed )
+//    Upsert, // inserts a new node or updates an existing one, checks if node is different before updating, faster if not changed (avoids disk writes), slower if changed due to unnecessary compare
+//    ForceUpsert, // inserts a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
+//    ChangeType, // changes the type of a node, fails if node does not exist
+//    ReIndex, // triggers a re-index of the node, ignored if the node does not exist
 //}
+
 public sealed class NodeStore : IDisposable {
     public readonly IDataStore Datastore;
     public readonly NodeMapper Mapper;
@@ -69,117 +72,67 @@ public sealed class NodeStore : IDisposable {
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
-    /// <summary>
-    /// Inserts a node into the database asynchronously. 
-    /// Referenced nodes are related and also inserted if they do not exist.
-    /// Fails if there is a node ID and it is not unique.
-    /// </summary>
-    /// <param name="node">The node object</param>
-    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
-    /// <returns>Information about the resulting database operations. </returns>
-    public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node), flushToDisk);
-    /// <summary>
-    /// Inserts the specified collection of nodes into the database asynchronously.
-    /// </summary>
-    /// <remarks>The method performs the insertion operation within a transaction. </remarks>
-    /// <param name="nodes">The collection of nodes to insert. Each node represents an object to be added to the database.</param>
-    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
-    /// <returns>Information about the resulting database operations. </returns>
-    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes), flushToDisk);
-    /// <summary>
-    /// Updates the specified node within the transaction asynchronously.
-    /// </summary>
-    /// <param name="node">The node object</param>
-    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
-    /// <returns>Information about the resulting database operations. </returns>
-    public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateIfExists(node), flushToDisk);
-    /// <summary>
-    /// Inserts the specified collection of nodes into the database asynchronously.
-    /// </summary>
-    /// <param name="node">The node object</param>
-    /// <param name="flushToDisk">Waits until all changes are confirmed written to disk</param>
-    /// <returns>Information about the resulting database operations. </returns>
-    public Task<TransactionResult> UpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.UpdateIfExists(node);
-        return ExecuteAsync(Transaction, flushToDisk);
-    }
-    public Task<TransactionResult> UpdateOrFailAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateOrFail(node), flushToDisk);
-    public Task<TransactionResult> UpdateOrFailAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.UpdateOrFail(node);
-        return ExecuteAsync(Transaction, flushToDisk);
-    }
 
-    public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(id), flushToDisk);
-    public Task<TransactionResult> DeleteAsync(IEnumerable<Guid> ids, bool flushToDisk = false) {
-        var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.DeleteIfExists(id);
-        return ExecuteAsync(Transaction, flushToDisk);
-    }
-    public Task<TransactionResult> DeleteOrFailAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(id), flushToDisk);
-    public Task<TransactionResult> DeleteOrFailAsync(IEnumerable<Guid> ids, bool flushToDisk = false) {
-        var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.DeleteOrFail(id);
-        return ExecuteAsync(Transaction, flushToDisk);
-    }
 
-    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
-    public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
-    public IQueryOfNodes<object, object> Query() => new QueryOfNodes<object, object>(this);
-    public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId) => new QueryOfNodes<object, object>(this, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
-    public IQueryOfNodes<object, object> QueryType(string typeName) => new QueryOfNodes<object, object>(this, typeName);
-
-    public Task<object> EvaluateForJsonAsync(string query, List<Parameter> parameters) {
-        return new QueryStringBuilder(this, query, parameters).Prepare().EvaluateForJsonAsync();
-    }
-    public IQueryOfNodes<T, T> Query<T>(Guid id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
-    public IQueryOfNodes<T, T> Query<T>(int id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
-    public IQueryOfNodes<T, T> Query<T>(IdKey id) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
-    public IQueryOfNodes<T, T> Query<T>() => new QueryOfNodes<T, T>(this);
-    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids) => new QueryOfNodes<T, T>(this).WhereInIds(ids);
-    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression) => new QueryOfNodes<T, T>(this).Where(expression);
-    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId) => new QueryOfNodes<T, T>(this).WhereRelates(propertyId, nodeId);
-
-    public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId) => Query<T>(fromId).WhereRelates<T, object>(expression, toId).Count() > 0;
-    public Task FlushAsync() => Datastore.MaintenanceAsync(MaintenanceAction.FlushDisk);
-    public Task MaintenanceAsync(MaintenanceAction options) => Datastore.MaintenanceAsync(options);
-    /// <summary>
-    /// Inserts a node into the store. Referenced nodes are related and also inserted if they do not exist.
-    /// If they do exist, they are related but their values are not updated. The whole tree is inserted in one transaction.
-    /// No relations will be removed. For collections, new relations will be added, and for single references, the existing relation will be updated.
-    /// </summary>
-    /// <param name="node">Object being inserted. The ID will be created if not given. If an ID is given, it must be unique.</param>
-    /// <param name="ignoreRelated">If true, referenced nodes will be ignored. Insert will not change relations. </param>
-    /// <param name="flushToDisk"></param>
-    /// <returns>Transaction timestamp</returns>
     public TransactionResult Insert(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
     public TransactionResult Insert(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult Insert<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
     public TransactionResult InsertIfNotExists(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
     public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult InsertIfNotExists<T>(IEnumerable<T> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
 
-    public TransactionResult ForceUpdate(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdate(node), flushToDisk);
-    public TransactionResult ForceUpdate<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.ForceUpdate(node);
-        return Execute(Transaction, flushToDisk);
-    }
+    public Task<TransactionResult> InsertAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+
+    public TransactionResult Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
+    public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).Update(nodes), flushToDisk);
     public TransactionResult UpdateIfExists(object node, bool flushToDisk = false) => Execute(new Transaction(this).UpdateIfExists(node), flushToDisk);
-    public TransactionResult UpdateIfExists<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.UpdateIfExists(node);
-        return Execute(Transaction, flushToDisk);
-    }
+    public TransactionResult UpdateIfExists<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UpdateIfExists(nodes), flushToDisk);
     public TransactionResult UpdateOrFail(object node, bool flushToDisk = false) => Execute(new Transaction(this).UpdateOrFail(node), flushToDisk);
-    public TransactionResult UpdateOrFail<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.UpdateOrFail(node);
-        return Execute(Transaction, flushToDisk);
-    }
-    public TransactionResult Update(object node, bool flushToDisk = false) => UpdateOrFail(node, flushToDisk);
-    public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => UpdateOrFail(nodes, flushToDisk);
+    public TransactionResult UpdateOrFail<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UpdateOrFail(nodes), flushToDisk);
+    public TransactionResult ForceUpdate(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdate(node), flushToDisk);
+    public TransactionResult ForceUpdate<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ForceUpdate(nodes), flushToDisk);
+
+    public Task<TransactionResult> UpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Update(node), flushToDisk);
+    public Task<TransactionResult> UpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).Update(nodes), flushToDisk);
+    public Task<TransactionResult> UpdateIfExistsAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateIfExists(node), flushToDisk);
+    public Task<TransactionResult> UpdateIfExistsAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).UpdateIfExists(nodes), flushToDisk);
+    public Task<TransactionResult> UpdateOrFailAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).UpdateOrFail(node), flushToDisk);
+    public Task<TransactionResult> UpdateOrFailAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).UpdateOrFail(nodes), flushToDisk);
+    public Task<TransactionResult> ForceUpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).ForceUpdate(node), flushToDisk);
+    public Task<TransactionResult> ForceUpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).ForceUpdate(nodes), flushToDisk);
+
+    public TransactionResult Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
+    public TransactionResult Delete(IEnumerable<int> ids, bool flushToDisk = false) => Execute(new Transaction(this).Delete(ids), flushToDisk);
+    public TransactionResult DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public TransactionResult DeleteOrFail(IEnumerable<int> ids, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(ids), flushToDisk);
+    public TransactionResult DeleteIfExists(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public TransactionResult DeleteIfExists(IEnumerable<int> ids, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(ids), flushToDisk);
+
+    public TransactionResult Delete(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
+    public TransactionResult Delete(IEnumerable<Guid> ids, bool flushToDisk = false) => Execute(new Transaction(this).Delete(ids), flushToDisk);
+    public TransactionResult DeleteOrFail(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public TransactionResult DeleteOrFail(IEnumerable<Guid> ids, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(ids), flushToDisk);
+    public TransactionResult DeleteIfExists(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public TransactionResult DeleteIfExists(IEnumerable<Guid> ids, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(ids), flushToDisk);
+
+    public Task<TransactionResult> DeleteAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
+    public Task<TransactionResult> DeleteAsync(IEnumerable<Guid> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(ids), flushToDisk);
+    public Task<TransactionResult> DeleteOrFailAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public Task<TransactionResult> DeleteOrFailAsync(IEnumerable<Guid> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(ids), flushToDisk);
+    public Task<TransactionResult> DeleteIfExistsAsync(Guid id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public Task<TransactionResult> DeleteIfExistsAsync(IEnumerable<Guid> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(ids), flushToDisk);
+
+    public Task<TransactionResult> DeleteAsync(int id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(id), flushToDisk);
+    public Task<TransactionResult> DeleteAsync(IEnumerable<int> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Delete(ids), flushToDisk);
+    public Task<TransactionResult> DeleteOrFailAsync(int id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(id), flushToDisk);
+    public Task<TransactionResult> DeleteOrFailAsync(IEnumerable<int> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteOrFail(ids), flushToDisk);
+    public Task<TransactionResult> DeleteIfExistsAsync(int id, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(id), flushToDisk);
+    public Task<TransactionResult> DeleteIfExistsAsync(IEnumerable<int> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(ids), flushToDisk);
 
     public TransactionResult ForceUpsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpsert(node), flushToDisk);
     public TransactionResult ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
@@ -193,35 +146,6 @@ public sealed class NodeStore : IDisposable {
         foreach (var node in nodes) Transaction.Upsert(node);
         return Execute(Transaction, flushToDisk);
     }
-
-    public TransactionResult DeleteIfExists(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
-    public TransactionResult DeleteIfExists(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteIfExists(id), flushToDisk);
-    public TransactionResult DeleteIfExists(IEnumerable<Guid> ids, bool flushToDisk = false) {
-        var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.DeleteIfExists(id);
-        return Execute(Transaction, flushToDisk);
-    }
-    public TransactionResult DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
-    public TransactionResult DeleteOrFail(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
-    public TransactionResult DeleteOrFail(IEnumerable<Guid> ids, bool flushToDisk = false) {
-        var Transaction = new Transaction(this);
-        foreach (var id in ids) Transaction.DeleteOrFail(id);
-        return Execute(Transaction, flushToDisk);
-    }
-    public TransactionResult Delete(int id, bool flushToDisk = false) => DeleteOrFail(id, flushToDisk);
-    public TransactionResult Delete(Guid id, bool flushToDisk = false) => DeleteOrFail(id, flushToDisk);
-    public TransactionResult Delete(IEnumerable<Guid> ids, bool flushToDisk = false) => DeleteOrFail(ids, flushToDisk);
-
-    //public TransactionResult DeleteWhere<T>(Expression<Func<T, bool>> expression) => new QueryOfNodes<T, T>(this).Where(expression)
-
-    public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
-    public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
-
-    public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
-    public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
-    public void ChangeType<T>(object node, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(node), flushToDisk);
-    public void ChangeType<T>(Guid nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
-    public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
 
     public TransactionResult Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromNode, expression, toNode), flushToDisk);
     public TransactionResult Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
@@ -281,6 +205,37 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult ClearRelations<T>(int fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
     public TransactionResult ClearRelations<T>(Guid fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
     public TransactionResult ClearRelations(Guid fromId, Guid propertyId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelations(fromId, propertyId), flushToDisk);
+
+    public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
+    public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
+
+    public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
+    public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
+    public void ChangeType<T>(object node, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(node), flushToDisk);
+    public void ChangeType<T>(Guid nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
+    public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
+
+    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
+    public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
+    public IQueryOfNodes<object, object> Query() => new QueryOfNodes<object, object>(this);
+    public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId) => new QueryOfNodes<object, object>(this, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
+    public IQueryOfNodes<object, object> QueryType(string typeName) => new QueryOfNodes<object, object>(this, typeName);
+
+    public Task<object> EvaluateForJsonAsync(string query, List<Parameter> parameters) {
+        return new QueryStringBuilder(this, query, parameters).Prepare().EvaluateForJsonAsync();
+    }
+    public IQueryOfNodes<T, T> Query<T>(Guid id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
+    public IQueryOfNodes<T, T> Query<T>(int id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
+    public IQueryOfNodes<T, T> Query<T>(IdKey id) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
+    public IQueryOfNodes<T, T> Query<T>() => new QueryOfNodes<T, T>(this);
+    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids) => new QueryOfNodes<T, T>(this).WhereInIds(ids);
+    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression) => new QueryOfNodes<T, T>(this).Where(expression);
+    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId) => new QueryOfNodes<T, T>(this).WhereRelates(propertyId, nodeId);
+
+    public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId) => Query<T>(fromId).WhereRelates<T, object>(expression, toId).Count() > 0;
+    public Task FlushAsync() => Datastore.MaintenanceAsync(MaintenanceAction.FlushDisk);
+    public Task MaintenanceAsync(MaintenanceAction options) => Datastore.MaintenanceAsync(options);
+
 
     public long Count() => Query<object>().Count();
     public long Count<T>() => Query<T>().Count();

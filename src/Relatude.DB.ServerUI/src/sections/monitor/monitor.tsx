@@ -47,7 +47,7 @@ export const component = (P: { storeId: string }) => {
                 const to = new Date(); // now
                 const from = new Date(to.getTime() - 60 * 60 * 1000); // 1 hour ago
                 const skip = 0;
-                const take = 100;
+                const take = 1000;
                 switch (app.ui.activeLogKey) {
                     case "trace": setSystemTrace(await app.api.log.getSystemTrace(P.storeId, skip, take)); break;
                     case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take, true)); break;
