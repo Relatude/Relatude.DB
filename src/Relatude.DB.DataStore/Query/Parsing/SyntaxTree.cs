@@ -193,14 +193,16 @@ public class ValueConstantSyntax : SyntaxUnit {
     public ValueConstantSyntax(string value, bool inQuotes, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         _valueAsString = value;
         InQuotes = inQuotes;
+        IsNull = !InQuotes && _valueAsString == "null";
     }
     public ValueConstantSyntax(object? value, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         ValueAsObject = value;
+        IsNull = value == null;
     }
     public string ValueAsString { get => _valueAsString != null ? _valueAsString : (ValueAsObject == null ? string.Empty : ValueAsObject.ToString() + string.Empty); }
     string? _valueAsString { get; }
     public object? ValueAsObject { get; }
-    public bool IsNull => !InQuotes && _valueAsString == "null";
+    public bool IsNull { get; }
     //public T GetValue<T>() {
     //    if (_valueAsString != null) {
     //        if (typeof(T) == typeof(string)) return (T)(object)_valueAsString;
