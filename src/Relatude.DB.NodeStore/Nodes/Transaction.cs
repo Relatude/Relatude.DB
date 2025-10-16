@@ -550,10 +550,10 @@ public sealed partial class Transaction {
         if (property is not RelationPropertyModel relationProperty) throw new Exception("Only relation properties accepted. ");
         return relationProperty;
     }
-    public Transaction Insert(IEnumerable nodes, bool ignoreRelated = false) => InsertOrFail(nodes, out _ , ignoreRelated);
+    public Transaction Insert(IEnumerable<object> nodes, bool ignoreRelated = false) => InsertOrFail(nodes, ignoreRelated);
     public Transaction Insert(object node, bool ignoreRelated = false) => InsertOrFail(node, out _, ignoreRelated);
     public Transaction Insert(object node, out Guid id, bool ignoreRelated = false) => InsertOrFail(node, out id, ignoreRelated);
-    public Transaction InsertOrFail(IEnumerable nodes, bool ignoreRelated = false) {
+    public Transaction InsertOrFail(IEnumerable<object> nodes, bool ignoreRelated = false) {
         foreach (var n in nodes) InsertOrFail(n, ignoreRelated);
         return this;
     }
@@ -563,7 +563,7 @@ public sealed partial class Transaction {
     public Transaction InsertOrFail(object node, out Guid id, bool ignoreRelated = false) {
         return _insertOrFail(node, out id, ignoreRelated);
     }
-    public Transaction InsertIfNotExists(IEnumerable nodes, bool ignoreRelated = false) {
+    public Transaction InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false) {
         foreach (var n in nodes) InsertIfNotExists(n, ignoreRelated);
         return this;
     }
@@ -612,9 +612,17 @@ public sealed partial class Transaction {
         return this;
     }
 
+    public Transaction ForceUpsert(IEnumerable<object> nodes) {
+        foreach (var n in nodes) ForceUpsert(n);
+        return this;
+    }
     public Transaction ForceUpsert(object node) {
         _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
         _transactionData.ForceUpsert(_store.Mapper.CreateNodeDataFromObject(node, null));
+        return this;
+    }
+    public Transaction Upsert(IEnumerable<object> nodes) { 
+        foreach (var n in nodes) Upsert(n);
         return this;
     }
     public Transaction Upsert(object node) {

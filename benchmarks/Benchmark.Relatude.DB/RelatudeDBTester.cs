@@ -34,13 +34,13 @@ public class RelatudeDBTester : ITester {
     public void CreateSchema() {
     }
     public void InsertUsers(TestUser[] users) {
-        var result = _store.Insert(users, true, _flush);        
+        var result = _store.Insert(users, _flush, true);        
     }
     public void InsertCompanies(TestCompany[] companies) {
-        _store.Insert(companies, true, _flush);
+        _store.Insert(companies, _flush, true);
     }
     public void InsertDocuments(TestDocument[] documents) {
-        _store.Insert(documents, true, _flush);
+        _store.Insert(documents, _flush, true);
     }
     public void RelateDocumentsToUsers(IEnumerable<Tuple<Guid, Guid>> relations) {
         var transaction = _store.CreateTransaction();

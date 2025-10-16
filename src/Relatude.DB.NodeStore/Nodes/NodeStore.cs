@@ -74,19 +74,19 @@ public sealed class NodeStore : IDisposable {
     public DataStoreState State => Datastore.State;
 
 
-    public TransactionResult Insert(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
-    public TransactionResult Insert(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult InsertOrFail(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
-    public TransactionResult InsertOrFail(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult InsertIfNotExists(object node, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
-    public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
 
-    public Task<TransactionResult> InsertAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertOrFailAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertOrFailAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertIfNotExistsAsync(object node, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertIfNotExistsAsync(IEnumerable<object> nodes, bool ignoreRelated = false, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
 
     public TransactionResult Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
     public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).Update(nodes), flushToDisk);
@@ -135,17 +135,9 @@ public sealed class NodeStore : IDisposable {
     public Task<TransactionResult> DeleteIfExistsAsync(IEnumerable<int> ids, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).DeleteIfExists(ids), flushToDisk);
 
     public TransactionResult ForceUpsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpsert(node), flushToDisk);
-    public TransactionResult ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.ForceUpsert(node);
-        return Execute(Transaction, flushToDisk);
-    }
+    public TransactionResult ForceUpsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ForceUpsert(nodes), flushToDisk);
     public TransactionResult Upsert(object node, bool flushToDisk = false) => Execute(new Transaction(this).Upsert(node), flushToDisk);
-    public TransactionResult Upsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull {
-        var Transaction = new Transaction(this);
-        foreach (var node in nodes) Transaction.Upsert(node);
-        return Execute(Transaction, flushToDisk);
-    }
+    public TransactionResult Upsert<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).Upsert(nodes), flushToDisk);
 
     public TransactionResult Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromNode, expression, toNode), flushToDisk);
     public TransactionResult Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
