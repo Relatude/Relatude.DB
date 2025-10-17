@@ -245,7 +245,7 @@ class LogAPI {
 }
 class DemoAPI {
     constructor(private server: API, private controller: string) { }
-    populate = (storeId: string, count: number) => this.server.queryJson<{ countCreated: number, elapsedMs: number }>(this.controller, 'populate', { storeId, count });
+    populate = (storeId: string, count: number, wikipediaData:boolean) => this.server.queryJson<{ countCreated: number, elapsedMs: number }>(this.controller, 'populate', { storeId, count, wikipediaData});
 }
 class TaskAPI {
     constructor(private server: API, private controller: string) { }

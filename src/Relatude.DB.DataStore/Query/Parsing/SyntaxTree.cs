@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Globalization;
+using System.Text;
 namespace Relatude.DB.Query.Parsing;
 /// <summary>
 /// This is the first step in parsing a query
@@ -190,6 +191,7 @@ public abstract class SyntaxUnit {
     public abstract SyntaxUnitTypes SyntaxType { get; }
 }
 public class ValueConstantSyntax : SyntaxUnit {
+    string? _valueAsString { get; }
     public ValueConstantSyntax(string value, bool inQuotes, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         _valueAsString = value;
         InQuotes = inQuotes;
@@ -199,8 +201,41 @@ public class ValueConstantSyntax : SyntaxUnit {
         ValueAsObject = value;
         IsNull = value == null;
     }
-    public string ValueAsString { get => _valueAsString != null ? _valueAsString : (ValueAsObject == null ? string.Empty : ValueAsObject.ToString() + string.Empty); }
-    string? _valueAsString { get; }
+    // invariant: either _valueAsString or ValueAsObject is set
+    public string ValueAsString {
+        get {
+            if (_valueAsString != null) return _valueAsString;
+            if(ValueAsObject == null) return "null";
+            if(ValueAsObject is string s) return s;
+            if (ValueAsObject is double d) return d.ToString(CultureInfo.InvariantCulture);
+            if (ValueAsObject is float f) return f.ToString(CultureInfo.InvariantCulture);
+            if (ValueAsObject is decimal dec) return dec.ToString(CultureInfo.InvariantCulture);
+            return ValueAsObject.ToString() + string.Empty;
+        }
+    }
+    public float ValueAsFloat() {
+        if (ValueAsObject is byte b) return (float)b;
+        if (ValueAsObject is int i) return (float)i;
+        if (ValueAsObject is float f) return f;
+        if (ValueAsObject is double d) return (float)d;
+        if (_valueAsString != null) return float.Parse(_valueAsString);
+        throw new InvalidCastException("Cannot convert value to float. ");
+    }
+    public double ValueAsDouble() {
+        if (ValueAsObject is double d) return d;
+        if (ValueAsObject is int i) return (double)i;
+        if (ValueAsObject is float f) return (double)f;
+        if (ValueAsObject is byte b) return (double)b;
+        throw new InvalidCastException("Cannot convert value to double. ");
+    }
+    public int ValueAsInt() {
+        if (ValueAsObject is int i) return i;
+        if (ValueAsObject is byte b) return (int)b;
+        if (ValueAsObject is float f) return (int)f;
+        if (ValueAsObject is double d) return (int)d;
+        throw new InvalidCastException("Cannot convert value to int. ");
+    }
+
     public object? ValueAsObject { get; }
     public bool IsNull { get; }
     //public T GetValue<T>() {
@@ -238,6 +273,7 @@ public class ValueConstantSyntax : SyntaxUnit {
         string value;
         bool inQuotes = firstChar == '\"';
         bool isArray = firstChar == '[';
+        ValueConstantSyntax constantSyntax;
         if (inQuotes) { // string literal
             pos++;
             StringBuilder sb = new StringBuilder();
@@ -262,6 +298,7 @@ public class ValueConstantSyntax : SyntaxUnit {
             }
             value = sb.ToString();
             pos++; // skip closing string literal                
+            constantSyntax = new ValueConstantSyntax(value, inQuotes, code, startPos, pos);
         } else if (isArray) { // array. Limited support for now, does not takt into account nested arrays or brackets in strings etc.
             pos++;
             StringBuilder sb = new StringBuilder();
@@ -278,13 +315,22 @@ public class ValueConstantSyntax : SyntaxUnit {
             sb.Append(']');
             value = sb.ToString();
             pos++; // skip closing string literal
+            constantSyntax = new ValueConstantSyntax(value, inQuotes, code, startPos, pos);
         } else { // number
             if (firstChar == '-') pos++; // negative number
             while (pos < code.Length && (char.IsLetterOrDigit(code[pos]) || code[pos] == '_' || code[pos] == '.')) pos++;
             value = code[startPos..pos];
+            var hasDot = value.Contains('.');
+            if (hasDot) {
+                var d = double.Parse(value, CultureInfo.InvariantCulture);
+                constantSyntax = new ValueConstantSyntax(d, code, startPos, pos);
+            } else {
+                var i = long.Parse(value, CultureInfo.InvariantCulture);
+                constantSyntax = new ValueConstantSyntax(i, code, startPos, pos);
+            }
         }
         newPos = pos;
-        return new ValueConstantSyntax(value, inQuotes, code, startPos, newPos);
+        return constantSyntax;
     }
     public override string ToString() {
         return base.ToString() + ValueAsString;

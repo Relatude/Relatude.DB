@@ -1,7 +1,7 @@
 
 import { observer } from "mobx-react-lite";
 import { Datamodel } from "../../relatude.db/datamodel";
-import { MultiSelect } from "@mantine/core";
+import { MultiSelect, NumberInput, Slider, Space } from "@mantine/core";
 import { makeAutoObservable } from "mobx";
 import { useState } from "react";
 import { QueryResult } from "./queryResult";
@@ -16,6 +16,8 @@ export class QueryBuilderStore {
     datamodel: Datamodel;
     private _fromTypes: string[] = []; get fromTypes() { return this._fromTypes; }
     private _searchText: string = ""; get searchText() { return this._searchText; } set searchText(text: string) { this._searchText = text; }
+    private _semanticRation: number = 0; get semanticRation() { return this._semanticRation; } set semanticRation(value: number) { this._semanticRation = value; }
+    private _semanticLimit: number = 0; get semanticLimit() { return this._semanticLimit; } set semanticLimit(value: number) { this._semanticLimit = value; }
     private _page: { page: number, pageSize: number } = { page: 0, pageSize: 10 }; get page() { return this._page; } set page(p: { page: number, pageSize: number }) { this._page = p; }
     setTypes = (types: string[]) => this._fromTypes = types;
     getQuery() {
@@ -24,14 +26,14 @@ export class QueryBuilderStore {
         if (this._fromTypes.length > 0) {
             fromName = this.datamodel.getBaseNodeType().codeName;
             whereTypes = this._fromTypes.map(t => this.datamodel.getNodeType(t).codeName);
-        } else if (this._fromTypes.length === 1) { 
+        } else if (this._fromTypes.length === 1) {
             fromName = this.datamodel.getNodeType(this._fromTypes[0]).codeName;
         } else { // length === 0
             fromName = this.datamodel.getBaseNodeType().codeName;
         }
         let query = new QueryOfNodes<any>(fromName, this._connection, this._storeId);
         if (whereTypes) query = query.WhereTypes(whereTypes);
-        if (this._searchText) query.Search(this._searchText);
+        if (this._searchText) query.Search(this._searchText, this._semanticRation, this._semanticLimit);
         if (this._page) query = query.Page(this._page.page, this._page.pageSize);
         return query;
     }
@@ -59,7 +61,7 @@ export const component = (P: { store: QueryBuilderStore, storeId: string }) => {
                     defaultValue={P.store.fromTypes}
                     searchable
                     clearable
-            
+
                     dropdownOpened={dropdownOpened}
                     onDropdownOpen={() => setDropdownOpened(true)}
                     onDropdownClose={() => setDropdownOpened(false)}
@@ -69,6 +71,24 @@ export const component = (P: { store: QueryBuilderStore, storeId: string }) => {
                 />
                 <div style={{ marginTop: "10px" }}>
                     <input autoFocus type="text" placeholder="Search..." value={P.store.searchText} onChange={(e) => P.store.searchText = e.target.value} />
+                    <Space h="md" />
+                    Semantic ratio: {P.store.semanticRation} - {Math.round(P.store.semanticRation * 100) + "% semantic, " + Math.round(100 - P.store.semanticRation * 100) + "% lexical"}
+                    <Slider
+                        value={P.store.semanticRation * 100}
+                        onChange={(value) => P.store.semanticRation = value / 100}
+                        min={0}
+                        max={100}
+                        label={(value) => `${value / 100}`}
+                    />
+                    <Space h="md" />
+                    Minimum vector cosine similarity: {P.store.semanticLimit}
+                    <Slider
+                        value={P.store.semanticLimit * 10000}
+                        onChange={(value) => P.store.semanticLimit = value / 10000}
+                        min={0}
+                        max={5000}
+                        label={(value) => `${value / 10000}`}
+                    />
                 </div>
             </div>
             <div style={{ width: "100%", height: "100%" }}>

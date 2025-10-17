@@ -163,11 +163,11 @@ internal class StringProperty : Property, IPropertyContainsValue {
             }
             return wordHits;
         } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
-            if (WordIndex == null) throw new NullReferenceException(nameof(WordIndex));
+            if (WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
             return WordIndex.SearchForRankedHitData(textSearches, pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHits)
                 .Where(h => baseSet.Has(h.NodeId));
         } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
-            if (semanticIndex == null) throw new NullReferenceException(nameof(SemanticIndex));
+            if (semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
             var top = (pageIndex + 1) * pageSize;
             var result = semanticIndex.SearchForHitData(search, top, minimumVectorSimilarity).Where(h => baseSet.Has(h.NodeId));
             totalHits = result.Count();

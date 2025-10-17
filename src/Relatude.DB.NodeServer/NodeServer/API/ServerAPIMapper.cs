@@ -422,12 +422,14 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
     }
     void mapDemo(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("populate"), (Guid storeId, int count) => {
+        app.MapPost(path("populate"), (Guid storeId, int count, bool wikipediaData) => {
             var store = db(storeId);
             var sw = new Stopwatch();
             var chunkSize = 10000;
             var created = 0;
-            var generator = new DemoArticleGenerator();
+            var path = "C:\\WAF_Sources\\wikipedia\\wiki-articles.json"; // temporary hardcoded path to wikipedia data file...
+            var seed = 0; // same every time for reproducible results
+            using IArticleGenerator generator = wikipediaData ? new WikipediaArticleGenerator(path) : new RandomArticleGenerator(seed);
             while (true) {
                 var create = Math.Min(chunkSize, count - created);
                 if (create <= 0) break;

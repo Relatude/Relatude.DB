@@ -39,7 +39,8 @@ export const Datamodel = (P: { storeId: string }) => {
             return;
         }
         const count = Number(countStr);
-        const result = await app.api.demo.populate(P.storeId, count);
+        const wikipediaData = confirm("Use Wikipedia data?");
+        const result = await app.api.demo.populate(P.storeId, count, wikipediaData);
         alert(`Created ${result.countCreated} items in ${result.elapsedMs} ms, ${Math.round(result.countCreated / (result.elapsedMs / 1000))} items/sec`);
     }
     const connectEvents = async () => {
