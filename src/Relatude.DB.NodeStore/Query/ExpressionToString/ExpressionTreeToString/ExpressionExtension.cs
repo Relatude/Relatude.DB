@@ -41,5 +41,10 @@ namespace Relatude.DB.Query.ExpressionToString.ExpressionTreeToString {
 
         public static string ToString(this LabelTarget labelTarget, OneOf<string, BuiltinRenderer> rendererArg, out Dictionary<string, (int start, int length)> pathSpans, OneOf<string, Language?> language = default) =>
             Invoke(rendererArg, labelTarget, language, out pathSpans);
+
+        public static IReadOnlyCollection<Parameter> ExtractParameters(this Expression expr)
+        {
+            
+        }
     }
 }
