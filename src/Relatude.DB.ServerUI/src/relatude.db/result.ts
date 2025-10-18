@@ -10,17 +10,17 @@ export class ResultSet<T> {
     values: T[] = [];
 }
 export class ResultSetSearch<T> extends ResultSet<SearchResultHit<T>> { }
-export class SearchResultHit<T> {
+export interface SearchResultHit<T> {
     node: T;
     sample: TextSample;
     score: number;
 }
-export class TextSample {
+export interface TextSample {
     fragments: FragmentSample[];
     cutAtStart: boolean;
     cutAtEnd: boolean;
 }
-export const formatSample = (sample:TextSample, startTag: string, endTag: string, startEllipse: string = "...", endEllipse: string = "...") => {
+export const formatSample = (sample: TextSample, startTag: string, endTag: string, startEllipse: string = "...", endEllipse: string = "...") => {
     let result: string[] = [];
     if (sample.cutAtStart) result.push(startEllipse);
     for (const s of sample.fragments) {
@@ -32,7 +32,7 @@ export const formatSample = (sample:TextSample, startTag: string, endTag: string
     if (sample.cutAtEnd) result.push(endEllipse);
     return result.join("");
 }
-export class FragmentSample {
+export interface FragmentSample {
     isMatch: boolean;
     fragment: string;
 }

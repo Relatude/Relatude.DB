@@ -57,8 +57,8 @@ public interface IDataStore : IDisposable {
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
-    object Query(string expression, IEnumerable<Parameter> parameters);
-    Task<object> QueryAsync(string expression, IEnumerable<Parameter> parameters);
+    object Query(string query, IEnumerable<Parameter> parameters);
+    Task<object> QueryAsync(string query, IEnumerable<Parameter> parameters);
 
     void RefreshLock(Guid lockId);
 

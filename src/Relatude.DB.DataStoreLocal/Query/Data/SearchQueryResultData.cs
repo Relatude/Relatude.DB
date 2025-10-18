@@ -57,8 +57,7 @@ internal class SearchQueryResultData : ISearchQueryResultData {
             if (node.TryGetValue(_searchProperty.Id, out var textO)) {
                 var text = (string)textO;
                 var sample = _searchProperty.GetTextSample(searchTerms, text, 255);
-                var score = hit.Score;
-                _hits.Add(new(node, score, sample));
+                _hits.Add(new(node, hit.Score, sample));
             }
         }
     }

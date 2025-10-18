@@ -62,7 +62,7 @@ internal class WordIndexTrie : IWordIndex {
         var result = _trie.Search(value, out totalHits, true, pageSize * pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated,  orSearch);
         List<RawSearchHit> hits = [];
         foreach (var r in result) {
-            hits.Add(new() { NodeId = r.Key, Semantic = false, Score = (float)(r.Value / 100d) });
+            hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
         }
         return hits;
     }

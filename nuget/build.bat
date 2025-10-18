@@ -50,7 +50,7 @@ echo Detected version: %version%
 set /p tag=Enter subversion tag (ie: -alpha): 
 
 :: Build the solution
-dotnet build ..\src\Relatude.DB.sln --configuration Release
+dotnet build ..\Relatude.DB.sln --configuration Release
 
 :: Pack the NuGet packages using the entered version
 for %%f in (.\*.nuspec) do (

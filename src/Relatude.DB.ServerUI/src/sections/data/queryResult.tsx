@@ -16,18 +16,18 @@ export const component = (P: { store: QueryBuilderStore }) => {
     if (!queryResult) return null;
     return (
         <div style={{ width: "100%", height: "100%" }}>
-            <h3>{ (queryResult.capped ?"More than ":"")+ queryResult.totalCount } hits, {queryResult.durationMs?.toFixed(1)} ms</h3>
-            
-             <h3>Page: {queryResult.pageIndex + 1} / {queryResult.pageCount}</h3>
+            <h3>{(queryResult.capped ? "More than " : "") + queryResult.totalCount} hits, {queryResult.durationMs?.toFixed(1)} ms</h3>
+
+            <h3>Page: {queryResult.pageIndex + 1} / {queryResult.pageCount}</h3>
             <h3>Page Size: {queryResult.pageSize}</h3>
-            <h3>Count: {queryResult.count}</h3> 
+            <h3>Count: {queryResult.count}</h3>
             <>{queryResult.values.map((v, index) => {
                 if (v.sample) {
                     return (
                         <div key={index}>
-                            <h4>{v.node.name}</h4>
-                            <p>{(v.sample as TextSample).fragments.map((s,i) => {
-                                    return <span key={i} style={{ backgroundColor: s.isMatch?"brown":"" }}>{s.fragment}</span>;
+                            <h4>{v.node.name}{v.score ? (" - " + Math.round(v.score * 1000) / 1000) : ""}</h4>
+                            <p>{(v.sample as TextSample).fragments.map((s, i) => {
+                                return <span key={i} style={{ backgroundColor: s.isMatch ? "brown" : "" }}>{s.fragment}</span>;
                             })}</p>
                             {/* <p dangerouslySetInnerHTML={{__html:formatSample(v.sample, "<b style='background-color:yellow'>", "</b>")}} ></p> */}
                         </div>

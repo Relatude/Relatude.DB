@@ -146,36 +146,51 @@ internal class StringProperty : Property, IPropertyContainsValue {
         }
     }
     internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, out int totalHits) {
-        // optimization via Reg cache us possible here....
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength);
-        if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
-            if (WordIndex == null) throw new NullReferenceException(nameof(WordIndex));
-            if (semanticIndex == null) throw new NullReferenceException(nameof(SemanticIndex));
-            var top = (pageIndex + 1) * pageSize;
-            var wordHits = WordIndex.SearchForRankedHitData(textSearches, 0, top, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHits);
-            var sematicHits = semanticIndex.SearchForHitData(search, top, minimumVectorSimilarity);
-            var nodeIdsByWordHit = wordHits.Select(h => h.NodeId).ToHashSet();
-            foreach (var h in sematicHits) {
-                if (!nodeIdsByWordHit.Contains(h.NodeId) && baseSet.Has(h.NodeId)) {
-                    wordHits.Add(h);
-                }
-            }
-            return wordHits;
-        } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
-            if (WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
-            return WordIndex.SearchForRankedHitData(textSearches, pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHits)
+        var useSemantic = ratioSemantic > 0 && IndexedBySemantic;
+        var useWords = (ratioSemantic < 1) && IndexedByWords;
+        if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
+        if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
+
+        IEnumerable<RawSearchHit> wordHits;
+        IEnumerable<RawSearchHit> semanticHits;
+        var top = (pageIndex + 1) * pageSize;
+        var totalHitsWords = 0;
+        var totalHitsSemantic = 0;
+
+        if (useWords) {
+            wordHits = WordIndex!.SearchForRankedHitData(textSearches, 0, top, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHitsWords)
                 .Where(h => baseSet.Has(h.NodeId));
-        } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
-            if (semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
-            var top = (pageIndex + 1) * pageSize;
-            var result = semanticIndex.SearchForHitData(search, top, minimumVectorSimilarity).Where(h => baseSet.Has(h.NodeId));
-            totalHits = result.Count();
-            return result;
         } else {
+            wordHits = [];
+        }
+        if (useSemantic) {
+            semanticHits = semanticIndex!.SearchForHitData(search, top, maxHitsEvaluated, minimumVectorSimilarity, out totalHitsSemantic)
+                .Where(h => baseSet.Has(h.NodeId));
+        } else {
+            semanticHits = [];
+        }
+        if (!useWords && !useSemantic) { // no search
             totalHits = 0;
             return [];
         }
+        if (useWords && !useSemantic) { // only words
+            totalHits = totalHitsWords;
+            return wordHits.Skip(pageIndex * pageSize).Take(pageSize);
+        }
+        //if (!useWords && useSemantic) { // only semantic
+            totalHits = totalHitsSemantic;
+            return semanticHits.Skip(pageIndex * pageSize).Take(pageSize);
+        //}
+
+        // combined search:
+        var wordHitsById = wordHits.ToDictionary(h => h.NodeId, h => h);
+        var semanticHitsById = semanticHits.ToDictionary(h => h.NodeId, h => h);
+
+        var allHitsGroupedById = wordHitsById.Keys.Union(semanticHitsById.Keys).GroupBy(id => id);
+
+
     }
     internal TextSample GetTextSample(TermSet search, string sourceText, int maxLength) {
         return new TextSample(search, sourceText, maxLength);

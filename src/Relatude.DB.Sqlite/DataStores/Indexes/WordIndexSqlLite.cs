@@ -116,7 +116,7 @@ public class WordIndexSqlLite : IWordIndex {
         while (reader.Read()) result.Add(new(reader.GetInt32(0), reader.GetDouble(1)));
         List<RawSearchHit> hits = [];
         foreach (var r in result) {
-            hits.Add(new() { NodeId = r.Key, Semantic = false, Score = (float)(r.Value / 100d) });
+            hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d)});
         }
 
         var sql2 = "SELECT COUNT(id) FROM " + _tableName + " WHERE value MATCH @query";

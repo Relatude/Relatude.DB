@@ -25,25 +25,22 @@ internal class SemanticIndex : IIndex {
     void newSetState() {
         _searchIndexStateId = SetRegister.NewStateId();
     }
-    internal List<RawSearchHit> SearchForHitData(string value, int maxHits, float minimumVectorSimilarity) {
+    internal List<RawSearchHit> SearchForHitData(string value, int top, int maxHits, float minimumCosineSimilarity, out int totalHits) {
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         List<VectorHit> vectorHits;
-        vectorHits = _index.Search(vector, 0, maxHits, minimumVectorSimilarity);
+        vectorHits = _index.Search(vector, 0, maxHits, minimumCosineSimilarity);
+        totalHits = vectorHits.Count;
         List<RawSearchHit> result = new(vectorHits.Count);
-        foreach (var hit in vectorHits) {
+        foreach (var hit in vectorHits.Take(top)) {
             result.Add(new() {
                 NodeId = hit.NodeId,
-                Score = calculateScoreFromVectorCosineSimilarity(hit.Similarity),
-                Semantic = true,
+                Score = hit.Similarity,
             });
         }
         return result;
     }
-    float calculateScoreFromVectorCosineSimilarity(float cosineSimilarity) {
-        return cosineSimilarity;
-    }
     public IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity) {
-        var vector = _ai.GetEmbeddingsAsync([value]).Result.First();        
+        var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         return _register.SearchSemantic(_searchIndexStateId, value, minimumVectorSimilarity, () => {
             List<VectorHit> result;
             result = _index.Search(vector, 0, int.MaxValue, minimumVectorSimilarity);

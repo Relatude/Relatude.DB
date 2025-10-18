@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using System.Text;
+﻿using System.Text;
 namespace Relatude.DB.Query.Parsing;
 /// <summary>
 /// This is the first step in parsing a query
@@ -92,11 +91,11 @@ public abstract class SyntaxUnit {
             SyntaxUnitTypes.ExpressionBracket => BracketSyntax.Parse(code, pos, out newPos, parameters),
             SyntaxUnitTypes.OperatorExpression => OperatorExpressionSyntax.Parse(code, pos, out newPos, prevUnit, parameters),
             SyntaxUnitTypes.PreFixOperatorExpression => PreFixSyntax.Parse(code, pos, out newPos, parameters),
-            SyntaxUnitTypes.ValueConstant => ValueConstantSyntax.Parse(code, pos, out newPos),
             SyntaxUnitTypes.LambdaDeclaration => LambdaSyntax.Parse(code, pos, out newPos, parameters),
             SyntaxUnitTypes.ObjectConstruction => ObjectConstructionSyntax.Parse(code, pos, out newPos, parameters),
             SyntaxUnitTypes.AnonymousObject => AnonymousObjectSyntax.Parse(code, pos, out newPos, parameters),
             SyntaxUnitTypes.Empty => null,
+            SyntaxUnitTypes.ValueConstant => throw new Exception("Value constants are not supported in queries, use parameters. "),
             _ => throw new SyntaxException(code, pos),
         };
     }
@@ -191,151 +190,19 @@ public abstract class SyntaxUnit {
     public abstract SyntaxUnitTypes SyntaxType { get; }
 }
 public class ValueConstantSyntax : SyntaxUnit {
-    string? _valueAsString { get; }
-    public ValueConstantSyntax(string value, bool inQuotes, string code, int pos1, int pos2) : base(code, pos1, pos2) {
-        _valueAsString = value;
-        InQuotes = inQuotes;
-        IsNull = !InQuotes && _valueAsString == "null";
-    }
     public ValueConstantSyntax(object? value, string code, int pos1, int pos2) : base(code, pos1, pos2) {
-        ValueAsObject = value;
-        IsNull = value == null;
+        Value = value;
     }
-    // invariant: either _valueAsString or ValueAsObject is set
-    public string ValueAsString {
-        get {
-            if (_valueAsString != null) return _valueAsString;
-            if(ValueAsObject == null) return "null";
-            if(ValueAsObject is string s) return s;
-            if (ValueAsObject is double d) return d.ToString(CultureInfo.InvariantCulture);
-            if (ValueAsObject is float f) return f.ToString(CultureInfo.InvariantCulture);
-            if (ValueAsObject is decimal dec) return dec.ToString(CultureInfo.InvariantCulture);
-            return ValueAsObject.ToString() + string.Empty;
+    public object? Value { get; }
+    public object ValueNotNull { get {
+            if (Value == null) throw new NullReferenceException();
+            return Value;
         }
-    }
-    public float ValueAsFloat() {
-        if (ValueAsObject is byte b) return (float)b;
-        if (ValueAsObject is int i) return (float)i;
-        if (ValueAsObject is float f) return f;
-        if (ValueAsObject is double d) return (float)d;
-        if (_valueAsString != null) return float.Parse(_valueAsString);
-        throw new InvalidCastException("Cannot convert value to float. ");
-    }
-    public double ValueAsDouble() {
-        if (ValueAsObject is double d) return d;
-        if (ValueAsObject is int i) return (double)i;
-        if (ValueAsObject is float f) return (double)f;
-        if (ValueAsObject is byte b) return (double)b;
-        throw new InvalidCastException("Cannot convert value to double. ");
-    }
-    public int ValueAsInt() {
-        if (ValueAsObject is int i) return i;
-        if (ValueAsObject is byte b) return (int)b;
-        if (ValueAsObject is float f) return (int)f;
-        if (ValueAsObject is double d) return (int)d;
-        throw new InvalidCastException("Cannot convert value to int. ");
-    }
-
-    public object? ValueAsObject { get; }
-    public bool IsNull { get; }
-    //public T GetValue<T>() {
-    //    if (_valueAsString != null) {
-    //        if (typeof(T) == typeof(string)) return (T)(object)_valueAsString;
-    //        if (typeof(T) == typeof(int)) return (T)(object)int.Parse(_valueAsString);
-    //        if (typeof(T) == typeof(double)) return (T)(object)double.Parse(_valueAsString);
-    //        if (typeof(T) == typeof(bool)) return (T)(object)(_valueAsString.ToLower() == "true");
-    //        if (typeof(T) == typeof(DateTime)) return (T)(object)DateTime.Parse(_valueAsString);
-    //        if (typeof(T) == typeof(decimal)) return (T)(object)decimal.Parse(_valueAsString);
-    //        if (typeof(T) == typeof(Guid)) return (T)(object)Guid.Parse(_valueAsString);
-    //        if (typeof(T) == typeof(byte[])) return (T)(object)Convert.FromBase64String(_valueAsString);
-    //        throw new InvalidCastException($"Cannot convert value '{_valueAsString}' to type {typeof(T).Name}");
-    //    } else if (ValueAsObject != null) {
-    //        if (typeof(T) == typeof(string)) return (T)(object)(ValueAsObject.ToString() + string.Empty);
-    //        if (ValueAsObject is T value) return value;
-    //        if (ValueAsObject is string s && typeof(T) == typeof(string)) return (T)(object)s;
-    //        if (ValueAsObject is int i && typeof(T) == typeof(int)) return (T)(object)i;
-    //        if (ValueAsObject is double d && typeof(T) == typeof(double)) return (T)(object)d;
-    //        if (ValueAsObject is bool b && typeof(T) == typeof(bool)) return (T)(object)b;
-    //        if (ValueAsObject is DateTime dt && typeof(T) == typeof(DateTime)) return (T)(object)dt;
-    //        if (ValueAsObject is decimal dec && typeof(T) == typeof(decimal)) return (T)(object)dec;
-    //        if (ValueAsObject is Guid g && typeof(T) == typeof(Guid)) return (T)(object)g;
-    //        if (ValueAsObject is byte[] ba && typeof(T) == typeof(byte[])) return (T)(object)ba;
-    //        throw new InvalidCastException($"Cannot convert value '{ValueAsObject}' to type {typeof(T).Name}");
-    //    } else {
-    //        return default;
-    //    }
-    //}
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.ValueConstant;
-    static public ValueConstantSyntax Parse(string code, int pos, out int newPos) {
-        pos = SkipWhiteSpace(code, pos);
-        var startPos = pos;
-        var firstChar = code[startPos];
-        string value;
-        bool inQuotes = firstChar == '\"';
-        bool isArray = firstChar == '[';
-        ValueConstantSyntax constantSyntax;
-        if (inQuotes) { // string literal
-            pos++;
-            StringBuilder sb = new StringBuilder();
-            while (pos < code.Length) {
-                var c = code[pos];
-                if (c == '\\') {
-                    pos++;
-                    c = code[pos];
-                    if (c == '"') sb.Append('"');
-                    else if (c == '\'') sb.Append('\'');
-                    else if (c == '\\') sb.Append('\\');
-                    else if (c == 'n') sb.Append('\n');
-                    else if (c == 'r') sb.Append('\r');
-                    else if (c == 't') sb.Append('\t');
-                    else throw new SyntaxException("Invalid escape character in string literal. ", code, pos);
-                } else if (c == '\"') {
-                    break;
-                } else {
-                    sb.Append(c);
-                }
-                pos++;
-            }
-            value = sb.ToString();
-            pos++; // skip closing string literal                
-            constantSyntax = new ValueConstantSyntax(value, inQuotes, code, startPos, pos);
-        } else if (isArray) { // array. Limited support for now, does not takt into account nested arrays or brackets in strings etc.
-            pos++;
-            StringBuilder sb = new StringBuilder();
-            sb.Append('[');
-            while (pos < code.Length) {
-                var c = code[pos];
-                if (c == ']') {
-                    break;
-                } else {
-                    sb.Append(c);
-                }
-                pos++;
-            }
-            sb.Append(']');
-            value = sb.ToString();
-            pos++; // skip closing string literal
-            constantSyntax = new ValueConstantSyntax(value, inQuotes, code, startPos, pos);
-        } else { // number
-            if (firstChar == '-') pos++; // negative number
-            while (pos < code.Length && (char.IsLetterOrDigit(code[pos]) || code[pos] == '_' || code[pos] == '.')) pos++;
-            value = code[startPos..pos];
-            var hasDot = value.Contains('.');
-            if (hasDot) {
-                var d = double.Parse(value, CultureInfo.InvariantCulture);
-                constantSyntax = new ValueConstantSyntax(d, code, startPos, pos);
-            } else {
-                var i = long.Parse(value, CultureInfo.InvariantCulture);
-                constantSyntax = new ValueConstantSyntax(i, code, startPos, pos);
-            }
-        }
-        newPos = pos;
-        return constantSyntax;
     }
     public override string ToString() {
-        return base.ToString() + ValueAsString;
+        return string.Empty + Value?.ToString();
     }
-    public bool InQuotes { get; }
+    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.ValueConstant;
 }
 public class VariableReferenceSyntax : SyntaxUnit {
     public VariableReferenceSyntax(string name, string code, int pos1, int pos2) : base(code, pos1, pos2) {
