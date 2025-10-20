@@ -26,9 +26,13 @@ public class AIProviderSettings {
     public int? MaxCountInBatch { get; set; }
     public int? MaxCharsOfEach { get; set; }
 
+    public double GetDefaultSemanticRatio ()=> DefaultSemanticRatio ?? 0.5;
+    public double GetDefaultMinimumSimilarity ()=> DefaultMinimumSimilarity ?? 0.75;
     public int GetMaxCharsInBatch ()=> MaxCharsInBatch ?? 50000;
     public int GetMaxCountInBatch ()=> MaxCountInBatch ?? 500;
     public int GetMaxCharsOfEach ()=> MaxCharsOfEach ?? 20000;
+    
+
 
     public AIProviderCacheType? CacheType { get; set; }
 }

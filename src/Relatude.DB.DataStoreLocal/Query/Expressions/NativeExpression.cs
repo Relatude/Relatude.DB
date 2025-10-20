@@ -331,10 +331,6 @@ namespace Relatude.DB.Query.Expressions {
         readonly string _value;
         readonly int _maxHits;
         readonly StringProperty _property;
-        SetRegister _sets;
-        double ratioSemantic = 0.5; // hardcoded default value, can be changed later
-        bool orSearch = false; // hardcoded default value, can be changed later
-        DataStoreLocal _db;
         public MethodExpressionNativeSearchProperty(SetRegister sets, StringProperty property, string value, DataStoreLocal db) {
             _property = property;
             _value = value;
@@ -345,8 +341,6 @@ namespace Relatude.DB.Query.Expressions {
             } else {
                 _maxHits = int.MaxValue;
             }
-            _sets = sets;
-            _db = db;
         }
         public IdSet Filter(IdSet set) {
             throw new NotImplementedException("Search method with max hits not implemented in native expression.");

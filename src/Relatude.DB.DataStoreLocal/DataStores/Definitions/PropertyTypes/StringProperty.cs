@@ -148,8 +148,8 @@ internal class StringProperty : Property, IPropertyContainsValue {
     internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, out int totalHits) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength);
-        var useSemantic = ratioSemantic > 0 && IndexedBySemantic;
-        var useWords = (ratioSemantic < 1) && IndexedByWords;
+        var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
+        var useWords = ratioSemantic < 0.99 && IndexedByWords;
         if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
         if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
 
@@ -179,17 +179,42 @@ internal class StringProperty : Property, IPropertyContainsValue {
             totalHits = totalHitsWords;
             return wordHits.Skip(pageIndex * pageSize).Take(pageSize);
         }
-        //if (!useWords && useSemantic) { // only semantic
+        if (!useWords && useSemantic) { // only semantic
             totalHits = totalHitsSemantic;
             return semanticHits.Skip(pageIndex * pageSize).Take(pageSize);
-        //}
+        }
 
-        // combined search:
-        var wordHitsById = wordHits.ToDictionary(h => h.NodeId, h => h);
-        var semanticHitsById = semanticHits.ToDictionary(h => h.NodeId, h => h);
+        // combined search, every second hit from semantic and word hits, removing duplicates
+        // if semantic ratio is higher than 0.5, start with semantic hit, otherwise start with word hit:
 
-        var allHitsGroupedById = wordHitsById.Keys.Union(semanticHitsById.Keys).GroupBy(id => id);
+        Dictionary<int, RawSearchHit> semanticHitsById;
+        Dictionary<int, RawSearchHit> wordHitsById;
+        if (ratioSemantic >= 0.5) { // exclude duplicates from word hits if ratioSemantic is higher than 0.5
+            semanticHitsById = semanticHits.ToDictionary(h => h.NodeId, h => h);
+            wordHitsById = wordHits.Where(h => !semanticHitsById.ContainsKey(h.NodeId)).ToDictionary(h => h.NodeId, h => h);
+        } else { // exclude duplicates from semantic hits if ratioSemantic is lower than or equal to 0.5
+            wordHitsById = wordHits.ToDictionary(h => h.NodeId, h => h);
+            semanticHitsById = semanticHits.Where(h => !wordHitsById.ContainsKey(h.NodeId)).ToDictionary(h => h.NodeId, h => h);
+        }
 
+        var combinedHits = new List<RawSearchHit>();
+        var semanticEnumerator = semanticHitsById.Values.GetEnumerator();
+        var wordEnumerator = wordHitsById.Values.GetEnumerator();
+        bool hasSemantic = semanticEnumerator.MoveNext();
+        bool hasWord = wordEnumerator.MoveNext();
+        bool takeSemanticNext = ratioSemantic >= 0.5;
+        while (combinedHits.Count < top && (hasSemantic || hasWord)) {
+            if (takeSemanticNext && hasSemantic) {
+                combinedHits.Add(semanticEnumerator.Current);
+                hasSemantic = semanticEnumerator.MoveNext();
+            } else if (!takeSemanticNext && hasWord) {
+                combinedHits.Add(wordEnumerator.Current);
+                hasWord = wordEnumerator.MoveNext();
+            }
+            takeSemanticNext = !takeSemanticNext;
+        }
+        totalHits = semanticHitsById.Count + wordHitsById.Count;
+        return combinedHits.Skip(pageIndex * pageSize).Take(pageSize);
 
     }
     internal TextSample GetTextSample(TermSet search, string sourceText, int maxLength) {

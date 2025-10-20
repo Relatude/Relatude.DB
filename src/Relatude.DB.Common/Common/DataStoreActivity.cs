@@ -41,4 +41,7 @@ public class DataStoreActivity {
         if (obj is not DataStoreActivity other) return false;
         return Id == other.Id && ParentId == other.ParentId && Category == other.Category && Description == other.Description && PercentageProgress == other.PercentageProgress;
     }
+    public override int GetHashCode() {
+        throw new NotImplementedException();
+    }
 }

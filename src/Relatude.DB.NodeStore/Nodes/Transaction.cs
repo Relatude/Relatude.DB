@@ -42,7 +42,7 @@ public sealed partial class Transaction {
         if (fromNode == null) throw new Exception("From node cannot be null. ");
         if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
-            Relate(fromGuid, expression, toGuid);
+            Relate(fromGuid, expression!, toGuid);
         } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
               && _store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
             Relate(fromUint, expression, toUInt);

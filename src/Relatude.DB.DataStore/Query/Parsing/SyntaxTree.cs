@@ -104,9 +104,6 @@ public abstract class SyntaxUnit {
         };
     }
     internal static bool isNextElement(char firstNoneWhiteSpaceChar, string code, int pos, string word) {
-        if (word == "false") {
-            int aa = 1;
-        }
         if (firstNoneWhiteSpaceChar != word[0]) return false; // first char does not match
         if (pos + word.Length > code.Length) return false; // not enough code left for word
         if (code[pos..(pos + word.Length)] == word) return true; // match
@@ -242,8 +239,9 @@ public class ValueConstantSyntax : SyntaxUnit {
                 }
             } else if (dm.NodeTypesByFullName.TryGetValue(v, out var type)) {
                 guids[n] = type.Id;
+            } else {
+                throw new Exception("Cannot locate a valid node type guid from value '" + v + "'. ");
             }
-            throw new Exception("Cannot locate a valid node type guid from value '" + v + "'. ");
         }
         return guids;
     }

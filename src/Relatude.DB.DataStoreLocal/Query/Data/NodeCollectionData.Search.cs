@@ -5,8 +5,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     public ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated) {
         var property = _def.Properties[searchPropertyId];
         if (property is not StringProperty p) throw new Exception("Search property must be a string property");
-        if (ratioSemantic == null) ratioSemantic = _db._ai == null ? 0 : _db._ai.Settings.DefaultSemanticRatio;
-        if (minimumVectorSimilarity == null) minimumVectorSimilarity = _db._ai == null ? 0 : (float)_db._ai.Settings.DefaultMinimumSimilarity;
+        if (ratioSemantic == null) ratioSemantic = _db._ai == null ? 0 : _db._ai.Settings.GetDefaultSemanticRatio();
+        if (minimumVectorSimilarity == null) minimumVectorSimilarity = _db._ai == null ? 0 : (float)_db._ai.Settings.GetDefaultMinimumSimilarity();
         if (orSearch == null) orSearch = false;
         if (!maxHitsEvaluated.HasValue) maxHitsEvaluated = int.MaxValue;
         if (!maxWordsEvaluated.HasValue) maxWordsEvaluated = int.MaxValue;
@@ -22,8 +22,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     public IStoreNodeDataCollection FilterBySearch(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations) {
         var property = _def.Properties[searchPropertyId];
         if (property is not StringProperty p) throw new Exception("Search property must be a string property");
-        if (ratioSemantic == null) ratioSemantic = _db._ai == null ? 0 : _db._ai.Settings.DefaultSemanticRatio;
-        if (minimumVectorSimilarity == null) minimumVectorSimilarity = _db._ai == null ? 0 : (float)_db._ai.Settings.DefaultMinimumSimilarity;
+        if (ratioSemantic == null) ratioSemantic = _db._ai == null ? 0 : _db._ai.Settings.GetDefaultSemanticRatio();
+        if (minimumVectorSimilarity == null) minimumVectorSimilarity = _db._ai == null ? 0 : (float)_db._ai.Settings.GetDefaultMinimumSimilarity();
         if (orSearch == null) orSearch = false;
         if (!maxWordVariations.HasValue) maxWordVariations = int.MaxValue;
         var searchIds = p.SearchForIdSet(search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, maxWordVariations.Value, _db);

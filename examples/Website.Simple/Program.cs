@@ -14,7 +14,7 @@ var app = builder.Build();
 app.UseCors("AllowALL");
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
-    var noObjects = ctx.Database.Query<object>().Count();
+    var noObjects = ctx.Database.Query<object>().Search("test").Execute().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 

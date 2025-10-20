@@ -142,7 +142,7 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromNode, expression, toNode), flushToDisk);
     public TransactionResult Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
     //public long Relate<T>(int fromId, Expression<Func<T, object>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
-    public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toId), flushToDisk);
+    public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression!, toId), flushToDisk);
     public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toIds), flushToDisk);
     public TransactionResult Relate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
 

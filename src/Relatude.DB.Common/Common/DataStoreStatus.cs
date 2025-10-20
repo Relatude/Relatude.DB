@@ -9,6 +9,9 @@ public class ActivityBranch(DataStoreActivity activity, ActivityBranch[] childre
         if (obj is not ActivityBranch other) return false;
         return Activity.Equals(other.Activity) && Children.SequenceEqual(other.Children);
     }
+    public override int GetHashCode() {
+        throw new NotImplementedException();
+    }
 }
 public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activities) {
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -37,5 +40,8 @@ public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activitie
     public override bool Equals(object? obj) {
         if (obj is not DataStoreStatus other) return false;
         return State == other.State && ActivityTree.SequenceEqual(other.ActivityTree);
+    }
+    public override int GetHashCode() {
+        throw new NotImplementedException();
     }
 }

@@ -3,14 +3,15 @@ public class IODisk : IIOProvider {
     readonly bool _readOnly;
     readonly string _baseFolder;
     public string BaseFolder => _baseFolder;
-    readonly bool _flushToDisk;
+    readonly bool _flushToDiskWhenFlushing;
     object _regLock = new();
     Dictionary<string, int> _openReaders = [];
     Dictionary<string, int> _openWriters = [];
-    public IODisk(string baseFolder, bool flushToDisk = true, bool readOnly = false) {
+    public IODisk(string baseFolder, bool flushToDiskWhenFlushing = true, bool readOnly = false) {
         _baseFolder = baseFolder;
         _readOnly = readOnly;
         if (!Directory.Exists(_baseFolder)) Directory.CreateDirectory(_baseFolder);
+        _flushToDiskWhenFlushing = flushToDiskWhenFlushing;
     }
     void registerReader(string fileKey) {
         lock (_regLock) {
@@ -52,7 +53,7 @@ public class IODisk : IIOProvider {
     public IAppendStream OpenAppend(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         var filePath = Path.Combine(_baseFolder, fileKey);
-        var stream = new StoreStreamDiscWrite(fileKey, filePath, _flushToDisk, _readOnly, () => {
+        var stream = new StoreStreamDiscWrite(fileKey, filePath, _flushToDiskWhenFlushing, _readOnly, () => {
             unregisterWriter(fileKey);
         });
         registerWriter(fileKey);

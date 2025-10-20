@@ -5,7 +5,7 @@ using Microsoft.Data.SqlClient;
 namespace Benchmark.MSSql;
 public class MsSqlDBTester : ITester {
     string _dataFolderPath = null!;
-    SqlConnection _connection;
+    SqlConnection _connection = null!;
     string _cnnStr = null!;
     public string Name => "MsSql";
     public void Initalize(string dataFolderPath, TestOptions options) {
