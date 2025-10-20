@@ -77,6 +77,7 @@ public class ExpressionTreeBuilder {
             case ParsedTypes.Null: return new NullConstantExpression();
             case ParsedTypes.Boolean: return new BooleanConstantExpression(constantValue.GetBoolValue());
             case ParsedTypes.String: return new StringConstantExpression(constantValue.GetStringValue());
+            case ParsedTypes.LongNumberString: return new LongConstantExpression(constantValue.GetLongValue());
             case ParsedTypes.IntegerNumberString: return new IntegerConstantExpression(constantValue.GetIntValue());
             case ParsedTypes.FloatingNumberString: return new DoubleConstantExpression(constantValue.GetDoubleValue());
             default: throw new NotSupportedException("Parameter of type " + constantValue.ParsedType + " is not yet supported as parsed expression.");
@@ -328,7 +329,7 @@ public class ExpressionTreeBuilder {
             var source = Build(e.Subject, dm);
             List<string> branch = new();
             if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantSyntax id) {
-                return new WhereInIdsMethod(source, id.GetStringValue());
+                return new WhereInIdsMethod(source, id.GetGuids());
             } else {
                 throw new Exception("Relates statement only accepts one parameter. ");
             }

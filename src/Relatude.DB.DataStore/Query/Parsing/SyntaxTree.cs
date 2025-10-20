@@ -226,6 +226,7 @@ public class ValueConstantSyntax : SyntaxUnit {
         ParsedType = parsedType;
     }
     public Guid[] GetNodeTypeGuids(Datamodel dm) {
+        if (_value is Guid[] ids) return ids;
         var strArray = getValueOfType(ParameterTypes.StringArray) as string[];
         if (strArray == null) throw new Exception("Stored value is not string array. ");
         var guids = new Guid[strArray.Length];
@@ -248,6 +249,18 @@ public class ValueConstantSyntax : SyntaxUnit {
     }
     public Guid GetPropertyId(Datamodel dm) {
         return dm.GetPropertyGuid(GetStringValue());
+    }
+    public Guid[] GetGuids() {
+        if (_value is Guid[] ids) return ids;
+        var strArray = getValueOfType(ParameterTypes.StringArray) as string[];
+        if (strArray == null) throw new Exception("Stored value is not string array. ");
+        var guids = new Guid[strArray.Length];
+        for (int n = 0; n < strArray.Length; n++) {
+            var v = strArray[n];
+            if (Guid.TryParse(v, out var g)) guids[n] = g;
+            else throw new Exception("Cannot locate a valid guid from value '" + v + "'. ");
+        }
+        return guids;
     }
     public object[] GetPropertyValues(Datamodel dm, Guid propertyId) {
         var property = dm.Properties[propertyId];
@@ -315,6 +328,13 @@ public class ValueConstantSyntax : SyntaxUnit {
     }
     public int GetIntValue() {
         return (int)getValueOfType(ParameterTypes.Integer);
+    }
+    public long? GetLongOrNullValue() {
+        if (_value == null) return null;
+        return (long)getValueOfType(ParameterTypes.Long);
+    }
+    public long GetLongValue() {
+        return (long)getValueOfType(ParameterTypes.Long);
     }
     public double GetDoubleValue() {
         return (double)getValueOfType(ParameterTypes.Double);
@@ -451,6 +471,7 @@ public class ValueConstantSyntax : SyntaxUnit {
         // must be number:
         var startPos = pos;
         var hasDecimalPoint = false;
+        var boolIsNegative = false;
         while (pos < code.Length) {
             if (char.IsNumber(code[pos])) {
                 pos++;
@@ -460,13 +481,24 @@ public class ValueConstantSyntax : SyntaxUnit {
                 pos++;
             } else if (code[pos] == '-' && pos == startPos) {
                 pos++;
+                boolIsNegative = true;
             } else {
                 break;
             }
         }
         strValue = code[startPos..pos];
         newPos = pos;
-        return new(strValue, hasDecimalPoint ? ParsedTypes.FloatingNumberString : ParsedTypes.IntegerNumberString, code, startPos, newPos);
+        ParsedTypes numberType;
+        if (hasDecimalPoint) {
+            numberType = ParsedTypes.FloatingNumberString;
+        } else {
+            if (strValue.Length > 10 + (boolIsNegative ? 1 : 0)) {
+                numberType = ParsedTypes.LongNumberString;
+            } else {
+                numberType = ParsedTypes.IntegerNumberString;
+            }
+        }
+        return new(strValue, numberType, code, startPos, newPos);
 
     }
     public override string ToString() {
