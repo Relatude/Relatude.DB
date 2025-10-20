@@ -2,6 +2,7 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Methods;
+using Relatude.DB.Query.Parsing.Syntax;
 namespace Relatude.DB.Query.Parsing;
 delegate IExpression BuildMethod(SyntaxUnit syntax, Datamodel dm);
 public class ExpressionBuilderException : Exception {
@@ -61,8 +62,8 @@ public class ExpressionTreeBuilder {
         };
     }
     static IConstantExpression BuildValueConstant(ValueConstantSyntax constantValue) {
-        switch (constantValue.ParsedType) {
-            case ParsedTypes.NotParsed: {
+        switch (constantValue.ParsedTypeHint) {
+            case ParsedTypes.FromParameter: {
                     // value stems from parameter substitution...
                     var value = constantValue.DirectValue;
                     if (value == null) return new NullConstantExpression();
@@ -77,10 +78,10 @@ public class ExpressionTreeBuilder {
             case ParsedTypes.Null: return new NullConstantExpression();
             case ParsedTypes.Boolean: return new BooleanConstantExpression(constantValue.GetBoolValue());
             case ParsedTypes.String: return new StringConstantExpression(constantValue.GetStringValue());
-            case ParsedTypes.LongNumberString: return new LongConstantExpression(constantValue.GetLongValue());
-            case ParsedTypes.IntegerNumberString: return new IntegerConstantExpression(constantValue.GetIntValue());
-            case ParsedTypes.FloatingNumberString: return new DoubleConstantExpression(constantValue.GetDoubleValue());
-            default: throw new NotSupportedException("Parameter of type " + constantValue.ParsedType + " is not yet supported as parsed expression.");
+            case ParsedTypes.LongString: return new LongConstantExpression(constantValue.GetLongValue());
+            case ParsedTypes.IntString: return new IntegerConstantExpression(constantValue.GetIntValue());
+            case ParsedTypes.FloatString: return new DoubleConstantExpression(constantValue.GetDoubleValue());
+            default: throw new NotSupportedException("Parameter of type " + constantValue.ParsedTypeHint + " is not yet supported as parsed expression.");
         }
     }
     static IExpression BuildPreFixOperator(PreFixSyntax e, Datamodel dm) {

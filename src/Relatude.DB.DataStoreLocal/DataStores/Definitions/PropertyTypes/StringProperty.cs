@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Transactions;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 internal class StringProperty : Property, IPropertyContainsValue {
     SetRegister _sets;
@@ -155,7 +156,12 @@ internal class StringProperty : Property, IPropertyContainsValue {
 
         IEnumerable<RawSearchHit> wordHits;
         IEnumerable<RawSearchHit> semanticHits;
-        var top = (pageIndex + 1) * pageSize;
+
+
+        int top;
+        if (useSemantic && useWords) top = maxHitsEvaluated;
+        else top = (pageIndex + 1) * pageSize;
+
         var totalHitsWords = 0;
         var totalHitsSemantic = 0;
 

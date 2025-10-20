@@ -82,19 +82,21 @@ public class TaskQueue : IDisposable {
             }
         }
     }
-    public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort) {
+    public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort, long parentActivityId) {
         var results = new List<BatchTaskResult>();
         if (_isShuttingdown) return [];
         _isExecuting = true;
         var totalMs = Stopwatch.StartNew();
-
+        var taskNo = 0;
         while (!_isShuttingdown) {
+            long childActivityId = -1;
             if (abort()) break; // allow external abort
             if (totalMs.ElapsedMilliseconds >= maxDurationMs) break;
             var startTime = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
             var next = Dequeue();
             if (next == null) break; // no more tasks to process
+            taskNo += next.TaskCount;
             TaskLogger? taskLogging = null;
             if (_store.Logger.LoggingTask) {
                 taskLogging = (bool success, string id, string details) => {
@@ -104,6 +106,9 @@ public class TaskQueue : IDisposable {
             BatchTaskResult result;
             try {
                 if (!_runners.TryGetValue(next.Meta.TaskTypeId, out var runner)) throw new Exception("No runner for: " + next.Meta.TaskTypeId);
+                var tasksLeft = CountTasks(BatchState.Pending);
+                var progress = tasksLeft + taskNo > 0 ? (100 * taskNo / (tasksLeft + taskNo)) : 100;
+                childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, $"Running task {taskNo} of {tasksLeft + taskNo}. ", progress);
                 await runner.ExecuteAsyncGeneric(next, taskLogging);
                 lock (_lock) {
                     if (runner.DeleteOnSuccess) {
@@ -118,6 +123,8 @@ public class TaskQueue : IDisposable {
                     _queue.Set(next.Meta.BatchId, err);
                 }
                 result = new BatchTaskResult(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount, err);
+            } finally {
+                if (childActivityId > -1) _store.DeRegisterActivity(childActivityId);
             }
             if (_store.Logger.LoggingTaskBatch) _store.Logger.RecordTaskBatch(next.Meta.BatchId, result);
             results.Add(result);

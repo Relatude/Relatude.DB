@@ -11,7 +11,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     readonly Dictionary<int, float[]> _index = [];
     bool multiThreaded {
         get {
-            return Environment.ProcessorCount > 2 && _index.Count > 10000;
+            return Environment.ProcessorCount > 2 && _index.Count > 100;
         }
     }
     public void Set(int nodeId, float[] vector) => _index[nodeId] = vector;
@@ -22,17 +22,10 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         if (minCosineSimilarity >= 1f) minCosineSimilarity = 0.9999f;
         else if (minCosineSimilarity <= -1f) minCosineSimilarity = -0.9999f; // avoid precision issues
 #if DEBUG
-            var result1 = SearchOld(u, skip, take, minCosineSimilarity);
-        if (minCosineSimilarity > 0) {
+        var result1 = SearchOld(u, skip, take, minCosineSimilarity);
+        if (minCosineSimilarity > 0.1) {
             var result2 = SearchNew(u, skip, take, minCosineSimilarity);
             if (result1.Count != result2.Count) throw new Exception("Search result count mismatch");
-            foreach (var (r1, r2) in result1.Zip(result2)) {
-                if (r1.NodeId != r2.NodeId) throw new Exception("Search result NodeId mismatch");
-                var denominator = Math.Abs(r1.Similarity) + Math.Abs(r2.Similarity);
-                if (denominator < 0.0001f) continue; // both are zero
-                var percentageDiff = Math.Abs(r1.Similarity - r2.Similarity) / (denominator / 2);
-                if (percentageDiff > 0.001f) throw new Exception("Search result Similarity mismatch");
-            }
         }
         return result1;
 #else

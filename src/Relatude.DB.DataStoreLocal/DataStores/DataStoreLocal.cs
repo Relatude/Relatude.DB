@@ -204,7 +204,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _scheduler.Stop();
         _lock.EnterWriteLock();
         LogInfo("Database opening");
-        var activityId = registerActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
+        var activityId = RegisterActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
         var currentModelHash = getCheckSumForStateFileAndIndexes();
         try {
             if (_state != DataStoreState.Closed) throw new Exception("Store cannot be opened as current state is " + _state);
@@ -221,7 +221,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             } else { // delete state file and reload
                 try {
                     LogInfo("Rebuilding index from log");
-                    updateActivity(activityId, "Rebuilding index from log", 0);
+                    UpdateActivity(activityId, "Rebuilding index from log", 0);
                     _io.DeleteIfItExists(_fileKeys.StateFileKey);
                     Dispose();
                     initialize();
@@ -241,7 +241,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } finally {
             if (_state == DataStoreState.Error) Dispose();
-            deRegisterActivity(activityId);
+            DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
         if (_state == DataStoreState.Open) {

@@ -11,7 +11,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return new(State, activities);
     }
-    long registerActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
+    public long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
         lock (_currentActiveties) {
             _activityIdCounter++;
             var id = _activityIdCounter;
@@ -20,7 +20,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             return id;
         }
     }
-    long registerChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
+    public long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
         lock (_currentActiveties) {
             _activityIdCounter++;
             var id = _activityIdCounter;
@@ -29,7 +29,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             return id;
         }
     }
-    void updateActivity(long activityId, string? description = null, int? percentageProgress = null) {
+    public void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null) {
         lock (_currentActiveties) {
             if (_currentActiveties.TryGetValue(activityId, out var activity)) {
                 activity.Description = description;
@@ -37,14 +37,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
     }
-    void updateActivityProgress(long activityId, int? percentageProgress = null) {
+    public void UpdateActivityProgress(long activityId, int? percentageProgress = null) {
         lock (_currentActiveties) {
             if (_currentActiveties.TryGetValue(activityId, out var activity)) {
                 activity.PercentageProgress = percentageProgress;
             }
         }
     }
-    void deRegisterActivity(long activityId) {
+    public void DeRegisterActivity(long activityId) {
         lock (_currentActiveties) {
             _currentActiveties.Remove(activityId);
         }

@@ -53,7 +53,7 @@ public class IODisk : IIOProvider {
     public IAppendStream OpenAppend(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         var filePath = Path.Combine(_baseFolder, fileKey);
-        var stream = new StoreStreamDiscWrite(fileKey, filePath, _flushToDiskWhenFlushing, _readOnly, () => {
+        var stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, _flushToDiskWhenFlushing, () => {
             unregisterWriter(fileKey);
         });
         registerWriter(fileKey);

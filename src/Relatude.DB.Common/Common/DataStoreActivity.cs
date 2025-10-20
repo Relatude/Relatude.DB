@@ -9,6 +9,7 @@ public enum DataStoreActivityCategory {
     Copying,
     Rewriting,
     SavingState,
+    RunningTask,
 }
 public class DataStoreActivity {
     private DataStoreActivity(long id, long parentId, DataStoreActivityCategory cat, string? desc, int? prg) {

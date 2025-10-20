@@ -90,7 +90,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else { // read state, before reading rest from log file
             try {
                 LogInfo("Reading state file");
-                updateActivity(activityId, "Reading state file", 0);
+                UpdateActivity(activityId, "Reading state file", 0);
                 using var stream = _io.OpenRead(_fileKeys.StateFileKey, 0);
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
@@ -111,16 +111,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
 
                 if (_wal.FileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
-                updateActivity(activityId, "Reading id registry", 5);
+                UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
-                _nodes.ReadState(stream, (d, p) => updateActivity(activityId, d, (int)(5 + p! * 0.05))); // 5-10%
-                _relations.ReadState(stream, (d, p) => updateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
-                _index.ReadState(stream, out var anyIndexesMissing, (d, p) => updateActivity(activityId, d, (int)(15 + p! * 0.85))); // 15-100%
+                _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.05))); // 5-10%
+                _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
+                _index.ReadState(stream, out var anyIndexesMissing, (d, p) => UpdateActivity(activityId, d, (int)(15 + p! * 0.85))); // 15-100%
                 if (anyIndexesMissing) throw new Exception("Some indexes are missing. "); // causes reload with no state file ( and rebuild of indexes )
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
-                updateActivity(activityId, "State file read", 100);
+                UpdateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
                 var errMsg = "Failed loading index states. " + err.Message; // try to continue with loading from log file
                 throw new IndexReadException(errMsg, err);
@@ -134,7 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var readingFrom = lastTimestamp > 0 ? "UTC " + new DateTime(lastTimestamp, DateTimeKind.Utc) : " the beginning.";
         var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / _wal.FileSize;
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
-        updateActivity(activityId, "Reading log file", 0);
+        UpdateActivity(activityId, "Reading log file", 0);
         sw.Restart();
         var lastProgress = 0D;
         var actionCountInTransaction = 0;
@@ -172,7 +172,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         //    0-100% - 1.2GB (4.5GB) - 12MB/s - 2345 transactions - 34567 actions - 1m23s remaining
                         LogInfo(desc);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
-                        updateActivity(activityId, desc.Trim(), progressBar);
+                        UpdateActivity(activityId, desc.Trim(), progressBar);
                         lastBytesRead = readBytes;
                     }
                     _guids.RegisterAction(a);

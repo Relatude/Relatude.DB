@@ -34,7 +34,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
         _lock.EnterWriteLock();
-        var activityId = registerActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
+        var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
             validateDatabaseState();
             if (transaction.Timestamp <= _wal.LastTimestamp) {
@@ -55,7 +55,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             logCriticalTransactionError("Critical Transaction Error. ", err, transaction);
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
-            deRegisterActivity(activityId);
+            DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }
     }
@@ -94,7 +94,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var i = 0;
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
-                updateActivityProgress(activityId, 100 * i++ / count);
+                UpdateActivityProgress(activityId, 100 * i++ / count);
                 _transactionActivity.Record();
                 foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
                     if (anyLocks) validateLocks(a, lockExcemptions);

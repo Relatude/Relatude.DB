@@ -97,7 +97,7 @@ internal class Scheduler(DataStoreLocal _db) {
         }
     }
 
-    static void initTaskQueue(IDataStore db, TaskQueue queue, string name) {
+    static void initTaskQueue(DataStoreLocal db, TaskQueue queue, string name) {
         var a = queue.BatchCountsPerState();
         if (a.Length == 0) {
             db.LogInfo(name + " queue initiated. (" + queue.QueueStoreTypeName + ")");
@@ -112,17 +112,17 @@ internal class Scheduler(DataStoreLocal _db) {
         if (restartedBatches > 0) db.LogInfo("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
         if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
-    static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, IDataStore db) {
+    static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db) {
         if (oneThread.IsRunning_IfNotFlagToRunning()) return;
+        long activityId = -1;
         try {
             if (db.State != DataStoreState.Open) return;
             if (queue.CountBatch(BatchState.Pending) == 0) return; // no tasks to execute            
             Stopwatch sw = Stopwatch.StartNew();
-
             bool abort() => db.State != DataStoreState.Open;
             var tasks = new List<Task<BatchTaskResult[]>>();
-
-            BatchTaskResult[] result = queue.ExecuteTasksAsync(10000, abort).Result;
+            activityId = db.RegisterActvity(DataStoreActivityCategory.RunningTask, "Running tasks", 0);
+            BatchTaskResult[] result = queue.ExecuteTasksAsync(10000, abort, activityId).Result;
             var ms = sw.Elapsed.TotalMilliseconds;
             if (result.Length == 0) return; // no tasks executed
             var failed = result.Count(r => r.Error != null);
@@ -134,6 +134,7 @@ internal class Scheduler(DataStoreLocal _db) {
         } catch (Exception err) {
             db.LogError("TaskQueue: ", err);
         } finally {
+            if (activityId > -1) db.DeRegisterActivity(activityId);
             oneThread.Reset();
         }
     }

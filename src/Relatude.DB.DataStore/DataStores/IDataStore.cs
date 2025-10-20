@@ -20,6 +20,14 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
+    long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
+    long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
+    void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null);
+    void UpdateActivityProgress(long activityId, int? percentageProgress = null);
+    void DeRegisterActivity(long activityId);
+
+
+
     AIEngine AI { get; }
     IStoreLogger Logger { get; }
 
@@ -27,6 +35,8 @@ public interface IDataStore : IDisposable {
     TaskQueue? TaskQueuePersisted { get; }
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
+
+
 
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null);
