@@ -44,7 +44,7 @@ namespace Relatude.DB.Query.ExpressionToString.ExpressionTreeToString {
 
         public static IReadOnlyCollection<Parameter> ExtractParameters(this Expression expr)
         {
-            
+            return [];
         }
     }
 }

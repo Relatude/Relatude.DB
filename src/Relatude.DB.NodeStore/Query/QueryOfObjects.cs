@@ -7,7 +7,8 @@ namespace Relatude.DB.Query;
 public static class QueryOfObjects {
     public static QueryOfObjects<TResult> Select<TSource, TResult>(this QueryOfObjects<TSource> query, Expression<Func<TSource, TResult>> expression) {
         query._q._sb.Append(".Select(");
-        query._q._sb.Append(expression.ToQueryString());
+        query._q._sb.Append(expression.ToQueryString(query._q._parameters.Count, out var parameters));
+        query._q._parameters.AddRange(parameters);
         query._q._sb.Append(')');
         return new QueryOfObjects<TResult>(query._q.Store, query._q._sb, query._q._parameters);
     }
@@ -31,7 +32,7 @@ public static class QueryOfObjects {
     }
 }
 public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
-    internal QueryStringBuilder _q;
+    internal readonly QueryStringBuilder _q;
     public QueryOfObjects(NodeStore store) {
         _q = new QueryStringBuilder(store, typeof(T).Name);
     }

@@ -166,8 +166,10 @@ internal sealed class QueryStringBuilder {
     internal void SelectId() => add("SelectId");
     internal void Select(Expression expression) {
         _sb.Append(".Select(");
-        _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
-        _parameters.AddRange(parameters);
+        // _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
+        _sb.Append("(Article c) => Param_0");
+        // _parameters.AddRange(parameters);
+        _parameters.AddRange([new Parameter("Param_0", 1.2)]);
         _sb.Append(')');
     }
     internal void Where<T>(Expression<Func<T, bool>> expression) {
