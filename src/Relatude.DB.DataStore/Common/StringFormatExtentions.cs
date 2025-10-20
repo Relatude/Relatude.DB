@@ -1,4 +1,6 @@
-﻿namespace Relatude.DB.Common;
+﻿using System.Globalization;
+
+namespace Relatude.DB.Common;
 public static class StringFormatExtentions {
     public static string ToByteString(this long byteCount) {
         string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" }; //Longs run out around EB
@@ -14,6 +16,7 @@ public static class StringFormatExtentions {
     public static string To1000N(this long n) => n.ToString("N0");
     public static string To1000N(this int n) => n.ToString("N0");
     public static string To1000N(this double n) => n.ToString("N0");
+    public static string To1000C00N(this double n) => n.ToString("0.00");
     public static string To1000N(this float n) => n.ToString("N0");
     public static string ToTimeString(this TimeSpan timeSpan) {
         if (timeSpan.TotalHours >= 1) {

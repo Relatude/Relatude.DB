@@ -40,7 +40,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly StoreLogger _logger;
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
-    internal readonly IAIProvider? _ai;
+    internal readonly AIEngine? _ai;
     LogRewriter? _rewriter = null;
     NodeWriteLocks _nodeWriteLocks = default!;
     public Datamodel Datamodel { get; }
@@ -66,7 +66,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IFileStore[]? filestores = null,
         IIOProvider? bkup = null,
         IIOProvider? log = null,
-        IAIProvider? ai = null,
+        AIEngine? ai = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
         IQueueStore? queueStore = null
         ) {
@@ -133,7 +133,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public FileKeyUtility FileKeys => _fileKeys;
     public ILogStore LogStore => _logger.LogStore;
-    public IAIProvider AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
+    public AIEngine AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
     public IStoreLogger Logger => _logger;
     public IIOProvider IO => _io;
     public IIOProvider IOBackup => _ioAutoBackup;
@@ -156,7 +156,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IFileStore[]? filestores = null,
         IIOProvider? bkup = null,
         IIOProvider? log = null,
-        IAIProvider? ai = null,
+        AIEngine? ai = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
         bool? throwOnBadStateFile = false,
         bool? throwOnBadLogFile = false

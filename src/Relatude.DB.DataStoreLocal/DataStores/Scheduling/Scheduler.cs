@@ -63,7 +63,7 @@ internal class Scheduler(DataStoreLocal _db) {
             _s.AutoPurgeCache;
 
         if (anyBackgroundTasks) {
-            _backgroundTaskTimer = new Timer(backgroundTaskPuls, null, startupDelayMs + timerStartupDelta * 3, backgroundTasksPulseIntervalMs);
+            _backgroundTaskTimer = new Timer(backgroundTaskPulse, null, startupDelayMs + timerStartupDelta * 3, backgroundTasksPulseIntervalMs);
         }
 
     }
@@ -128,11 +128,11 @@ internal class Scheduler(DataStoreLocal _db) {
             var failed = result.Count(r => r.Error != null);
             var taskTotalCount = result.Sum(r => r.TaskCount);
             var taskFailedCount = result.Where(r => r.Error != null).Sum(r => r.TaskCount);
-            db.LogInfo("Dequeued " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
+            db.LogInfo("TaskQueue: " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
                 (failed > 0 ? (taskFailedCount + " tasks in " + failed + " batches failed! ") : ""));
             foreach (var r in result) if (r.Error != null) db.LogError(r.TaskTypeName + " failed", r.Error!);
         } catch (Exception err) {
-            db.LogError("Dequeuing index tasks failed: ", err);
+            db.LogError("TaskQueue: ", err);
         } finally {
             oneThread.Reset();
         }
@@ -159,7 +159,7 @@ internal class Scheduler(DataStoreLocal _db) {
             var now = DateTime.UtcNow;
             var lastTransaction = new DateTime(_db.Timestamp, DateTimeKind.Utc);
             var secondsSinceLastTransaction = (now - lastTransaction).TotalSeconds;
-            var busy = secondsSinceLastTransaction < _s.AutoFlushDiskIntervalInSeconds;
+            var busy = secondsSinceLastTransaction < 0.5; // consider busy if there was a transaction in the last 500ms
             var secondsSinceLastAutoFlush = (now - _lastAutoFlush).TotalSeconds;
             if (busy) {
                 if (secondsSinceLastAutoFlush < _s.MaxDelayAutoDiskFlushIfBusyInSeconds) {
@@ -186,7 +186,7 @@ internal class Scheduler(DataStoreLocal _db) {
         }
     }
 
-    void backgroundTaskPuls(object? state) {
+    void backgroundTaskPulse(object? state) {
         if (_backgroundTaskRunningFlag.IsRunning_IfNotFlagToRunning()) return;
         try {
             if (_db.State != DataStoreState.Open) return;

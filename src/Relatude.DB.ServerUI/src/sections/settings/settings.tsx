@@ -31,7 +31,7 @@ export const Settings = (P: { storeId: string }) => {
                     try {
                         //setSettings(JSON.parse(e.target.value));
                         setSettingsStringState("");
-                    } catch (error) {
+                    } catch (error:Error | any) {
                         setSettingsStringState(error.message);
                     }
                 }} />

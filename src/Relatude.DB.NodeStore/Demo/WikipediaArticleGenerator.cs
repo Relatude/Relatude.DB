@@ -7,6 +7,13 @@ public class WikipediaArticleGenerator : IArticleGenerator {
     public WikipediaArticleGenerator(string filePath) {
         _reader = new WikipediaReader(filePath);
     }
+    public void Move(int count) {
+        for (int i = 0; i < count; i++) {
+            if (!_reader.ReadNext(out var w)) {
+                throw new InvalidOperationException("No more articles");
+            }
+        }
+    }
     public DemoArticle One() {
         if (_reader.ReadNext(out var w) && w != null) {
             return new DemoArticle {

@@ -11,7 +11,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             _isSystemVectorIndexPropertyId = pm.Id == NodeConstants.SystemVectorIndexPropertyId;
         }
         public SemanticIndex? Index { get; private set; }
-        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed && ai != null) {
                 Index = new SemanticIndex(def.Sets, Id.ToString(), ai, store);
                 Indexes.Add(Index);

@@ -8,11 +8,11 @@ using System.Diagnostics;
 namespace Relatude.DB.DataStores.Indexes;
 internal class SemanticIndex : IIndex {
     readonly IVectorIndex _index;
-    readonly IAIProvider _ai;
+    readonly AIEngine _ai;
     readonly SetRegister _register;
     long _searchIndexStateId;
     readonly DataStoreLocal _db;
-    public SemanticIndex(SetRegister sets, string uniqueKey, IAIProvider ai, DataStoreLocal db) {
+    public SemanticIndex(SetRegister sets, string uniqueKey, AIEngine ai, DataStoreLocal db) {
         _register = sets;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;

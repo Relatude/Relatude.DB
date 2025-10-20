@@ -53,7 +53,7 @@ internal sealed class Definition {
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
     public bool TryGetTypeOfNode(int id, [MaybeNullWhen(false)] out Guid typeId) => _nodeTypeIndex.TryGetType(id, out typeId);
     public IEnumerable<IIndex> GetAllIndexes() { return _indexes.Values; }
-    internal void Initialize(DataStoreLocal store, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+    internal void Initialize(DataStoreLocal store, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         foreach (var p in Properties.Values) {
             p.Initalize(store, this, config, io, ai);
         }

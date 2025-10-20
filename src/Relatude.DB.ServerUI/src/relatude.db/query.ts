@@ -2,7 +2,7 @@ import { Connection } from "./connection";
 import { Expression } from "./Expression";
 import { ResultSet, ResultSetSearch } from "./result";
 
-export type ParameterDataType = "null" |"string" | "int" | "long" | "double" | "bool" | "DateTime" | "TimeSpan" | "Guid" | "string[]" | "Guid[]";
+export type ParameterDataType = "null" | "string" | "int" | "long" | "double" | "float" | "bool" | "DateTime" | "TimeSpan" | "Guid" | "string[]" | "Guid[]";
 export class Parameter {
     constructor(public name: string, public value: string, public dataType: ParameterDataType) { }
 }
@@ -27,9 +27,9 @@ class queryBuilder {
                 let pType: ParameterDataType = "string";
                 if (paramTypes && paramTypes[i]) pType = paramTypes[i];
                 const isNull = paramValues[i] === null || paramValues[i] === undefined;
-                if(isNull){
+                if (isNull) {
                     this.parameters.push(new Parameter(pNameUsed, "", "null"));
-                }else{
+                } else {
                     this.parameters.push(new Parameter(pNameUsed, paramValues[i].toString(), pType));
                 }
                 segment = segment.replace(new RegExp(pNameInSegment, 'g'), pNameUsed);
@@ -90,7 +90,7 @@ export class QueryOfNodes<T> implements IQuery {
         maxHitsEvaluated: null | number = null) {
         this.builder.add("search(@P0, @P1, @P2, @P3, @P4, @P5)",
             [search, semanticRatio, minimumVectorSimilarity, orSearch, maxWordVariations, maxHitsEvaluated],
-            ["string", "double", "double", "bool", "int", "int"]
+            ["string", "double", "float", "bool", "int", "int"]
         );
         return new QueryOfSearch<T>(this.builder);
     }

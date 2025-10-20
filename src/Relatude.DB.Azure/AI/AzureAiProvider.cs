@@ -5,117 +5,24 @@ using OpenAI.Embeddings;
 using System.Diagnostics;
 using Relatude.DB.Common;
 namespace Relatude.DB.AI;
-public class Chat {
-    public Guid Id { get; set; }
-    public string Instructions { get; set; } = "";
-    public List<Message> Messages { get; set; } = [];
-    public string[] ContextSources { get; set; } = [];
-}
-public class Message {
-    public Guid Id { get; set; }
-    public bool FromUser { get; set; }
-    public string Content { get; set; } = "";
-}
-public class AzureAiProvider : IAIProvider {
-    readonly IEmbeddingCache _cache;
-    readonly AzureOpenAIClient _client;
+public class AzureAIProvider : IAIProvider {
     readonly ChatClient _chatClient;
     readonly EmbeddingClient _embeddingClient;
-    public Action<string>? LogCallback { get; set; }
-    public AIProviderSettings Settings { get; }
-    public double DefaultSemanticRatio => Settings.DefaultSemanticRatio;
-    public AzureAiProvider(AIProviderSettings settings, IEmbeddingCache? cache = null) {
-        Settings = settings;
-        _cache = cache ?? new MemoryEmbeddingCache(10000);
-        _client = new(new Uri(settings.ServiceUrl), new ApiKeyCredential(settings.ApiKey));
-        _chatClient = _client.GetChatClient(settings.CompletionModel);
-        _embeddingClient = _client.GetEmbeddingClient(settings.EmbeddingModel);
-    }
-    public async Task<string> GetChatCompletion(Chat conversation) {
-        List<ChatMessage> messages = new();
-        messages.Add(ChatMessage.CreateSystemMessage(conversation.Instructions));
-        foreach (var message in conversation.Messages) {
-            messages.Add(message.FromUser ? ChatMessage.CreateUserMessage(message.Content) : ChatMessage.CreateAssistantMessage(message.Content));
-        }
-        var r = await _chatClient.CompleteChatAsync(messages);
-        return r.Value.Content.FirstOrDefault()?.Text ?? "";
-    }
-    public string ParseInstructionTemplate(string instructionTemplate, string context) {
-        return instructionTemplate.Replace("[CONTEXT]", context);
+    public AzureAIProvider(AIProviderSettings settings) {
+        if (string.IsNullOrEmpty(settings.ServiceUrl)) throw new ArgumentException("ServiceUrl is required in AIProviderSettings");
+        if (string.IsNullOrEmpty(settings.ApiKey)) throw new ArgumentException("ApiKey is required in AIProviderSettings");
+        var client = new AzureOpenAIClient(new Uri(settings.ServiceUrl), new ApiKeyCredential(settings.ApiKey));
+        _chatClient = client.GetChatClient(settings.CompletionModel);
+        _embeddingClient = client.GetEmbeddingClient(settings.EmbeddingModel);
     }
     public async Task<string> GetCompletionAsync(string prompt) {
-        var r = await _chatClient.CompleteChatAsync(Settings.CompletionModel, prompt);
+        var r = await _chatClient.CompleteChatAsync(prompt);
         return r.Value.Content.FirstOrDefault()?.Text ?? "";
     }
-    class resultSet(string text) {
-        public readonly ulong Hash = text.XXH64Hash(); // hash of the text
-        public readonly string Text = text;
-        public float[]? Embedding; // null if not in cache
-    }
-    string ensureMaxLength(string value) => value.Length > Settings.MaxCharsOfEach ? value[..Settings.MaxCharsOfEach] : value;
-    public async Task<List<float[]>> GetEmbeddingsAsync(IEnumerable<string> paragraphs) {
-        paragraphs = paragraphs.Select(ensureMaxLength); // ensure max length of each
-        if (Settings.ApiKey == "DUMMY") return dummyData(paragraphs); // for testing without calling external service
-
-        var valueSet = paragraphs.Select(p => new resultSet(p)).ToArray(); // all values to process
-        List<resultSet> missing = []; // values not in cache
-
-        // check cache for existing embeddings and collect missing:
-        foreach (var v in valueSet) if (!_cache.TryGet(v.Hash, out v.Embedding)) missing.Add(v);
-
-        if (missing.Count > 0) {
-
-            // call external service to get missing embeddings:
-            var sw = Stopwatch.StartNew();
-            var rawEmbeddings = await _embeddingClient.GenerateEmbeddingsAsync(missing.Select(m => m.Text));
-            sw.Stop();
-            LogCallback?.Invoke($"Embedding http request for {missing.Count} items. {sw.ElapsedMilliseconds.To1000N()}ms. ");
-
-            // convert to float[][]:
-            var embeddings = rawEmbeddings.Value.Select(v => v.ToFloats().ToArray()).ToArray();
-
-            // populate results back to missing list: ( this will also set the Embeddings in valueSet since they point to the same object )
-            if (embeddings.Length != missing.Count) throw new Exception("Embedding count mismatch");
-            for (var pos = 0; pos < embeddings.Length; pos++) missing[pos].Embedding = embeddings[pos];
-
-            // validate that all embeddings are present and of correct length:
-            foreach (var m in missing) {
-                if (m.Embedding == null) throw new Exception("Embedding not found after generation");
-                if (m.Embedding.Length != embeddings[0].Length) throw new Exception("Embedding length mismatch");
-            }
-
-            // store new embeddings in cache:
-            _cache.SetMany(missing.Select(m => new Tuple<ulong, float[]>(m.Hash, m.Embedding!)));
-
-        }
-        return valueSet.Select(v => {
-            if (v.Embedding == null) throw new Exception("Embedding not found");
-            return v.Embedding;
-        }).ToList();
-    }
-    List<float[]> dummyData(IEnumerable<string> paragraphs) {
-        LogCallback?.Invoke($"Embedding http request for {paragraphs.Count()} items.");
-        var createDummy = (string v) => {
-            var hash = v.XXH64Hash();
-            var rnd = new Random((int)(hash % int.MaxValue)); // seed with hash to always get the same result for the same input
-            if (_cache.TryGet(hash, out var createDummyVector)) return createDummyVector;
-            createDummyVector = new float[1536];
-            for (int i = 0; i < createDummyVector.Length; i++) {
-                createDummyVector[i] = (float)(rnd.NextDouble() * 2 - 1);
-            }
-            // normalize:
-            var len = Math.Sqrt(createDummyVector.Select(x => x * x).Sum());
-            if (len > 0) for (int j = 0; j < createDummyVector.Length; j++) createDummyVector[j] /= (float)len;
-            _cache.Set(hash, createDummyVector);
-            //Thread.Sleep(40);
-            return createDummyVector;
-        };
-        return paragraphs.Select(p => createDummy(p)).ToList();
+    public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs) {
+        var rawEmbeddings = await _embeddingClient.GenerateEmbeddingsAsync(paragraphs);
+        return rawEmbeddings.Value.Select(v => v.ToFloats().ToArray()).ToArray();
     }
     public void Dispose() {
-        _cache.Dispose();
-    }
-    public void ClearCache() {
-        _cache.ClearAll();
     }
 }

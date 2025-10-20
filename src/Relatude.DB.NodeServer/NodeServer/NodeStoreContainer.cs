@@ -65,7 +65,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         if (ioLog == null) {
             ioLog = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
         }
-        if(ioLog == null) throw new Exception("IoLog or IoDatabase is required for NodeStoreContainerSettings");
+        if (ioLog == null) throw new Exception("IoLog or IoDatabase is required for NodeStoreContainerSettings");
         return ioLog;
     }
     public void Open() {
@@ -89,7 +89,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? server.GetIO(settings.IoBackup.Value) : null;
             IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
-            IAIProvider? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
+            AIEngine? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
                 server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, diskFallBackPath) : null;
             Func<IPersistedIndexStore>? createIndexStore = null;
 

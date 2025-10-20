@@ -7,16 +7,16 @@ public class TextOrSemanticIndexTask(int nodeId, string? textIndex) : TaskData()
     public int NodeId { get; } = nodeId;
     public string? TextIndex { get; } = textIndex;
 }
-public class SemanticIndexTaskRunner(IDataStore db, IAIProvider? ai) : TaskRunner<TextOrSemanticIndexTask> {
+public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<TextOrSemanticIndexTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.Medium;
     public override int MaxTaskCountPerBatch => 20;
     public override bool PersistToDisk => true;
     public override async Task ExecuteAsync(Batch<TextOrSemanticIndexTask> batch, TaskLogger? taskLogger) {
         var t = new TransactionData();
         var onlySemanticIndex = batch.Tasks.Where(t => t.TextIndex == null).ToList();
-        await updateSemanticIndexOnly(onlySemanticIndex, t);
+        if(onlySemanticIndex.Count > 0) await updateSemanticIndexOnly(onlySemanticIndex, t);
         var withTextIndex = batch.Tasks.Where(t => t.TextIndex != null).ToList();
-        await updateTextAndMaybeSemanticIndex(withTextIndex, t);
+        if(withTextIndex.Count > 0) await updateTextAndMaybeSemanticIndex(withTextIndex, t);
         if (t.Actions.Count > 0) db.Execute(t);
     }
     async Task updateSemanticIndexOnly(IEnumerable<TextOrSemanticIndexTask> tasks, TransactionData t) {

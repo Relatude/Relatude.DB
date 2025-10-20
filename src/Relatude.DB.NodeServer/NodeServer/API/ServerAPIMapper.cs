@@ -430,6 +430,9 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var path = "C:\\WAF_Sources\\wikipedia\\wiki-articles.json"; // temporary hardcoded path to wikipedia data file...
             var seed = 0; // same every time for reproducible results
             using IArticleGenerator generator = wikipediaData ? new WikipediaArticleGenerator(path) : new RandomArticleGenerator(seed);
+            // continue from existing count:
+            var existingCount = store.Query<Demo.Models.DemoArticle>().Count();
+            generator.Move(existingCount);
             while (true) {
                 var create = Math.Min(chunkSize, count - created);
                 if (create <= 0) break;

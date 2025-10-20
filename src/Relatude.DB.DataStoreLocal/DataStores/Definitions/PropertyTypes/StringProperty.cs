@@ -27,7 +27,7 @@ internal class StringProperty : Property, IPropertyContainsValue {
         RegularExpression = pm.RegularExpression;
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (Indexed) Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
         if (IndexedByWords) WordIndex = IndexFactory.CreateWordIndex(store, def.Sets, this);
         //WordIndex = new WordIndex(def.Sets, Id + nameof(WordIndex), Id, MinWordLength, MaxWordLength, PrefixSearch, InfixSearch);

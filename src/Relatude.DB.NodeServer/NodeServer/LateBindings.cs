@@ -10,9 +10,10 @@ namespace Relatude.DB.NodeServer;
 /// With focus on providing better error messages when the dependency is missing.
 /// </summary>
 public static class LateBindings {
-    private static Type findType(string typeName, string moduleName, string nugetName) {
+    private static Type findType(string typeName, string? moduleName, string? nugetName) {
         var type = Type.GetType(typeName);
         if (type != null) return type;
+        if (moduleName == null) throw new Exception($"The type \"{typeName}\" was not found. You may need to reference a nuget. {nugetName}");
         Assembly ass;
         try {
             ass = Assembly.Load(new AssemblyName(moduleName));
@@ -23,7 +24,7 @@ public static class LateBindings {
         if (type == null) throw new Exception($"The type \"{typeName}\" was not found in the assembly \"{moduleName}\". Verify you are referencing the correct nuget: \"{nugetName}\"");
         return type;
     }
-    private static T create<T>(string typeName, string moduleName, string nugetName, object?[]? parameteres) {
+    private static T create<T>(string typeName, string? moduleName, string? nugetName, object?[]? parameteres) {
         var type = findType(typeName, moduleName, nugetName);
         if (Activator.CreateInstance(type, parameteres) is T instance) return instance;
         throw new Exception($"The type {typeName} does not implement the interface {typeof(T).FullName} " +
@@ -41,8 +42,15 @@ public static class LateBindings {
     public static IEmbeddingCache CreateSqlLiteEmbeddingCache(string? filePath) {
         return create<IEmbeddingCache>("Relatude.DB.AI.SqlLiteEmbeddingCache", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [filePath]);
     }
-    internal static IAIProvider CreateAzureAiProvider(AIProviderSettings aiSettings, IEmbeddingCache cache) {
-        return create<IAIProvider>("Relatude.DB.AI.AzureAiProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [aiSettings, cache]);
+    internal static IAIProvider CreateAiProvider(AIProviderSettings aiSettings) {
+        if (aiSettings.TypeName == "AzureAIProvider" || string.IsNullOrEmpty(aiSettings.TypeName)) {
+            return create<IAIProvider>("Relatude.DB.AI.AzureAIProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [aiSettings]);
+        }
+        if (aiSettings.TypeName == nameof(DummyAIProvider)) {
+            return new DummyAIProvider();
+        } else {
+            return create<IAIProvider>(aiSettings.TypeName, null, null, [aiSettings]);
+        }
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
         return create<IIOProvider>("Relatude.DB.IO.AzureBlobIOProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob]);

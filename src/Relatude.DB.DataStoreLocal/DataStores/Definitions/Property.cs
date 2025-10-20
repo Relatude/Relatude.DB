@@ -34,7 +34,7 @@ namespace Relatude.DB.DataStores.Definitions {
             return false;
         }
         public readonly PropertyModel Model;
-        internal abstract void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai);
+        internal abstract void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai);
         public static Property Create(PropertyModel pm, Definition def) {
             if (pm is BooleanPropertyModel b) return new BooleanProperty(b, def);
             if (pm is ByteArrayPropertyModel bt) return new ByteArrayProperty(bt, def);

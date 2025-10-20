@@ -20,7 +20,7 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
-    IAIProvider AI { get; }
+    AIEngine AI { get; }
     IStoreLogger Logger { get; }
 
     TaskQueue TaskQueue { get; }

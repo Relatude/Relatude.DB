@@ -1,13 +1,13 @@
 ﻿using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
-public class ValueIndexSqlLite<T> : IValueIndex<T> where T : notnull {
+public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
-    public ValueIndexSqlLite(SetRegister sets, PersistedIndexStore store, string indexId) {
+    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId) {
         _indexId = indexId;
         _store = store;
         _stateId = new(sets);

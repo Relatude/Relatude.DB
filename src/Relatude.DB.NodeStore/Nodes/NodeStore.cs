@@ -33,7 +33,7 @@ namespace Relatude.DB.Nodes;
 public sealed class NodeStore : IDisposable {
     public readonly IDataStore Datastore;
     public readonly NodeMapper Mapper;
-    public IAIProvider AI => Datastore.AI;
+    public AIEngine AI => Datastore.AI;
     internal readonly List<INodeTransactionPlugin> TransactionPlugins = new();
     public void RegisterTransactionPlugin(INodeTransactionPlugin plugin) {
         if (plugin == null) throw new ArgumentNullException(nameof(plugin));

@@ -10,7 +10,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
     internal class ByteArrayProperty : Property {
         public ByteArrayProperty(ByteArrayPropertyModel pm, Definition def) : base(pm, def) {
         }
-        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         }
         public override PropertyType PropertyType => PropertyType.ByteArray;
         public override object ForceValueType(object value, out bool changed) {

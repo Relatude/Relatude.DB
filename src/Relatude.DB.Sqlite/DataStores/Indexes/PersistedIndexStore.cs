@@ -90,7 +90,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, PropertyType type) where T : notnull {
         _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_")));
-        return new ValueIndexSqlLite<T>(sets, this, key);
+        return new ValueIndexSqlite<T>(sets, this, key);
     }
     string getSqlType(PropertyType type) {
         return type switch {
@@ -200,7 +200,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
             _wordIndexLucenes.Add(key, idx);
             return idx;
         } else {
-            return new WordIndexSqlLite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            return new WordIndexSqlite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
     }
     public void OptimizeDisk() {

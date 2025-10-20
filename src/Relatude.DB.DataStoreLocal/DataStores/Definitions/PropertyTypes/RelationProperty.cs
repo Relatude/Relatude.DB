@@ -45,7 +45,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
             throw new NotImplementedException();
         }
 
-        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             //throw new NotImplementedException();
         }
         public override IRangeIndex? ValueIndex => null;

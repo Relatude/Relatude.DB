@@ -13,7 +13,7 @@ internal class DateTimeOffsetProperty : Property, IPropertyContainsValue {
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, IAIProvider? ai) {
+    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (Indexed) {
             Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
             Indexes.Add(Index);

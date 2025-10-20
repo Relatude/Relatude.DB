@@ -18,6 +18,7 @@ public class ParameterModel {
             "int" => int.Parse(model.Value, formatProvider),
             "long" => long.Parse(model.Value, formatProvider),
             "double" => double.Parse(model.Value, formatProvider), 
+            "float" => float.Parse(model.Value, formatProvider),
             "bool" => bool.Parse(model.Value),
             "DateTime" => DateTime.Parse(model.Value, formatProvider),
             "TimeSpan" => TimeSpan.Parse(model.Value, formatProvider),

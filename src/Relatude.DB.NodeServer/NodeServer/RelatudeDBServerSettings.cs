@@ -1,4 +1,6 @@
-﻿namespace Relatude.DB.NodeServer;
+﻿using Relatude.DB.AI;
+
+namespace Relatude.DB.NodeServer;
 public class RelatudeDBServerSettings {
     public Guid Id { get; set; } = SecureGuid.New();
     public string? Name { get; set; }
@@ -15,7 +17,7 @@ public class RelatudeDBServerSettings {
     public Guid UserTokenId { get; set; }
     public Guid DefaultStoreId { get; set; }
     public NodeStoreContainerSettings[]? ContainerSettings { get; set; }
-    public AISettings[]? AISettings { get; set; }
+    public AIProviderSettings[]? AISettings { get; set; }
     public static RelatudeDBServerSettings CreateDefault() {
         var io = new IOSettings() {
             Id = Guid.NewGuid(),

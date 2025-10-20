@@ -3,7 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
-public class WordIndexSqlLite : IWordIndex {
+public class WordIndexSqlite : IWordIndex {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<string> _stateId;
@@ -13,7 +13,7 @@ public class WordIndexSqlLite : IWordIndex {
     public int MinWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    public WordIndexSqlLite(SetRegister sets, PersistedIndexStore store, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _indexId = indexId;
         _store = store;
         _stateId = new(sets);

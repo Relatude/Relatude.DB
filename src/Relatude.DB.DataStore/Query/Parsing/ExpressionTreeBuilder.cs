@@ -1,6 +1,4 @@
-﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System.Globalization;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Methods;
@@ -50,7 +48,7 @@ public class ExpressionTreeBuilder {
     public static IExpression Build(SyntaxUnit syntax, Datamodel dm) {
         return syntax.SyntaxType switch {
             SyntaxUnitTypes.Empty => throw new ArgumentException("Empty expression. "),
-            //SyntaxUnitTypes.ValueConstant => BuildValueConstant((ValueConstantSyntax)syntax),
+            SyntaxUnitTypes.ValueConstant => BuildValueConstant((ValueConstantSyntax)syntax),
             SyntaxUnitTypes.OperatorExpression => BuildOperator((OperatorExpressionSyntax)syntax, dm),
             SyntaxUnitTypes.Variable => BuildVariableReference((VariableReferenceSyntax)syntax),
             SyntaxUnitTypes.MethodCall => BuildMethodCall((MethodCallSyntax)syntax, dm),
@@ -62,17 +60,28 @@ public class ExpressionTreeBuilder {
             _ => throw new NotImplementedException(),
         };
     }
-    //static IConstantExpression BuildValueConstant(ValueConstantSyntax constantValue) {
-    //    var valueAsString = constantValue.ValueAsString;
-    //    if (constantValue.InQuotes) return new StringConstantExpression(valueAsString);
-    //    if (bool.TryParse(valueAsString, out var bv)) return new BooleanConstantExpression(bv);
-    //    if (int.TryParse(valueAsString, out var iv)) return new IntegerConstantExpression(iv);
-    //    if (long.TryParse(valueAsString, out var lng)) return new LongConstantExpression(lng);
-    //    if (decimal.TryParse(valueAsString, out var dec)) return new DecimalConstantExpression(dec);
-    //    if (double.TryParse(valueAsString, CultureInfo.InvariantCulture, out var dv)) return new DoubleConstantExpression(dv);
-    //    if (valueAsString == "null") return new NullConstantExpression();
-    //    throw new ExpressionBuilderException("Unable to parse to valuetype: " + valueAsString, constantValue);
-    //}
+    static IConstantExpression BuildValueConstant(ValueConstantSyntax constantValue) {
+        switch (constantValue.ParsedType) {
+            case ParsedTypes.NotParsed: {
+                    // value stems from parameter substitution...
+                    var value = constantValue.DirectValue;
+                    if (value == null) return new NullConstantExpression();
+                    if (value is bool b) return new BooleanConstantExpression(b);
+                    if (value is string s) return new StringConstantExpression(s);
+                    if (value is int i) return new IntegerConstantExpression(i);
+                    if (value is long lng) return new DecimalConstantExpression(lng);
+                    if (value is double d) return new DoubleConstantExpression(d);
+                    if (value is decimal dec) return new DecimalConstantExpression(dec);
+                    throw new NotSupportedException("Parameter of type " + value.GetType().Name + " is not yet supported as paramater expression. ");
+                }
+            case ParsedTypes.Null: return new NullConstantExpression();
+            case ParsedTypes.Boolean: return new BooleanConstantExpression(constantValue.GetBoolValue());
+            case ParsedTypes.String: return new StringConstantExpression(constantValue.GetStringValue());
+            case ParsedTypes.IntegerNumberString: return new IntegerConstantExpression(constantValue.GetIntValue());
+            case ParsedTypes.FloatingNumberString: return new DoubleConstantExpression(constantValue.GetDoubleValue());
+            default: throw new NotSupportedException("Parameter of type " + constantValue.ParsedType + " is not yet supported as parsed expression.");
+        }
+    }
     static IExpression BuildPreFixOperator(PreFixSyntax e, Datamodel dm) {
         var c = Build(e.Value, dm);
         if (e.Prefix == "-") return new MinusPrefixExpression(c);
@@ -131,28 +140,7 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantSyntax typeIds) {
-                Guid[] typeGuids;
-                if (typeIds.Value is Guid[] ids) {
-                    typeGuids = ids;
-                } else if (typeIds.Value is string[] typeNames) {
-                    typeGuids = new Guid[typeNames.Length];
-                    for (var i = 0; i < typeNames.Length; i++) {
-                        var typeName = typeNames[i];
-                        if (Guid.TryParse(typeName, out var id)) {
-                        } else if (dm.NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
-                            id = nodeType.Id;
-                        } else if (dm.NodeTypesByShortName.TryGetValue(typeName, out var nodeTypes)) {
-                            if (nodeTypes.Length > 1) throw new Exception("Type name is ambiguous: " + typeName);
-                            id = nodeTypes[0].Id;
-                        } else {
-                            throw new Exception("Type not found: " + typeName);
-                        }
-                        typeGuids[i] = id;
-                    }
-                } else {
-                    throw new Exception("WhereTypes statement only accepts a string array as argument. ");
-                }
-                return new WhereTypesMethod(source, typeGuids);
+                return new WhereTypesMethod(source, typeIds.GetNodeTypeGuids(dm));
             } else {
                 throw new Exception("WhereTypes statement only accepts one parameter. ");
             }
@@ -175,14 +163,14 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string arguments allowed in facet expression. ");
             var source = Build(e.Subject, dm);
-            return new FacetMethod(source, e.Arguments.Cast<ValueConstantSyntax>().Select(a => (string)a.ValueNotNull), dm);
+            return new FacetMethod(source, e.Arguments.Cast<ValueConstantSyntax>().Select(a => a.GetStringValue()), dm);
         }
         if (name == "addfacet") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
             if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
-            fc.AddFacet((string)arg.ValueNotNull);
+            fc.AddFacet(arg.GetStringValue());
             return fc;
         }
         if (name == "addvaluefacet") {
@@ -191,10 +179,10 @@ public class ExpressionTreeBuilder {
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
             if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments.Count == 1) {
-                fc.AddValueFacet((string)arg.ValueNotNull);
+                fc.AddValueFacet(arg.GetStringValue());
             } else {
                 if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
-                fc.AddValueFacet((string)arg.ValueNotNull, (string)arg2.ValueNotNull);
+                fc.AddValueFacet(arg.GetStringValue(), arg2.GetStringValue());
             }
             return fc;
         }
@@ -204,11 +192,11 @@ public class ExpressionTreeBuilder {
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
             if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments.Count == 1) {
-                fc.AddRangeFacet((string)arg.ValueNotNull);
+                fc.AddRangeFacet(arg.GetStringValue());
             } else {
                 if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
                 if (e.Arguments[2] is not ValueConstantSyntax arg3) throw new Exception("Only string arguments allowed in facet expression. ");
-                fc.AddRangeFacet((string)arg.ValueNotNull, (string)arg2.ValueNotNull, (string)arg3.ValueNotNull);
+                fc.AddRangeFacet(arg.GetStringValue(), arg2.GetStringValue(), arg3.GetStringValue());
             }
             return fc;
         }
@@ -218,7 +206,7 @@ public class ExpressionTreeBuilder {
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
             if (e.Arguments[0] is not ValueConstantSyntax arg1) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
-            fc.SetFacetValue((string)arg1.ValueNotNull, (string)arg2.ValueNotNull);
+            fc.SetFacetValue(arg1.GetStringValue(), arg2.GetStringValue());
             return fc;
         }
         if (name == "setfacetrangevalue") {
@@ -228,7 +216,7 @@ public class ExpressionTreeBuilder {
             if (e.Arguments[0] is not ValueConstantSyntax arg1) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments[2] is not ValueConstantSyntax arg3) throw new Exception("Only string arguments allowed in facet expression. ");
-            fc.SetFacetRangeValue((string)arg1.ValueNotNull, (string)arg2.ValueNotNull, (string)arg3.ValueNotNull);
+            fc.SetFacetRangeValue(arg1.GetStringValue(), arg2.GetStringValue(), arg3.GetStringValue());
             return fc;
             throw new NotSupportedException("The method \"" + e + "\" is not supported. ");
         }
@@ -241,54 +229,54 @@ public class ExpressionTreeBuilder {
             double? semanticRatio = null;
             if (e.Arguments.Count > 1) {
                 var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
-                semanticRatio = (double?)semanticRatioO.Value;
+                semanticRatio = semanticRatioO.GetDoubleOrNullValue();
             }
             float? minimumVectorSimilarity = null;
             if (e.Arguments.Count > 2) {
                 var minimumVectorSimilarityO = (ValueConstantSyntax)e.Arguments[2];
-                minimumVectorSimilarity = (float?)minimumVectorSimilarityO.Value;
+                minimumVectorSimilarity = minimumVectorSimilarityO.GetFloatOrNullValue();
             }
             bool? orSearch = null;
             if (e.Arguments.Count > 3) {
                 var orSearchO = (ValueConstantSyntax)e.Arguments[3];
-                orSearch = (bool?)orSearchO.Value;
+                orSearch = orSearchO.GetBoolOrNullValue();
             }
             int? maxWordsEvaluated = null;
             if (e.Arguments.Count > 4) {
                 var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[4];
-                maxWordsEvaluated = (int?)maxWordsEvaluatedO.Value;
+                maxWordsEvaluated = maxWordsEvaluatedO.GetIntOrNullValue();
             }
             int? maxHitsEvaluated = null;
             if (e.Arguments.Count > 5) {
                 var maxHitsEvaluatedO = (ValueConstantSyntax)e.Arguments[5];
-                maxHitsEvaluated = (int?)maxHitsEvaluatedO.Value;
+                maxHitsEvaluated = maxHitsEvaluatedO.GetIntOrNullValue();
             }
             if (name == "wheresearch") {
-                return new WhereSearchMethod(source, (string)searchTextO.ValueNotNull, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated);
+                return new WhereSearchMethod(source, searchTextO.GetStringValue(), semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated);
             } else {
-                return new SearchMethod(source, (string)searchTextO.ValueNotNull, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated, maxHitsEvaluated);
+                return new SearchMethod(source, searchTextO.GetStringValue(), semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated, maxHitsEvaluated);
             }
         }
         if (name == "page") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 2) throw new Exception("Page statement only accepts two parameters. ");
-            var p1 = int.Parse(((ValueConstantSyntax)e.Arguments[0]).ValueAsString);
-            var p2 = int.Parse(((ValueConstantSyntax)e.Arguments[1]).ValueAsString);
+            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
+            var p2 = ((ValueConstantSyntax)e.Arguments[1]).GetIntValue();
             return new PageMethod(source, p1, p2);
         }
         if (name == "take") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 1) throw new Exception("Take statement only accepts one parameter. ");
-            var p1 = int.Parse(((ValueConstantSyntax)e.Arguments[0]).ValueAsString);
+            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
             return new TakeMethod(source, p1);
         }
         if (name == "skip") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 1) throw new Exception("Skip statement only accepts one parameter. ");
-            var p1 = int.Parse(((ValueConstantSyntax)e.Arguments[0]).ValueAsString);
+            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
             return new SkipMethod(source, p1);
         }
         if (name == "count") {
@@ -329,7 +317,8 @@ public class ExpressionTreeBuilder {
             List<string> branch = new();
             if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
             if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
-                return new WhereInMethod(source, dm, prop.ValueAsString, id.ValueAsString);
+                var propId = prop.GetPropertyId(dm);
+                return new WhereInMethod(source, propId, id.GetPropertyValues(dm, propId));
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
             }
@@ -339,7 +328,7 @@ public class ExpressionTreeBuilder {
             var source = Build(e.Subject, dm);
             List<string> branch = new();
             if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantSyntax id) {
-                return new WhereInIdsMethod(source, id.ValueAsString);
+                return new WhereInIdsMethod(source, id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts one parameter. ");
             }
@@ -350,7 +339,7 @@ public class ExpressionTreeBuilder {
             List<string> branch = new();
             if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
             if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
-                return new RelatesAnyMethod(source, dm, prop.ValueAsString, id.ValueAsString);
+                return new RelatesAnyMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
             }
@@ -361,7 +350,7 @@ public class ExpressionTreeBuilder {
             List<string> branch = new();
             if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
             if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
-                return new RelatesMethod(source, dm, prop.ValueAsString, id.ValueAsString);
+                return new RelatesMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
             }
@@ -372,7 +361,7 @@ public class ExpressionTreeBuilder {
             List<string> branch = new();
             if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
             if (e.Arguments.Count > 0 && e.Arguments[1] is ValueConstantSyntax id) {
-                return new RelatesNotMethod(source, dm, prop.ValueAsString, id.ValueAsString);
+                return new RelatesNotMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
             }
@@ -382,7 +371,7 @@ public class ExpressionTreeBuilder {
             var source = Build(e.Subject, dm);
             List<string> branch = new();
             if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in include expression. ");
-            return new IncludeMethod(source, dm, prop.ValueAsString);
+            return new IncludeMethod(source, dm, prop.GetStringValue());
         }
         if (name == "inrange") {
             if (e.Subject == null) throw new NullReferenceException();

@@ -57,7 +57,7 @@ public partial class RelatudeDBServer {
     public IIOProvider TempIO => Validator.ThrowIfNull(_tempIO);
     ISettingsLoader? _settingsLoader;
     Dictionary<Guid, IIOProvider> _ios = [];
-    Dictionary<string, IAIProvider> _ais = [];
+    Dictionary<string, AIEngine> _ais = [];
     public void ResetIOAndAIProviders() {
         lock (_ios) _ios.Clear();
         lock (_ais) {
@@ -282,7 +282,7 @@ public partial class RelatudeDBServer {
             return _ios.TryGetValue(ioId, out io);
         }
     }
-    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out IAIProvider ai, string? fallBackAiPath) {
+    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out AIEngine ai, string? fallBackAiPath) {
         lock (_ais) {
             if (_ais.TryGetValue(id + filePrefix, out ai)) return true;
             var settings = _serverSettings.AISettings?.FirstOrDefault(s => s.Id == id);
@@ -297,7 +297,7 @@ public partial class RelatudeDBServer {
             } else {
                 throw new Exception($"AIProvider {settings.Name} [{id}] does not have a valid file path set.");
             }
-            ai = AISettings.Create(settings, folderPath, filePrefix);
+            ai = AIProviderFactory.Create(settings, folderPath, filePrefix);
             try {
                 _ais.Add(id + filePrefix, ai);
             } catch (Exception ex) {
@@ -311,7 +311,7 @@ public partial class RelatudeDBServer {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;
     }
-    public IAIProvider GetAI(Guid id, string? filePrefix, string? fallBackAiPath) {
+    public AIEngine GetAI(Guid id, string? filePrefix, string? fallBackAiPath) {
         if (!TryGetAI(id, filePrefix, out var ai, fallBackAiPath)) throw new Exception("AIProvider not found");
         return ai;
     }
