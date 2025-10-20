@@ -4,21 +4,17 @@ using Relatude.DB.Query.ExpressionToString.ExpressionTreeToString;
 
 namespace Relatude.DB.Query;
 
-internal static class ExpressionExtensions
-{
-    public static string ToQueryString(this Expression expression)
-    {
+internal static class ExpressionExtensions {
+    public static string ToQueryString(this Expression expression) {
         var visited = new SubtreeEvaluator().Visit(expression);
         return visited.ToString("C#");
     }
 
-    private class SubtreeEvaluator : ExpressionVisitor
-    {
+    private class SubtreeEvaluator : ExpressionVisitor {
         private readonly HashSet<ParameterExpression> _parameters = new();
 
 
-        protected override Expression VisitMember(MemberExpression node)
-        {
+        protected override Expression VisitMember(MemberExpression node) {
             if (!CanBeEvaluated(node))
                 return base.VisitMember(node);
 
@@ -26,8 +22,7 @@ internal static class ExpressionExtensions
             return Expression.Constant(value, node.Type);
         }
 
-        protected override Expression VisitMethodCall(MethodCallExpression node)
-        {
+        protected override Expression VisitMethodCall(MethodCallExpression node) {
             if (!CanBeEvaluated(node))
                 return base.VisitMethodCall(node);
 
@@ -35,8 +30,7 @@ internal static class ExpressionExtensions
             return Expression.Constant(value, node.Type);
         }
 
-        protected override Expression VisitInvocation(InvocationExpression node)
-        {
+        protected override Expression VisitInvocation(InvocationExpression node) {
             if (!CanBeEvaluated(node))
                 return base.VisitInvocation(node);
 
@@ -44,8 +38,7 @@ internal static class ExpressionExtensions
             return Expression.Constant(value, node.Type);
         }
 
-        protected override Expression VisitLambda<T>(Expression<T> node)
-        {
+        protected override Expression VisitLambda<T>(Expression<T> node) {
             // collect lambda parameters so we don't evaluate expressions depending on them
             foreach (var param in node.Parameters)
                 _parameters.Add(param);
@@ -54,10 +47,8 @@ internal static class ExpressionExtensions
             return Expression.Lambda(body, node.Parameters);
         }
 
-        private bool CanBeEvaluated(Expression? expr)
-        {
-            return expr switch
-            {
+        private bool CanBeEvaluated(Expression? expr) {
+            return expr switch {
                 // Anything that depends on parameters should *not* be evaluated
                 null => true,
                 ParameterExpression p when _parameters.Contains(p) => false,
@@ -81,17 +72,14 @@ internal static class ExpressionExtensions
             };
         }
 
-        private static object? GetValue(Expression expr)
-        {
-            switch (expr)
-            {
+        private static object? GetValue(Expression expr) {
+            switch (expr) {
                 case ConstantExpression c:
                     return c.Value;
 
                 case MemberExpression m:
                     var target = m.Expression != null ? GetValue(m.Expression) : null;
-                    return m.Member switch
-                    {
+                    return m.Member switch {
                         FieldInfo fi => fi.GetValue(target),
                         PropertyInfo pi => pi.GetValue(target),
                         _ => throw new NotSupportedException($"Unsupported member: {m.Member.GetType().Name}")
