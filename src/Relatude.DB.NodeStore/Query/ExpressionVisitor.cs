@@ -1,6 +1,6 @@
-﻿using Relatude.DB.Query.ExpressionToString.ExpressionTreeToString;
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using System.Reflection;
+using Relatude.DB.Query.ExpressionToString.ExpressionTreeToString;
 
 namespace Relatude.DB.Query;
 
@@ -16,15 +16,6 @@ internal static class ExpressionExtensions
     {
         private readonly HashSet<ParameterExpression> _parameters = new();
 
-        protected override Expression VisitLambda<T>(Expression<T> node)
-        {
-            // collect lambda parameters so we don't evaluate expressions depending on them
-            foreach (var param in node.Parameters)
-                _parameters.Add(param);
-
-            var body = Visit(node.Body);
-            return Expression.Lambda(body, node.Parameters);
-        }
 
         protected override Expression VisitMember(MemberExpression node)
         {
@@ -44,8 +35,28 @@ internal static class ExpressionExtensions
             return Expression.Constant(value, node.Type);
         }
 
-        private bool CanBeEvaluated(Expression? expr) =>
-            expr switch
+        protected override Expression VisitInvocation(InvocationExpression node)
+        {
+            if (!CanBeEvaluated(node))
+                return base.VisitInvocation(node);
+
+            var value = GetValue(node);
+            return Expression.Constant(value, node.Type);
+        }
+
+        protected override Expression VisitLambda<T>(Expression<T> node)
+        {
+            // collect lambda parameters so we don't evaluate expressions depending on them
+            foreach (var param in node.Parameters)
+                _parameters.Add(param);
+
+            var body = Visit(node.Body);
+            return Expression.Lambda(body, node.Parameters);
+        }
+
+        private bool CanBeEvaluated(Expression? expr)
+        {
+            return expr switch
             {
                 // Anything that depends on parameters should *not* be evaluated
                 null => true,
@@ -68,6 +79,7 @@ internal static class ExpressionExtensions
 
                 _ => false
             };
+        }
 
         private static object? GetValue(Expression expr)
         {
@@ -75,7 +87,7 @@ internal static class ExpressionExtensions
             {
                 case ConstantExpression c:
                     return c.Value;
-                
+
                 case MemberExpression m:
                     var target = m.Expression != null ? GetValue(m.Expression) : null;
                     return m.Member switch
@@ -93,11 +105,11 @@ internal static class ExpressionExtensions
                 case InvocationExpression ie:
                     // Handle calling Func<T> or delegate references
                     var lambda = GetValue(ie.Expression);
-                    var delegateArgs = ie.Arguments.Select(GetValue).ToArray();
+                    var invokedArgs = ie.Arguments.Select(GetValue).ToArray();
                     if (lambda is Delegate del)
-                        return del.DynamicInvoke(delegateArgs);
+                        return del.DynamicInvoke(invokedArgs);
 
-                    throw new NotSupportedException($"Cannot invoke expression of type {lambda?.GetType().Name}");
+                    throw new NotSupportedException("Invocation target is not a delegate.");
 
                 case UnaryExpression u:
                     var operand = GetValue(u.Operand);
