@@ -6,10 +6,9 @@ namespace Relatude.DB.Query;
 
 internal static class ExpressionExtension
 {
-    public static string ToQueryString(this Expression expression, int parametersCount, out IReadOnlyCollection<Parameter> parameters)
+    public static string ToQueryString(this Expression expression)
     {
         var visited = new Visitor().Visit(expression);
-        parameters = visited.ExtractParameters();
         return visited.ToString("C#");
     }
 

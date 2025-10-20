@@ -151,38 +151,32 @@ internal sealed class QueryStringBuilder {
     }
     internal QueryStringBuilder Sum<TSource, TResult>(Expression<Func<TSource, TResult>> expression) {
         _sb.Append(".Sum(");
-        _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
-        _parameters.AddRange(parameters);
-        _sb.Append(')');
+        _sb.Append(expression.ToQueryString());
+        _sb.Append(")");
         return this;
     }
     internal void OrderBy<T>(Expression<Func<T, object>> expression, bool descending) {
         _sb.Append(".OrderBy(");
-        _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
-        _parameters.AddRange(parameters);
+        _sb.Append(expression.ToQueryString());
         if (descending) _sb.Append(", true");
-        _sb.Append(')');
+        _sb.Append(")");
     }
     internal void SelectId() => add("SelectId");
     internal void Select(Expression expression) {
         _sb.Append(".Select(");
-        // _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
-        _sb.Append("(Article c) => Param_0");
-        // _parameters.AddRange(parameters);
-        _parameters.AddRange([new Parameter("Param_0", 1.2)]);
-        _sb.Append(')');
+        _sb.Append(expression.ToQueryString());
+        _sb.Append(")");
     }
     internal void Where<T>(Expression<Func<T, bool>> expression) {
         _sb.Append(".Where(");
-        _sb.Append(expression.ToQueryString(_parameters.Count, out var parameters));
-        _parameters.AddRange(parameters);
-        _sb.Append(')');
+        _sb.Append(expression.ToQueryString());
+        _sb.Append(")");
     }
     internal void Where(string query) {
         if (query == null) return;
         _sb.Append(".Where(");
         _sb.Append(query);
-        _sb.Append(')');
+        _sb.Append(")");
     }
     string writeValue<TProperty>(TProperty value) {
         if (value is string s) return s.ToStringLiteral();
