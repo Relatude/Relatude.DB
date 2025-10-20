@@ -33,7 +33,7 @@ namespace Relatude.DB.Query.ExpressionToString.ExpressionTreeToString {
                 .Trim('\0');
 
             Dictionary<string, (int start, int length)>? pathSpans = null;
-            if (insertionPoints.Any(x => x.pathSpans is { })) {
+            if (insertionPoints.Any(x => x.pathSpans is not null)) {
                 pathSpans = new Dictionary<string, (int start, int length)>();
                 var offset = 0;
                 foreach (var ip in insertionPoints.Where(ip => ip.sb.Length > 0)) {

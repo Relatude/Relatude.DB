@@ -31,7 +31,7 @@ public static class QueryOfObjects {
     }
 }
 public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
-    internal QueryStringBuilder _q;
+    internal readonly QueryStringBuilder _q;
     public QueryOfObjects(NodeStore store) {
         _q = new QueryStringBuilder(store, typeof(T).Name);
     }

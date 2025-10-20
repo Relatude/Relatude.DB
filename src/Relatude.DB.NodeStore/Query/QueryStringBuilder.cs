@@ -194,18 +194,18 @@ internal sealed class QueryStringBuilder {
         WhereIn(propertyName, values);
     }
     internal void WhereIn<TProperty>(string propertyName, IEnumerable<TProperty> values) {
-        var valueArray = "[" + string.Join(',', values.Select(v => writeValue(v))) + "]";
+        var valueArray = "[" + string.Join(',', values.Select(writeValue)) + "]";
         _sb.Append(".WhereIn(");
         _sb.Append(propertyName.ToStringLiteral());
         _sb.Append(", ");
         _sb.Append(valueArray);
-        _sb.Append(")");
+        _sb.Append(')');
     }
     internal void WhereInIds(IEnumerable<Guid> values) {
         var valueArray = "[" + string.Join(',', values.Select(v => writeValue(v))) + "]";
         _sb.Append(".WhereInIds(");
         _sb.Append(valueArray);
-        _sb.Append(")");
+        _sb.Append(')');
 
     }
     internal void Relates(Guid relationPropertyId, Guid id) {
@@ -222,7 +222,7 @@ internal sealed class QueryStringBuilder {
         _sb.Append(property.ToStringLiteral());
         _sb.Append(", ");
         _sb.Append(guidArray.ToStringLiteral());
-        _sb.Append(")");
+        _sb.Append(')');
     }
     internal void Relates(string text, string id) {
         if (text == null) return;
@@ -230,7 +230,7 @@ internal sealed class QueryStringBuilder {
         _sb.Append(text.ToStringLiteral());
         _sb.Append(", ");
         _sb.Append(id.ToStringLiteral());
-        _sb.Append(")");
+        _sb.Append(')');
     }
     internal void RelatesNot<TNode, TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid id) {
         RelatesNot(Store.Mapper.GetProperty(relationProperty).Id.ToString(), id.ToString());
@@ -241,7 +241,7 @@ internal sealed class QueryStringBuilder {
         _sb.Append(text.ToStringLiteral());
         _sb.Append(", ");
         _sb.Append(id.ToStringLiteral());
-        _sb.Append(")");
+        _sb.Append(')');
     }
 
     // Include and ThenInclude methods:
@@ -279,7 +279,7 @@ internal sealed class QueryStringBuilder {
         _sb.Append(", " + (minimumVectorSimilarity != null ? minimumVectorSimilarity.Value.ToString(CultureInfo.InvariantCulture) : "null"));
         _sb.Append(", " + (orSearch != null ? (orSearch.Value ? "true" : "false") : "null"));
         _sb.Append(", " + (maxWordsEvaluatedWhenFuzzy != null ? maxWordsEvaluatedWhenFuzzy.Value.ToString() : "null"));
-        _sb.Append(")");
+        _sb.Append(')');
     }
     internal void Search(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null, int? maxHitsEvaluatedBeforeRanked = null) {
         if (text == null) return;
@@ -300,7 +300,7 @@ internal sealed class QueryStringBuilder {
     internal void Where(int id) {
         _sb.Append(".Where(");
         _sb.Append(id);
-        _sb.Append(")");
+        _sb.Append(')');
     }
     internal void Where(IEnumerable<int> ids) {
         _sb.Append(".Where([");
@@ -346,7 +346,7 @@ internal sealed class QueryStringBuilder {
         _sb.Append(Store.Mapper.GetProperty(property).Id.ToString());
         _sb.Append(", ");
         _sb.Append(newValue.ToString());
-        _sb.Append(")");
+        _sb.Append(')');
     }
 
 }
