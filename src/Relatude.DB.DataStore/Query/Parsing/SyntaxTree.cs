@@ -276,31 +276,6 @@ public class ValueConstantSyntax : SyntaxUnit {
             }
         }
         return values;
-        //    valueString = valueString.Trim();
-        //    if (valueString.StartsWith('[') && valueString.EndsWith(']')) valueString = valueString[1..^1];
-        //    _propertyGuid = propertyId; // name, guid or id
-        //    var property = _dm.Properties[_propertyGuid];
-        //    foreach (var value in stringValues(valueString)) {
-        //        if (property.TryParse(value, out var v)) {
-        //            _values.Add(v);
-        //        } else {
-        //            throw new Exception($"Unable to parse value '{value}' for property '{property.CodeName}'");
-        //        }
-        //    }
-        //}
-        //IEnumerable<string> stringValues(string s) {
-        //    // parse values, and remove quotes thay may surround them. using yield return
-        //    var i = 0;
-        //    while (i < s.Length) {
-        //        var start = i;
-        //        while (i < s.Length && s[i] != ',') i++;
-        //        var value = s[start..i].Trim();
-        //        if (value.StartsWith('\'') && value.EndsWith('\'')) value = value[1..^1];
-        //        if (value.StartsWith('\"') && value.EndsWith('\"')) value = value[1..^1];
-        //        yield return value;
-        //        i++;
-        //    }
-        //}
     }
     public string GetStringValue() {
         var v = getValueOfType(ParameterTypes.String);
