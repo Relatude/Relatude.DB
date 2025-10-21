@@ -17,7 +17,7 @@ public class StoreStreamMemoryWrite : IAppendStream {
         _ms.Write(data, 0, data.Length);
         _checkSum.EvaluateChecksumIfRecording(data);
     }
-    public void Flush() { }
+    public void Flush(bool deepFlush) { }
     public long Length { get => _ms.Length; }
 
     public string FileKey { get; }

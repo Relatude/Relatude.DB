@@ -1,15 +1,10 @@
-﻿using Relatude.DB.Datamodels;
-using Relatude.DB.Query.Parsing.Syntax;
-using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
-using System.Runtime.Intrinsics.Arm;
-using System.Text;
-namespace Relatude.DB.Query.Parsing;
-public class AnonymousObjectSyntax : SyntaxUnit {
-    public AnonymousObjectSyntax(string code, int pos1, int pos2) : base(code, pos1, pos2) { }
+﻿using System.Text;
+namespace Relatude.DB.Query.Parsing.Tokens;
+public class AnonymousObjectToken : TokenBase {
+    public AnonymousObjectToken(string code, int pos1, int pos2) : base(code, pos1, pos2) { }
     public List<string> Names { get; } = new();
-    public List<SyntaxUnit> Values { get; } = new();
-    static public AnonymousObjectSyntax Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
+    public List<TokenBase> Values { get; } = new();
+    static public AnonymousObjectToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
         // new {a=122,b=3424}
         // new {a:122,b:3424}  // also supported....
         pos = SkipWhiteSpace(code, pos);
@@ -23,7 +18,7 @@ public class AnonymousObjectSyntax : SyntaxUnit {
         if (pos < -1) throw new SyntaxException("Expected opening curly bracket. ", code, pos);
         if (pos + 1 > code.Length) throw new SyntaxException("Code ended unexpectedly. ", code, pos);
         pos++;
-        var expression = new AnonymousObjectSyntax(code, startPos, startPos);
+        var expression = new AnonymousObjectToken(code, startPos, startPos);
         while (true) {
             pos = SkipWhiteSpace(code, pos);
             var startName = pos;
@@ -31,12 +26,12 @@ public class AnonymousObjectSyntax : SyntaxUnit {
             var endOfProperty = code.IndexOfAnyOutsideStringLiterals(pos, ',', '}');
             if (endOfProperty == -1) throw new SyntaxException("Expected closing curly bracket. ", code, pos);
             string name;
-            SyntaxUnit? valueExpression;
+            TokenBase? valueExpression;
             if (endOfName == -1 || endOfProperty < endOfName) {
                 // no name decleration, so use member access as name
                 valueExpression = ParseStatement(code, pos, out newPos, null, parameters);
                 if (valueExpression == null) throw new SyntaxException("Expected expression. ", code, pos);
-                if (valueExpression is VariableReferenceSyntax rs) name = rs.MemberName;
+                if (valueExpression is VariableReferenceToken rs) name = rs.MemberName;
                 else throw new SyntaxException("Expected expression. ", code, pos);
             } else {
                 name = code[startName..endOfName].Trim();
@@ -70,5 +65,5 @@ public class AnonymousObjectSyntax : SyntaxUnit {
         sb.Append("}");
         return sb.ToString();
     }
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.AnonymousObject;
+    public override TokenTypes TokenType => TokenTypes.AnonymousObject;
 }

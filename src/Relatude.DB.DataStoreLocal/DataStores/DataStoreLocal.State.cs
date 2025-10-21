@@ -69,7 +69,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new IndexReadException("Index state file does not belong to log file. It cannot be used. ", null);
             }
         } else {  // delete
-            if (_io is IODisk iODisk) {
+            if (_io is IOProviderDisk iODisk) {
                 var path = iODisk.BaseFolder;
                 var prefix = _settings.FilePrefix;
                 IPersistedIndexStore.DeleteFilesInDefaultFolder(path, prefix);

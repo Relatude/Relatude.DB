@@ -10,7 +10,7 @@ using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Parsing;
-using Relatude.DB.Query.Parsing.Syntax;
+using Relatude.DB.Query.Parsing.Tokens;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
@@ -307,7 +307,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public object Query(string query, IEnumerable<Parameter> parameters) {
-        var syntaxTree = SyntaxTree.Parse(query, parameters);
+        var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
         var result = this.query(expressionTree, query, parameters);
         return result;

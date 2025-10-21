@@ -87,7 +87,7 @@ public class DefaultQueueStore : IQueueStore {
     }
     public void FlushDiskIfNeeded() {
         if (_stream != null && _unflushed) {
-            _stream.Flush();
+            _stream.Flush(true);
             _unflushed = false;
         }
     }

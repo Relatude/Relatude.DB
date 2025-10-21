@@ -1,6 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using System.Globalization;
-namespace Relatude.DB.Query.Parsing.Syntax;
+namespace Relatude.DB.Query.Parsing.Tokens;
 public enum ParsedTypes {
     FromParameter,
     Null,
@@ -12,11 +12,11 @@ public enum ParsedTypes {
     ArrayOfStrings,
     ArrayOfNumberStrings,
 }
-public class ValueConstantSyntax : SyntaxUnit {
+public class ValueConstantToken : TokenBase {
     readonly object? _value;
     public ParsedTypes ParsedTypeHint { get; }
     public object? DirectValue => _value;
-    public ValueConstantSyntax(object? value, ParsedTypes parsedType, string code, int pos1, int pos2) : base(code, pos1, pos2) {
+    public ValueConstantToken(object? value, ParsedTypes parsedType, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         _value = value;
         ParsedTypeHint = parsedType;
     }
@@ -195,8 +195,8 @@ public class ValueConstantSyntax : SyntaxUnit {
     //            throw new Exception("Unknown parsed type " + ParsedTypeHint + ". ");
     //    }
     //}
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.ValueConstant;
-    static public ValueConstantSyntax Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
+    public override TokenTypes TokenType => TokenTypes.ValueConstant;
+    static public ValueConstantToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
 
         // limited types supported when parsing values:
         // null, boolean, string, integer, float
@@ -206,7 +206,7 @@ public class ValueConstantSyntax : SyntaxUnit {
         string strValue;
         if (firstChar == '\"' || firstChar == '\'') {
             strValue = StringLiteralParser.extractStringLiteral(code, pos, firstChar, out newPos);
-            return new ValueConstantSyntax(strValue, ParsedTypes.String, code, pos, newPos);
+            return new ValueConstantToken(strValue, ParsedTypes.String, code, pos, newPos);
         }
 
         // is null:
@@ -252,7 +252,7 @@ public class ValueConstantSyntax : SyntaxUnit {
                 // assumes array of numbers:
                 var endBracketPos = code.IndexOf(']', pos);
                 if (endBracketPos == -1) throw new SyntaxException("Array constant not closed. ", code, pos);
-                var arrayContent = code[(pos)..endBracketPos];
+                var arrayContent = code[pos..endBracketPos];
                 var strValues = arrayContent.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
                 newPos = endBracketPos + 1;
                 return new(strValues, ParsedTypes.ArrayOfNumberStrings, code, pos, newPos);

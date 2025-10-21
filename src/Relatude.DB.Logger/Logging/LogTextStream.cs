@@ -26,7 +26,7 @@ internal class LogTextStream : IDisposable {
         }
         sb.AppendLine();
         stream.Append(Encoding.UTF8.GetBytes(sb.ToString()));
-        if (flushToDisk) stream.Flush();
+        if (flushToDisk) stream.Flush(true);
     }
     IAppendStream? _lastAppendStream;
     IAppendStream getCorrectStream(DateTime timestamp) {
@@ -58,7 +58,7 @@ internal class LogTextStream : IDisposable {
         return filesToDelete.Count();
     }
     public void FlushToDisk() {
-        if (_lastAppendStream != null) _lastAppendStream.Flush();
+        if (_lastAppendStream != null) _lastAppendStream.Flush(true);
     }
     public void Delete(DateTime to) {
         releaseOpenFiles();

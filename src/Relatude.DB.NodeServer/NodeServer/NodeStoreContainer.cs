@@ -77,7 +77,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Datamodel = loadDatamodel();
             IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
             string? diskFallBackPath = null;
-            if (ioDatabase is IODisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
+            if (ioDatabase is IOProviderDisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
@@ -100,7 +100,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 createIndexStore = () => {
                     var indexPath = settings.LocalSettings.PersistedValueIndexFolderPath;
                     if (indexPath == null) {
-                        if (ioDatabase is IODisk ioDisk) indexPath = ioDisk.BaseFolder;
+                        if (ioDatabase is IOProviderDisk ioDisk) indexPath = ioDisk.BaseFolder;
                         else throw new Exception("The setting PersistedValueIndexFolderPath is required for LocalSettings.PersistedValueIndexFolderPath");
                     }
                     indexPath = Path.Combine(indexPath, new FileKeyUtility(settings.LocalSettings.FilePrefix).IndexStoreFolderKey);

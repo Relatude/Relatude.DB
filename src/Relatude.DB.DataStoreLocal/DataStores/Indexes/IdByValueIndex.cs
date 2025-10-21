@@ -6,6 +6,9 @@ namespace Relatude.DB.DataStores.Indexes;
 /// This is a special purpose index used by the ValueIndex class.
 /// It indexes ids by value.
 /// The "MutableSet" is a set designed to be used for fast creations of IdSets
+/// Optimized for fats lookups and insertions/removals. 
+/// However, it is not so efficient with range queries, as it needs a resort after each insertion/removal.
+/// Optimization is possible using a btree or similar structure ( even though that reduces insertion/removal speed. ).
 /// </summary>
 /// <typeparam name="T"></typeparam>
 internal class IdByValue<T>(SetRegister sets) where T : notnull {
@@ -17,7 +20,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     readonly Dictionary<T, int> _idByValue = [];
     readonly Dictionary<T, MutableSet> _idsByValue = [];
     List<T>? _sortedValues;
-    List<int>? _sortedIds;
+    List<int>? _sortedIds; // sorted list of all ids, sorted by their values, and reset on every change, and lazily re-created on request ( somewhat expensive operation )
     readonly SetRegister _sets = sets;
     public void Index(T value, int id) {
         if (_idByValue.TryGetValue(value, out var existingId)) {
@@ -102,9 +105,9 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         ensureSortedValues();
         for (int i = _sortedValues!.Count - 1; i >= 0; i--) yield return _sortedValues[i];
     }
-    object _lock = new();
+    object _sortLock = new();
     void ensureIdsSortedByValues() {
-        lock (_lock) {
+        lock (_sortLock) {
             ensureSortedValues();
             if (_sortedIds == null) {
                 _sortedIds = new(_idCount);
@@ -119,7 +122,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         }
     }
     void ensureSortedValues() {
-        lock (_lock) {
+        lock (_sortLock) {
             if (_sortedValues == null) {
                 _sortedValues = Values.ToList();
                 _sortedValues.Sort();

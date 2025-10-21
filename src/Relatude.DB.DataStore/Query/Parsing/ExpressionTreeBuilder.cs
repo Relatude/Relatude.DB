@@ -2,16 +2,16 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Methods;
-using Relatude.DB.Query.Parsing.Syntax;
+using Relatude.DB.Query.Parsing.Tokens;
 namespace Relatude.DB.Query.Parsing;
-delegate IExpression BuildMethod(SyntaxUnit syntax, Datamodel dm);
+delegate IExpression BuildMethod(TokenBase syntax, Datamodel dm);
 public class ExpressionBuilderException : Exception {
-    readonly SyntaxUnit _syntaxtUnit;
+    readonly TokenBase _syntaxtUnit;
     readonly string? _message;
-    public ExpressionBuilderException(SyntaxUnit syntaxUnit) {
+    public ExpressionBuilderException(TokenBase syntaxUnit) {
         _syntaxtUnit = syntaxUnit;
     }
-    public ExpressionBuilderException(string message, SyntaxUnit syntaxUnit) {
+    public ExpressionBuilderException(string message, TokenBase syntaxUnit) {
         _syntaxtUnit = syntaxUnit;
         _message = message;
     }
@@ -46,22 +46,22 @@ public class ExpressionBuilderException : Exception {
 /// While this class builds a tree of IExpressions that can be evaluated.
 /// </summary>
 public class ExpressionTreeBuilder {
-    public static IExpression Build(SyntaxUnit syntax, Datamodel dm) {
-        return syntax.SyntaxType switch {
-            SyntaxUnitTypes.Empty => throw new ArgumentException("Empty expression. "),
-            SyntaxUnitTypes.ValueConstant => BuildValueConstant((ValueConstantSyntax)syntax),
-            SyntaxUnitTypes.OperatorExpression => BuildOperator((OperatorExpressionSyntax)syntax, dm),
-            SyntaxUnitTypes.Variable => BuildVariableReference((VariableReferenceSyntax)syntax),
-            SyntaxUnitTypes.MethodCall => BuildMethodCall((MethodCallSyntax)syntax, dm),
-            SyntaxUnitTypes.AnonymousObject => BuildAnonymousObject((AnonymousObjectSyntax)syntax, dm),
-            SyntaxUnitTypes.ExpressionBracket => BuildBracket((BracketSyntax)syntax, dm),
-            SyntaxUnitTypes.LambdaDeclaration => BuildLambda((LambdaSyntax)syntax, dm),
-            SyntaxUnitTypes.PreFixOperatorExpression => BuildPreFixOperator((PreFixSyntax)syntax, dm),
-            SyntaxUnitTypes.ObjectConstruction => throw new NotImplementedException(),
+    public static IExpression Build(TokenBase syntax, Datamodel dm) {
+        return syntax.TokenType switch {
+            TokenTypes.Empty => throw new ArgumentException("Empty expression. "),
+            TokenTypes.ValueConstant => BuildValueConstant((ValueConstantToken)syntax),
+            TokenTypes.OperatorExpression => BuildOperator((OperatorExpressionToken)syntax, dm),
+            TokenTypes.Variable => BuildVariableReference((VariableReferenceToken)syntax),
+            TokenTypes.MethodCall => BuildMethodCall((MethodCallToken)syntax, dm),
+            TokenTypes.AnonymousObject => BuildAnonymousObject((AnonymousObjectToken)syntax, dm),
+            TokenTypes.ExpressionBracket => BuildBracket((BracketToken)syntax, dm),
+            TokenTypes.LambdaDeclaration => BuildLambda((LambdaToken)syntax, dm),
+            TokenTypes.PreFixOperatorExpression => BuildPreFixOperator((PreFixSyntax)syntax, dm),
+            TokenTypes.ObjectConstruction => throw new NotImplementedException(),
             _ => throw new NotImplementedException(),
         };
     }
-    static IConstantExpression BuildValueConstant(ValueConstantSyntax constantValue) {
+    static IConstantExpression BuildValueConstant(ValueConstantToken constantValue) {
         switch (constantValue.ParsedTypeHint) {
             case ParsedTypes.FromParameter: {
                     // value stems from parameter substitution...
@@ -90,12 +90,12 @@ public class ExpressionTreeBuilder {
         if (e.Prefix == "!") return new NotPrefixExpression(c);
         throw new Exception("Prefix operator not supported: " + e.Prefix);
     }
-    static OperatorExpression BuildOperator(OperatorExpressionSyntax operatorExpression, Datamodel dm) {
+    static OperatorExpression BuildOperator(OperatorExpressionToken operatorExpression, Datamodel dm) {
         var expressions = operatorExpression.Values.Select(v => Build(v, dm)).ToList();
         var operators = operatorExpression.Operators.Select(o => OperatorUtil.Parse(o)).ToList();
         return new OperatorExpression(expressions, operators, true);
     }
-    static IExpression BuildVariableReference(VariableReferenceSyntax e) {
+    static IExpression BuildVariableReference(VariableReferenceToken e) {
         var posDot = e.Name.IndexOf('.');
         if (posDot > -1) {
             var first = e.Name[..posDot];
@@ -106,12 +106,12 @@ public class ExpressionTreeBuilder {
             return new VariableReferenceExpression(e.Name);
         }
     }
-    static IExpression BuildMethodCall(MethodCallSyntax e, Datamodel dm) {
+    static IExpression BuildMethodCall(MethodCallToken e, Datamodel dm) {
         var name = e.Name.ToLower();
         if (name == "select") {
             if (e.Arguments.Count != 1) throw new Exception("Select statement only accepts one argument. ");
             var arg = e.Arguments[0];
-            if (arg is not LambdaSyntax lambda) throw new Exception("Select statement only accept lambda expressions as argument. ");
+            if (arg is not LambdaToken lambda) throw new Exception("Select statement only accept lambda expressions as argument. ");
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (lambda.Paramaters == null) throw new NullReferenceException();
@@ -128,7 +128,7 @@ public class ExpressionTreeBuilder {
             var arg = e.Arguments[0];
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
-            if (arg is LambdaSyntax lambda) {
+            if (arg is LambdaToken lambda) {
                 if (e.Arguments.Count != 1) throw new Exception("Where statement only accepts one argument. ");
                 if (lambda.Paramaters == null) throw new NullReferenceException();
                 if (lambda.Paramaters.Count != 1) throw new Exception("Where statement only accepts a lambda expression with one parameter. ");
@@ -141,7 +141,7 @@ public class ExpressionTreeBuilder {
         if (name == "wheretypes") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
-            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantSyntax typeIds) {
+            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantToken typeIds) {
                 return new WhereTypesMethod(source, typeIds.GetNodeTypeGuids(dm));
             } else {
                 throw new Exception("WhereTypes statement only accepts one parameter. ");
@@ -151,7 +151,7 @@ public class ExpressionTreeBuilder {
             var arg = e.Arguments[0];
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
-            if (arg is LambdaSyntax lambda) {
+            if (arg is LambdaToken lambda) {
                 if (lambda.Paramaters == null) throw new NullReferenceException();
                 if (lambda.Paramaters.Count != 1) throw new Exception("Where statement only accepts a lambda expression with one parameter. ");
                 var descending = e.Arguments.Count > 1 && (e.Arguments[1] + "").ToLower() == "true";
@@ -163,15 +163,15 @@ public class ExpressionTreeBuilder {
         }
         if (name == "facets") {
             if (e.Subject == null) throw new NullReferenceException();
-            foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string arguments allowed in facet expression. ");
+            foreach (var arg in e.Arguments) if (arg is not ValueConstantToken) throw new Exception("Only string arguments allowed in facet expression. ");
             var source = Build(e.Subject, dm);
-            return new FacetMethod(source, e.Arguments.Cast<ValueConstantSyntax>().Select(a => a.GetStringValue()), dm);
+            return new FacetMethod(source, e.Arguments.Cast<ValueConstantToken>().Select(a => a.GetStringValue()), dm);
         }
         if (name == "addfacet") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
-            if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[0] is not ValueConstantToken arg) throw new Exception("Only string arguments allowed in facet expression. ");
             fc.AddFacet(arg.GetStringValue());
             return fc;
         }
@@ -179,11 +179,11 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
-            if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[0] is not ValueConstantToken arg) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments.Count == 1) {
                 fc.AddValueFacet(arg.GetStringValue());
             } else {
-                if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
+                if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression. ");
                 fc.AddValueFacet(arg.GetStringValue(), arg2.GetStringValue());
             }
             return fc;
@@ -192,12 +192,12 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
-            if (e.Arguments[0] is not ValueConstantSyntax arg) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[0] is not ValueConstantToken arg) throw new Exception("Only string arguments allowed in facet expression. ");
             if (e.Arguments.Count == 1) {
                 fc.AddRangeFacet(arg.GetStringValue());
             } else {
-                if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
-                if (e.Arguments[2] is not ValueConstantSyntax arg3) throw new Exception("Only string arguments allowed in facet expression. ");
+                if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression. ");
+                if (e.Arguments[2] is not ValueConstantToken arg3) throw new Exception("Only string arguments allowed in facet expression. ");
                 fc.AddRangeFacet(arg.GetStringValue(), arg2.GetStringValue(), arg3.GetStringValue());
             }
             return fc;
@@ -206,8 +206,8 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
-            if (e.Arguments[0] is not ValueConstantSyntax arg1) throw new Exception("Only string arguments allowed in facet expression. ");
-            if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[0] is not ValueConstantToken arg1) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression. ");
             fc.SetFacetValue(arg1.GetStringValue(), arg2.GetStringValue());
             return fc;
         }
@@ -215,42 +215,42 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (source is not FacetMethod fc) throw new Exception("Expected facet expression. ");
-            if (e.Arguments[0] is not ValueConstantSyntax arg1) throw new Exception("Only string arguments allowed in facet expression. ");
-            if (e.Arguments[1] is not ValueConstantSyntax arg2) throw new Exception("Only string arguments allowed in facet expression. ");
-            if (e.Arguments[2] is not ValueConstantSyntax arg3) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[0] is not ValueConstantToken arg1) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression. ");
+            if (e.Arguments[2] is not ValueConstantToken arg3) throw new Exception("Only string arguments allowed in facet expression. ");
             fc.SetFacetRangeValue(arg1.GetStringValue(), arg2.GetStringValue(), arg3.GetStringValue());
             return fc;
             throw new NotSupportedException("The method \"" + e + "\" is not supported. ");
         }
         if (name == "search" || name == "wheresearch") {
             if (e.Subject == null) throw new NullReferenceException();
-            foreach (var arg in e.Arguments) if (arg is not ValueConstantSyntax) throw new Exception("Only string argument allowed in search expression. ");
+            foreach (var arg in e.Arguments) if (arg is not ValueConstantToken) throw new Exception("Only string argument allowed in search expression. ");
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count < 1) throw new Exception("Missing search parameter. ");
-            var searchTextO = (ValueConstantSyntax)e.Arguments[0];
+            var searchTextO = (ValueConstantToken)e.Arguments[0];
             double? semanticRatio = null;
             if (e.Arguments.Count > 1) {
-                var semanticRatioO = (ValueConstantSyntax)e.Arguments[1];
+                var semanticRatioO = (ValueConstantToken)e.Arguments[1];
                 semanticRatio = semanticRatioO.GetDoubleOrNullValue();
             }
             float? minimumVectorSimilarity = null;
             if (e.Arguments.Count > 2) {
-                var minimumVectorSimilarityO = (ValueConstantSyntax)e.Arguments[2];
+                var minimumVectorSimilarityO = (ValueConstantToken)e.Arguments[2];
                 minimumVectorSimilarity = minimumVectorSimilarityO.GetFloatOrNullValue();
             }
             bool? orSearch = null;
             if (e.Arguments.Count > 3) {
-                var orSearchO = (ValueConstantSyntax)e.Arguments[3];
+                var orSearchO = (ValueConstantToken)e.Arguments[3];
                 orSearch = orSearchO.GetBoolOrNullValue();
             }
             int? maxWordsEvaluated = null;
             if (e.Arguments.Count > 4) {
-                var maxWordsEvaluatedO = (ValueConstantSyntax)e.Arguments[4];
+                var maxWordsEvaluatedO = (ValueConstantToken)e.Arguments[4];
                 maxWordsEvaluated = maxWordsEvaluatedO.GetIntOrNullValue();
             }
             int? maxHitsEvaluated = null;
             if (e.Arguments.Count > 5) {
-                var maxHitsEvaluatedO = (ValueConstantSyntax)e.Arguments[5];
+                var maxHitsEvaluatedO = (ValueConstantToken)e.Arguments[5];
                 maxHitsEvaluated = maxHitsEvaluatedO.GetIntOrNullValue();
             }
             if (name == "wheresearch") {
@@ -263,22 +263,22 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 2) throw new Exception("Page statement only accepts two parameters. ");
-            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
-            var p2 = ((ValueConstantSyntax)e.Arguments[1]).GetIntValue();
+            var p1 = ((ValueConstantToken)e.Arguments[0]).GetIntValue();
+            var p2 = ((ValueConstantToken)e.Arguments[1]).GetIntValue();
             return new PageMethod(source, p1, p2);
         }
         if (name == "take") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 1) throw new Exception("Take statement only accepts one parameter. ");
-            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
+            var p1 = ((ValueConstantToken)e.Arguments[0]).GetIntValue();
             return new TakeMethod(source, p1);
         }
         if (name == "skip") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             if (e.Arguments.Count != 1) throw new Exception("Skip statement only accepts one parameter. ");
-            var p1 = ((ValueConstantSyntax)e.Arguments[0]).GetIntValue();
+            var p1 = ((ValueConstantToken)e.Arguments[0]).GetIntValue();
             return new SkipMethod(source, p1);
         }
         if (name == "count") {
@@ -294,7 +294,7 @@ public class ExpressionTreeBuilder {
             LambdaExpression? lambdaEx = null;
             if (e.Arguments.Count > 0) {
                 var arg = e.Arguments[0];
-                if (arg is not LambdaSyntax lambda) throw new Exception("Sum statement only accept lambda expressions as argument. ");
+                if (arg is not LambdaToken lambda) throw new Exception("Sum statement only accept lambda expressions as argument. ");
                 if (lambda.Paramaters == null) throw new NullReferenceException();
                 if (lambda.Paramaters.Count != 1) throw new Exception("Sum statement only accepts a lambda expression with one parameter. ");
                 lambdaEx = BuildLambda(lambda, dm);
@@ -303,13 +303,13 @@ public class ExpressionTreeBuilder {
         }
         if (name == "any") {
             if (e.Subject == null) throw new NullReferenceException();
-            var path = (e.Subject as VariableReferenceSyntax)?.Name;
+            var path = (e.Subject as VariableReferenceToken)?.Name;
             if (path == null) throw new NullReferenceException();
             return new RelationExpression(path, e.Arguments[0].ToString(), name);
         }
         if (name == "is" || name == "has") {
             if (e.Subject == null) throw new NullReferenceException();
-            var path = (e.Subject as VariableReferenceSyntax)?.Name;
+            var path = (e.Subject as VariableReferenceToken)?.Name;
             if (path == null) throw new NullReferenceException();
             return new RelationExpression(path, e.Arguments[0].ToString(), name);
         }
@@ -317,8 +317,8 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
-            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
+            if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
+            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantToken id) {
                 var propId = prop.GetPropertyId(dm);
                 return new WhereInMethod(source, propId, id.GetPropertyValues(dm, propId));
             } else {
@@ -329,7 +329,7 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantSyntax id) {
+            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantToken id) {
                 return new WhereInIdsMethod(source, id.GetGuids());
             } else {
                 throw new Exception("Relates statement only accepts one parameter. ");
@@ -339,8 +339,8 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
-            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
+            if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
+            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantToken id) {
                 return new RelatesAnyMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
@@ -350,8 +350,8 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
-            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantSyntax id) {
+            if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
+            if (e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantToken id) {
                 return new RelatesMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
@@ -361,8 +361,8 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
-            if (e.Arguments.Count > 0 && e.Arguments[1] is ValueConstantSyntax id) {
+            if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in relation expression. ");
+            if (e.Arguments.Count > 0 && e.Arguments[1] is ValueConstantToken id) {
                 return new RelatesNotMethod(source, dm, prop.GetStringValue(), id.GetStringValue());
             } else {
                 throw new Exception("Relates statement only accepts two parameters. ");
@@ -372,32 +372,32 @@ public class ExpressionTreeBuilder {
             if (e.Subject == null) throw new NullReferenceException();
             var source = Build(e.Subject, dm);
             List<string> branch = new();
-            if (e.Arguments[0] is not ValueConstantSyntax prop) throw new Exception("Only string arguments allowed as property in include expression. ");
+            if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in include expression. ");
             return new IncludeMethod(source, dm, prop.GetStringValue());
         }
         if (name == "inrange") {
             if (e.Subject == null) throw new NullReferenceException();
-            var path = (e.Subject as VariableReferenceSyntax)?.Name;
+            var path = (e.Subject as VariableReferenceToken)?.Name;
             if (path == null) throw new NullReferenceException();
             return new RangeExpression(path, e.Arguments[0].ToString(), e.Arguments[1].ToString());
         }
         throw new NotSupportedException("The method \"" + e + "\" is not supported. ");
     }
-    static LambdaExpression BuildLambda(LambdaSyntax e, Datamodel dm) {
+    static LambdaExpression BuildLambda(LambdaToken e, Datamodel dm) {
         if (e.Body == null) throw new NullReferenceException();
         if (e.Paramaters == null) throw new NullReferenceException();
         IExpression func = Build(e.Body, dm);
         var ex = new LambdaExpression(e.Paramaters, func);
         return ex;
     }
-    static AnonymousObjectExpression BuildAnonymousObject(AnonymousObjectSyntax e, Datamodel dm) {
+    static AnonymousObjectExpression BuildAnonymousObject(AnonymousObjectToken e, Datamodel dm) {
         var valueExpressions = new List<IExpression>();
         foreach (var valueExp in e.Values) valueExpressions.Add(Build(valueExp, dm));
         var props = e.Names.Select(n => new KeyValuePair<string, PropertyType>(n, PropertyType.Any)).ToArray();
         var ex = new AnonymousObjectExpression(props, valueExpressions);
         return ex;
     }
-    static OperatorExpression BuildBracket(BracketSyntax e, Datamodel dm) {
+    static OperatorExpression BuildBracket(BracketToken e, Datamodel dm) {
         var c = Build(e.Content, dm);
         if (c is BracketExpression b) return b;
         return new BracketExpression(c);

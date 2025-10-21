@@ -195,7 +195,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
                 throw new Exception("Uploading state file is not allowed. ");
             }
             destIo.DeleteIfItExists(fileKeys.StateFileKey); // delete the state file to avoid old statefile and newer log file!
-            if (destIo is IODisk diskIO && server.TempIO is IODisk tempDiskIO) {
+            if (destIo is IOProviderDisk diskIO && server.TempIO is IOProviderDisk tempDiskIO) {
                 diskIO.MoveFile(tempDiskIO, uploadId.ToString(), fileName, overwrite);
                 return;
             }

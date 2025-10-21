@@ -17,7 +17,6 @@ public class RelatudeDBTester : ITester {
         _flush = options.FlushDiskOnEveryOperation;
     }
     public void Open() {
-        var io = new IODisk(_dataFolderPath!);
         var dm = new Datamodel();
         dm.Add<TestUser>();
         dm.Add<TestCompany>();
@@ -27,6 +26,8 @@ public class RelatudeDBTester : ITester {
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
         settings.AutoFlushDiskInBackground = false;
+        settings.DeepFlushDisk = false;
+        var io = new IOProviderDisk(_dataFolderPath!);
         _dataStore = new DataStoreLocal(dm, settings, io);
         _dataStore.Open();
         _store = new NodeStore(_dataStore);

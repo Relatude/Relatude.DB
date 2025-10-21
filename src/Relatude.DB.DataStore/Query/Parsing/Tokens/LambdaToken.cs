@@ -1,13 +1,12 @@
-﻿using Relatude.DB.Query.Parsing.Syntax;
-namespace Relatude.DB.Query.Parsing;
-public class LambdaSyntax : SyntaxUnit {
-    public LambdaSyntax(string code, int pos1, int pos2) : base(code, pos1, pos2) {
+﻿namespace Relatude.DB.Query.Parsing.Tokens;
+public class LambdaToken : TokenBase {
+    public LambdaToken(string code, int pos1, int pos2) : base(code, pos1, pos2) {
     }
     public List<string>? Paramaters { get; set; }
-    public SyntaxUnit? Body { get; set; }
-    static public LambdaSyntax Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
+    public TokenBase? Body { get; set; }
+    static public LambdaToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
         pos = SkipWhiteSpace(code, pos);
-        var expression = new LambdaSyntax(code, pos, pos);
+        var expression = new LambdaToken(code, pos, pos);
         var usingBrackets = code[pos] == '(';
         if (usingBrackets) {
             pos++;
@@ -43,5 +42,5 @@ public class LambdaSyntax : SyntaxUnit {
         if (Paramaters == null) return base.ToString() + "() => " + Body + "";
         return base.ToString() + "(" + string.Join(", ", Paramaters) + ") => " + Body + "";
     }
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.LambdaDeclaration;
+    public override TokenTypes TokenType => TokenTypes.LambdaDeclaration;
 }

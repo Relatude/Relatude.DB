@@ -5,7 +5,7 @@ public interface IAppendStream : IStream{
     void Append(byte[] data);
     void RecordChecksum();
     void WriteChecksum();
-    void Flush();
+    void Flush(bool deepFlush);
     /// <summary>
     /// Gets data from stream, starting at position, and copying count bytes to buffer
     /// </summary>

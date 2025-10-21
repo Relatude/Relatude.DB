@@ -156,7 +156,7 @@ public partial class RelatudeDBServer {
 
         if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
-        _tempIO = new IODisk(tempFolderPath);
+        _tempIO = new IOProviderDisk(tempFolderPath);
         var tempFiles = _tempIO.GetFiles();
         var tempSize = tempFiles.Sum(f => f.Size);
         var tempCount = tempFiles.Length;

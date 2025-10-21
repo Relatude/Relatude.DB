@@ -1,8 +1,8 @@
 ﻿using Relatude.DB.DataStores.Indexes;
 namespace Relatude.DB.DataStores.Indexes;
 /// <summary>
-// a utility class to optimize add/remove operations on indexes.
-// it will queue a remove operation and if the same add operation is called, it will not do the remove.
+/// A utility class to optimize add/remove operations on indexes.
+/// it will queue a remove operation and if the same add operation is called, it will not do the remove.
 /// </summary>
 /// <param name="index"></param>
 public class AddRemoveOptimization(IIndex index) {
@@ -14,7 +14,7 @@ public class AddRemoveOptimization(IIndex index) {
         if (_lastRemovedNodeId == id && value.Equals(_lastRemovedValue)) {
             _lastRemovedNodeId = 0;// avoiding operation, qued removed is same as add, so just clear it!
         } else {
-            dequeue(); // locks not needed as duing a add remove, only one thread is allowed
+            dequeue(); // locks not needed as during a add remove, only one thread is allowed
             _index.Add(id, value);
         }
     }

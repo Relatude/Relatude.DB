@@ -25,7 +25,7 @@ namespace Relatude.DB.NodeServer {
                         if (path.StartsWith('~')) path = appRootPath.SuperPathCombine(path[1..]);
                         if (!System.IO.Path.IsPathRooted(path)) path = appRootPath.SuperPathCombine(path);
                         if (!path.VerifyPathIsUnderThis(appRootPath)) throw new Exception("Path not under root");
-                        return new IODisk(path);
+                        return new IOProviderDisk(path);
                     }
                 case IOTypes.AzureBlobStorage: {
                         return LateBindings.CreateAzureBlobIOProvider(settings);

@@ -174,7 +174,7 @@ internal class Scheduler(DataStoreLocal _db) {
             }
             _lastAutoFlush = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
-            _db.FlushToDisk(out var t, out var a, out var w);
+            _db.FlushToDisk(true, out var t, out var a, out var w);
             if (t > 0) _db.LogInfo("Background disk flush. "
                 + sw.ElapsedMilliseconds.To1000N() + "ms, "
                 + t + " transaction" + (t != 1 ? "s" : "") + ", "

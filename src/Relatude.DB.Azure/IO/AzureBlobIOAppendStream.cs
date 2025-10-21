@@ -49,10 +49,10 @@ namespace Relatude.DB.IO {
                 _checkSum.EvaluateChecksumIfRecording(data);
                 _writeBuffer.Write(data, 0, data.Length);
                 Length += data.Length;
-                if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush();
+                if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
-        public void Flush() {
+        public void Flush(bool deepFlush) {
             lock (_lock) {
                 if (_writeBuffer.Length == 0) return;
                 _writeBuffer.Position = 0;
@@ -134,7 +134,7 @@ namespace Relatude.DB.IO {
         public void Dispose() {
             if (_isDisposed) return;
             _isDisposed = true;
-            Flush();
+            Flush(true);
             _blobLeaseClient?.Release();
             _disposeCallback(Length);
             AzureBlobIOProvider.DeleteLastLeaseId(_appendBlobClient.Name);

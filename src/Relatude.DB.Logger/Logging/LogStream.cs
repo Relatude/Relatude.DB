@@ -131,7 +131,7 @@ internal class LogStream : IDisposable {
             _lastAppendStream.WriteBool(_compressed);
             _lastAppendStream.WriteByteArray(data);
             _lastAppendStream.WriteGuid(_endMarker);
-            if (flushToDisk) _lastAppendStream.Flush();
+            if (flushToDisk) _lastAppendStream.Flush(true);
         }
         _buffer.Clear();
         _dataInBuffer = 0;

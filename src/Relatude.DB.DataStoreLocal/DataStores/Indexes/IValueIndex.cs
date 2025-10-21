@@ -1,11 +1,7 @@
-﻿using Relatude.DB.IO;
-using Relatude.DB.DataStores.Sets;
-using Relatude.DB.DataStores.Indexes;
+﻿using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     long StateId { get; }
-    //void Add(int id, T value);
-    //void Remove(int id, T value);
     int IdCount { get; }
     IEnumerable<int> Ids { get; }
     IEnumerable<T> UniqueValues { get; }

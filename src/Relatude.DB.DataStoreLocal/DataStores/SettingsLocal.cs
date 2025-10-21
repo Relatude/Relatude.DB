@@ -15,6 +15,7 @@
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
     public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
+    public bool DeepFlushDisk { get; set; } = false;
 
     public bool AutoFlushDiskInBackground { get; set; } = true;
     public double AutoFlushDiskIntervalInSeconds { get; set; } = 1;

@@ -1,13 +1,12 @@
-﻿using Relatude.DB.Query.Parsing.Syntax;
-namespace Relatude.DB.Query.Parsing;
-public class ObjectConstructionSyntax : SyntaxUnit {
-    public ObjectConstructionSyntax(string typeName, string code, int pos1, int pos2) : base(code, pos1, pos2) {
+﻿namespace Relatude.DB.Query.Parsing.Tokens;
+public class ObjectConstructionToken : TokenBase {
+    public ObjectConstructionToken(string typeName, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         TypeName = typeName;
     }
     public string TypeName { get; }
     public List<string>? GenericParams { get; set; }
-    public List<SyntaxUnit> Arguments { get; set; } = new();
-    static public ObjectConstructionSyntax Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
+    public List<TokenBase> Arguments { get; set; } = new();
+    static public ObjectConstructionToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
         var pos1 = pos;
         pos = SkipWhiteSpace(code, pos);
         var keyWord = code[pos..(pos + 4)];
@@ -18,7 +17,7 @@ public class ObjectConstructionSyntax : SyntaxUnit {
         while (pos < code.Length && (char.IsLetterOrDigit(code[pos]) || code[pos] == '.' || code[pos] == '_')) pos++;
         var typeName = code[startPos..pos];
         var nextChar = code[pos];
-        var expression = new ObjectConstructionSyntax(typeName, code, pos1, pos1);
+        var expression = new ObjectConstructionToken(typeName, code, pos1, pos1);
         if (nextChar == '<') {
             var startGenerics = pos + 1;
             while (pos < code.Length && code[pos] == '>') pos++;
@@ -48,5 +47,5 @@ public class ObjectConstructionSyntax : SyntaxUnit {
             + (GenericParams != null && GenericParams.Count > 0 ? "<" + string.Join(',', GenericParams) + ">" : "")
             + "(" + string.Join(',', Arguments) + ")";
     }
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.ObjectConstruction;
+    public override TokenTypes TokenType => TokenTypes.ObjectConstruction;
 }

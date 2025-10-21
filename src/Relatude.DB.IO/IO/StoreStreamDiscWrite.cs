@@ -4,7 +4,6 @@ namespace Relatude.DB.IO;
 public class StoreStreamDiscWrite : IAppendStream {
     readonly FileStream _stream;
     readonly string _filePath;
-    readonly bool _flushToDiskWhenFlushing;
     readonly bool _readOnly;
     readonly ChecksumUtil _checkSum = new();
     public string FileKey { get; }
@@ -13,12 +12,11 @@ public class StoreStreamDiscWrite : IAppendStream {
     // measure to detect multithreading bugs, only one thread should access an append thread
     OnlyOneThreadRunning _flagAccessing = new();
 #endif
-    public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, bool flushToDiskWhenFlushing, Action disposeCallback) {
+    public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
         FileKey = fileKey;
         _readOnly = readOnly;
-        _flushToDiskWhenFlushing = flushToDiskWhenFlushing;
         var dirPath = Path.GetDirectoryName(_filePath);
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
@@ -56,7 +54,7 @@ public class StoreStreamDiscWrite : IAppendStream {
 #endif
     }
     bool _unflushed = true;
-    public void Flush() {
+    public void Flush(bool deepFlush) {
 #if DEBUG
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
@@ -65,7 +63,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             if (_hasDisposed) return;
             if (_stream.CanRead == false) return; // stream is closed
             try {
-                _stream.Flush(_flushToDiskWhenFlushing);
+                _stream.Flush(deepFlush);
             } catch {
                 // ignore, stream is closed
             }

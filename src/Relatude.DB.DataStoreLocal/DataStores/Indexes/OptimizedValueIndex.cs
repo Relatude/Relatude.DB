@@ -1,7 +1,11 @@
-﻿using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
+﻿using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+/// <summary>
+/// A layer to optimize and eliminate redundant add/remove operations on an underlying IValueIndex.
+/// </summary>
+/// <typeparam name="T"></typeparam>
+/// <param name="index"></param>
 public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where T : notnull {
     readonly IValueIndex<T> _i = index;
     readonly AddRemoveOptimization _o = new(index);

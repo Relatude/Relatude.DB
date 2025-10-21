@@ -1,6 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.Common;
-using Relatude.DB.DataStores.Indexes;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
@@ -48,7 +46,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public string UniqueKey { get; }
 
     // this is a measure to enable better reuse of cached sets
-    // as an example, lets say you query for DateTime.Now on every pagerequest
+    // as an example, lets say you query for DateTime.Now on every page request
     // since the query value will vary on every query, a cache key based on
     // the query value will be unique for every query, and the cached sets will not be reused
     // if however, the cache key is based on the closest matching values in the index, we know that result for

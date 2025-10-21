@@ -14,16 +14,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void DeleteIndexStateFile() => _io.DeleteIfItExists(_fileKeys.StateFileKey);
-    internal int FlushToDisk() {
-        FlushToDisk(out int transactionCount, out _, out _);
+    internal int FlushToDisk(bool deepFlush) {
+        FlushToDisk(deepFlush, out int transactionCount, out _, out _);
         return transactionCount;
     }
-    internal void FlushToDisk(out int transactionCount, out int actionCount, out long bytesWritten) {
+    internal void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
-            _wal.FlushToDisk(out transactionCount, out actionCount, out bytesWritten);
+            _wal.FlushToDisk(deepFlush, out transactionCount, out actionCount, out bytesWritten);
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
@@ -36,7 +36,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try {
-            _wal.FlushToDisk();
+            _wal.FlushToDisk(true);
             _wal.Copy(newLogFileKey, destinationIO);
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -81,7 +81,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
-            _wal.FlushToDisk(); // maing sure every segment exists in _nodes ( through call back )
+            _wal.FlushToDisk(true); // maing sure every segment exists in _nodes ( through call back )
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);
@@ -129,7 +129,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
         try {
             validateDatabaseState();
-            _wal.FlushToDisk();
+            _wal.FlushToDisk(true);
             PersistedIndexStore?.OptimizeDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -170,7 +170,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 validateDatabaseState();
                 if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
                     LogInfo("Initiating index state write.");
-                    _wal.FlushToDisk();
+                    _wal.FlushToDisk(true);
                     saveState();
                     LogInfo("Index state write completed.");
                 } else {
@@ -216,7 +216,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             _lock.ExitWriteLock();
         }
-        if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk();
+        if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true);
     }
     public Task<StoreStatus> GetInfoAsync() => Task.FromResult(GetInfo());
     public long GetLogActionsNotItInStatefile() {

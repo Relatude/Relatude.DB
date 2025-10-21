@@ -85,7 +85,7 @@ namespace Relatude.DB.DataStores.Stores {
         }
         public LogReader CreateLogReader(long fromTransactionAtPos, long fromTimespam) {
             if (_appendStream != null) {
-                FlushToDisk(out _, out _, out _);
+                FlushToDisk(true, out _, out _, out _);
                 _appendStream.Dispose();
                 _appendStream = null;
             }
@@ -123,7 +123,7 @@ namespace Relatude.DB.DataStores.Stores {
                 }
                 stream.WriteMarker(_transactionEndMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
             }
-            long bytesWritten = stream.Length - bytesStartPos; 
+            long bytesWritten = stream.Length - bytesStartPos;
             return bytesWritten;
         }
         public long GetPositionOfLastTransaction() {
@@ -140,10 +140,10 @@ namespace Relatude.DB.DataStores.Stores {
             if (FirstTimestamp == 0) FirstTimestamp = transaction.Timestamp;
             _workQueue.Add(transaction);
         }
-        public void FlushToDisk() => FlushToDisk(out _, out _, out _);
-        public void FlushToDisk(out int transactionCount, out int actionCount, out long bytesWritten) {
+        public void FlushToDisk(bool deepFlush) => FlushToDisk(deepFlush, out _, out _, out _);
+        public void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
             _workQueue.CompleteAddedWork(out transactionCount, out actionCount, out bytesWritten); // write everything to stream
-            if (_appendStream != null) _appendStream.Flush();
+            if (_appendStream != null) _appendStream.Flush(deepFlush);
             if (_flushCallback != null) _flushCallback(_lastTimestampID);
         }
         static int batchLimit = 1024 * 1024 * 10; // 10MB. Too low, and we get too many calls to io stream, to high and allocate unnecessary memory
@@ -244,7 +244,7 @@ namespace Relatude.DB.DataStores.Stores {
             if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
             _lastTimestampID = timestamp;
             QueDiskWrites(new(new(), timestamp));
-            FlushToDisk(out _, out _, out _);
+            FlushToDisk(true, out _, out _, out _);
         }
         public void EnsureTimestamps(long readTimestamp) {
             if (readTimestamp <= _lastTimestampID) return;

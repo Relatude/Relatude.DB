@@ -1,11 +1,10 @@
-﻿using Relatude.DB.Query.Parsing.Syntax;
-namespace Relatude.DB.Query.Parsing;
-public class VariableReferenceSyntax : SyntaxUnit {
-    public VariableReferenceSyntax(string name, string code, int pos1, int pos2) : base(code, pos1, pos2) {
+﻿namespace Relatude.DB.Query.Parsing.Tokens;
+public class VariableReferenceToken : TokenBase {
+    public VariableReferenceToken(string name, string code, int pos1, int pos2) : base(code, pos1, pos2) {
         Name = name;
     }
     public string Name { get; }
-    static public SyntaxUnit Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
+    static public TokenBase Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
         var startPos = SkipWhiteSpace(code, pos);
         pos = SkipUntilAfterReferenceIncludingGenerics(code, pos);
         newPos = pos;
@@ -25,13 +24,13 @@ public class VariableReferenceSyntax : SyntaxUnit {
             // check if this is a parameter
             foreach (var p in parameters) {
                 if (p.Name == name) {
-                    return new ValueConstantSyntax(p.Value, ParsedTypes.FromParameter, code, startPos, newPos);
+                    return new ValueConstantToken(p.Value, ParsedTypes.FromParameter, code, startPos, newPos);
                 }
             }
         }
-        return new VariableReferenceSyntax(name, code, startPos, newPos);
+        return new VariableReferenceToken(name, code, startPos, newPos);
     }
-    public override SyntaxUnitTypes SyntaxType => SyntaxUnitTypes.Variable;
+    public override TokenTypes TokenType => TokenTypes.Variable;
     public string MemberName => Name.Split('.').Last();
     public override string ToString() {
         return base.ToString() + Name;
