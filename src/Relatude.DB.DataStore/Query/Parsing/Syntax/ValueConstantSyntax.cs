@@ -1,19 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using System.Globalization;
 namespace Relatude.DB.Query.Parsing.Syntax;
-//public enum ParameterTypes {
-//    Boolean,
-//    Integer,
-//    Double,
-//    Byte,
-//    Decimal,
-//    Long,
-//    Float,
-//    String,
-//    StringArray,
-//    IntegerArray,
-//    NodeTypeGuids,
-//}
 public enum ParsedTypes {
     FromParameter,
     Null,

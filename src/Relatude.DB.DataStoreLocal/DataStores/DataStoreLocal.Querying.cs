@@ -10,6 +10,7 @@ using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Parsing;
+using Relatude.DB.Query.Parsing.Syntax;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
