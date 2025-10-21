@@ -303,19 +303,19 @@ public sealed class NodeStore : IDisposable {
         }
     }
     public Guid RequestGlobalLock(double lockDurationInMs, double maxWaitTimeInMs) => RequestGlobalLockAsync(lockDurationInMs, maxWaitTimeInMs).Result;
-    public Task<Guid> RequestGlobalLockAsync(double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => Datastore.RequestGlobalLockAsync(lockDurationInMs, maxWaitTimeInMs);
-    public Task<Guid> RequestLockAsync(Guid nodeId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => Datastore.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
+    public Task<Guid> RequestGlobalLockAsync(double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => Datastore.RequestGlobalLockAsync(lockDurationInMs, maxWaitTimeInMs);
+    public Task<Guid> RequestLockAsync(Guid nodeId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => Datastore.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
 
-    public Guid RequestLock(Guid nodeId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs).Result;
-    public Guid RequestLock(int nodeId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs).Result;
-    public Guid RequestLock(object node, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => RequestLockAsync(node, lockDurationInMs, maxWaitTimeInMs).Result;
-    public Task<Guid> RequestLockAsync(int nodeId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) => Datastore.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
-    public Task<Guid> RequestLockAsync(object node, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) {
+    public Guid RequestLock(Guid nodeId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs).Result;
+    public Guid RequestLock(int nodeId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs).Result;
+    public Guid RequestLock(object node, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => RequestLockAsync(node, lockDurationInMs, maxWaitTimeInMs).Result;
+    public Task<Guid> RequestLockAsync(int nodeId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) => Datastore.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
+    public Task<Guid> RequestLockAsync(object node, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) {
         if (Mapper.TryGetIdGuid(node, out var guid)) return RequestLockAsync(guid, lockDurationInMs, maxWaitTimeInMs);
         if (Mapper.TryGetIdUInt(node, out var id)) return RequestLockAsync(id, lockDurationInMs, maxWaitTimeInMs);
         throw new Exception("Only nodes with Guid or int id accepted. ");
     }
-    public bool TryRequestLock(Guid nodeId, out Guid lockId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) {
+    public bool TryRequestLock(Guid nodeId, out Guid lockId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) {
         try {
             lockId = RequestLock(nodeId, lockDurationInMs, maxWaitTimeInMs);
             return true;
@@ -324,7 +324,7 @@ public sealed class NodeStore : IDisposable {
             return false;
         }
     }
-    public bool TryRequestLock(int nodeId, out Guid lockId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) {
+    public bool TryRequestLock(int nodeId, out Guid lockId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) {
         try {
             lockId = RequestLock(nodeId, lockDurationInMs, maxWaitTimeInMs);
             return true;
@@ -333,7 +333,7 @@ public sealed class NodeStore : IDisposable {
             return false;
         }
     }
-    public bool TryRequestLock(object node, out Guid lockId, double lockDurationInMs = 1000, double maxWaitTimeInMs = 1000) {
+    public bool TryRequestLock(object node, out Guid lockId, double lockDurationInMs = 10000, double maxWaitTimeInMs = 10000) {
         try {
             lockId = RequestLock(node, lockDurationInMs, maxWaitTimeInMs);
             return true;

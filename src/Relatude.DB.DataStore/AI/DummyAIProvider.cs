@@ -11,7 +11,7 @@ public class DummyAIProvider : IAIProvider {
         var result = new float[paragraphs.Length][];
         for (int i = 0; i < paragraphs.Length; i++) {
             result[i] = createRandomVector(paragraphs[i]);
-            await Task.Delay(rnd.Next(10)); // simulate some async delay
+            await Task.Delay(rnd.Next(2)); // simulate some async delay
         }
         return result;
     }

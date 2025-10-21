@@ -19,8 +19,8 @@ public class AIEngine {
         public float[]? Embedding; // null if not in cache
     }
     string ensureMaxLength(string value) => value.Length > Settings.GetMaxCharsOfEach() ? value[..Settings.GetMaxCharsOfEach()] : value;
-    long totalCount = 0;
-    long totalRequestCount = 0;
+    long totalCached = 0;
+    long totalRequested = 0;
     public async Task<List<float[]>> GetEmbeddingsAsync(IEnumerable<string> paragraphs) {
 
         var totalTimer = Stopwatch.StartNew();
@@ -34,6 +34,7 @@ public class AIEngine {
         // check cache for existing embeddings and collect missing:
         foreach (var v in valueSet) if (!_cache.TryGet(v.Hash, out v.Embedding)) missing.Add(v);
 
+        totalCached += valueSet.Length - missing.Count;
 
         if (missing.Count > 0) {
 
@@ -41,7 +42,7 @@ public class AIEngine {
             generatorTimer.Start();
             var embeddings = await _provider.GetEmbeddingsAsync([.. missing.Select(m => m.Text)]);
             generatorTimer.Stop();
-            totalRequestCount += missing.Count;
+            totalRequested += missing.Count;
             //LogCallback?.Invoke($"Embedding http request for {missing.Count} items. {generatorTimer.ElapsedMilliseconds.To1000N()}ms. ");
 
             // populate results back to missing list: ( this will also set the Embeddings in valueSet since they point to the same object )
@@ -63,10 +64,10 @@ public class AIEngine {
             return v.Embedding;
         }).ToList();
 
-        totalCount += result.Count;
         totalTimer.Stop();
         var cached = valueSet.Length - missing.Count;
-        LogCallback?.Invoke($"Embeddings: {valueSet.Length}, {missing.Count} requested, {cached} cached, {totalTimer.Elapsed.TotalMilliseconds.To1000C00N()}ms ({totalCount} total, {totalRequestCount} requested)");
+        var ms = totalTimer.Elapsed.TotalMilliseconds.To1000C00N();
+        LogCallback?.Invoke($"Embeddings: {missing.Count}({totalRequested}) requested, {cached}({totalCached}) cached, {ms}ms");
 
         return result;
     }
