@@ -27,7 +27,7 @@ public abstract class TokenBase {
             TokenTypes.MethodCall => MethodCallToken.Parse(code, pos, out newPos, previous, parameters),
             TokenTypes.ExpressionBracket => BracketToken.Parse(code, pos, out newPos, parameters),
             TokenTypes.OperatorExpression => OperatorExpressionToken.Parse(code, pos, out newPos, previous, parameters),
-            TokenTypes.PreFixOperatorExpression => PreFixSyntax.Parse(code, pos, out newPos, parameters),
+            TokenTypes.PreFixOperatorExpression => PreFixToken.Parse(code, pos, out newPos, parameters),
             TokenTypes.LambdaDeclaration => LambdaToken.Parse(code, pos, out newPos, parameters),
             TokenTypes.ObjectConstruction => ObjectConstructionToken.Parse(code, pos, out newPos, parameters),
             TokenTypes.AnonymousObject => AnonymousObjectToken.Parse(code, pos, out newPos, parameters),

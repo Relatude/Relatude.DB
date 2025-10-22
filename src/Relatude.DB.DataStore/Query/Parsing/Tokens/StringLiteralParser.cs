@@ -1,7 +1,5 @@
-﻿using System;
-using System.Linq.Expressions;
-using System.Text;
-namespace Relatude.DB.Query.Parsing;
+﻿using System.Text;
+namespace Relatude.DB.Query.Parsing.Tokens;
 public static class StringLiteralParser {
     /// <summary>
     /// Extracts and decodes a C#-style string literal starting at startPos.
@@ -93,9 +91,9 @@ public static class StringLiteralParser {
         throw new Exception("Unterminated string literal");
 
         static bool IsHex(char ch) {
-            return (ch >= '0' && ch <= '9')
-                || (ch >= 'a' && ch <= 'f')
-                || (ch >= 'A' && ch <= 'F');
+            return ch >= '0' && ch <= '9'
+                || ch >= 'a' && ch <= 'f'
+                || ch >= 'A' && ch <= 'F';
         }
 
         static int HexVal(char ch) {
@@ -110,7 +108,7 @@ public static class StringLiteralParser {
             int acc = 0;
 
             while (index < s.Length && digits < maxDigits && IsHex(s[index])) {
-                acc = (acc << 4) | HexVal(s[index]);
+                acc = acc << 4 | HexVal(s[index]);
                 index++;
                 digits++;
             }

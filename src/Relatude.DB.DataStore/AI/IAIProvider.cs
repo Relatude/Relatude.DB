@@ -1,7 +1,14 @@
 ﻿namespace Relatude.DB.AI;
+
+//public class ChatMessage { 
+//    public string Role { get; set; } = "";
+//    public string Content { get; set; } = "";
+//}
+
 public interface IAIProvider : IDisposable {
     Task<float[][]> GetEmbeddingsAsync(string[] paragraphs);
     Task<string> GetCompletionAsync(string prompt);
+    //Task<string> GetChatCompletionAsync(ChatMessage[] conversation);
 }
 
 public enum AIProviderCacheType {

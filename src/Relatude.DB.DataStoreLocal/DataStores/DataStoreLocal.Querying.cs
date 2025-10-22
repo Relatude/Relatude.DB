@@ -9,7 +9,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
-using Relatude.DB.Query.Parsing;
+using Relatude.DB.Query.Parsing.Expressions;
 using Relatude.DB.Query.Parsing.Tokens;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
