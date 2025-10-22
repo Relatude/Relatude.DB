@@ -14,7 +14,11 @@ public class FlatMemoryVectorIndex : IVectorIndex {
             return Environment.ProcessorCount > 2 && _index.Count > 100;
         }
     }
-    public void Set(int nodeId, float[] vector) => _index[nodeId] = vector;
+    public void Set(int nodeId, float[] vector) {
+        if (vector.Length == 0) return; // do not store empty vectors
+        _index[nodeId] = vector;
+    }
+
     public void Clear(int nodeId) => _index.Remove(nodeId);
 
 
@@ -23,9 +27,11 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         else if (minCosineSimilarity <= -1f) minCosineSimilarity = -0.9999f; // avoid precision issues
 #if DEBUG
         var result1 = SearchOld(u, skip, take, minCosineSimilarity);
-        if (minCosineSimilarity > 0.1) {
-            var result2 = SearchNew(u, skip, take, minCosineSimilarity);
-            if (result1.Count != result2.Count) throw new Exception("Search result count mismatch");
+        var result2 = SearchNew(u, skip, take, minCosineSimilarity);
+        var countDif = Math.Abs(result1.Count - result2.Count);
+        var sumDiff = result1.Zip(result2, (a, b) => Math.Abs(a.Similarity - b.Similarity)).Sum() / (result1.Count > 0 ? result1.Count : 1);
+        if (countDif > 0 || sumDiff > 0.00001) {
+            throw new Exception($"Vector search results differ significantly between old and new implementations! ");
         }
         return result1;
 #else
@@ -43,6 +49,8 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         void search(KeyValuePair<int, float[]> kv) {
             float similarity = 0;
             var v = kv.Value;
+            if (v.Length != u.Length)
+                return; // skip if dimensions do not match
             for (var i = 0; i < u.Length; i++) similarity += u[i] * v[i];
             if (similarity >= minCosineSimilarity) {
                 lock (hits) hits.Add(new(kv.Key, similarity));
@@ -56,7 +64,8 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         foreach (var kv in _index) {
             float similarity = 0;
             var v = kv.Value;
-            if (v.Length != u.Length) continue; // skip if dimensions do not match
+            if (v.Length != u.Length)
+                continue; // skip if dimensions do not match
             for (var i = 0; i < u.Length; i++) similarity += u[i] * v[i];
             if (similarity >= minCosineSimilarity) hits.Add(new(kv.Key, similarity));
         }
@@ -160,7 +169,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         for (var i = 0; i < nodeCount; i++) {
             var nodeId = (int)stream.ReadUInt();
             var vector = stream.ReadFloatArray();
-            _index.Add(nodeId, vector);
+            if (vector.Length > 0) _index.Add(nodeId, vector);
         }
     }
     public void SaveState(IAppendStream stream) {
@@ -171,4 +180,5 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         }
     }
     public void CompressMemory() { }
+
 }
