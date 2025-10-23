@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Relatude.DB.NodeServer.Settings;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer;
@@ -37,7 +38,7 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         if (token == null) return false;
 
         if (isTokenValid(token, requestIP, out var userId, out var userTokenId)) {
-            if (userTokenId != settings.UserTokenId) return false; // token id does not match current token id
+            if (userTokenId != Guid.Empty) return false; // user ID not implemented, only one master user
             if (userId != settings.MasterUserName) return false; // only the master user is supported
             return true;
         }
@@ -110,7 +111,9 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     }
     public void LogIn(HttpContext context, bool remember) {
         var requestIP = context.Connection.RemoteIpAddress + "";
-        var token = createToken(settings.MasterUserName!, settings.UserTokenId, requestIP);
+        if(settings.MasterUserName == null) throw new Exception("No master user configured on the server.");
+        var userId = Guid.Empty; // user ID not implemented, only one master user
+        var token = createToken(settings.MasterUserName, userId, requestIP);
         TimeSpan? maxAge = remember ? TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec) : null;
         context.Response.Cookies.Append(settings.TokenCookieName, token, getTokenCookieOptions(maxAge));
     }

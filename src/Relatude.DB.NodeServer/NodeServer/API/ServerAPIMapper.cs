@@ -13,6 +13,7 @@ using Relatude.DB.NodeServer.Models;
 using Relatude.DB.NodeServer.EventHub;
 using Microsoft.AspNetCore.Mvc;
 using Relatude.DB.Demo;
+using Relatude.DB.NodeServer.Settings;
 namespace Relatude.DB.NodeServer;
 public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;

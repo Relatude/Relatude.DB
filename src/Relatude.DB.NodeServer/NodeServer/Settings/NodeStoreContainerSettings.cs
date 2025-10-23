@@ -1,10 +1,12 @@
-﻿namespace Relatude.DB.NodeServer;
-public class NodeStoreContainerSettings {
+﻿namespace Relatude.DB.NodeServer.Settings;
+public class NodeStoreContainerSettingsBase {
     public Guid Id { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
     public bool AutoOpen { get; set; }
     public bool WaitUntilOpen { get; set; }
+}
+public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public IOSettings[]? IOSettings { get; set; }
     public Guid? IoDatabase { get; set; }
     public Guid[]? IoFiles { get; set; }

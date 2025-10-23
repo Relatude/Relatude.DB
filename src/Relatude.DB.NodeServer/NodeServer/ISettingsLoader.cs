@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using Relatude.DB.NodeServer.Settings;
+using System.Text.Json;
 
 namespace Relatude.DB.NodeServer;
 public interface ISettingsLoader {
