@@ -3,8 +3,8 @@ namespace Relatude.DB.Query.Parsing.Tokens;
 public class OperatorExpressionToken : TokenBase {
     public OperatorExpressionToken(string operatorName, TokenBase leftValue, TokenBase rightValue, string code, int pos1)
         : base(code, pos1, pos1) {
-        Values = new() { leftValue, rightValue };
-        Operators = new() { operatorName };
+        Values = [leftValue, rightValue];
+        Operators = [operatorName];
     }
     public static bool IsOperatorChar(char c) {
         return c == '!' || c == '|' || c == '&' || c == '+' || c == '-' || c == '/' || c == '*' || c == '<' || c == '>' || c == '=';

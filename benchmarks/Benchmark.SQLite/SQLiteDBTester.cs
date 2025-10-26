@@ -11,9 +11,12 @@ public class SQLiteDBTester : ITester {
         _dataFolderPath = dataFolderPath;
     }
     public void Open() {
-        var dbFileName = "sqlite.db";
+        var dbFileName = Guid.NewGuid() + "sqlite.db"; // unique file per test run, as old may be locked and not deletable
         if (!Directory.Exists(_dataFolderPath)) Directory.CreateDirectory(_dataFolderPath);
         var dbPath = Path.Combine(_dataFolderPath, dbFileName);
+
+
+        //dbPath = ":memory:"; // memory connection string:
         var cnnStr = "Data Source=" + dbPath;
         _connection = new SqliteConnection(cnnStr);
         _connection.Open();
@@ -135,21 +138,24 @@ public class SQLiteDBTester : ITester {
         return null;
     }
     public TestUser[] GetUsersAtAge(int age) {
-        var users = new List<TestUser>();
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
-        cmd.Parameters.AddWithValue("@age", age);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) {
-            users.Add(new TestUser {
-                Id = Guid.Parse(reader.GetString(0)),
-                Name = reader.GetString(1),
-                Age = reader.GetInt32(2),
-            });
+        lock (this) // SQLite connection is not thread-safe
+         {
+            var users = new List<TestUser>();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT id, name, age FROM test_user WHERE age=@age";
+            cmd.Parameters.AddWithValue("@age", age);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                users.Add(new TestUser {
+                    Id = Guid.Parse(reader.GetString(0)),
+                    Name = reader.GetString(1),
+                    Age = reader.GetInt32(2),
+                });
+            }
+            return users.ToArray();
         }
-        return users.ToArray();
     }
-    public int CountUsersOfAge(int age) {        
+    public int CountUsersOfAge(int age) {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM test_user WHERE age == @age";
         cmd.Parameters.AddWithValue("@age", age);
@@ -157,11 +163,14 @@ public class SQLiteDBTester : ITester {
         return Convert.ToInt32(result);
     }
     public void UpdateUserAge(Guid userId, int newAge) {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "UPDATE test_user SET age=@age WHERE id=@id";
-        cmd.Parameters.AddWithValue("@id", userId.ToString());
-        cmd.Parameters.AddWithValue("@age", newAge);
-        cmd.ExecuteNonQuery();
+        lock (this) // SQLite connection is not thread-safe
+         {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "UPDATE test_user SET age=@age WHERE id=@id";
+            cmd.Parameters.AddWithValue("@id", userId.ToString());
+            cmd.Parameters.AddWithValue("@age", newAge);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public void Close() {
@@ -169,7 +178,9 @@ public class SQLiteDBTester : ITester {
         _connection.Dispose();
     }
     public void DeleteDataFiles() {
-        if (Directory.Exists(_dataFolderPath)) Directory.Delete(_dataFolderPath, true);
+        try { // swallow any exceptions as Sqlite may still have locks on files
+            if (Directory.Exists(_dataFolderPath)) Directory.Delete(_dataFolderPath, true);
+        } catch { }
     }
 
     public void FlushToDisk() {

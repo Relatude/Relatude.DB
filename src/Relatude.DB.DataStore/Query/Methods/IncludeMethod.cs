@@ -11,7 +11,7 @@ public class IncludeMethod : IExpression {
         _input = input;
         Branch = IncludeBranch.ParseOnePath(relationPropertyBranch);
     }
-    public object Evaluate(IVariables vars) {
+    public object? Evaluate(IVariables vars) {
         var result = _input.Evaluate(vars);
         if (result is IIncludeBranches nodesColl) nodesColl.IncludeBranch(Branch);
         return result;

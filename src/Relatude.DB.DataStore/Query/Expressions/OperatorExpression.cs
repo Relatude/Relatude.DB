@@ -27,8 +27,8 @@ public class OperatorExpression : IExpression {
         _reorderEvaluationTree = reorderEvaluationTree;
         if (reorderEvaluationTree) buildEvaluationTreeFromOperatorPrecedence();
     }
-    public object Evaluate(IVariables vars) {
-        object result = Expressions[0].Evaluate(vars);
+    public object? Evaluate(IVariables vars) {
+        object? result = Expressions[0].Evaluate(vars);
         try {
             for (var i = 0; i < Expressions.Count - 1; i++) {
                 result = evaluate(result, Operators[i], Expressions[i + 1].Evaluate(vars));
@@ -73,7 +73,7 @@ public class OperatorExpression : IExpression {
         Expressions = expressions;
         Operators = operators;
     }
-    object evaluate(object v1, Operator op, object v2) {
+    object evaluate(object? v1, Operator op, object? v2) {
         // room for optimization here.... should not need to be evaluated for every row
         if (v1 is int i1 && v2 is int i2) {
             return op switch {
@@ -248,9 +248,9 @@ public class OperatorExpression : IExpression {
                 e2 = op2.Simplify();
                 Expressions[n + 1] = e2;
             }
-            if (e1 is IConstantExpression c1 && e2 is IConstantExpression c2) {
-                var v1 = c1.GetValue();
-                var v2 = c2.GetValue();
+            if (e1 is ConstantExpression c1 && e2 is ConstantExpression c2) {
+                var v1 = c1.Value;
+                var v2 = c2.Value;
                 var v = evaluate(v1, Operators[n], v2);
                 var combined = toConstantExpression(v);
                 Expressions.RemoveAt(n + 1);
@@ -262,16 +262,8 @@ public class OperatorExpression : IExpression {
         }
         return this.removeBracketsIfPossible();
     }
-    static IConstantExpression toConstantExpression(object v) {
-        if (v is bool b) return new BooleanConstantExpression(b);
-        else if (v is int i) return new IntegerConstantExpression(i);
-        else if (v is string s) return new StringConstantExpression(s);
-        else if (v is double d) return new DoubleConstantExpression(d);
-        else if (v is long l) return new LongConstantExpression(l);
-        else if (v is decimal de) return new DecimalConstantExpression(de);
-        //else if (v is null) return new NullConstantExpression();
-        else
-            throw new NotSupportedException("Only value types supported. ");
+    static ConstantExpression toConstantExpression(object v) {
+        return new ConstantExpression(v);
     }
     override public string ToString() {
         StringBuilder sb = new();

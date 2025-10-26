@@ -4,15 +4,23 @@ using Relatude.DB.Nodes;
 using System.Text.Json.Serialization;
 namespace Relatude.DB.Demo.Models;
 
+public enum DemoArticleType {
+    Article,
+    News,
+    Blog,
+    Tutorial
+}
 public class DemoArticle {
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public int Size { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
     public Tree.FromNode Parent { get; set; } = Tree.EmptyFrom;
     public Tree.ToNodes Children { get; set; } = Tree.EmptyTo;
+    public DemoArticleType ArticleType { get; set; } = DemoArticleType.Article;
 
     [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = false)]
     public DemoArticleChild? Child { get; set; }

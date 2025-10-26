@@ -2,7 +2,6 @@
 using System.Reflection;
 using Relatude.DB.Nodes;
 using System.Collections;
-using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 
 namespace Relatude.DB.Query;
 internal sealed class QueryStringEvaluater {
@@ -14,7 +13,7 @@ internal sealed class QueryStringEvaluater {
         _query = query;
         _parameters = parameters;
     }
-    internal async Task<object> EvaluateForJsonAsync() {
+    internal async Task<object?> EvaluateForJsonAsync() {
         var data = await toDataAsync();
         if (data is ICollectionData coll) {
             var values = toEnumerable<object>(coll);
@@ -32,7 +31,7 @@ internal sealed class QueryStringEvaluater {
     }
 
     internal async Task<ResultSet<T>> EvaluateSetAsync<T>() {
-        var data = (ICollectionData)await toDataAsync();
+        var data = (ICollectionData)(await toDataAsync())!;
         var enumerable = toEnumerable<T>(data);
         if (data is FacetQueryResultData facet) {
             return new ResultSetFacets<T>(enumerable, facet);
@@ -41,7 +40,7 @@ internal sealed class QueryStringEvaluater {
         }
     }
     internal ResultSet<T> EvaluateSet<T>() {
-        var data = (ICollectionData)toData();
+        var data = (ICollectionData)toData()!;
         var enumerable = toEnumerable<T>(data);
         if (data is FacetQueryResultData facet) {
             return new ResultSetFacets<T>(enumerable, facet);
@@ -88,7 +87,7 @@ internal sealed class QueryStringEvaluater {
                     if (ctor == null) ctor = typeof(T).GetConstructors().Single();
                     if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
                     var values = od.GetValues(_store.Mapper.CreateObjectFromNodeData);
-                    yield return (T)createAnonymousInstance(values, propNameById, ctor);
+                    yield return (T)createAnonymousInstance(values!, propNameById, ctor);
                 } else if (o is IStoreNodeData no) {
                     yield return _store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);
                 } else if (o is IEnumerable<IStoreNodeData> os) {
@@ -129,7 +128,7 @@ internal sealed class QueryStringEvaluater {
             var t = p.ParameterType;
             if (arg is IEnumerable argEnum && !t.IsAssignableFrom(arg.GetType())) {
                 if (t.IsArray) {
-                    var vs = argEnum.ToObjectList();
+                    var vs = argEnum.Cast<object>().ToList();
                     var pType = p.ParameterType.GetElementType();
                     if (pType == null) throw new NotSupportedException();
                     var array = Array.CreateInstance(pType, vs.Count);
@@ -150,7 +149,7 @@ internal sealed class QueryStringEvaluater {
         }
         return ctor.Invoke(args);
     }
-    Task<object> toDataAsync() => _store.Datastore.QueryAsync(_query, _parameters);
-    object toData() => _store.Datastore.Query(_query, _parameters);
+    Task<object?> toDataAsync() => _store.Datastore.QueryAsync(_query, _parameters);
+    object? toData() => _store.Datastore.Query(_query, _parameters);
 }
 

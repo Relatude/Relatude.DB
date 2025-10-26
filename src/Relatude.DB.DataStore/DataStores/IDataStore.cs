@@ -25,19 +25,12 @@ public interface IDataStore : IDisposable {
     void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null);
     void UpdateActivityProgress(long activityId, int? percentageProgress = null);
     void DeRegisterActivity(long activityId);
-
-
-
     AIEngine AI { get; }
     IStoreLogger Logger { get; }
-
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
-
-
-
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null);
     Task<INodeData> GetAsync(Guid id);
@@ -67,8 +60,8 @@ public interface IDataStore : IDisposable {
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
-    object Query(string query, IEnumerable<Parameter> parameters);
-    Task<object> QueryAsync(string query, IEnumerable<Parameter> parameters);
+    object? Query(string query, IEnumerable<Parameter> parameters);
+    Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters);
 
     void RefreshLock(Guid lockId);
 

@@ -1,4 +1,4 @@
-﻿using OneOf;
+﻿
 using Relatude.DB.AI;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
@@ -213,7 +213,7 @@ public sealed class NodeStore : IDisposable {
     public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId) => new QueryOfNodes<object, object>(this, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
     public IQueryOfNodes<object, object> QueryType(string typeName) => new QueryOfNodes<object, object>(this, typeName);
 
-    public Task<object> EvaluateForJsonAsync(string query, List<Parameter> parameters) {
+    public Task<object?> EvaluateForJsonAsync(string query, List<Parameter> parameters) {
         return new QueryStringBuilder(this, query, parameters).Prepare().EvaluateForJsonAsync();
     }
     public IQueryOfNodes<T, T> Query<T>(Guid id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");

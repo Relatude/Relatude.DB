@@ -16,10 +16,10 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
     public override string ToString() {
         return _query.ToString();
     }
-    ResultSetSearch<T> buildResult(object data) {
+    ResultSetSearch<T> buildResult(object? data) {
         if (data is not ISearchQueryResultData s)
-            throw new NotSupportedException("Only results of type " + nameof(ISearchQueryResultData) + " is supported. Type provided: " + data.GetType().FullName);
-        List<SearchResultHit<T>> values = new();
+            throw new NotSupportedException("Only results of type " + nameof(ISearchQueryResultData) + " is supported. Type provided: " + data?.GetType().FullName);
+        List<SearchResultHit<T>> values = [];
         foreach (var hit in s.Hits) {
             var node = _query.Store.Mapper.CreateObjectFromNodeData<T>(hit.NodeData);
             var searchResultHit = new SearchResultHit<T>(node, hit.Score, hit.Sample);

@@ -1,14 +1,15 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
+using Relatude.DB.Nodes;
 using Relatude.DB.Query.Data;
+using Relatude.DB.Query.Linq;
+using Relatude.DB.Transactions;
+using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
-using Relatude.DB.Nodes;
-using Relatude.DB.Datamodels;
-using System.Collections;
-using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
-using System.Globalization;
-using Relatude.DB.Transactions;
 
 namespace Relatude.DB.Query;
 internal sealed class QueryStringBuilder {
@@ -72,7 +73,7 @@ internal sealed class QueryStringBuilder {
                     if (ctor == null) ctor = typeof(T).GetConstructors().Single();
                     if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
                     var values = od.GetValues(Store.Mapper.CreateObjectFromNodeData);
-                    yield return (T)createAnonymousInstance(values, propNameById, ctor);
+                    yield return (T)createAnonymousInstance(values!, propNameById, ctor);
                 } else if (o is IStoreNodeData no) {
                     yield return Store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);
                 } else if (o is IEnumerable<IStoreNodeData> os) {
@@ -112,7 +113,7 @@ internal sealed class QueryStringBuilder {
             var t = p.ParameterType;
             if (arg is IEnumerable argEnum && !t.IsAssignableFrom(arg.GetType())) {
                 if (t.IsArray) {
-                    var vs = argEnum.ToObjectList();
+                    var vs = argEnum.Cast<object>().ToList();
                     var pType = p.ParameterType.GetElementType();
                     if (pType == null) throw new NotSupportedException();
                     var array = Array.CreateInstance(pType, vs.Count);
@@ -133,17 +134,17 @@ internal sealed class QueryStringBuilder {
         }
         return ctor.Invoke(args);
     }
-    Task<object> toDataAsync() => Store.Datastore.QueryAsync(getQueryString(), _parameters);
-    object toData() => Store.Datastore.Query(getQueryString(), _parameters);
+    Task<object?> toDataAsync() => Store.Datastore.QueryAsync(getQueryString(), _parameters);
+    object? toData() => Store.Datastore.Query(getQueryString(), _parameters);
     internal async Task<int> CountAsync() {
         add("Count");
         var result = await toDataAsync();
-        return (int)result;
+        return (int)result!;
     }
     internal int Count() {
         add("Count");
         var result = toData();
-        return (int)result;
+        return (int)result!;
     }
     internal QueryStringBuilder Sum() {
         add("Sum");
@@ -151,25 +152,25 @@ internal sealed class QueryStringBuilder {
     }
     internal QueryStringBuilder Sum<TSource, TResult>(Expression<Func<TSource, TResult>> expression) {
         _sb.Append(".Sum(");
-        _sb.Append(expression.ToQueryString());
+        _sb.Append(expression.ToQueryString(_parameters));
         _sb.Append(")");
         return this;
     }
     internal void OrderBy<T>(Expression<Func<T, object>> expression, bool descending) {
         _sb.Append(".OrderBy(");
-        _sb.Append(expression.ToQueryString());
+        _sb.Append(expression.ToQueryString(_parameters));
         if (descending) _sb.Append(", true");
         _sb.Append(")");
     }
     internal void SelectId() => add("SelectId");
     internal void Select(Expression expression) {
         _sb.Append(".Select(");
-        _sb.Append(expression.ToQueryString());
+        _sb.Append(expression.ToQueryString(_parameters));
         _sb.Append(")");
     }
     internal void Where<T>(Expression<Func<T, bool>> expression) {
         _sb.Append(".Where(");
-        _sb.Append(expression.ToQueryString());
+        _sb.Append(expression.ToQueryString(_parameters));
         _sb.Append(")");
     }
     internal void Where(string query) {

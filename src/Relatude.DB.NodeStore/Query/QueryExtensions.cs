@@ -1,6 +1,6 @@
 ﻿
 namespace Relatude.DB.Query;
-public static class ExpressionExtenstions {
+public static class QueryExtensions {
     public static bool Is(this object obj, object value) {
         throw new NotImplementedException("Only for building query expressions. ");
     }

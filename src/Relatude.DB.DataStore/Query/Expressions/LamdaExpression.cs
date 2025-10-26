@@ -8,10 +8,7 @@ public class LambdaExpression : IExpression {
             lambdaFunc = op.Simplify();
         Body = lambdaFunc;
     }
-    public object Evaluate(IVariables vars) {
-        var result = Body.Evaluate(vars);
-        return result;
-    }
+    public object? Evaluate(IVariables vars) => Body.Evaluate(vars);
     public override string ToString() {
         if (Parameters == null || Parameters.Count == 0) {
             return "() => " + Body;

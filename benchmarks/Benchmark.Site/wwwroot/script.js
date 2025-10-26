@@ -36,7 +36,8 @@ function connect() {
         status.testers.forEach((tester) => {
             const cell = headerRow.insertCell()
             cell.style.textAlign = 'center';
-            cell.style.fontSize = "30px";
+            cell.style.fontSize = "20px";
+            cell.style.width = "250px";
             cell.innerHTML = "<b>" + tester.testerName + "</b>";
         });
         const body = table.createTBody();
@@ -48,12 +49,9 @@ function connect() {
             testNames.forEach((testName) => {
                 const row = body.insertRow();
                 const cell1 = row.insertCell();
-                cell1.style.width = "250px";
                 cell1.textContent = decamel(testName);
                 status.testers.forEach((tester, testerIndex) => {
                     const cell = row.insertCell();
-                    cell.style.width = "200px";
-
                     const result = tester.results.filter(r => r.testName == testName)[0];
                     if (result.running) {
                         cell.textContent = '';
@@ -63,16 +61,11 @@ function connect() {
                         //cell.textContent = `${result.count} in ${result.durationMs}ms (${(result.count / (result.durationMs / 1000)).toFixed(2)} ops/s)`;
                         cell.style.textAlign = 'right';
                         var score = getScore(testName, tester.testerName, status);
-                        if (!totalScorePerTester[testerIndex]) totalScorePerTester[testerIndex] = 0;
-                        totalScorePerTester[testerIndex] += score;
-                        if (!averageScorePerTester[testerIndex]) averageScorePerTester[testerIndex] = 0;
-                        let testPerformanceCount = tester.results.filter(r => r.count > 0).length;
-                        averageScorePerTester[testerIndex] += score / testPerformanceCount;
                         const ops = Math.round(result.count / (result.durationMs / 1000));
                         let html = "";
                         if (result.count > 1) {
-                            html += "<div style=\"align:left; position: relative\"><b>" + score + " pts</b></div>"
-                            html += "<div style=\"align:left; position: relative\">" + num.format(result.count) + " count</div>"
+                            html += "<div style=\"margin:20px; float: left; font-size:20px;\">" + score + "%</div>"
+                            html += "<div>" + num.format(result.count) + " count</div>"
                             html += "<div>" + num.format(ops) + " ops/s</div>";
                         }
                         html += "<div>" + num.format(Math.round(result.durationMs)) + " ms</div>";
@@ -86,12 +79,30 @@ function connect() {
                 body.insertRow().insertCell().innerHTML = "&nbsp;"
                 const row = body.insertRow();
                 const cell1 = row.insertCell();
-                cell1.textContent = "Average";
+                cell1.textContent = "Average relative score";
                 status.testers.forEach((tester, testerIndex) => {
+
+                    var averageScore = 0;
+                    var numTests = 0;
+                    testNames.forEach((testName) => {
+                        const result = tester.results.filter(r => r.testName == testName)[0];
+                        if (result.count > 1 && !result.running) {
+                            const score = getScore(testName, tester.testerName, status);
+                            if (score > 0) {
+                                averageScore += score;
+                                numTests++;
+                            }
+                        }
+                    });
+                    averageScore = averageScore / numTests;
+
+
                     const cell = row.insertCell();
-                    cell.style.textAlign = 'right';
-                    const score = Math.round(averageScorePerTester[testerIndex]);
-                    cell.innerHTML = score;
+                    cell.style.textAlign = 'center';
+                    cell.style.fontSize = '35px';
+                    cell.style.padding = '13px';
+                    const score = Math.round(averageScore);
+                    cell.innerHTML = score+"%";
                     cell.style.backgroundColor = `rgba(144, 238, 144, ${score / 100})`;
                 });
             }

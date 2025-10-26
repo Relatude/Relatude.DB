@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 using System.Reflection;
 using Relatude.DB.Nodes;
+using Relatude.DB.Query;
 
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes

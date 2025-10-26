@@ -25,26 +25,15 @@ public class ExpressionTreeBuilder {
             _ => throw new NotImplementedException(),
         };
     }
-    public static IConstantExpression BuildValueConstant(ValueConstantToken constantValue) {
+    public static ConstantExpression BuildValueConstant(ValueConstantToken constantValue) {
         switch (constantValue.ParsedTypeHint) {
-            case ParsedTypes.FromParameter: {
-                    // value stems from parameter substitution...
-                    var value = constantValue.DirectValue;
-                    if (value == null) return new NullConstantExpression();
-                    if (value is bool b) return new BooleanConstantExpression(b);
-                    if (value is string s) return new StringConstantExpression(s);
-                    if (value is int i) return new IntegerConstantExpression(i);
-                    if (value is long lng) return new DecimalConstantExpression(lng);
-                    if (value is double d) return new DoubleConstantExpression(d);
-                    if (value is decimal dec) return new DecimalConstantExpression(dec);
-                    throw new NotSupportedException("Parameter of type " + value.GetType().Name + " is not yet supported as paramater expression. ");
-                }
-            case ParsedTypes.Null: return new NullConstantExpression();
-            case ParsedTypes.Boolean: return new BooleanConstantExpression(constantValue.GetBoolValue());
-            case ParsedTypes.String: return new StringConstantExpression(constantValue.GetStringValue());
-            case ParsedTypes.LongString: return new LongConstantExpression(constantValue.GetLongValue());
-            case ParsedTypes.IntString: return new IntegerConstantExpression(constantValue.GetIntValue());
-            case ParsedTypes.FloatString: return new DoubleConstantExpression(constantValue.GetDoubleValue());
+            case ParsedTypes.FromParameter: return new ConstantExpression(constantValue.DirectValue);
+            case ParsedTypes.Null: return new ConstantExpression(null);
+            case ParsedTypes.Boolean: return new ConstantExpression(constantValue.GetBoolValue());
+            case ParsedTypes.String: return new ConstantExpression(constantValue.GetStringValue());
+            case ParsedTypes.LongString: return new ConstantExpression(constantValue.GetLongValue());
+            case ParsedTypes.IntString: return new ConstantExpression(constantValue.GetIntValue());
+            case ParsedTypes.FloatString: return new ConstantExpression(constantValue.GetDoubleValue());
             default: throw new NotSupportedException("Parameter of type " + constantValue.ParsedTypeHint + " is not yet supported as parsed expression.");
         }
     }

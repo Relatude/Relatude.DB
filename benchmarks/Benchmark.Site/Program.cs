@@ -5,7 +5,6 @@ using Benchmark.LiteDB;
 using Benchmark.Relatude.DB;
 using Benchmark.Site.Tester;
 using Benchmark.SQLite;
-using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -13,23 +12,27 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapPost("/start", () => {
-    var multiplier = 50;
+    Status.Current.Running = true;
+    var dataSetMultiplier = 100;
+    var timeMultiplier = 10;
     var options = new TestOptions();
-    options.FlushDiskOnEveryOperation = true;
-    options.UserCount = 1000 * multiplier;
-    options.CompanyCount = 500 * multiplier;
-    options.DocumentCount = 1000 * multiplier;
-    options.Duration = TimeSpan.FromMilliseconds(1000);
+    options.FlushDiskOnEveryOperation = false;
+    options.UserCount = 1000 * dataSetMultiplier;
+    options.CompanyCount = 500 * dataSetMultiplier;
+    options.DocumentCount = 1000 * dataSetMultiplier;
+    options.Duration = TimeSpan.FromMilliseconds(100* timeMultiplier);
     //options.SelectedTests = [nameof(ITester.UpdateUserAge)];
     var testData = Generator.Generate(options);
-    Status.Current.Running = true;
 
     ITester[] testers = [
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
         new LiteDBTester(),
         new SQLiteDBTester(),
-        new RelatudeDBTester(),
+        new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         ];
 
     Status.Current.Initialize(testers.Select(t => t.Name).ToArray(), TestRunner.GetTestNames(), options);
@@ -41,11 +44,20 @@ app.MapPost("/start", () => {
 
 app.MapGet("/status", async (HttpContext ctx) => {
     ctx.Response.Headers.ContentType = "text/event-stream";
+    var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    var lastStatusWasRunning = true;
+    var update = true;
     while (!ctx.RequestAborted.IsCancellationRequested) {
-        var json = JsonSerializer.Serialize(Status.Current, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-        await ctx.Response.WriteAsync($"data: " + json + "\n\n");
-        await ctx.Response.Body.FlushAsync();
-        await Task.Delay(200);
+        if (update) {
+            var json = JsonSerializer.Serialize(Status.Current, options);
+            await ctx.Response.WriteAsync($"data: " + json + "\n\n");
+            await ctx.Response.Body.FlushAsync();
+        }
+        update = Status.Current.Running || lastStatusWasRunning;
+        lastStatusWasRunning = Status.Current.Running;
+        await Task.Delay(100);
     }
+
+
 });
 app.Run();

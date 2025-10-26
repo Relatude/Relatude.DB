@@ -5,7 +5,6 @@ public class RelatudeDBServerSettings {
 
     // STATIC SETTINGS (set at startup):
     // Required settings, stored securely in appsettings or environment variables
-    public Guid Id { get; set; } = SecureGuid.New();
     public string? MasterUserName { get; set; }
     public string? MasterPassword { get; set; }
     public string TokenEncryptionSalt { get; set; } = SecureGuid.New().ToString();
@@ -15,7 +14,8 @@ public class RelatudeDBServerSettings {
     public string? DBAdminUIUrlPath { get; set; }
     public string? DBSettingsFilePath { get; set; }
 
-    // Optional security settings, defaults provided and ok for most scenarios
+    // Optional  settings, defaults ok for most scenarios
+    public Guid Id { get; set; } = SecureGuid.New(); // Unique server ID, used for multiple server scenarios
     public bool TokenLockedToIP { get; set; } = false;
     public bool TokenCookieSecure { get; set; } = true;
     public bool TokenCookieSameSite { get; set; } = true;

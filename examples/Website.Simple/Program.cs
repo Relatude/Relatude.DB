@@ -15,7 +15,8 @@ var app = builder.Build();
 app.UseCors("AllowALL");
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
-    var noObjects = ctx.Database.Query<DemoArticle>().Where(a=>a.CreatedAt > DateTime.UtcNow.AddMinutes(1)).Execute().Count();
+    //var noObjects = ctx.Database.Query<DemoArticle>().Where(a => a.Content!=("dsadasd" +"ss") && a.CreatedAt < DateTime.UtcNow.AddDays(-100)).Execute().Count();
+    var noObjects = ctx.Database.Query<DemoArticle>().Where(a => a.ArticleType == 0).Execute().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
 

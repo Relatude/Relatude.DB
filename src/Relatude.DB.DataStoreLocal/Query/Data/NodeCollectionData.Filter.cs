@@ -26,7 +26,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     return false;
             }
             return true;
-        } else if (exp is IConstantExpression) {
+        } else if (exp is ConstantExpression) {
             return true;
         } else if (exp is PropertyReferenceExpression propEx) { // simplification: other expression like freetext search could be supported....
             if (nodeType.AllPropertiesByName.TryGetValue(propEx.PropertyName, out var prop)) {
@@ -77,11 +77,11 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 var e1 = opExp.Expressions[0];
                 var e2 = opExp.Expressions[1];
                 PropertyReferenceExpression propEx;
-                IConstantExpression constEx;
-                if (e1 is PropertyReferenceExpression p1 && e2 is IConstantExpression c2) {
+                ConstantExpression constEx;
+                if (e1 is PropertyReferenceExpression p1 && e2 is ConstantExpression c2) {
                     propEx = p1;
                     constEx = c2;
-                } else if (e2 is PropertyReferenceExpression p2 && e1 is IConstantExpression c1) {
+                } else if (e2 is PropertyReferenceExpression p2 && e1 is ConstantExpression c1) {
                     propEx = p2;
                     constEx = c1;
                 } else {
@@ -93,13 +93,13 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 if (!nc._nodeType.AllPropertiesByName.TryGetValue(propEx.PropertyName, out var prop)) {
                     if (db.Datamodel.NodeTypes.TryGetValue(nc._nodeType.Id, out var nodeType)) {
                         if (nodeType.NameOfPublicIdProperty == propEx.PropertyName) {
-                            if (!Guid.TryParse(constEx.GetValue().ToString(), out var id)) throw new NotSupportedException("Id property can only be used with Guid constant");
+                            if (!Guid.TryParse(constEx.Value?.ToString(), out var id)) throw new NotSupportedException("Id property can only be used with Guid constant");
                             int uid;
                             if (!db._guids.TryGetId(id, out uid)) uid = 0; // unknown id, so continue with 0, should result in no match
                             return new OperatorExpressionNativeIdProperty(uid, op, def.Sets);
                         }
                         if (nodeType.NameOfInternalIdProperty == propEx.PropertyName) {
-                            if (!int.TryParse(constEx.GetValue().ToString(), out var uid)) throw new Exception("InternalId property can only be used with int constant");
+                            if (!int.TryParse(constEx.Value?.ToString(), out var uid)) throw new Exception("InternalId property can only be used with int constant");
                             return new OperatorExpressionNativeIdProperty(uid, op, def.Sets);
                         }
                     }
@@ -107,23 +107,23 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 }
                 switch (prop.PropertyType) {
                     case PropertyType.Boolean:
-                        return new OperatorExpressionNativeBooleanProperty((BooleanProperty)prop, (bool)constEx.GetValue(), op);
+                        return new OperatorExpressionNativeBooleanProperty((BooleanProperty)prop, (bool)constEx.Value!, op);
                     case PropertyType.Integer:
-                        var integerValue = IntegerPropertyModel.ForceValueType(constEx.GetValue(), out _);
+                        var integerValue = IntegerPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeIntegerProperty((IntegerProperty)prop, integerValue, op);
                     case PropertyType.Float:
-                        var floatValue = FloatPropertyModel.ForceValueType(constEx.GetValue(), out _);
+                        var floatValue = FloatPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeFloatProperty((FloatProperty)prop, floatValue, op);
                     case PropertyType.String:
-                        return new OperatorExpressionNativeStringProperty((StringProperty)prop, (string)constEx.GetValue(), op);
+                        return new OperatorExpressionNativeStringProperty((StringProperty)prop, (string)constEx.Value!, op);
                     case PropertyType.DateTime:
-                        var dateTimeValue = DateTimePropertyModel.ForceValueType(constEx.GetValue(), out _);
+                        var dateTimeValue = DateTimePropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeDateTimeProperty((DateTimeProperty)prop, dateTimeValue, op);
                     case PropertyType.Long:
-                        var longValue = LongPropertyModel.ForceValueType(constEx.GetValue(), out _);
+                        var longValue = LongPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeLongProperty((LongProperty)prop, longValue, op);
                     case PropertyType.Decimal:
-                        var decimalValue = DecimalPropertyModel.ForceValueType(constEx.GetValue(), out _);
+                        var decimalValue = DecimalPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeDecimalProperty((DecimalProperty)prop, decimalValue, op);
 
                     case PropertyType.Any:
@@ -133,7 +133,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     default: throw new NotSupportedException();
                 }
             }
-        } else if (orgFilter is IConstantExpression consExp) {
+        } else if (orgFilter is ConstantExpression consExp) {
             return consExp;
         } else if (orgFilter is VariableReferenceExpression varExp) {
             return varExp;
@@ -147,7 +147,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 return new MethodExpressionNativeRelation(def.Sets, directions, rel, id, relExp.Method);
             } else { // unknown id
                 return relExp.Method switch {
-                    RelQuestion.Relates => ConstantExpressionNativeBoolean.False,
+                    RelQuestion.Relates => new ConstantBooleanNativeExpression(false),
                     _ => throw new NotSupportedException(),
                 };
             }

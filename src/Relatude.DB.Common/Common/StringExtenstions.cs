@@ -14,13 +14,13 @@ namespace Relatude.DB.Common {
         public static ulong XXH64Hash(this string s) {
             return XXH64.DigestOf(Encoding.UTF8.GetBytes(s));
         }
-        public static string Decamelize(this string s) {
+        public static string Decamelize(this string s, bool capitalizeFirstLetter = true) {
             if (string.IsNullOrEmpty(s)) return s;
             //return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
             var sb = new StringBuilder();
             for (int i = 0; i < s.Length; i++) {
                 if (i > 0 && char.IsUpper(s[i])) sb.Append(' ');
-                sb.Append(i == 0 ? char.ToUpper(s[i]) : char.ToLower(s[i]));
+                sb.Append(i == 0 && capitalizeFirstLetter ? char.ToUpper(s[i]) : char.ToLower(s[i]));
             }
             return sb.ToString();
         }

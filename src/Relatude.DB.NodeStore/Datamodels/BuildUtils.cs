@@ -1,8 +1,8 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.Query.ExpressionToString.ZSpitz.Extensions;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Relatude.DB.Nodes;
+using Relatude.DB.Query;
 
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes
@@ -174,11 +174,11 @@ internal static class BuildUtils {
         if (parents.Contains(t)) return;
         foreach (var i in t.GetInterfaces()) {
             addParents(i, parents);
-            parents.AddRange(i);
+            parents.Add(i);
         }
         if (t.BaseType != null && t.BaseType == typeof(object)) {
             addParents(t.BaseType, parents);
-            parents.AddRange(t.BaseType);
+            parents.Add(t.BaseType);
         }
     }
     public static Type GetBaseDeclaringType(MemberInfo member) {

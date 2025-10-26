@@ -93,7 +93,7 @@ public abstract class TokenBase {
     protected static int SkipUntilAfterReferenceIncludingGenerics(string code, int pos) {
         while (pos < code.Length) {
             var c = code[pos];
-            if (char.IsLetterOrDigit(c) || c == '_') {
+            if (char.IsLetterOrDigit(c) || c == '_' || c == '@') {
                 pos++;
             } else if (c == '.') {
                 pos++;

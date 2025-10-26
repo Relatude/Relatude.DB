@@ -281,7 +281,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    object query(IExpression expression, string? query, IEnumerable<Parameter> parameters) {
+    object? query(IExpression expression, string? query, IEnumerable<Parameter> parameters) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -306,14 +306,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public object Query(string query, IEnumerable<Parameter> parameters) {
+    public object? Query(string query, IEnumerable<Parameter> parameters) {
         var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
         var result = this.query(expressionTree, query, parameters);
         return result;
 
     }
-    public Task<object> QueryAsync(string query, IEnumerable<Parameter> parameters) {
+    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters) {
         return Task.FromResult(Query(query, parameters));
     }
     internal IdSet nativeQuery(IBooleanNativeExpression extractedBoolExp, IdSet set) {

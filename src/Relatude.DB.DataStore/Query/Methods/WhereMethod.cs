@@ -3,7 +3,7 @@ using Relatude.DB.Query.Expressions;
 namespace Relatude.DB.Query.Methods;
 public class WhereMethod(IExpression input, LambdaExpression lamda) : IExpression {
     public object Evaluate(IVariables vars) {
-        var evaluatedInput = (ICollectionData)input.Evaluate(vars);
+        var evaluatedInput = (ICollectionData)input.Evaluate(vars)!;
         if (evaluatedInput is IStoreNodeDataCollection sd) {
             // If the input is a store node data collection, we can try to evaluate expression using sets, and indexes:
             var scope = vars.CreateScope();

@@ -10,7 +10,7 @@ public class AnonymousObjectExpression : IExpression {
         ValueExpressions = valueExpressions;
     }
     public object Evaluate(IVariables vars) {
-        var values = new object[ValueExpressions.Count];
+        var values = new object?[ValueExpressions.Count];
         for (var n = 0; n < ValueExpressions.Count; n++) values[n] = ValueExpressions[n].Evaluate(vars);
         var result = new ObjectData(Properties, values);
         return result;

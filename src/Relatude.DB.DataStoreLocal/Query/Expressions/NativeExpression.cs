@@ -19,14 +19,11 @@ namespace Relatude.DB.Query.Expressions {
     internal interface IAndOrNativeExpression : IBooleanNativeExpression {
         public List<IBooleanNativeExpression> Expressions { get; }
     }
-    internal class ConstantExpressionNativeBoolean(bool value) : IConstantExpression, IBooleanNativeExpression {
-        readonly bool _value = value;
-        public object Evaluate(IVariables vars) => _value;
-        public IdSet Filter(IdSet set) => _value ? set : IdSet.Empty;
-        public int MaxCount() => _value ? int.MaxValue : 0;
-        public object GetValue() => _value;
-        public static IConstantExpression True = new ConstantExpressionNativeBoolean(true);
-        public static IConstantExpression False = new ConstantExpressionNativeBoolean(false);
+    internal class ConstantBooleanNativeExpression(bool value) : IBooleanNativeExpression {
+        public bool Value { get; } = value;
+        public object? Evaluate(IVariables vars) => Value;
+        public IdSet Filter(IdSet set) => Value ? set : IdSet.Empty;
+        public int MaxCount() => Value ? int.MaxValue : 0;
     }
     internal class AndNativeExpression : IAndOrNativeExpression {
         public AndNativeExpression() {
