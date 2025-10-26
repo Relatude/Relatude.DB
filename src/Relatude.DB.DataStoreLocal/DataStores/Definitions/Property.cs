@@ -81,7 +81,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (ValueIndex is null) throw new NotSupportedException("This property does not support range filtering. ");
             return ValueIndex.FilterRangesObject(set, from, to);
         }
-        public virtual IdSet WhereIn(IdSet ids, IEnumerable<object> values) {
+        public virtual IdSet WhereIn(IdSet ids, IEnumerable<object?> values) {
             throw new NotSupportedException("This property does not support filtering by multiple values. ");
         }
         public virtual object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {

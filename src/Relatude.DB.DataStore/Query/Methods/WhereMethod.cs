@@ -18,7 +18,7 @@ public class WhereMethod(IExpression input, LambdaExpression lamda) : IExpressio
         var maskAsObjects = Helper.EvaluateLambdaOnCollection(vars, evaluatedInput, lamda);
         var mask = new bool[maskAsObjects.TotalCount];
         var i = 0;
-        foreach (var o in maskAsObjects.Values) mask[i++] = (bool)o;
+        foreach (var o in maskAsObjects.Values) mask[i++] = (bool)o!;
         // once the mask is created, we can filter the input collection using the mask
         return evaluatedInput.Filter(mask);
     }

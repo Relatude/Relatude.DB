@@ -43,12 +43,12 @@ public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
         _q = q;
     }
     public void Page(int pageIndex, int pageSize) => _q.Page(pageIndex, pageSize);
-    public Task<ResultSet<T>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<T>();
-    public ResultSet<T> Execute() => _q.Prepare().EvaluateSet<T>();
+    public Task<ResultSet<T>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<T>()!;
+    public ResultSet<T> Execute() => _q.Prepare().EvaluateSet<T>()!;
     public ResultSet<T> Execute(out int totalCount) { 
         var result = _q.Prepare().EvaluateSet<T>();
         totalCount = result.TotalCount;
-        return result;
+        return result!;
     }
     public Task<int> CountAsync() => _q.CountAsync();
     public int Count() => _q.Count();

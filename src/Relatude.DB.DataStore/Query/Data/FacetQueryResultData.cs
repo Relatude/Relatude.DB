@@ -21,7 +21,7 @@ public class FacetQueryResultData : ICollectionData {
     public int TotalCount => Result.TotalCount;
     public int Count => Result.Count;
     public int SourceCount { get; }
-    public IEnumerable<object> Values => Result.Values;
+    public IEnumerable<object?> Values => Result.Values;
     public int PageIndexUsed => Result.PageIndexUsed;
     public int? PageSizeUsed => Result.PageSizeUsed;
 

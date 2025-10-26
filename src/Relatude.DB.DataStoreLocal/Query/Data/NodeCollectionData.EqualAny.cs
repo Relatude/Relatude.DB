@@ -2,7 +2,7 @@
 
 namespace Relatude.DB.Query.Data;
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
-    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object> values) {
+    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values) {
         var property = _def.Properties[propertyId];
         IdSet idset;
         if (property.ValueIndex == null) {

@@ -37,7 +37,7 @@ public class SumMethod : IExpression {
                 int sum = 0;
                 foreach (var o in data.Values) {
                     rowVars.Set(lambdaParamaterName, o);
-                    sum += (int)_lambda.Evaluate(rowVars);
+                    sum += (int)_lambda.Evaluate(rowVars)!;
                 }
                 return sum;
             }
@@ -45,7 +45,7 @@ public class SumMethod : IExpression {
                 double sum = 0;
                 foreach (var o in data.Values) {
                     rowVars.Set(lambdaParamaterName, o);
-                    sum += (double)_lambda.Evaluate(rowVars);
+                    sum += (double)_lambda.Evaluate(rowVars)!;
                 }
                 return sum;
             }
@@ -53,7 +53,7 @@ public class SumMethod : IExpression {
                 float sum = 0;
                 foreach (var o in data.Values) {
                     rowVars.Set(lambdaParamaterName, o);
-                    sum += (float)_lambda.Evaluate(rowVars);
+                    sum += (float)_lambda.Evaluate(rowVars)!;
                 }
                 return sum;
             }
@@ -61,11 +61,11 @@ public class SumMethod : IExpression {
                 decimal sum = 0;
                 foreach (var o in data.Values) {
                     rowVars.Set(lambdaParamaterName, o);
-                    sum += (decimal)_lambda.Evaluate(rowVars);
+                    sum += (decimal)_lambda.Evaluate(rowVars)!;
                 }
                 return sum;
             }
-            throw new Exception("Sum is not supported for type " + firstValue.GetType());
+            throw new Exception("Sum is not supported for type " + firstValue?.GetType());
         }
         throw new NotImplementedException();
     }

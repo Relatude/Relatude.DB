@@ -16,36 +16,36 @@ internal sealed class QueryStringEvaluater {
     internal async Task<object?> EvaluateForJsonAsync() {
         var data = await toDataAsync();
         if (data is ICollectionData coll) {
-            var values = toEnumerable<object>(coll);
+            var values = toEnumerable<object?>(coll);
             if (data is FacetQueryResultData facet) {
-                return new ResultSetFacetsNotEnumerable<object>(values, facet);
+                return new ResultSetFacetsNotEnumerable<object?>(values, facet);
             } else {
-                return new ResultSetNotEnumerable<object>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false);
+                return new ResultSetNotEnumerable<object?>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false);
             }
         } else if (data is ISearchQueryResultData search) {
-            var hitValues = search.Hits.Select(h => new SearchResultHit<object>(_store.Mapper.CreateObjectFromNodeData(h.NodeData), h.Score, h.Sample));
-            return new ResultSetNotEnumerable<object>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped);
+            var hitValues = search.Hits.Select(h => new SearchResultHit<object?>(_store.Mapper.CreateObjectFromNodeData(h.NodeData), h.Score, h.Sample));
+            return new ResultSetNotEnumerable<object?>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped);
         } else {
             return data;
         }
     }
 
-    internal async Task<ResultSet<T>> EvaluateSetAsync<T>() {
+    internal async Task<ResultSet<T?>> EvaluateSetAsync<T>() {
         var data = (ICollectionData)(await toDataAsync())!;
-        var enumerable = toEnumerable<T>(data);
+        var enumerable = toEnumerable<T?>(data);
         if (data is FacetQueryResultData facet) {
-            return new ResultSetFacets<T>(enumerable, facet);
+            return new ResultSetFacets<T?>(enumerable, facet);
         } else {
-            return new ResultSet<T>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
+            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
         }
     }
-    internal ResultSet<T> EvaluateSet<T>() {
+    internal ResultSet<T?> EvaluateSet<T>() {
         var data = (ICollectionData)toData()!;
         var enumerable = toEnumerable<T>(data);
         if (data is FacetQueryResultData facet) {
-            return new ResultSetFacets<T>(enumerable, facet);
+            return new ResultSetFacets<T?>(enumerable, facet);
         } else {
-            return new ResultSet<T>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
+            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
         }
     }
 
@@ -60,7 +60,7 @@ internal sealed class QueryStringEvaluater {
         throw new NotSupportedException();
     }
 
-    IEnumerable<T> toEnumerable<T>(ICollectionData data) {
+    IEnumerable<T?> toEnumerable<T>(ICollectionData data) {
         // temporary solution, should be replaced with a more efficient code
         // a collection of this type indicates that return type is a Node object, so use mapper to create the object
         if (data is IStoreNodeDataCollection coll) {
@@ -110,7 +110,7 @@ internal sealed class QueryStringEvaluater {
                         throw new NotSupportedException();
                     }
                 } else {
-                    yield return (T)o;
+                    yield return (T?)o;
                 }
             }
             yield break;

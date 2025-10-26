@@ -8,7 +8,7 @@ namespace Relatude.DB.Query.Expressions {
             SourceObject = sourceObject;
             PropertyName = propertyName;
         }
-        public object Evaluate(IVariables vars) {
+        public object? Evaluate(IVariables vars) {
             var input = SourceObject.Evaluate(vars);
             if (input is ObjectData inputObj) {
                 return inputObj.GetValue(PropertyName);

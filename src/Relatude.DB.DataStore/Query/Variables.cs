@@ -57,7 +57,7 @@ namespace Relatude.DB.Query {
             _vars.Add(name, new() { Evaluate = callback });
         }
         // Sets the value of an existing variable
-        public void Set(string name, object exp) {
+        public void Set(string name, object? exp) {
             _vars[name].Value = exp;
         }
         public void Declare(string name) {

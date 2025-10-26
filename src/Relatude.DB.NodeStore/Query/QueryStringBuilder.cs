@@ -46,63 +46,63 @@ internal sealed class QueryStringBuilder {
     internal void Page(int pageIndex, int pageSize) => add("Page", pageIndex, pageSize);
     internal void Take(int count) => add("Take", count);
     internal void Skip(int offset) => add("Skip", offset);
-    IEnumerable<T> toEnumerable<T>(ICollectionData data) {
-        // temporary solution, should be replaced with a more efficient code
-        // a collection of this type indicates that return type is a Node object, so use mapper to create the object
-        if (data is IStoreNodeDataCollection coll) {
-            foreach (var nd in coll.NodeValues) yield return Store.Mapper.CreateObjectFromNodeData<T>(nd);
-            yield break;
-        }
-        // a collection of this type indicates that return type is a plain value type
-        if (data is ValueCollectionData vc) {
-            foreach (var f in vc.Values) yield return (T)f;
-            yield break;
-        }
-        if (data is FacetQueryResultData facets) {
-            foreach (var f in facets.Result.Values) yield return (T)f;
-            yield break;
-        }
-        // a collection of this type is more complicated...
-        if (data is ObjectCollection oc) {
-            ConstructorInfo? ctor = null;
-            var n = 0;
-            Dictionary<string, int>? propNameById = null;
-            // room for optimazation here...
-            foreach (var o in oc.Objects) {
-                if (o is ObjectData od) {
-                    if (ctor == null) ctor = typeof(T).GetConstructors().Single();
-                    if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
-                    var values = od.GetValues(Store.Mapper.CreateObjectFromNodeData);
-                    yield return (T)createAnonymousInstance(values!, propNameById, ctor);
-                } else if (o is IStoreNodeData no) {
-                    yield return Store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);
-                } else if (o is IEnumerable<IStoreNodeData> os) {
-                    var t = typeof(T);
-                    if (t.IsArray) {
-                        var tNode = typeof(T).GetElementType();
-                        if (tNode == null) throw new NotSupportedException();
-                        var array = Array.CreateInstance(tNode, os.Count());
-                        int i = 0;
-                        foreach (var nd in os) array.SetValue(Store.Mapper.CreateObjectFromNodeData(nd.NodeData), i++);
-                        yield return (T)(object)array;
-                    } else if (typeof(IEnumerable).IsAssignableFrom(t) && t.IsGenericType) {
-                        var tNode = typeof(T).GetGenericArguments().Single();
-                        var listType = typeof(List<>).MakeGenericType([tNode]);
-                        var ilist = Activator.CreateInstance(listType) as IList;
-                        if (ilist == null) throw new NotSupportedException();
-                        foreach (var nd in os) ilist.Add(Store.Mapper.CreateObjectFromNodeData(nd.NodeData));
-                        yield return (T)ilist;
-                    } else {
-                        throw new NotSupportedException();
-                    }
-                } else {
-                    yield return (T)o;
-                }
-            }
-            yield break;
-        }
-        throw new NotSupportedException();
-    }
+    //IEnumerable<T> toEnumerable<T>(ICollectionData data) {
+    //    // temporary solution, should be replaced with a more efficient code
+    //    // a collection of this type indicates that return type is a Node object, so use mapper to create the object
+    //    if (data is IStoreNodeDataCollection coll) {
+    //        foreach (var nd in coll.NodeValues) yield return Store.Mapper.CreateObjectFromNodeData<T>(nd);
+    //        yield break;
+    //    }
+    //    // a collection of this type indicates that return type is a plain value type
+    //    if (data is ValueCollectionData vc) {
+    //        foreach (var f in vc.Values) yield return (T)f;
+    //        yield break;
+    //    }
+    //    if (data is FacetQueryResultData facets) {
+    //        foreach (var f in facets.Result.Values) yield return (T)f;
+    //        yield break;
+    //    }
+    //    // a collection of this type is more complicated...
+    //    if (data is ObjectCollection oc) {
+    //        ConstructorInfo? ctor = null;
+    //        var n = 0;
+    //        Dictionary<string, int>? propNameById = null;
+    //        // room for optimazation here...
+    //        foreach (var o in oc.Objects) {
+    //            if (o is ObjectData od) {
+    //                if (ctor == null) ctor = typeof(T).GetConstructors().Single();
+    //                if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
+    //                var values = od.GetValues(Store.Mapper.CreateObjectFromNodeData);
+    //                yield return (T)createAnonymousInstance(values!, propNameById, ctor);
+    //            } else if (o is IStoreNodeData no) {
+    //                yield return Store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);
+    //            } else if (o is IEnumerable<IStoreNodeData> os) {
+    //                var t = typeof(T);
+    //                if (t.IsArray) {
+    //                    var tNode = typeof(T).GetElementType();
+    //                    if (tNode == null) throw new NotSupportedException();
+    //                    var array = Array.CreateInstance(tNode, os.Count());
+    //                    int i = 0;
+    //                    foreach (var nd in os) array.SetValue(Store.Mapper.CreateObjectFromNodeData(nd.NodeData), i++);
+    //                    yield return (T)(object)array;
+    //                } else if (typeof(IEnumerable).IsAssignableFrom(t) && t.IsGenericType) {
+    //                    var tNode = typeof(T).GetGenericArguments().Single();
+    //                    var listType = typeof(List<>).MakeGenericType([tNode]);
+    //                    var ilist = Activator.CreateInstance(listType) as IList;
+    //                    if (ilist == null) throw new NotSupportedException();
+    //                    foreach (var nd in os) ilist.Add(Store.Mapper.CreateObjectFromNodeData(nd.NodeData));
+    //                    yield return (T)ilist;
+    //                } else {
+    //                    throw new NotSupportedException();
+    //                }
+    //            } else {
+    //                yield return (T)o;
+    //            }
+    //        }
+    //        yield break;
+    //    }
+    //    throw new NotSupportedException();
+    //}
     static object createAnonymousInstance(Tuple<string, object>[] values, Dictionary<string, int> propNameById, ConstructorInfo ctor) {
         // temporary solution, should be replaced with a more efficient code
         object[] args = new object[values.Length];

@@ -111,7 +111,7 @@ internal class LongProperty : Property, IPropertyContainsValue {
             }
         }
     }
-    public override IdSet WhereIn(IdSet ids, IEnumerable<object> values) {
+    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values) {
         if (Index == null) throw new NullReferenceException("Property is not indexed. ");
         return Index.FilterInValues(ids, values.Cast<long>().ToList());
     }

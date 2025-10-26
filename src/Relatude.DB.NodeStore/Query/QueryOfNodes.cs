@@ -40,12 +40,12 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
     public QueryOfNodes(NodeStore store, string typeName) {
         _q = new QueryStringBuilder(store, typeName);
     }
-    public Task<ResultSet<TNode>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<TNode>();
-    public ResultSet<TNode> Execute() => _q.Prepare().EvaluateSet<TNode>();
+    public Task<ResultSet<TNode>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<TNode>()!;
+    public ResultSet<TNode> Execute() => _q.Prepare().EvaluateSet<TNode>()!;
     public ResultSet<TNode> Execute(out int totalCount) {
-        var result = _q.Prepare().EvaluateSet<TNode>();
+        var result = _q.Prepare().EvaluateSet<TNode?>();
         totalCount = result.TotalCount;
-        return result;
+        return result!;
     }
 
     public IQueryOfNodes<TNode, TInclude> OrderBy(Expression<Func<TNode, object>> expression, bool descending = false) {

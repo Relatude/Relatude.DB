@@ -42,7 +42,7 @@ internal class GuidProperty : Property, IPropertyContainsValue {
     public override void CountFacets(IdSet nodeIds, Facets facets) {
         throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
     }
-    public override IdSet WhereIn(IdSet ids, IEnumerable<object> values) {
+    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values) {
         if (Index == null) throw new NullReferenceException("Property is not indexed. ");
         return Index.FilterInValues(ids, values.Cast<Guid>().ToList());
     }

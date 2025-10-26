@@ -14,14 +14,14 @@ public class OrderByMethod(IExpression input, LambdaExpression lambda, bool desc
         var v = values.Values.FirstOrDefault();
         if(v == null) return coll;
         IEnumerable<int> order;
-        if (v is int) order = reorder<int>(values.Values, descending);
-        else if (v is float) order = reorder<float>(values.Values, descending);
-        else if (v is string) order = reorder<string>(values.Values, descending);
-        else if (v is double) order = reorder<double>(values.Values, descending);
-        else if (v is decimal) order = reorder<decimal>(values.Values, descending);
-        else if (v is long) order = reorder<long>(values.Values, descending);
-        else if (v is DateTime) order = reorder<DateTime>(values.Values, descending);
-        else if (v is TimeSpan) order = reorder<TimeSpan>(values.Values, descending);
+        if (v is int) order = reorder<int>(values.Values!, descending);
+        else if (v is float) order = reorder<float>(values.Values!, descending);
+        else if (v is string) order = reorder<string>(values.Values!, descending);
+        else if (v is double) order = reorder<double>(values.Values!, descending);
+        else if (v is decimal) order = reorder<decimal>(values.Values!, descending);
+        else if (v is long) order = reorder<long>(values.Values!, descending);
+        else if (v is DateTime) order = reorder<DateTime>(values.Values!, descending);
+        else if (v is TimeSpan) order = reorder<TimeSpan>(values.Values!, descending);
         else throw new Exception("OrderBy does not support the type of the values in the collection. ");
         return coll.ReOrder(order);
     }

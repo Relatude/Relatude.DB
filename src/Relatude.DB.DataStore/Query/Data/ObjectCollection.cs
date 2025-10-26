@@ -8,20 +8,20 @@ using System.Text;
 namespace Relatude.DB.Query.Data;
 
 public class ObjectCollection : ICollectionData {
-    public List<object> Objects;
+    public List<object?> Objects;
     public ObjectCollection() {
         Objects = new();
     }
-    ObjectCollection(List<object> objects) {
+    ObjectCollection(List<object?> objects) {
         Objects = objects;
     }
-    public void Add(object obj) {
+    public void Add(object? obj) {
         Objects.Add(obj);
     }
     public object Evaluate(IVariables vars) {
         throw new NotImplementedException();
     }
-    public IEnumerable<object> Values {
+    public IEnumerable<object?> Values {
         get {
             foreach (var r in Objects) {
                 yield return r;
@@ -48,7 +48,7 @@ public class ObjectCollection : ICollectionData {
         throw new NotImplementedException();
     }
     public ICollectionData ReOrder(IEnumerable<int> newPos) {
-        var newObjects = new List<object>(Count);
+        var newObjects = new List<object?>(Count);
         foreach (var i in newPos) {
             newObjects.Add(Objects[i]);
         }
