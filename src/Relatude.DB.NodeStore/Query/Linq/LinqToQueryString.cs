@@ -1,6 +1,5 @@
 ﻿using Relatude.DB.Query;
 using System.Collections;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -8,27 +7,18 @@ using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Relatude.DB.Query.Linq;
-internal class LinqToQueryString {
-    public static string Get(Expression expression) {
-        var query = ExpressionStringBuilder.ToCSharp(expression);
-        return query;
-    }
 
-}
-
-public sealed class ExpressionStringBuilder : ExpressionVisitor {
+internal sealed class LinqToQueryString : ExpressionVisitor {
     private readonly StringBuilder _sb = new();
     private readonly Stack<int> _precStack = new();
-
-    public static string ToCSharp(Expression expr) {
-        var b = new ExpressionStringBuilder();
-        b.VisitCore(expr, Prec.Top); // root: no outer parentheses
+    public static string Get(Expression expr) {
+        var b = new LinqToQueryString();
+        b.VisitCore(expr, Precedence.Root); // root: no outer parentheses
         return b._sb.ToString();
     }
 
-    // ---------- Precedence ----------
-    private static class Prec {
-        public const int Top = 10000;            // never parenthesize against Top
+    private static class Precedence {
+        public const int Root = 10000;            // never parenthesize against Root
         public const int Lambda = 10;            // =>
         public const int Conditional = 20;       // ?:
         public const int Coalesce = 30;          // ??
@@ -47,7 +37,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
         public const int Primary = 160;          // literals, names
     }
 
-    private bool NeedParens(int nodePrec) => ParentPrec != Prec.Top && nodePrec < ParentPrec;
+    private bool NeedParens(int nodePrec) => ParentPrec != Precedence.Root && nodePrec < ParentPrec;
 
     private void VisitCore(Expression node, int currentNodePrec) {
         _precStack.Push(currentNodePrec);
@@ -55,7 +45,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
         _precStack.Pop();
     }
 
-    private int ParentPrec => _precStack.Count == 0 ? Prec.Top : _precStack.Peek();
+    private int ParentPrec => _precStack.Count == 0 ? Precedence.Root : _precStack.Peek();
 
     private void EmitWithParensIfNeeded(Expression child, int childPrec) {
         bool parens = NeedParens(childPrec);
@@ -66,7 +56,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
 
     // ---------- Core overrides ----------
     protected override Expression VisitLambda<T>(Expression<T> node) {
-        bool parens = NeedParens(Prec.Lambda);
+        bool parens = NeedParens(Precedence.Lambda);
         if (parens) _sb.Append('(');
 
         if (node.Parameters.Count == 1) {
@@ -81,14 +71,15 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
         }
 
         _sb.Append(" => ");
-        VisitCore(node.Body, Prec.Lambda);
+        VisitCore(node.Body, Precedence.Lambda);
 
         if (parens) _sb.Append(')');
         return node;
     }
 
     protected override Expression VisitParameter(ParameterExpression node) {
-        _sb.Append(node.Name ?? "p");
+        if (node.Name == null) throw new InvalidOperationException("ParameterExpression has null Name.");
+        _sb.Append(node.Name);
         return node;
     }
 
@@ -98,14 +89,14 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
     }
 
     protected override Expression VisitConditional(ConditionalExpression node) {
-        bool parens = NeedParens(Prec.Conditional);
+        bool parens = NeedParens(Precedence.Conditional);
         if (parens) _sb.Append('(');
 
-        EmitWithParensIfNeeded(node.Test, Prec.Conditional);
+        EmitWithParensIfNeeded(node.Test, Precedence.Conditional);
         _sb.Append(" ? ");
-        EmitWithParensIfNeeded(node.IfTrue, Prec.Conditional);
+        EmitWithParensIfNeeded(node.IfTrue, Precedence.Conditional);
         _sb.Append(" : ");
-        EmitWithParensIfNeeded(node.IfFalse, Prec.Conditional);
+        EmitWithParensIfNeeded(node.IfFalse, Precedence.Conditional);
 
         if (parens) _sb.Append(')');
         return node;
@@ -137,47 +128,46 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
             return node;
         }
 
-        bool parens = NeedParens(Prec.Unary);
+        bool parens = NeedParens(Precedence.Unary);
         if (parens) _sb.Append('(');
         if (!isPost) _sb.Append(op);
-        VisitCore(node.Operand, Prec.Unary);
+        VisitCore(node.Operand, Precedence.Unary);
         if (isPost) _sb.Append(op);
         if (parens) _sb.Append(')');
         return node;
     }
 
-    protected override Expression VisitBinary(BinaryExpression node) {
-        if (node.NodeType == ExpressionType.Coalesce) return EmitInfix(node, "??", Prec.Coalesce);
-        if (node.NodeType == ExpressionType.OrElse) return EmitInfix(node, "||", Prec.OrElse);
-        if (node.NodeType == ExpressionType.AndAlso) return EmitInfix(node, "&&", Prec.AndAlso);
 
-        var map = new Dictionary<ExpressionType, (string op, int prec)>
-        {
-            { ExpressionType.Or, ("|", Prec.Or) },
-            { ExpressionType.ExclusiveOr, ("^", Prec.Xor) },
-            { ExpressionType.And, ("&", Prec.And) },
-            { ExpressionType.Equal, ("==", Prec.Eq) },
-            { ExpressionType.NotEqual, ("!=", Prec.Eq) },
-            { ExpressionType.LessThan, ("<", Prec.Rel) },
-            { ExpressionType.LessThanOrEqual, ("<=", Prec.Rel) },
-            { ExpressionType.GreaterThan, (">", Prec.Rel) },
-            { ExpressionType.GreaterThanOrEqual, (">=", Prec.Rel) },
-            { ExpressionType.LeftShift, ("<<", Prec.Shift) },
-            { ExpressionType.RightShift, (">>", Prec.Shift) },
-            { ExpressionType.Add, ("+", Prec.Add) },
-            { ExpressionType.Subtract, ("-", Prec.Add) },
-            { ExpressionType.Multiply, ("*", Prec.Mul) },
-            { ExpressionType.Divide, ("/", Prec.Mul) },
-            { ExpressionType.Modulo, ("%", Prec.Mul) },
+    static Dictionary<ExpressionType, (string op, int prec)> _infoByExpType = new() {
+            { ExpressionType.Or, ("|", Precedence.Or) },
+            { ExpressionType.ExclusiveOr, ("^", Precedence.Xor) },
+            { ExpressionType.And, ("&", Precedence.And) },
+            { ExpressionType.Equal, ("==", Precedence.Eq) },
+            { ExpressionType.NotEqual, ("!=", Precedence.Eq) },
+            { ExpressionType.LessThan, ("<", Precedence.Rel) },
+            { ExpressionType.LessThanOrEqual, ("<=", Precedence.Rel) },
+            { ExpressionType.GreaterThan, (">", Precedence.Rel) },
+            { ExpressionType.GreaterThanOrEqual, (">=", Precedence.Rel) },
+            { ExpressionType.LeftShift, ("<<", Precedence.Shift) },
+            { ExpressionType.RightShift, (">>", Precedence.Shift) },
+            { ExpressionType.Add, ("+", Precedence.Add) },
+            { ExpressionType.Subtract, ("-", Precedence.Add) },
+            { ExpressionType.Multiply, ("*", Precedence.Mul) },
+            { ExpressionType.Divide, ("/", Precedence.Mul) },
+            { ExpressionType.Modulo, ("%", Precedence.Mul) },
+            { ExpressionType.Coalesce, ("??", Precedence.Coalesce) },
+            { ExpressionType.OrElse, ("||", Precedence.OrElse) },
+            { ExpressionType.AndAlso, ("&&", Precedence.AndAlso) },
         };
 
-        if (map.TryGetValue(node.NodeType, out var info))
-            return EmitInfix(node, info.op, info.prec);
+    protected override Expression VisitBinary(BinaryExpression node) {
+
+        if (_infoByExpType.TryGetValue(node.NodeType, out var info)) return EmitInfix(node, info.op, info.prec);
 
         if (node.NodeType == ExpressionType.ArrayIndex) {
-            bool parens = NeedParens(Prec.CallAccess);
+            bool parens = NeedParens(Precedence.CallAccess);
             if (parens) _sb.Append('(');
-            EmitWithParensIfNeeded(node.Left, Prec.CallAccess);
+            EmitWithParensIfNeeded(node.Left, Precedence.CallAccess);
             _sb.Append('[');
             Visit(node.Right);
             _sb.Append(']');
@@ -206,16 +196,16 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
 
     protected override Expression VisitMember(MemberExpression node) {
         if (node.Expression == null) {
-            bool parensS = NeedParens(Prec.CallAccess);
+            bool parensS = NeedParens(Precedence.CallAccess);
             if (parensS) _sb.Append('(');
             _sb.Append(GetTypeDisplayName(node.Member.DeclaringType)).Append('.').Append(node.Member.Name);
             if (parensS) _sb.Append(')');
             return node;
         }
 
-        bool parens = NeedParens(Prec.CallAccess);
+        bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append('(');
-        EmitWithParensIfNeeded(node.Expression, Prec.CallAccess);
+        EmitWithParensIfNeeded(node.Expression, Precedence.CallAccess);
         _sb.Append('.').Append(node.Member.Name);
         if (parens) _sb.Append(')');
         return node;
@@ -225,13 +215,13 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
         => m.IsStatic && m.IsDefined(typeof(ExtensionAttribute), inherit: false);
 
     protected override Expression VisitMethodCall(MethodCallExpression node) {
-        bool parens = NeedParens(Prec.CallAccess);
+        bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append('(');
 
         // Extension method? Render as receiver.Method(args...)
         if (node.Method.IsStatic && IsExtension(node.Method) && node.Arguments.Count > 0) {
             var receiver = node.Arguments[0];
-            EmitWithParensIfNeeded(receiver, Prec.CallAccess);
+            EmitWithParensIfNeeded(receiver, Precedence.CallAccess);
             _sb.Append('.').Append(node.Method.Name).Append('(');
             for (int i = 1; i < node.Arguments.Count; i++) {
                 if (i > 1) _sb.Append(", ");
@@ -244,7 +234,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
 
         // Instance method
         if (node.Object != null) {
-            EmitWithParensIfNeeded(node.Object, Prec.CallAccess);
+            EmitWithParensIfNeeded(node.Object, Precedence.CallAccess);
             _sb.Append('.').Append(node.Method.Name);
         } else {
             // Static non-extension
@@ -266,7 +256,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
     protected override Expression VisitNew(NewExpression node) {
         // Anonymous type?
         if (IsAnonymousType(node.Type) && node.Members is { Count: > 0 }) {
-            bool parens = NeedParens(Prec.CallAccess);
+            bool parens = NeedParens(Precedence.CallAccess);
             if (parens) _sb.Append('(');
 
             _sb.Append("new { ");
@@ -290,7 +280,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
         }
 
         // Regular object construction
-        bool par = NeedParens(Prec.CallAccess);
+        bool par = NeedParens(Precedence.CallAccess);
         if (par) _sb.Append('(');
 
         _sb.Append("new ").Append(GetTypeDisplayName(node.Type)).Append('(');
@@ -305,7 +295,7 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
     }
 
     protected override Expression VisitNewArray(NewArrayExpression node) {
-        bool parens = NeedParens(Prec.CallAccess);
+        bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append('(');
 
         var elemType = node.Type.GetElementType() ?? node.Type.GetElementTypeSafe();
@@ -371,9 +361,9 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
     }
 
     protected override Expression VisitInvocation(InvocationExpression node) {
-        bool parens = NeedParens(Prec.CallAccess);
+        bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append(')');
-        EmitWithParensIfNeeded(node.Expression, Prec.CallAccess);
+        EmitWithParensIfNeeded(node.Expression, Precedence.CallAccess);
         _sb.Append('(');
         for (int i = 0; i < node.Arguments.Count; i++) {
             if (i > 0) _sb.Append(", ");
@@ -385,9 +375,9 @@ public sealed class ExpressionStringBuilder : ExpressionVisitor {
     }
 
     protected override Expression VisitIndex(IndexExpression node) {
-        bool parens = NeedParens(Prec.CallAccess);
+        bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append('(');
-        EmitWithParensIfNeeded(node.Object!, Prec.CallAccess);
+        EmitWithParensIfNeeded(node.Object!, Precedence.CallAccess);
         _sb.Append('[');
         for (int i = 0; i < node.Arguments.Count; i++) {
             if (i > 0) _sb.Append(", ");
