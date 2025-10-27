@@ -20,19 +20,29 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
+
+
+
     long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
     long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
     void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null);
     void UpdateActivityProgress(long activityId, int? percentageProgress = null);
     void DeRegisterActivity(long activityId);
+
     AIEngine AI { get; }
+
     IStoreLogger Logger { get; }
+
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
+
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null);
+
+    object? Query(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null);
+    Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null);
     Task<INodeData> GetAsync(Guid id);
     Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids);
     Task<INodeData> GetAsync(int id);
@@ -54,14 +64,13 @@ public interface IDataStore : IDisposable {
     bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node);
     int GetRelatedCountFromPropertyId(Guid propertyId, Guid from);
     IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource);
+
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);
     void Maintenance(MaintenanceAction actions);
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
-    object? Query(string query, IEnumerable<Parameter> parameters);
-    Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters);
 
     void RefreshLock(Guid lockId);
 
@@ -92,7 +101,7 @@ public interface IDataStore : IDisposable {
 public static class IDataStoreExtensions {
     public static bool IsTaskQueueBusy(this IDataStore store) {
         if (store.State != DataStoreState.Open) throw new InvalidOperationException("DataStore is not open");
-        if(store.TaskQueue.CountTasks(BatchState.Pending) > 0) return true;
+        if (store.TaskQueue.CountTasks(BatchState.Pending) > 0) return true;
         if (store.TaskQueue.CountTasks(BatchState.Running) > 0) return true;
         if (store.TaskQueuePersisted != null) {
             if (store.TaskQueuePersisted.CountTasks(BatchState.Pending) > 0) return true;

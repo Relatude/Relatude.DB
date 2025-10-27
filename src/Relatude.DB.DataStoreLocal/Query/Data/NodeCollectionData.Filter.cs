@@ -1,5 +1,4 @@
 ﻿using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
@@ -11,7 +10,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             remainingFilter = null;
             var nativeFilter = getIndexExpression(vars, orgFilter, _def, _db);
             if (nativeFilter is not IBooleanNativeExpression exp) throw new Exception("Filter clause does not evaluate to a bool expression. ");
-            var filteredIds = _db.nativeQuery(exp, _ids);
+            var filteredIds = exp.Filter(_ids);
             return new NodeCollectionData(_db, _metrics, filteredIds, _nodeType, _includeBranches);
         } else {
             remainingFilter = orgFilter;

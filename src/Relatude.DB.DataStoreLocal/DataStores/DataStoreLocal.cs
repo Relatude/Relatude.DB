@@ -46,6 +46,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
+    UserContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
     long _noPrimitiveActionsSinceLastStateSnaphot;
@@ -71,7 +72,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IQueueStore? queueStore = null
         ) {
         _initiatedUtc = DateTime.UtcNow;
-        //_lock = new(LockRecursionPolicy.SupportsRecursion);
+        _defaultUserCtx = UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
         _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;

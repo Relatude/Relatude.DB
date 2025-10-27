@@ -1,7 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
-using System.Xml;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -11,7 +9,6 @@ using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Parsing.Expressions;
 using Relatude.DB.Query.Parsing.Tokens;
-using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
@@ -306,21 +303,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public object? Query(string query, IEnumerable<Parameter> parameters) {
+    public object? Query(string query, IEnumerable<Parameter> parameters, UserContext? userCtx=null) {
         var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
         var result = this.query(expressionTree, query, parameters);
         return result;
 
     }
-    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters) {
+    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null) {
         return Task.FromResult(Query(query, parameters));
-    }
-    internal IdSet nativeQuery(IBooleanNativeExpression extractedBoolExp, IdSet set) {
-        //if (_queryCache.TryGet(query, parameters, out var result, out ulong h)) return result;
-        //HashSet<int> propIds = new HashSet<int>();
-        var result = extractedBoolExp.Filter(set);
-        //_queryCache.Cache(h, propIds, result, result.Count);
-        return result;
     }
 }

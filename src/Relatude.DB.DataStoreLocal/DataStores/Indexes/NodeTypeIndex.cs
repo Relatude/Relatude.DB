@@ -25,7 +25,7 @@ class MutableIdSet() {
         return _lastSet ??= new(_ids, _state.Current);
     }
 }
-public class NodeTypeIndex : IIndex {
+internal class NodeTypeIndex : IIndex {
     Definition _definition;
 
     Dictionary<Guid, short> _shortTypeIdByGuid = [];

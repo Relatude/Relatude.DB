@@ -3,21 +3,18 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Transactions;
 
 namespace Relatude.DB.DataStores.Definitions;
 internal sealed class Definition {
-    readonly DataStoreLocal _store;
     internal Definition(SetRegister sets, Datamodel datamodel, DataStoreLocal store) {
         Datamodel = datamodel;
         NodeTypes = new();
         Relations = new();
         Properties = new();
         Sets = sets;
-        _store = store;
         _indexes = new();
         foreach (var cm in datamodel.NodeTypes.Values) {
             var c = new NodeType(cm);
