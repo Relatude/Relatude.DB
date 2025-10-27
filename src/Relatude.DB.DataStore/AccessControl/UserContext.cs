@@ -6,7 +6,6 @@ public class UserContext { // Immutable
     public static UserContext Admin(int lcid, Guid? collectionId = null, Guid[]? previewing = null) => new(_adminId, lcid, collectionId, previewing);
     UserContext(Guid? userId, int lcid, Guid? collectionId = null, Guid[]? previewing = null) {
         UserId = userId;
-        LCID = lcid;
         CollectionId = collectionId;
         Previewing = previewing;
         //Originals = originals;
@@ -19,4 +18,6 @@ public class UserContext { // Immutable
     public bool IsPreviewing() => Previewing?.Length > 0;
     public bool IsAdmin() => UserId == _adminId;
     public bool IsAuthenticated() => UserId != null;
+
+
 }

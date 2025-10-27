@@ -15,6 +15,7 @@ public class DemoArticle {
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public int Size { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;

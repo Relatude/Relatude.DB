@@ -1,4 +1,5 @@
-﻿using Relatude.DB.AI;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
@@ -40,7 +41,7 @@ public interface IDataStore : IDisposable {
 
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null);
-
+    
     object? Query(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null);
     Task<INodeData> GetAsync(Guid id);

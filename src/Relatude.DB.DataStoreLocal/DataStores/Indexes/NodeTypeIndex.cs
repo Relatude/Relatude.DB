@@ -47,6 +47,7 @@ internal class NodeTypeIndex : IIndex {
         if (_idsByType.TryGetValue(typeId, out var ids)) return ids.Count;
         return 0;
     }
+
     public Guid GetType(int id) {
         if (_typeByIds.TryGetValue(id, out var typeId)) return _guidByShortTypeId[typeId];
         throw new Exception("Internal error. Unable to determine type of unknown node with id: " + id);
@@ -59,12 +60,14 @@ internal class NodeTypeIndex : IIndex {
         typeId = Guid.Empty;
         return false;
     }
+
     short findNextAvailableShortId() {
         for (var i = 0; i < short.MaxValue; i++) {
             if (_guidByShortTypeId[i] == Guid.Empty) return (short)i;
         }
         throw new Exception("Internal error. Unable to find next available TypeId. Maximum number of " + short.MaxValue + " reached.");
     }
+
     public void Index(INodeData node) {
         var id = node.__Id;
         if (!_shortTypeIdByGuid.TryGetValue(node.NodeType, out var shortId)) {
@@ -91,6 +94,9 @@ internal class NodeTypeIndex : IIndex {
             }
         }
     }
+
+
+
     public void SaveState(IAppendStream stream) {
         stream.WriteVerifiedInt(_typeByIds.Count); // Count of types
         foreach (var kv in _typeByIds) {
@@ -127,11 +133,13 @@ internal class NodeTypeIndex : IIndex {
             _idsByType.Add(typeId, set);
         }
     }
+
     public void Add(int nodeId, object value) => throw new NotSupportedException("Not relevant");
     public void Remove(int nodeId, object value) => throw new NotSupportedException("Not relevant");
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => Remove(nodeId, value);
+    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => throw new NotSupportedException("Not relevant");
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => throw new NotSupportedException("Not relevant");
     public void CompressMemory() { }
     public void Dispose() { }
     public void ClearCache() { }
+
 }

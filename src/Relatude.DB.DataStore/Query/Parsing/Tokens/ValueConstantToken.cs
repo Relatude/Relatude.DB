@@ -137,64 +137,7 @@ public class ValueConstantToken : TokenBase {
                 throw new Exception("Unknown parsed type " + ParsedTypeHint + ". ");
         }
     }
-    //object getValueOfType(ParameterTypes wantedType) {
-    //    if (_value == null) throw new Exception("Stored value is null. ");
-    //    switch (ParsedTypeHint) {
-    //        case ParsedTypes.FromParamater: return _value; // must match directly
-    //        case ParsedTypes.Boolean: {
-    //                if (wantedType != ParameterTypes.Boolean) throw new Exception("Cannot cast boolean to type " + wantedType + ". ");
-    //                if (_value is not bool) throw new Exception("Stored value is not boolean. "); // should never happen, internal error
-    //                return _value;
-    //            }
-    //        case ParsedTypes.String: {
-    //                if (wantedType != ParameterTypes.String) throw new Exception("Cannot cast string to type " + wantedType + ". ");
-    //                if (_value is not string) throw new Exception("Stored value is not string. "); // should never happen, internal error
-    //                return _value;
-    //            }
-    //        case ParsedTypes.IntString: {
-    //                if (_value is not string strValue) throw new Exception("Stored value is not number string. "); // should never happen, internal error
-    //                return wantedType switch {
-    //                    ParameterTypes.Integer => int.Parse(strValue, NumberStyles.Integer, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Long => long.Parse(strValue, NumberStyles.Integer, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Double => double.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Byte => byte.Parse(strValue, NumberStyles.Integer, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Decimal => decimal.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Float => float.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    _ => throw new Exception("Cannot cast number string to type " + wantedType + ". "),
-    //                };
-    //            }
-    //        case ParsedTypes.LongString: {
-    //                if (_value is not string longStrValue) throw new Exception("Stored value is not long number string. "); // should never happen, internal error
-    //                return wantedType switch {
-    //                    ParameterTypes.Long => long.Parse(longStrValue, NumberStyles.Integer, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Double => double.Parse(longStrValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Decimal => decimal.Parse(longStrValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    _ => throw new Exception("Cannot cast long number string to type " + wantedType + ". "),
-    //                };
-    //            }
-    //        case ParsedTypes.FloatString: {
-    //                if (_value is not string strValue) throw new Exception("Stored value is not float number string. "); // should never happen, internal error
-    //                return wantedType switch {
-    //                    ParameterTypes.Double => double.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Decimal => decimal.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    ParameterTypes.Float => float.Parse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture),
-    //                    _ => throw new Exception("Cannot cast float number string to type " + wantedType + ". "),
-    //                };
-    //            }
-    //        case ParsedTypes.ArrayOfStrings: {
-    //                if (wantedType != ParameterTypes.StringArray) throw new Exception("Cannot cast string to type " + wantedType + ". ");
-    //                if (_value is not string[]) throw new Exception("Stored value is not string array. "); // should never happen, internal error
-    //                return _value;
-    //            }
-    //        case ParsedTypes.ArrayOfNumberStrings: {
-    //                if (wantedType != ParameterTypes.IntegerArray) throw new Exception("Cannot cast number string array to type " + wantedType + ". ");
-    //                if (_value is not string[]) throw new Exception("Stored value is not number string array. "); // should never happen, internal error
-    //                return ((string[])_value!).Select(s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)).ToArray();
-    //            }
-    //        default:
-    //            throw new Exception("Unknown parsed type " + ParsedTypeHint + ". ");
-    //    }
-    //}
+
     public override TokenTypes TokenType => TokenTypes.ValueConstant;
     static public ValueConstantToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
 

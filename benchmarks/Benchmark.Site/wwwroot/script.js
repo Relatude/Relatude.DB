@@ -56,7 +56,7 @@ function connect() {
                     if (result.running) {
                         cell.textContent = '';
                         const score = Math.random() * 100;
-                        cell.style.backgroundColor = `rgba(144, 238, 144, ${score / 100})`;
+                        cell.style.backgroundColor = getBgColor(score);
                     } else if (result.count >= 0) {
                         //cell.textContent = `${result.count} in ${result.durationMs}ms (${(result.count / (result.durationMs / 1000)).toFixed(2)} ops/s)`;
                         cell.style.textAlign = 'right';
@@ -70,7 +70,7 @@ function connect() {
                         }
                         html += "<div>" + num.format(Math.round(result.durationMs)) + " ms</div>";
                         cell.innerHTML = html;
-                        cell.style.backgroundColor = `rgba(144, 238, 144, ${score / 100})`;
+                        cell.style.backgroundColor = getBgColor(score);
                     }
                 });
             });
@@ -103,7 +103,7 @@ function connect() {
                     cell.style.padding = '13px';
                     const score = Math.round(averageScore);
                     cell.innerHTML = score+"%";
-                    cell.style.backgroundColor = `rgba(144, 238, 144, ${score / 100})`;
+                    cell.style.backgroundColor = getBgColor(score);
                 });
             }
 
@@ -114,7 +114,9 @@ function connect() {
     }
 }
 
-// returns decamelized string with first letter capitalized
+function getBgColor(score) {
+    return `rgba(30, 108, 154, ${score / 100})`;
+}
 function decamel(camel) {
     const result = camel.replace(/([A-Z])/g, " $1");
     return result.charAt(0).toUpperCase() + result.slice(1);
