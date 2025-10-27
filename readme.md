@@ -4,7 +4,7 @@
 
 The project is in early development, but it is already used in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com) from the Norwegian company [Proventus](https://proventus.no).
 
-We chose to release Relatude.DB as open source because we want to build trust and be transparent about how YOUR data is stored. We believe this transparency is fundamental for giving you control and true ownership of YOUR data. We will offer cloud hosting as an option, but you are forever equally free to store the data in your own environment.
+We chose to release Relatude.DB as open source because we want to build trust and be transparent about how your data is stored. We believe this transparency is fundamental for giving you control and true ownership of your data. We will offer cloud hosting as an option, but you are equally free to store the data in your own environment.
 
 Another reason for publishing it as open source is to foster an active community. We see Relatude.DB as a **general-purpose storage solution** for any web application, not just a data layer for our own CMS. The system is designed to solve and simplify the typical challenges in building web applications. This includes offering a single, easy-to-install storage and query engine that covers all your data needs.
 
@@ -16,7 +16,7 @@ Relatude.DB provides all of this in **one NuGet package** you can bring it into 
 
 ## Technical implementation
 
-The underlying storage is in its default configuration a binary **append-only log file** with an **in-memory index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with fast response to queries. All data is stored in ONE file and this file is all you need to copy or move the database. There are other temporary files, but these regenerates automatically. The log file contains every transaction executed, so every operation can be rolled back. As the file grows you can set limits to when it will be shortened in background processes. Backups also run in the background without affecting the live database. The **append only** architecture works well with high latency storages like blob as data can be streamed in the background over time.
+The underlying storage is in its default configuration a binary **append-only log file** with an **in-memory index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with fast response to queries. All data is stored in one file and this file is all you need to copy or move the database. There are other temporary files, but these regenerates automatically. The log file contains every transaction executed, so every operation can be rolled back. As the file grows you can set limits to when it will be shortened in background processes. Backups also run in the background without affecting the live database. The **append only** architecture works well with high latency storages like blob as data can be streamed in the background over time.
 
 The file format is binary and values are casted as best possible to the current schema on read. This provides flexibility in handling schema changes with existing data, similar to document databases.
 
