@@ -43,7 +43,7 @@ internal class NodeTypeIndex : IIndex {
         if (_idsByType.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
         return IdSet.Empty;
     }
-    public int GetCountType(Guid typeId) {
+    public int GetCountForTypeForStatusInfo(Guid typeId) {
         if (_idsByType.TryGetValue(typeId, out var ids)) return ids.Count;
         return 0;
     }

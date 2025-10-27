@@ -248,7 +248,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
             info.TypeCounts = [];
             foreach (var t in _definition.NodeTypes.Values) {
-                info.TypeCounts.Add(t.Model.FullName, _definition.GetCountForType(t.Id));
+                info.TypeCounts.Add(t.Model.FullName, _definition.GetCountForTypeForStatusInfo(t.Id));
             }
 
             info.QueuedTasksPending = TaskQueue.CountTasks(Tasks.BatchState.Pending);

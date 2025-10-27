@@ -46,7 +46,7 @@ internal sealed class Definition {
     Dictionary<string, IIndex> _indexes { get; set; }
     NodeTypeIndex _nodeTypeIndex;
     public IdSet GetAllIdsForType(Guid typeId) => _nodeTypeIndex.GetAllNodeIdsForType(typeId);
-    public int GetCountForType(Guid typeId) => _nodeTypeIndex.GetCountType(typeId);
+    public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
     public bool TryGetTypeOfNode(int id, [MaybeNullWhen(false)] out Guid typeId) => _nodeTypeIndex.TryGetType(id, out typeId);
     public IEnumerable<IIndex> GetAllIndexes() { return _indexes.Values; }
