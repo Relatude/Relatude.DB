@@ -29,4 +29,5 @@ public enum SetOperation : int {
     WhereTypes,
     CountEqual,
     CountInRange,
+    FilterByUserReadAccess,
 }

@@ -127,6 +127,7 @@ public class SetRegister(long maxSize) {
         return countOrLookup(key, () => IdSet.IntersectionCount(a, b));
     }
 
+    // ⋃ sets
     public IdSet Union(List<IdSet> sets) {
         if (sets.Any(s => s.Count == 0)) sets = sets.Where(s => s.Count > 0).ToList();
         if (sets.Count == 0) return IdSet.Empty;
@@ -142,7 +143,6 @@ public class SetRegister(long maxSize) {
             return ids;
         });
     }
-
 
     // a ∪ b
     /// <summary>
@@ -190,6 +190,18 @@ public class SetRegister(long maxSize) {
             return result;
         });
     }
+    //public IdSet FilterByUserReadAccess(IdSet set, UserContext userContext, Definition definition) {
+    //    if (set.Count == 0) return set;
+    //    var contextKeys = userContext.Memberships.Cast<object>().ToArray(); // more context can be added here if needed
+    //    var key = new SetCacheKey(SetOperation.FilterByUserReadAccess, [set.StateId], contextKeys);
+    //    return createOrLookup(key, () => {
+    //        var result = new List<int>();
+    //        foreach (var id in set.Enumerate()) {
+    //            if (userContext.CanAccessNode(id, definition)) result.Add(id);
+    //        }
+    //        return result;
+    //    });
+    //}
 
     public IdSet Page(IdSet ids, int page, int pageSize) {
         var key = new SetCacheKey(SetOperation.Page, [ids.StateId], [page, pageSize]);

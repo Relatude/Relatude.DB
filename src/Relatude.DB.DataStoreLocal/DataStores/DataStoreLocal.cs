@@ -72,7 +72,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IQueueStore? queueStore = null
         ) {
         _initiatedUtc = DateTime.UtcNow;
-        _defaultUserCtx = UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
+        _defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
         _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
