@@ -13,8 +13,8 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 100;
-    var timeMultiplier = 10;
+    var dataSetMultiplier = 1000;
+    var timeMultiplier = 50;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
     options.UserCount = 1000 * dataSetMultiplier;
