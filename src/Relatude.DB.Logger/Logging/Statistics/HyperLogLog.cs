@@ -18,11 +18,17 @@ class LookUpPool {
         }
     }
 }
+/// <summary>
+/// "HyperLogLog" implementation for cardinality estimation
+/// Enables estimating the number of unique elements in a multiset
+/// With a low memory footprint at the cost of some accuracy
+/// Uses hash functions and probabilistic counting
+/// </summary>
 public class HyperLogLog {
     readonly private double stdError, mapSize, alpha_m, k;
     readonly private int kComplement;
     readonly private int[] Lookup;
-    private const double pow_2_32 = 4294967297;
+    private const double pow_2_32 = 4294967297; // 2^32 + 1
     public HyperLogLog(byte[] state) {
         var bytes = CompressionUtility.Decompress(state);
         var mem = new MemoryStream(bytes);

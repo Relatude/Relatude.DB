@@ -8,6 +8,16 @@ public static class NodeConstants {
     public static readonly Guid SystemVectorIndexPropertyId = new(VectorIndexPropertyIdString);
     public static readonly string SystemTextIndexPropertyName = "_textIndex";
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";
+
+    const string BaseUserIdString = "243f1514-46c3-4106-9c6a-4a25fb39238b";
+    const string BaseUserGroupIdString = "afd3b9e4-7565-49ae-ac3b-ed20b5ccfe6a";
+    const string BaseCollectionIdString = "be94c359-2b08-4f58-b116-bb5fef89a5cc";
+    const string BaseCultureIdString = "f51d3f3a-08d4-4b56-a00b-464e037f0009";
+    public static readonly Guid BaseUserId = new(BaseUserIdString);
+    public static readonly Guid BaseUserGroupId = new(BaseUserGroupIdString);
+    public static readonly Guid BaseCollectionId = new(BaseCollectionIdString);
+    public static readonly Guid BaseCultureId = new(BaseCultureIdString);
+
 }
 //public enum Revision {
 //    Live = 0,

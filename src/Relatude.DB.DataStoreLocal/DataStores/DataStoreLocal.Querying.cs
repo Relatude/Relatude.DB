@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using Relatude.DB.AccessControl;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -303,14 +304,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public object? Query(string query, IEnumerable<Parameter> parameters, UserContext? userCtx=null) {
+    public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx=null) {
         var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
         var result = this.query(expressionTree, query, parameters);
         return result;
 
     }
-    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, UserContext? userCtx = null) {
+    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null) {
         return Task.FromResult(Query(query, parameters));
     }
 }

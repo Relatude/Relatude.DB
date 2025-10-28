@@ -186,11 +186,11 @@ public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly
     Guid _nodeType;
     public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess => throw new NotImplementedException();
-    public Guid WriteAccess => throw new NotImplementedException();
+    //public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public Guid ReadAccess => throw new NotImplementedException();
+    //public Guid WriteAccess => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -219,11 +219,11 @@ public class NodeDataOnlyTypeAndId : INodeData, INodeData_OnlyIds { // readonly 
     Guid _nodeType;
     public Guid Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess => throw new NotImplementedException();
-    public Guid WriteAccess => throw new NotImplementedException();
+    //public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //public Guid ReadAccess => throw new NotImplementedException();
+    //public Guid WriteAccess => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();

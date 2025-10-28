@@ -50,14 +50,14 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.ToNodes);
+                        code += "." + nameof(OneToMany<object, object>.Right);
                         break;
                     case RelationType.ManyMany:
-                        code += "." + nameof(ManyMany<object>.Nodes);
+                        code += "." + nameof(ManyMany<object>.Many);
                         break;
                     case RelationType.ManyToMany:
-                        if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.FromNodes);
-                        else code += "." + nameof(ManyToMany<object, object>.ToNodes);
+                        if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left);
+                        else code += "." + nameof(ManyToMany<object, object>.Right);
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -70,14 +70,14 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneOne:
-                        code += "." + nameof(OneOne<object>.Node);
+                        code += "." + nameof(OneOne<object>.One);
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.FromNode);
-                        else code += "." + nameof(OneToOne<object, object>.ToNode);
+                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left);
+                        else code += "." + nameof(OneToOne<object, object>.Right);
                         break;
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.FromNode);
+                        code += "." + nameof(OneToMany<object, object>.Left);
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -246,30 +246,30 @@ internal static class CodeGeneratorForValueMappers {
                         var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pMany + ");";
                         switch (relation.RelationType) {
                             case RelationType.OneOne:
-                                sb.Append(nameof(OneOne<object>.Node));
+                                sb.Append(nameof(OneOne<object>.One));
                                 sb.AppendLine(oneConstructorParams);
                                 break;
                             case RelationType.OneToOne:
-                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.FromNode));
-                                else sb.Append(nameof(OneToOne<object, object>.ToNode));
+                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
+                                else sb.Append(nameof(OneToOne<object, object>.Right));
                                 sb.AppendLine(oneConstructorParams);
                                 break;
                             case RelationType.OneToMany:
                                 if (rp.FromTargetToSource) {
-                                    sb.Append(nameof(OneToMany<object, object>.FromNode));
+                                    sb.Append(nameof(OneToMany<object, object>.Left));
                                     sb.AppendLine(oneConstructorParams);
                                 } else {
-                                    sb.Append(nameof(OneToMany<object, object>.ToNodes));
+                                    sb.Append(nameof(OneToMany<object, object>.Right));
                                     sb.AppendLine(manyConstructorParams);
                                 }
                                 break;
                             case RelationType.ManyMany:
-                                sb.Append(nameof(ManyMany<object>.Nodes));
+                                sb.Append(nameof(ManyMany<object>.Many));
                                 sb.AppendLine(manyConstructorParams);
                                 break;
                             case RelationType.ManyToMany:
-                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.FromNodes));
-                                else sb.Append(nameof(ManyToMany<object, object>.ToNodes));
+                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
+                                else sb.Append(nameof(ManyToMany<object, object>.Right));
                                 sb.AppendLine(manyConstructorParams);
                                 break;
                             default:
@@ -285,30 +285,30 @@ internal static class CodeGeneratorForValueMappers {
                         var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null);";
                         switch (relation.RelationType) {
                             case RelationType.OneOne:
-                                sb.Append(nameof(OneOne<object>.Node));
+                                sb.Append(nameof(OneOne<object>.One));
                                 sb.AppendLine(oneConstructorParams);
                                 break;
                             case RelationType.OneToOne:
-                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.FromNode));
-                                else sb.Append(nameof(OneToOne<object, object>.ToNode));
+                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
+                                else sb.Append(nameof(OneToOne<object, object>.Right));
                                 sb.AppendLine(oneConstructorParams);
                                 break;
                             case RelationType.OneToMany:
                                 if (rp.FromTargetToSource) {
-                                    sb.Append(nameof(OneToMany<object, object>.FromNode));
+                                    sb.Append(nameof(OneToMany<object, object>.Left));
                                     sb.AppendLine(oneConstructorParams);
                                 } else {
-                                    sb.Append(nameof(OneToMany<object, object>.ToNodes));
+                                    sb.Append(nameof(OneToMany<object, object>.Right));
                                     sb.AppendLine(manyConstructorParams);
                                 }
                                 break;
                             case RelationType.ManyMany:
-                                sb.Append(nameof(ManyMany<object>.Nodes));
+                                sb.Append(nameof(ManyMany<object>.Many));
                                 sb.AppendLine(manyConstructorParams);
                                 break;
                             case RelationType.ManyToMany:
-                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.FromNodes));
-                                else sb.Append(nameof(ManyToMany<object, object>.ToNodes));
+                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
+                                else sb.Append(nameof(ManyToMany<object, object>.Right));
                                 sb.AppendLine(manyConstructorParams);
                                 break;
                             default:

@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using Relatude.DB.AccessControl;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -46,7 +47,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
-    UserContext _defaultUserCtx;
+    QueryContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
     long _noPrimitiveActionsSinceLastStateSnaphot;

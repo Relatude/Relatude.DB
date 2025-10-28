@@ -2,6 +2,8 @@
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Common;
+using Relatude.DB.AccessControl;
+using Microsoft.VisualBasic;
 namespace Relatude.DB.DataStores.Sets;
 public class SetRegister(long maxSize) {
     bool _disabled = maxSize == 0;
@@ -190,18 +192,20 @@ public class SetRegister(long maxSize) {
             return result;
         });
     }
-    //public IdSet FilterByUserReadAccess(IdSet set, UserContext userContext, Definition definition) {
-    //    if (set.Count == 0) return set;
-    //    var contextKeys = userContext.Memberships.Cast<object>().ToArray(); // more context can be added here if needed
-    //    var key = new SetCacheKey(SetOperation.FilterByUserReadAccess, [set.StateId], contextKeys);
-    //    return createOrLookup(key, () => {
-    //        var result = new List<int>();
-    //        foreach (var id in set.Enumerate()) {
-    //            if (userContext.CanAccessNode(id, definition)) result.Add(id);
-    //        }
-    //        return result;
-    //    });
-    //}
+    internal IdSet FilterByQueryContext(IdSet set, QueryContext queryOptions, Definition definition) {
+        throw new NotImplementedException();
+        //if (set.Count == 0) return set;
+        //var contextKeys = QueryContext.Memberships.Cast<object>().ToArray(); // more context can be added here if needed
+        //var key = new SetCacheKey(SetOperation.FilterByUserReadAccess, [set.StateId], contextKeys);
+        //return createOrLookup(key, () => {
+        //    var result = new List<int>();
+        //    foreach (var id in set.Enumerate()) {
+
+        //    }
+        //    return result;
+        //});
+    }
+
 
     public IdSet Page(IdSet ids, int page, int pageSize) {
         var key = new SetCacheKey(SetOperation.Page, [ids.StateId], [page, pageSize]);

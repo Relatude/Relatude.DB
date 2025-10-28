@@ -108,22 +108,22 @@ public static class CodeGeneratorForCSharpModels {
         var code = TypeAndNamespace(currentNamespace, relation.FullName());
         switch (relation.RelationType) {
             case RelationType.OneOne:
-                code += "." + nameof(OneOne<object>.Empty);
+                code += "." + nameof(OneOne<object>.One.Empty);
                 break;
             case RelationType.OneToOne:
-                if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.EmptyFrom);
-                else code += "." + nameof(OneToOne<object, object>.EmptyTo);
+                if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left.Empty);
+                else code += "." + nameof(OneToOne<object, object>.Right.Empty);
                 break;
             case RelationType.OneToMany:
-                if (rp.FromTargetToSource) code += "." + nameof(OneToMany<object, object>.EmptyFrom);
-                else code += "." + nameof(OneToMany<object, object>.EmptyTo);
+                if (rp.FromTargetToSource) code += "." + nameof(OneToMany<object, object>.Left.Empty);
+                else code += "." + nameof(OneToMany<object, object>.Right.Empty);
                 break;
             case RelationType.ManyMany:
-                code += "." + nameof(ManyMany<object>.Empty);
+                code += "." + nameof(ManyMany<object>.Many.Empty);
                 break;
             case RelationType.ManyToMany:
-                if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.EmptyFrom);
-                else code += "." + nameof(ManyToMany<object, object>.EmptyTo);
+                if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left.Empty);
+                else code += "." + nameof(ManyToMany<object, object>.Right.Empty);
                 break;
             default:
                 throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");

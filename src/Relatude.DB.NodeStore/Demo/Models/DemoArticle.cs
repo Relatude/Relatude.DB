@@ -19,8 +19,8 @@ public class DemoArticle {
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
-    public Tree.FromNode Parent { get; set; } = Tree.EmptyFrom;
-    public Tree.ToNodes Children { get; set; } = Tree.EmptyTo;
+    public Tree.Left Parent { get; set; } = Tree.Left.Empty;
+    public Tree.Right Children { get; set; } = Tree.Right.Empty;
     public DemoArticleType ArticleType { get; set; } = DemoArticleType.Article;
 
     [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = false)]
