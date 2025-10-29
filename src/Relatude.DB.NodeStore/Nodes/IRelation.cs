@@ -21,11 +21,24 @@ public interface IRelationProperty {
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
 }
+public interface IOneProperty<T> : IOneProperty {
+    T Get();
+    bool TryGet([MaybeNullWhen(false)] out T value);
+}
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
 }
+public interface IManyProperty<T> : IManyProperty {
+    IEnumerable<T> Get();
+    IQueryOfNodes<T, T> Query();
+    IQueryOfNodes<T, T> Query(Guid id);
+    IQueryOfNodes<T, T> Query(IEnumerable<Guid> ids);
+    IQueryOfNodes<T, T> Query(int id);
+    IQueryOfNodes<T, T> Query(IEnumerable<int> ids);
+}
 
 public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) : IOneProperty {
+
     public bool IsSet() => (isSet.HasValue) ? isSet.Value : tryGet(out _);
     public int Count() => IsSet() ? 1 : 0;
     public T Get() {

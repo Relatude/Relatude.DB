@@ -7,7 +7,7 @@
 
 public interface IAIProvider : IDisposable {
     Task<float[][]> GetEmbeddingsAsync(string[] paragraphs);
-    Task<string> GetCompletionAsync(string prompt);
+    Task<string> GetCompletionAsync(string prompt, string? modelKey = null);
     //Task<string> GetChatCompletionAsync(ChatMessage[] conversation);
 }
 
@@ -25,6 +25,7 @@ public class AIProviderSettings {
     public string? ApiKey { get; set; }
     public string? EmbeddingModel { get; set; }
     public string? CompletionModel { get; set; }
+    public Dictionary<string, string>? CompletionModelsByKey { get; set; }
 
     public double? DefaultSemanticRatio { get; set; }
     public double? DefaultMinimumSimilarity { get; set; }
@@ -33,13 +34,11 @@ public class AIProviderSettings {
     public int? MaxCountInBatch { get; set; }
     public int? MaxCharsOfEach { get; set; }
 
-    public double GetDefaultSemanticRatio ()=> DefaultSemanticRatio ?? 0.5;
-    public double GetDefaultMinimumSimilarity ()=> DefaultMinimumSimilarity ?? 0.75;
-    public int GetMaxCharsInBatch ()=> MaxCharsInBatch ?? 50000;
-    public int GetMaxCountInBatch ()=> MaxCountInBatch ?? 500;
-    public int GetMaxCharsOfEach ()=> MaxCharsOfEach ?? 20000;
-    
-
+    public double GetDefaultSemanticRatio() => DefaultSemanticRatio ?? 0.5;
+    public double GetDefaultMinimumSimilarity() => DefaultMinimumSimilarity ?? 0.75;
+    public int GetMaxCharsInBatch() => MaxCharsInBatch ?? 50000;
+    public int GetMaxCountInBatch() => MaxCountInBatch ?? 500;
+    public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;
 
     public AIProviderCacheType? CacheType { get; set; }
 }

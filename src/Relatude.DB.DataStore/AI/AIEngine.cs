@@ -12,7 +12,7 @@ public class AIEngine {
         Settings = settings;
         _cache = cache ?? new MemoryEmbeddingCache(10000);
     }
-    public async Task<string> GetCompletionAsync(string prompt) => await _provider.GetCompletionAsync(prompt);
+    public Task<string> GetCompletionAsync(string prompt, string? modelKey) => _provider.GetCompletionAsync(prompt, modelKey);
     class resultSet(string text) {
         public readonly ulong Hash = text.XXH64Hash(); // hash of the text
         public readonly string Text = text;
@@ -78,7 +78,6 @@ public class AIEngine {
         _cache.Dispose();
         _provider.Dispose();
     }
-
     public static AIEngine CreateDummy() {
         var settings = new AIProviderSettings() {
             Id = Guid.NewGuid(),

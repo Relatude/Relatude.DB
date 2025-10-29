@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 namespace Relatude.DB.AI;
 public class DummyAIProvider : IAIProvider {
-    public Task<string> GetCompletionAsync(string prompt) {
+    public Task<string> GetCompletionAsync(string prompt, string? modelKey = null) {
         return Task.FromResult($"Dummy completion for prompt: {prompt}");
     }
     public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs) {
