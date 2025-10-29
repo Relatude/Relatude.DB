@@ -27,18 +27,18 @@ public class SystemCulture {
 }
 public class UsersToGroups
     : ManyToMany<SystemUser, SystemUserGroup> {
-    public class Users : Left { }
-    public class Groups : Right { }
+    public class Users : Many1 { }
+    public class Groups : Many2 { }
 }
 public class GroupsToGroups
     : ManyToMany<SystemUser, SystemUserGroup> {
-    public class Memberships : Left { }
-    public class Members : Right { }
+    public class Memberships : Many1 { }
+    public class Members : Many2 { }
 }
 public class CollectionsToCultures
     : ManyToMany<SystemCollection, SystemCulture> {
-    public class Collections : Left { }
-    public class Cultures : Right { }
+    public class Collections : Many1 { }
+    public class Cultures : Many2 { }
 }
 
 

@@ -253,10 +253,11 @@ internal static class BuildUtilsProperties {
         throw new Exception("Could not determine relation type for " + relationType.FullName);
     }
     static bool isRelationPropertyFromTargetToSource(Type relationClassType, Type propertyValueType) {
+        propertyValueType = propertyValueType.BaseType!;
         return getRelationClassType(relationClassType) switch {
-            RelationType.OneToOne => propertyValueType.Name == nameof(OneToOne<object, object>.Left),
-            RelationType.OneToMany => propertyValueType.Name == nameof(OneToMany<object, object>.Left),
-            RelationType.ManyToMany => propertyValueType.Name == nameof(ManyToMany<object, object>.Left),
+            RelationType.OneToOne => propertyValueType.Name == nameof(OneToOne<object, object>.One1),
+            RelationType.OneToMany => propertyValueType.Name == nameof(OneToMany<object, object>.One),
+            RelationType.ManyToMany => propertyValueType.Name == nameof(ManyToMany<object, object>.Many1),
             RelationType.OneOne => false,
             RelationType.ManyMany => false,
             _ => throw new NotSupportedException("Relation type " + relationClassType.FullName + " is not supported."),
@@ -275,41 +276,6 @@ internal static class BuildUtilsProperties {
             return false;
         }
         return true;
-        //// search the assembly for a relation type that matches the property value type
-        //var baseType = propValueType.DeclaringType;
-        //if (baseType == null) {
-        //    reason = "The declaring property value type " + propValueType.Name + " does not have a declaring type.";
-        //    return false;
-        //}
-        //if (!baseType.InheritsFromOrImplements<IRelation>()) {
-        //    reason = "The declaring property value type " + propValueType.Name + " does not implement IRelation or inherit from a type that implements IRelation.";
-        //    return false;
-        //}
-        //var relationVariant1 = getRelationClassType(baseType);
-        //var assembly = propValueType.Assembly; // not looking at other assemblies
-        //List<Type> relationTypeMatches = new List<Type>();
-        //foreach (var type2 in assembly.GetTypes()) {
-        //    if (type2.InheritsFromOrImplements<IRelation>() && type2 != typeof(IRelation)) {
-        //        var relationVariant2 = getRelationClassType(type2);
-        //        if (relationVariant2 == relationVariant1 && type2.BaseType != null) {
-        //            if (genericArguments.SequenceEqual(type2.BaseType.GetGenericArguments())) {
-        //                relationTypeMatches.Add(type2);
-        //            }
-        //        }
-        //    }
-        //}
-        //if (relationTypeMatches.Count == 1) {
-        //    relationType = relationTypeMatches[0];
-        //    return true;
-        //} else if (relationTypeMatches.Count > 1) {
-        //    reason = "Found multiple relation types for " + propValueType.Name + ": " + string.Join(", ", relationTypeMatches.Select(t => t.FullName));
-        //    reason += ". Please specify the relation type explicitly using the extra genric parameter TRelationReference in the decaration of the relation.";
-        //    return false;
-        //} else {
-        //    reason = "Could not find any matching relation type for " + propValueType.Name + ". ";
-        //    reason += "Please specify the relation type explicitly using the extra genric parameter TRelationReference in the decaration of the relation.";
-        //    return false;
-        //}
     }
     static RelationPropertyModel getRelationPropertyModel(RelationPropertyAttribute attr, MemberInfo m, Type valueType) {
         var r = new RelationPropertyModel();

@@ -48,11 +48,11 @@ namespace Relatude.DB.Query {
             if (name == "null") throw new Exception("Variable \"" + name + "\" is null. ");
             throw new Exception("Idenitier \"" + name + "\" is unknown. ");
         }
-        // Declares and new variable name and sets its value
+        // Declares a new variable name and sets its value
         public void DeclarerAndSet(string name, object? exp) {
             _vars.Add(name, new() { Value = exp });
         }
-        // Declares and new variable name and sets its value
+        // Declares a new variable name and sets its value
         public void DeclarerAndSet(string name, Func<Metrics, object> callback) {
             _vars.Add(name, new() { Evaluate = callback });
         }

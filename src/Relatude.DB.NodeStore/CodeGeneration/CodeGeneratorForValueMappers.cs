@@ -49,15 +49,39 @@ internal static class CodeGeneratorForValueMappers {
             if (rp.RelationValueType == RelationValueType.Native) {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
-                    case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.Right);
+                    case RelationType.OneOne:
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            code += "." + nameof(OneOne<object>.One);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     case RelationType.ManyMany:
-                        code += "." + nameof(ManyMany<object>.Many);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            code += "." + nameof(ManyMany<object>.Many);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
+                        break;
+                    case RelationType.OneToMany:
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            if (rp.FromTargetToSource) code += "." + nameof(OneToMany<object, object>.Many);
+                            else code += "." + nameof(OneToMany<object, object>.One);
+                        } else {
+                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) throw new Exception("Relation " + relation.CodeName + " is missing CodeNameTargets.");
+                            if (rp.FromTargetToSource) code += "." + relation.CodeNameSources;
+                            else code += "." + relation.CodeNameTargets;
+                        }
                         break;
                     case RelationType.ManyToMany:
-                        if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left);
-                        else code += "." + nameof(ManyToMany<object, object>.Right);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Many1);
+                            else code += "." + nameof(ManyToMany<object, object>.Many2);
+                        } else {
+                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) throw new Exception("Relation " + relation.CodeName + " is missing CodeNameTargets.");
+                            if (rp.FromTargetToSource) code += "." + relation.CodeNameSources;
+                            else code += "." + relation.CodeNameTargets;
+                        }
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -73,11 +97,11 @@ internal static class CodeGeneratorForValueMappers {
                         code += "." + nameof(OneOne<object>.One);
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left);
-                        else code += "." + nameof(OneToOne<object, object>.Right);
+                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.One1);
+                        else code += "." + nameof(OneToOne<object, object>.One2);
                         break;
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.Left);
+                        code += "." + nameof(OneToMany<object, object>.One);
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -292,7 +316,7 @@ internal static class CodeGeneratorForValueMappers {
                     //}
 
                     sb.AppendLine("}else{");
-                    
+
                     { // If not included:
                         sb.Append("obj." + p.CodeName + ".");
                         if (rp.IsMany) {

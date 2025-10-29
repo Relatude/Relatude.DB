@@ -131,21 +131,51 @@ public interface IOneToMany : IRelation { }
 public interface IManyMany : IRelation { }
 public interface IManyToMany : IRelation { }
 
-public class OneOne<T> : IOneOne {
-    public class One() : OneProperty<T>() { }
+/// <summary>
+/// Symmetric one-to-one relation
+/// Example: Spouse relation
+/// If one spouse is related to the other, the other is automatically related to the first.
+/// One spouse can be related to only one other spouse. Effectively, this creates a pair.
+/// </summary>
+public class OneOne<TOne> : IOneOne {
+    public class One() : OneProperty<TOne>() { }
 }
-public class OneToOne<TLeft, TRight> : IOneToOne {
-    public class Left() : OneProperty<TLeft>() { }
-    public class Right() : OneProperty<TRight>() { }
+/// <summary>
+/// Directional one-to-one relation
+/// Example: Husband to wife relation
+/// If the husband is related to the wife, the wife is automatically related back to the husband.
+/// One husband can be related to only one wife, and one wife can be related to only one husband.
+/// </summary>
+public class OneToOne<TOne1, TOne2> : IOneToOne {
+    public class One1() : OneProperty<TOne1>() { }
+    public class One2() : OneProperty<TOne2>() { }
 }
-public class OneToMany<TLeft, TRight> : IOneToMany {
-    public class Left() : OneProperty<TLeft>() { }
-    public class Right() : ManyProperty<TRight>() { }
+/// <summary>
+/// Directional one-to-many relation
+/// Example: Parent to children relation
+/// If the parent is related to the children, the children are automatically related back to the parent.
+/// One parent can be related to many children, but each child is related to only one parent.
+/// </summary>
+public class OneToMany<TOne, TMany> : IOneToMany {
+    public class One() : OneProperty<TOne>() { }
+    public class Many() : ManyProperty<TMany>() { }
 }
-public class ManyMany<T> : IManyMany {
-    public class Many() : ManyProperty<T>() { }
+/// <summary>
+/// Symmetric many-to-many relation
+/// Example: Friends relation
+/// If one friend is related to another, the other is automatically related back to the first.
+/// One friend can be related to many friends and vice versa.
+/// </summary>
+public class ManyMany<TMany> : IManyMany {
+    public class Many() : ManyProperty<TMany>() { }
 }
-public class ManyToMany<TLeft, TRight> : IManyToMany {
-    public class Left() : ManyProperty<TLeft>() { }
-    public class Right() : ManyProperty<TRight>() { }
+/// <summary>
+/// Directional many-to-many relation
+/// Example: Teachers to students relation
+/// If a teacher is related to students, the students are automatically related back to the teacher.
+/// Many teachers can be related to many students and vice versa.
+/// </summary>
+public class ManyToMany<TMany1, TMany2> : IManyToMany {
+    public class Many1() : ManyProperty<TMany1>() { }
+    public class Many2() : ManyProperty<TMany2>() { }
 }

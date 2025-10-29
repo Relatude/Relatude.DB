@@ -102,7 +102,7 @@ public static class CodeGeneratorForCSharpModels {
     static string? getDefaultDeclaration(string? currentNamespace, PropertyModel p, Datamodel dm) {
         if (p is not RelationPropertyModel rp) return p.GetDefaultDeclaration();
         if (rp.RelationValueType != RelationValueType.Native) return p.GetDefaultDeclaration();
-        return "new ()";
+        return "new()";
     }
     static bool isFirstClassUsingName_NameOfInternalIdProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfInternalIdProperty!, nodeDef, datamodel, n => n.NameOfInternalIdProperty!);
@@ -342,8 +342,34 @@ public static class CodeGeneratorForCSharpModels {
                 TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
             _ => throw new Exception("Unknown relation type " + relation.RelationType),
         });
-        inheritance += ", " + relation.CodeName + ">"; // self reference
-        sb.AppendLine("    public class " + relation.CodeName + inheritance + " { }");
+        inheritance += ">"; 
+        // inheritance += ", " + relation.CodeName + ">"; // self reference
+        sb.AppendLine("    public class " + relation.CodeName + inheritance + " { ");
+        if (!string.IsNullOrEmpty(relation.CodeNameSources)) {
+            switch (relation.RelationType) {
+                case RelationType.OneOne:
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneOne<object>.One) + "{ }");
+                    break;
+                case RelationType.OneToOne:
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneToOne<object, object>.One1) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(OneToOne<object, object>.One2) + "{ }");
+                    break;
+                case RelationType.OneToMany:
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneToMany<object, object>.One) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(OneToMany<object, object>.Many) + "{ }");
+                    break;
+                case RelationType.ManyMany:
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(ManyMany<object>.Many) + "{ }");
+                    break;
+                case RelationType.ManyToMany:
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(ManyToMany<object, object>.Many1) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(ManyToMany<object, object>.Many2) + "{ }");
+                    break;
+                default:
+                    break;
+            }
+        }
+        sb.AppendLine("    }"); // end class
     }
     public static string TypeAndNamespace(string currentNameSpace, Type type) {
         if (type.IsGenericType) {

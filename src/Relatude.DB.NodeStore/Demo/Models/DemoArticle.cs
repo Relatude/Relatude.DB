@@ -37,6 +37,6 @@ public sealed class DemoArticleChild {
 }
 
 public class Tree : OneToMany<DemoArticle, DemoArticle> {
-    public class Parent : Left { }
-    public class Children : Right { }
+    public class Parent : One { }
+    public class Children : Many { }
 }
