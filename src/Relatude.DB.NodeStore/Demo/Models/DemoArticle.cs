@@ -19,8 +19,8 @@ public class DemoArticle {
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
-    public Tree.Left Parent { get; set; } = Tree.Left.Empty;
-    public Tree.Right Children { get; set; } = Tree.Right.Empty;
+    public Tree.Parent Parent { get; set; } = new();
+    public Tree.Children Children { get; set; } = new();
     public DemoArticleType ArticleType { get; set; } = DemoArticleType.Article;
 
     [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = false)]
@@ -32,9 +32,11 @@ public sealed class OneDemoArticleManyDemoArticleChildren : OneToOne<DemoArticle
 public sealed class DemoArticleChild {
     public Guid Id { get; set; }
     public DateTimeOffset DateOfBirth3 { get; set; }
-
     [RelationProperty<OneDemoArticleManyDemoArticleChildren>(RightToLeft = true)]
     public DemoArticle? Parent { get; set; }
 }
 
-public class Tree : OneToMany<DemoArticle, DemoArticle, Tree> { }
+public class Tree : OneToMany<DemoArticle, DemoArticle> {
+    public class Parent : Left { }
+    public class Children : Right { }
+}

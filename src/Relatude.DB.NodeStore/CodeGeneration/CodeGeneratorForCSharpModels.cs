@@ -102,33 +102,7 @@ public static class CodeGeneratorForCSharpModels {
     static string? getDefaultDeclaration(string? currentNamespace, PropertyModel p, Datamodel dm) {
         if (p is not RelationPropertyModel rp) return p.GetDefaultDeclaration();
         if (rp.RelationValueType != RelationValueType.Native) return p.GetDefaultDeclaration();
-        // For native relation properties, we need to generate the code based on the relation type and this can only be done in the context of the NodeStore
-        // as this is where the OneToMany, ManyToMany, etc. are defined. So we can use namof to get the type name of the relation property.
-        var relation = dm.Relations[rp.RelationId];
-        var code = TypeAndNamespace(currentNamespace, relation.FullName());
-        switch (relation.RelationType) {
-            case RelationType.OneOne:
-                code += "." + nameof(OneOne<object>.One.Empty);
-                break;
-            case RelationType.OneToOne:
-                if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left.Empty);
-                else code += "." + nameof(OneToOne<object, object>.Right.Empty);
-                break;
-            case RelationType.OneToMany:
-                if (rp.FromTargetToSource) code += "." + nameof(OneToMany<object, object>.Left.Empty);
-                else code += "." + nameof(OneToMany<object, object>.Right.Empty);
-                break;
-            case RelationType.ManyMany:
-                code += "." + nameof(ManyMany<object>.Many.Empty);
-                break;
-            case RelationType.ManyToMany:
-                if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left.Empty);
-                else code += "." + nameof(ManyToMany<object, object>.Right.Empty);
-                break;
-            default:
-                throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
-        }
-        return code;
+        return "new ()";
     }
     static bool isFirstClassUsingName_NameOfInternalIdProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfInternalIdProperty!, nodeDef, datamodel, n => n.NameOfInternalIdProperty!);

@@ -13,9 +13,11 @@ public interface IRelationProperty {
 }
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
+    void Initialize(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet);
 }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
+    void Initialize(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas);
 }
 public class OneProperty<T>() : IOneProperty {
     NodeStore? store;
@@ -130,122 +132,20 @@ public interface IManyMany : IRelation { }
 public interface IManyToMany : IRelation { }
 
 public class OneOne<T> : IOneOne {
-    public class One() : OneProperty<T>() {
-        public readonly static OneProperty<T> Empty = new();
-    }
+    public class One() : OneProperty<T>() { }
 }
 public class OneToOne<TLeft, TRight> : IOneToOne {
-    public class Left() : OneProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : OneProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
+    public class Left() : OneProperty<TLeft>() { }
+    public class Right() : OneProperty<TRight>() { }
 }
 public class OneToMany<TLeft, TRight> : IOneToMany {
-    public class Left() : OneProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : ManyProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
+    public class Left() : OneProperty<TLeft>() { }
+    public class Right() : ManyProperty<TRight>() { }
 }
 public class ManyMany<T> : IManyMany {
-    public class Many() : ManyProperty<T>() {
-        public readonly static Many Empty = new();
-    }
+    public class Many() : ManyProperty<T>() { }
 }
 public class ManyToMany<TLeft, TRight> : IManyToMany {
-    public class Left() : ManyProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : ManyProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
+    public class Left() : ManyProperty<TLeft>() { }
+    public class Right() : ManyProperty<TRight>() { }
 }
-
-public class OneOne<T, TRelationSelfReference> : IOneOne
-    where TRelationSelfReference : OneOne<T, TRelationSelfReference> {
-    public class One() : OneProperty<T>() {
-        public readonly static One Empty = new();
-    }
-}
-public class OneToOne<TLeft, TRight, TRelationSelfReference> : IOneToOne
-     where TRelationSelfReference : OneToOne<TLeft, TRight, TRelationSelfReference> {
-    public class Left() : OneProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : OneProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
-}
-public class OneToMany<TLeft, TRight, TRelationSelfReference> : IOneToMany
-where TRelationSelfReference : OneToMany<TLeft, TRight, TRelationSelfReference> {
-    public class Left() : OneProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : ManyProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
-}
-public class ManyMany<T, TRelationSelfReference> : IManyMany
-    where TRelationSelfReference : ManyMany<T, TRelationSelfReference> {
-    public class Many() : ManyProperty<T>() {
-        public readonly static Many Empty = new();
-    }
-}
-public class ManyToMany<TLeft, TRight, TRelationSelfReference> : IManyToMany
-    where TRelationSelfReference : ManyToMany<TLeft, TRight, TRelationSelfReference> {
-    public class Left() : ManyProperty<TLeft>() {
-        public readonly static Left Empty = new();
-    }
-    public class Right() : ManyProperty<TRight>() {
-        public readonly static Right Empty = new();
-    }
-}
-
-
-
-
-//// TRelationSelfReference is there to ensure datamodel analysis based on reflection 
-//// and separate two relations refering to the same type combination.
-
-//public class OneOne<T, TRelationSelfReference> : IOneOne
-//    where TRelationSelfReference : OneOne<T, TRelationSelfReference> {
-//    public class Node : OneProperty<T> { }
-//    public readonly static Node Empty = new();
-//}
-//public class OneToOne<TFrom, TTo, TRelationSelfReference> : IOneToOne
-//    where TRelationSelfReference : OneToOne<TFrom, TTo, TRelationSelfReference> {
-//    public class FromNode : OneProperty<TFrom> { }
-//    public class ToNode : OneProperty<TTo> { }
-//    public readonly static FromNode EmptyFrom = new();
-//    public readonly static ToNode EmptyTo = new();
-//}
-//public class OneToMany<TFrom, TTo, TRelationSelfReference> : IOneToMany
-//    where TRelationSelfReference : OneToMany<TFrom, TTo, TRelationSelfReference> {
-//    public class FromNode : OneProperty<TFrom> { }
-//    public class ToNodes : ManyProperty<TTo> { }
-//    public readonly static FromNode EmptyFrom = new();
-//    public readonly static ToNodes EmptyTo = new();
-//}
-//public class ManyMany<T, TRelationSelfReference> : IManyMany
-//    where TRelationSelfReference : ManyMany<T, TRelationSelfReference> {
-//    public class Nodes : ManyProperty<T> { }
-//    public readonly static Nodes Empty = new();
-//}
-
-///// <summary>
-///// Manyto Many relation with self reference.
-///// </summary>
-///// <typeparam name="TFrom">Relation source type</typeparam>
-///// <typeparam name="TTo">Relation target type</typeparam>
-///// <typeparam name="TRelationSelfReference">A self reference to resolve ambiguity when multiple relations use the same combination of types</typeparam>
-//public class ManyToMany<TFrom, TTo, TRelationSelfReference> : IManyToMany
-//    where TRelationSelfReference : ManyToMany<TFrom, TTo, TRelationSelfReference> {
-//    public class FromNodes : ManyProperty<TFrom> { }
-//    public class ToNodes : ManyProperty<TTo> { }
-//    public readonly static FromNodes EmptyFrom = new();
-//    public readonly static ToNodes EmptyTo = new();
-
-//}

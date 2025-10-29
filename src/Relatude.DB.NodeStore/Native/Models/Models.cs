@@ -1,33 +1,51 @@
-﻿using Relatude.DB.Datamodels;
-using Relatude.DB.Nodes;
+﻿using Relatude.DB.Nodes;
 
 namespace Relatude.DB.Native.Models;
-public class SystemUserModel {
+public class SystemUser {
     public Guid Id { get; set; }
     public SystemUserType UserType { get; set; }
-    public UsersToGroups.Groups Memberships { get; set; } = new UsersToGroups.Groups();
+    public UsersToGroups.Groups Memberships { get; set; } = new();
 }
-public class SystemUserGroupModel {
+public class SystemUserGroup {
     public Guid Id { get; set; }
-    public string? GroupName { get; set; }
-    public UsersToGroups.Left UserMembers { get; set; } = UsersToGroups.Left.Empty;
-    public GroupsToGroups.Right GroupMemberships { get; set; } = GroupsToGroups.Right.Empty;
-    public GroupsToGroups.Left GroupMembers { get; set; } = GroupsToGroups.Left.Empty;
-
+    public string GroupName { get; set; } = string.Empty;
+    public UsersToGroups.Users UserMembers { get; set; } = new();
+    public GroupsToGroups.Memberships GroupMemberships { get; set; } = new();
+    public GroupsToGroups.Members GroupMembers { get; set; } = new();
 }
-public class SystemCollectionModel {
+public class SystemCollection {
     public Guid Id { get; set; }
     public string? Name { get; set; }
-    public Guid[] Cultures { get; set; } = [];
+    public CollectionsToCultures.Cultures Cultures { get; set; } = new();
 }
-public class SystemCultureModel {
+public class SystemCulture {
     public Guid Id { get; set; }
     public string CultureCode { get; set; } = string.Empty;
     public string NativeName { get; set; } = string.Empty;
     public string EnglishName { get; set; } = string.Empty;
+    public CollectionsToCultures.Collections Collections { get; set; } = new();
 }
-public class UsersToGroups : ManyToMany<SystemUserModel, SystemUserGroupModel, UsersToGroups> {
-    public class Users : Left {  }
+public class UsersToGroups
+    : ManyToMany<SystemUser, SystemUserGroup> {
+    public class Users : Left { }
     public class Groups : Right { }
 }
-public class GroupsToGroups : ManyToMany<SystemUserModel, SystemUserGroupModel, GroupsToGroups> { }
+public class GroupsToGroups
+    : ManyToMany<SystemUser, SystemUserGroup> {
+    public class Memberships : Left { }
+    public class Members : Right { }
+}
+public class CollectionsToCultures
+    : ManyToMany<SystemCollection, SystemCulture> {
+    public class Collections : Left { }
+    public class Cultures : Right { }
+}
+
+
+
+
+
+
+
+
+

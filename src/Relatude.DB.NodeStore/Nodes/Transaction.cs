@@ -93,20 +93,10 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction Relate<T>(OneOne<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<T, TRelationSelfReference>(OneOne<T, TRelationSelfReference> relation, T fromNode, T toNode)
-        where TRelationSelfReference : OneOne<T, TRelationSelfReference> => relate(relation, fromNode, toNode);
     public Transaction Relate<T>(ManyMany<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<T, TRelationSelfReference>(ManyMany<T, TRelationSelfReference> relation, T fromNode, T toNode)
-        where TRelationSelfReference : ManyMany<T, TRelationSelfReference> => relate(relation, fromNode, toNode);
     public Transaction Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo, TRelationSelfReference>(OneToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode)
-        where TRelationSelfReference : OneToMany<TFrom, TTo, TRelationSelfReference> => relate(relation, fromNode, toNode);
     public Transaction Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo, TRelationSelfReference>(OneToOne<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode)
-        where TRelationSelfReference : OneToOne<TFrom, TTo, TRelationSelfReference> => relate(relation, fromNode, toNode);
     public Transaction Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo, TRelationSelfReference>(ManyToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode)
-        where TRelationSelfReference : ManyToMany<TFrom, TTo, TRelationSelfReference> => relate(relation, fromNode, toNode);
 
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)

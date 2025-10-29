@@ -39,6 +39,7 @@ public static class DatamodelExtensions {
     }
     static void addType(this Datamodel datamodel, Type t) {
         if (datamodel.HasInitialized()) throw new Exception("Datamodel is already initialized. Cannot add more types. " + t.FullName);
+        if (t.InheritsFromOrImplements<IRelationProperty>()) return; // skip
         if (t.InheritsFromOrImplements<IRelation>()) {
             var r = BuildUtils.CreateRelationModelFromType(t);
             if (datamodel.Relations.ContainsKey(r.Id)) return;

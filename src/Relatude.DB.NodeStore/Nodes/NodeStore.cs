@@ -147,20 +147,10 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult Relate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
 
     public TransactionResult Relate<T>(OneOne<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public TransactionResult Relate<T, TRelationSelfReference>(OneOne<T, TRelationSelfReference> relation, T fromNode, T toNode)
-    where TRelationSelfReference : OneOne<T, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode));
     public TransactionResult Relate<T>(ManyMany<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public TransactionResult Relate<T, TRelationSelfReference>(ManyMany<T, TRelationSelfReference> relation, T fromNode, T toNode)
-    where TRelationSelfReference : ManyMany<T, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode));
     public TransactionResult Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(OneToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
-    where TRelationSelfReference : OneToMany<TFrom, TTo, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
     public TransactionResult Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => throw new NotImplementedException();
-    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(OneToOne<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
-    where TRelationSelfReference : OneToOne<TFrom, TTo, TRelationSelfReference> => throw new NotImplementedException();
     public TransactionResult Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
-    public TransactionResult Relate<TFrom, TTo, TRelationSelfReference>(ManyToMany<TFrom, TTo, TRelationSelfReference> relation, TFrom fromNode, TTo toNode, bool flushToDisk = false)
-    where TRelationSelfReference : ManyToMany<TFrom, TTo, TRelationSelfReference> => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
 
     public TransactionResult UnRelate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromNode, expression, toNode), flushToDisk);
     public TransactionResult UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toId), flushToDisk);

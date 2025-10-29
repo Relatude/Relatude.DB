@@ -50,33 +50,14 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneToMany:
-                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
-                            code += "." + nameof(OneToMany<object, object>.Right);
-                        } else {
-                            code += "." + relation.CodeNameSources;
-                        }
+                        code += "." + nameof(OneToMany<object, object>.Right);
                         break;
                     case RelationType.ManyMany:
-                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { // use source name fields for symmetric relation
-                            code += "." + nameof(ManyMany<object>.Many);
-                        } else {
-                            code += "." + relation.CodeNameSources;
-                        }
+                        code += "." + nameof(ManyMany<object>.Many);
                         break;
                     case RelationType.ManyToMany:
-                        if (rp.FromTargetToSource) {
-                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
-                                code += "." + nameof(ManyToMany<object, object>.Left);
-                            } else {
-                                code += "." + relation.CodeNameTargets;
-                            }
-                        } else {
-                            if (string.IsNullOrEmpty(relation.CodeNameSources)) {
-                                code += "." + nameof(ManyToMany<object, object>.Right);
-                            } else {
-                                code += "." + relation.CodeNameSources;
-                            }
-                        }
+                        if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left);
+                        else code += "." + nameof(ManyToMany<object, object>.Right);
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -89,33 +70,14 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneOne:
-                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { // use source name fields for symmetric relation
-                            code += "." + nameof(OneOne<object>.One);
-                        } else {
-                            code += "." + relation.CodeNameSources;
-                        }
+                        code += "." + nameof(OneOne<object>.One);
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) {
-                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
-                                code += "." + nameof(OneToOne<object, object>.Left);
-                            } else {
-                                code += "." + relation.CodeNameTargets;
-                            }
-                        } else {
-                            if (string.IsNullOrEmpty(relation.CodeNameSources)) {
-                                code += "." + nameof(OneToOne<object, object>.Right);
-                            } else {
-                                code += "." + relation.CodeNameSources;
-                            }
-                        }
+                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left);
+                        else code += "." + nameof(OneToOne<object, object>.Right);
                         break;
                     case RelationType.OneToMany:
-                        if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
-                            code += "." + nameof(OneToMany<object, object>.Left);
-                        } else {
-                            code += "." + relation.CodeNameTargets;
-                        }
+                        code += "." + nameof(OneToMany<object, object>.Left);
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -275,87 +237,110 @@ internal static class CodeGeneratorForValueMappers {
                         sb.AppendLine("relations." + nameof(IRelations.LookUpOneRelation) + "(" + guidName(p.Id) + ", out var v" + guidName(p.Id) + "_Included, ref v" + guidName(p.Id) + ", ref v" + guidName(p.Id) + "_IsSet);");
                         sb.AppendLine("if(v" + guidName(p.Id) + "_Included){");
                     }
-                    {
-                        sb.Append("obj." + p.CodeName + " = ");
-                        sb.Append("new " + relation.FullName() + ".");
-
-                        var pOne = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + guidName(p.Id);
-                        var pMany = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + guidName(p.Id);
-                        var oneConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pOne + ", true);";  // Fix: isSet is always true.... 
-                        var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pMany + ");";
-
-
-                        switch (relation.RelationType) {
-                            case RelationType.OneOne:
-                                sb.Append(nameof(OneOne<object>.One));
-                                sb.AppendLine(oneConstructorParams);
-                                break;
-                            case RelationType.OneToOne:
-                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
-                                else sb.Append(nameof(OneToOne<object, object>.Right));
-                                sb.AppendLine(oneConstructorParams);
-                                break;
-                            case RelationType.OneToMany:
-                                if (rp.FromTargetToSource) {
-                                    sb.Append(nameof(OneToMany<object, object>.Left));
-                                    sb.AppendLine(oneConstructorParams);
-                                } else {
-                                    sb.Append(nameof(OneToMany<object, object>.Right));
-                                    sb.AppendLine(manyConstructorParams);
-                                }
-                                break;
-                            case RelationType.ManyMany:
-                                sb.Append(nameof(ManyMany<object>.Many));
-                                sb.AppendLine(manyConstructorParams);
-                                break;
-                            case RelationType.ManyToMany:
-                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
-                                else sb.Append(nameof(ManyToMany<object, object>.Right));
-                                sb.AppendLine(manyConstructorParams);
-                                break;
-                            default:
-                                throw new NotSupportedException("Unknown relation type: " + relation.RelationType);
+                    { // If included:
+                        sb.Append("obj." + p.CodeName + ".");
+                        if (rp.IsMany) {
+                            sb.Append(nameof(IManyProperty.Initialize));
+                            var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + guidName(p.Id);
+                            sb.AppendLine("(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + relVal + ");");
+                        } else {
+                            sb.Append(nameof(IOneProperty.Initialize));
+                            var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + guidName(p.Id);
+                            sb.AppendLine("(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
                         }
                         sb.AppendLine("");
                     }
-                    sb.AppendLine("}else{");  // If not included:
-                    {
-                        sb.Append("obj." + p.CodeName + " = ");
-                        sb.Append("new " + relation.FullName() + ".");
-                        var oneConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null, null);";
-                        var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null);";
-                        switch (relation.RelationType) {
-                            case RelationType.OneOne:
-                                sb.Append(nameof(OneOne<object>.One));
-                                sb.AppendLine(oneConstructorParams);
-                                break;
-                            case RelationType.OneToOne:
-                                if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
-                                else sb.Append(nameof(OneToOne<object, object>.Right));
-                                sb.AppendLine(oneConstructorParams);
-                                break;
-                            case RelationType.OneToMany:
-                                if (rp.FromTargetToSource) {
-                                    sb.Append(nameof(OneToMany<object, object>.Left));
-                                    sb.AppendLine(oneConstructorParams);
-                                } else {
-                                    sb.Append(nameof(OneToMany<object, object>.Right));
-                                    sb.AppendLine(manyConstructorParams);
-                                }
-                                break;
-                            case RelationType.ManyMany:
-                                sb.Append(nameof(ManyMany<object>.Many));
-                                sb.AppendLine(manyConstructorParams);
-                                break;
-                            case RelationType.ManyToMany:
-                                if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
-                                else sb.Append(nameof(ManyToMany<object, object>.Right));
-                                sb.AppendLine(manyConstructorParams);
-                                break;
-                            default:
-                                break;
+                    //{ // If included:
+                    //    sb.Append("obj." + p.CodeName + " = ");
+                    //    sb.Append("new " + relation.FullName() + ".");
+                    //    var pOne = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + guidName(p.Id);
+                    //    var pMany = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + guidName(p.Id);
+                    //    var oneConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pOne + ", true);";  // Fix: isSet is always true.... 
+                    //    var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pMany + ");";
+                    //    switch (relation.RelationType) {
+                    //        case RelationType.OneOne:
+                    //            sb.Append(nameof(OneOne<object>.One));
+                    //            sb.AppendLine(oneConstructorParams);
+                    //            break;
+                    //        case RelationType.OneToOne:
+                    //            if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
+                    //            else sb.Append(nameof(OneToOne<object, object>.Right));
+                    //            sb.AppendLine(oneConstructorParams);
+                    //            break;
+                    //        case RelationType.OneToMany:
+                    //            if (rp.FromTargetToSource) {
+                    //                sb.Append(nameof(OneToMany<object, object>.Left));
+                    //                sb.AppendLine(oneConstructorParams);
+                    //            } else {
+                    //                sb.Append(nameof(OneToMany<object, object>.Right));
+                    //                sb.AppendLine(manyConstructorParams);
+                    //            }
+                    //            break;
+                    //        case RelationType.ManyMany:
+                    //            sb.Append(nameof(ManyMany<object>.Many));
+                    //            sb.AppendLine(manyConstructorParams);
+                    //            break;
+                    //        case RelationType.ManyToMany:
+                    //            if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
+                    //            else sb.Append(nameof(ManyToMany<object, object>.Right));
+                    //            sb.AppendLine(manyConstructorParams);
+                    //            break;
+                    //        default:
+                    //            throw new NotSupportedException("Unknown relation type: " + relation.RelationType);
+                    //    }
+                    //    sb.AppendLine("");
+                    //}
+
+                    sb.AppendLine("}else{");
+                    
+                    { // If not included:
+                        sb.Append("obj." + p.CodeName + ".");
+                        if (rp.IsMany) {
+                            sb.Append(nameof(IManyProperty.Initialize));
+                            sb.AppendLine("(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null);");
+                        } else {
+                            sb.Append(nameof(IOneProperty.Initialize));
+                            sb.AppendLine("(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null, null);");
                         }
+                        sb.AppendLine("");
                     }
+                    //{ // If not included:
+                    //    sb.Append("obj." + p.CodeName + " = ");
+                    //    sb.Append("new " + relation.FullName() + ".");
+                    //    var oneConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null, null);";
+                    //    var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", null);";
+                    //    switch (relation.RelationType) {
+                    //        case RelationType.OneOne:
+                    //            sb.Append(nameof(OneOne<object>.One));
+                    //            sb.AppendLine(oneConstructorParams);
+                    //            break;
+                    //        case RelationType.OneToOne:
+                    //            if (rp.FromTargetToSource) sb.Append(nameof(OneToOne<object, object>.Left));
+                    //            else sb.Append(nameof(OneToOne<object, object>.Right));
+                    //            sb.AppendLine(oneConstructorParams);
+                    //            break;
+                    //        case RelationType.OneToMany:
+                    //            if (rp.FromTargetToSource) {
+                    //                sb.Append(nameof(OneToMany<object, object>.Left));
+                    //                sb.AppendLine(oneConstructorParams);
+                    //            } else {
+                    //                sb.Append(nameof(OneToMany<object, object>.Right));
+                    //                sb.AppendLine(manyConstructorParams);
+                    //            }
+                    //            break;
+                    //        case RelationType.ManyMany:
+                    //            sb.Append(nameof(ManyMany<object>.Many));
+                    //            sb.AppendLine(manyConstructorParams);
+                    //            break;
+                    //        case RelationType.ManyToMany:
+                    //            if (rp.FromTargetToSource) sb.Append(nameof(ManyToMany<object, object>.Left));
+                    //            else sb.Append(nameof(ManyToMany<object, object>.Right));
+                    //            sb.AppendLine(manyConstructorParams);
+                    //            break;
+                    //        default:
+                    //            break;
+                    //    }
+                    //}
                     sb.AppendLine("}");
 
                     //throw new NotSupportedException("Native collections should not be called by this function.");

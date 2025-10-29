@@ -1,10 +1,10 @@
 ﻿namespace Relatude.DB.Native;
-public class SystemUser {
+public class NativeSystemUser {
     public Guid Id { get; set; }
     public SystemUserType UserType { get; set; } = SystemUserType.Anonymous;
     public Guid[] Memberships { get; set; } = [];
 }
-public class SystemUserGroup {
+public class NativeSystemUserGroup {
     public Guid Id { get; set; }
     public string? GroupName { get; set; }
     public Guid[] Members { get; set; } = [];
@@ -15,12 +15,12 @@ public enum SystemUserType {
     System,
     Admin,
 }
-public class SystemCollection {
+public class NativeSystemCollection {
     public Guid Id { get; set; }
     public string? Name { get; set; }
     public Guid[] Cultures { get; set; } = [];
 }
-public class SystemCulture {
+public class NativeSystemCulture {
     public Guid Id { get; set; }
     public string CultureCode{ get; set; } = string.Empty;
     public string NativeName { get; set; } = string.Empty;
