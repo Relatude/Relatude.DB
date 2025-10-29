@@ -4,13 +4,6 @@ using Relatude.DB.Query;
 
 namespace Relatude.DB.Nodes;
 
-// OneOne: .One
-// OneToOne: .OneLeft, .OneRight, .One1, .One2 , OneA, OneB, OneIn,OneOut,OneSource, OneTarget
-// OneToMany: .One, .Many
-// ManyMany: .Many
-// ManyToMany: .ManyLeft, .ManyRight
-
-
 public interface IRelationProperty {
     bool IsSet();
     int Count();
@@ -21,24 +14,22 @@ public interface IRelationProperty {
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
 }
-public interface IOneProperty<T> : IOneProperty {
-    T Get();
-    bool TryGet([MaybeNullWhen(false)] out T value);
-}
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
 }
-public interface IManyProperty<T> : IManyProperty {
-    IEnumerable<T> Get();
-    IQueryOfNodes<T, T> Query();
-    IQueryOfNodes<T, T> Query(Guid id);
-    IQueryOfNodes<T, T> Query(IEnumerable<Guid> ids);
-    IQueryOfNodes<T, T> Query(int id);
-    IQueryOfNodes<T, T> Query(IEnumerable<int> ids);
-}
-
-public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) : IOneProperty {
-
+public class OneProperty<T>() : IOneProperty {
+    NodeStore? store;
+    Guid parentId;
+    Guid propertyId;
+    INodeData? nodeData;
+    bool? isSet = false;
+    public void Initialize(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) {
+        this.store = store;
+        this.parentId = parentId;
+        this.propertyId = propertyId;
+        this.nodeData = nodeData;
+        this.isSet = isSet;
+    }
     public bool IsSet() => (isSet.HasValue) ? isSet.Value : tryGet(out _);
     public int Count() => IsSet() ? 1 : 0;
     public T Get() {
@@ -82,8 +73,18 @@ public class OneProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, IN
     }
 
 }
-public class ManyProperty<T>(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : IManyProperty {
+public class ManyProperty<T>() : IManyProperty {
     int? _count;
+    NodeStore? store;
+    Guid parentId;
+    Guid propertyId;
+    INodeData[]? nodeDatas;
+    public void Initialize(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) {
+        this.store = store;
+        this.parentId = parentId;
+        this.propertyId = propertyId;
+        this.nodeDatas = nodeDatas;
+    }
     public bool IsSet() => Count() > 0;
     public int Count() {
         if (_count.HasValue) return _count.Value;
@@ -129,85 +130,77 @@ public interface IManyMany : IRelation { }
 public interface IManyToMany : IRelation { }
 
 public class OneOne<T> : IOneOne {
-    public class One(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<T>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static OneProperty<T> Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class One() : OneProperty<T>() {
+        public readonly static OneProperty<T> Empty = new();
     }
 }
 public class OneToOne<TLeft, TRight> : IOneToOne {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TLeft>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Left() : OneProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TRight>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Right() : OneProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 public class OneToMany<TLeft, TRight> : IOneToMany {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TLeft>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Left() : OneProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TRight>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Right() : ManyProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 public class ManyMany<T> : IManyMany {
-    public class Many(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<T>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Many Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Many() : ManyProperty<T>() {
+        public readonly static Many Empty = new();
     }
 }
 public class ManyToMany<TLeft, TRight> : IManyToMany {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TLeft>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Left() : ManyProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TRight>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Right() : ManyProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 
 public class OneOne<T, TRelationSelfReference> : IOneOne
     where TRelationSelfReference : OneOne<T, TRelationSelfReference> {
-    public class One(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<T>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static One Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class One() : OneProperty<T>() {
+        public readonly static One Empty = new();
     }
 }
 public class OneToOne<TLeft, TRight, TRelationSelfReference> : IOneToOne
      where TRelationSelfReference : OneToOne<TLeft, TRight, TRelationSelfReference> {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TLeft>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Left() : OneProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TRight>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Right() : OneProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 public class OneToMany<TLeft, TRight, TRelationSelfReference> : IOneToMany
 where TRelationSelfReference : OneToMany<TLeft, TRight, TRelationSelfReference> {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet)
-        : OneProperty<TLeft>(store, parentId, propertyId, nodeData, isSet) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null, false);
+    public class Left() : OneProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TRight>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Right() : ManyProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 public class ManyMany<T, TRelationSelfReference> : IManyMany
     where TRelationSelfReference : ManyMany<T, TRelationSelfReference> {
-    public class Many(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<T>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Many Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Many() : ManyProperty<T>() {
+        public readonly static Many Empty = new();
     }
 }
 public class ManyToMany<TLeft, TRight, TRelationSelfReference> : IManyToMany
     where TRelationSelfReference : ManyToMany<TLeft, TRight, TRelationSelfReference> {
-    public class Left(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TLeft>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Left Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Left() : ManyProperty<TLeft>() {
+        public readonly static Left Empty = new();
     }
-    public class Right(NodeStore? store, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) : ManyProperty<TRight>(store, parentId, propertyId, nodeDatas) {
-        public readonly static Right Empty = new(null, Guid.Empty, Guid.Empty, null);
+    public class Right() : ManyProperty<TRight>() {
+        public readonly static Right Empty = new();
     }
 }
 

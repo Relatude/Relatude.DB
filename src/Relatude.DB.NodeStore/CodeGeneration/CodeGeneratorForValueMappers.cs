@@ -50,14 +50,33 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.Right);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            code += "." + nameof(OneToMany<object, object>.Right);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     case RelationType.ManyMany:
-                        code += "." + nameof(ManyMany<object>.Many);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { // use source name fields for symmetric relation
+                            code += "." + nameof(ManyMany<object>.Many);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     case RelationType.ManyToMany:
-                        if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Left);
-                        else code += "." + nameof(ManyToMany<object, object>.Right);
+                        if (rp.FromTargetToSource) {
+                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
+                                code += "." + nameof(ManyToMany<object, object>.Left);
+                            } else {
+                                code += "." + relation.CodeNameTargets;
+                            }
+                        } else {
+                            if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                                code += "." + nameof(ManyToMany<object, object>.Right);
+                            } else {
+                                code += "." + relation.CodeNameSources;
+                            }
+                        }
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -70,14 +89,33 @@ internal static class CodeGeneratorForValueMappers {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneOne:
-                        code += "." + nameof(OneOne<object>.One);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { // use source name fields for symmetric relation
+                            code += "." + nameof(OneOne<object>.One);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.Left);
-                        else code += "." + nameof(OneToOne<object, object>.Right);
+                        if (rp.FromTargetToSource) {
+                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
+                                code += "." + nameof(OneToOne<object, object>.Left);
+                            } else {
+                                code += "." + relation.CodeNameTargets;
+                            }
+                        } else {
+                            if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                                code += "." + nameof(OneToOne<object, object>.Right);
+                            } else {
+                                code += "." + relation.CodeNameSources;
+                            }
+                        }
                         break;
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.Left);
+                        if (string.IsNullOrEmpty(relation.CodeNameTargets)) {
+                            code += "." + nameof(OneToMany<object, object>.Left);
+                        } else {
+                            code += "." + relation.CodeNameTargets;
+                        }
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");
@@ -240,10 +278,13 @@ internal static class CodeGeneratorForValueMappers {
                     {
                         sb.Append("obj." + p.CodeName + " = ");
                         sb.Append("new " + relation.FullName() + ".");
+
                         var pOne = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + guidName(p.Id);
                         var pMany = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + guidName(p.Id);
                         var oneConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pOne + ", true);";  // Fix: isSet is always true.... 
                         var manyConstructorParams = "(store, nodeData." + nameof(INodeData.Id) + ", " + guidName(p.Id) + ", " + pMany + ");";
+
+
                         switch (relation.RelationType) {
                             case RelationType.OneOne:
                                 sb.Append(nameof(OneOne<object>.One));

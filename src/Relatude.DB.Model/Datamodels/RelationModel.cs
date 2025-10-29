@@ -8,6 +8,8 @@ public class RelationModel {
     public RelationType RelationType { get; set; }
     public List<Guid> SourceTypes { get; set; } = new();
     public List<Guid> TargetTypes { get; set; } = new();
+    public string? CodeNameSources { get; set; }
+    public string? CodeNameTargets { get; set; }
     public int MaxCountTo { get; set; } = int.MaxValue;
     public int MaxCountFrom { get; set; } = int.MaxValue;
     public bool CultureSpecific { get; set; }

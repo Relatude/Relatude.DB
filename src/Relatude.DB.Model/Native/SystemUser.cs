@@ -22,7 +22,7 @@ public class SystemCollection {
 }
 public class SystemCulture {
     public Guid Id { get; set; }
-    public string CultureCode{ get; set; }
-    public string NativeName { get; set; }
-    public string EnglishName { get; set; }
+    public string CultureCode{ get; set; } = string.Empty;
+    public string NativeName { get; set; } = string.Empty;
+    public string EnglishName { get; set; } = string.Empty;
 }
