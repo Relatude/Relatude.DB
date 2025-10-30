@@ -50,59 +50,7 @@ internal static class BuildUtils {
                 throw new Exception(type.FullName + " is not a known relation type. ");
         }
         // resolving code names for source and target types: ( for code generation purposes )
-        var nestedTypes = type.GetNestedTypes();
-        if (nestedTypes.Length > 0) {
-            switch (r.RelationType) {
-                case RelationType.OneOne:
-                case RelationType.ManyMany: {
-                        if (nestedTypes.Length > 1) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                        var one = nestedTypes[0];
-                        r.CodeNameSources = one.Name;
-                    }
-                    break;
-                case RelationType.OneToOne: {
-                        if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                        var a = nestedTypes[0];
-                        var b = nestedTypes[1];
-                        if (a.BaseType!.Name == nameof(OneToOne<object, object>.One1)) { // first class is refers to left side of relation ( Many1 )
-                            r.CodeNameSources = a.Name;
-                            r.CodeNameTargets = b.Name;
-                        } else {
-                            r.CodeNameSources = b.Name;
-                            r.CodeNameTargets = a.Name;
-                        }
-                    }
-                    break;
-                case RelationType.OneToMany: {
-                        if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                        var a = nestedTypes[0];
-                        var b = nestedTypes[1];
-                        if (a.BaseType!.Name == nameof(OneToMany<object, object>.One)) { // first class is refers to left side of relation ( One )
-                            r.CodeNameSources = a.Name;
-                            r.CodeNameTargets = b.Name;
-                        } else {
-                            r.CodeNameSources = b.Name;
-                            r.CodeNameTargets = a.Name;
-                        }
-                    }
-                    break;
-                case RelationType.ManyToMany: {
-                        if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                        var a = nestedTypes[0];
-                        var b = nestedTypes[1];
-                        if (a.BaseType!.Name == nameof(ManyToMany<object, object>.Many1)) { // first class is refers to left side of relation ( Many1 )
-                            r.CodeNameSources = a.Name;
-                            r.CodeNameTargets = b.Name;
-                        } else {
-                            r.CodeNameSources = b.Name;
-                            r.CodeNameTargets = a.Name;
-                        }
-                    }
-                    break;
-                default:
-                    throw new Exception(type.FullName + " is not a known relation type. ");
-            }
-        }
+        evaluateCodeNameSourcesAndTargets(r, type);
         if (relationAttr.SourceTypes != null && relationAttr.SourceTypes.Any()) {
             r.SourceTypes.AddRange(relationAttr.SourceTypes.Select(t => Guid.Parse(t)));
         }
@@ -112,6 +60,59 @@ internal static class BuildUtils {
         r.SourceTypes = r.SourceTypes.Distinct().ToList();
         r.TargetTypes = r.TargetTypes.Distinct().ToList();
         return r;
+    }
+    static void evaluateCodeNameSourcesAndTargets(RelationModel r, Type type) {
+        var nestedTypes = type.GetNestedTypes();
+        switch (r.RelationType) {
+            case RelationType.OneOne:
+            case RelationType.ManyMany: {
+                    if (nestedTypes.Length != 1) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
+                    var one = nestedTypes[0];
+                    r.CodeNameSources = one.Name;
+                }
+                break;
+            case RelationType.OneToOne: {
+                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
+                    var a = nestedTypes[0];
+                    var b = nestedTypes[1];
+                    if (a.BaseType!.Name == nameof(OneToOne<object, object>.One1)) { // first class is refers to left side of relation ( Many1 )
+                        r.CodeNameSources = a.Name;
+                        r.CodeNameTargets = b.Name;
+                    } else {
+                        r.CodeNameSources = b.Name;
+                        r.CodeNameTargets = a.Name;
+                    }
+                }
+                break;
+            case RelationType.OneToMany: {
+                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
+                    var a = nestedTypes[0];
+                    var b = nestedTypes[1];
+                    if (a.BaseType!.Name == nameof(OneToMany<object, object>.One)) { // first class is refers to left side of relation ( One )
+                        r.CodeNameSources = a.Name;
+                        r.CodeNameTargets = b.Name;
+                    } else {
+                        r.CodeNameSources = b.Name;
+                        r.CodeNameTargets = a.Name;
+                    }
+                }
+                break;
+            case RelationType.ManyToMany: {
+                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
+                    var a = nestedTypes[0];
+                    var b = nestedTypes[1];
+                    if (a.BaseType!.Name == nameof(ManyToMany<object, object>.Many1)) { // first class is refers to left side of relation ( Many1 )
+                        r.CodeNameSources = a.Name;
+                        r.CodeNameTargets = b.Name;
+                    } else {
+                        r.CodeNameSources = b.Name;
+                        r.CodeNameTargets = a.Name;
+                    }
+                }
+                break;
+            default:
+                throw new Exception(type.FullName + " is not a known relation type. ");
+        }
     }
     public static NodeTypeModel CreateNodeTypeModelFromType(Type type) {
         var c = new NodeTypeModel();
