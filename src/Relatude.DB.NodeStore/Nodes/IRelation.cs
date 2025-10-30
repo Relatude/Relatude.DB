@@ -146,9 +146,9 @@ public class OneOne<TOne> : IOneOne {
 /// If the husband is related to the wife, the wife is automatically related back to the husband.
 /// One husband can be related to only one wife, and one wife can be related to only one husband.
 /// </summary>
-public class OneToOne<TOne1, TOne2> : IOneToOne {
-    public class One1() : OneProperty<TOne1>() { }
-    public class One2() : OneProperty<TOne2>() { }
+public class OneToOne<TOneFrom, TOneTo> : IOneToOne {
+    public class OneFrom() : OneProperty<TOneFrom>() { }
+    public class OneTo() : OneProperty<TOneTo>() { }
 }
 /// <summary>
 /// Directional one-to-many relation
@@ -175,7 +175,7 @@ public class ManyMany<TMany> : IManyMany {
 /// If a teacher is related to students, the students are automatically related back to the teacher.
 /// Many teachers can be related to many students and vice versa.
 /// </summary>
-public class ManyToMany<TMany1, TMany2> : IManyToMany {
-    public class Many1() : ManyProperty<TMany1>() { }
-    public class Many2() : ManyProperty<TMany2>() { }
+public class ManyToMany<TManyFrom, TManyTo> : IManyToMany {
+    public class ManyFrom() : ManyProperty<TManyFrom>() { }
+    public class ManyTo() : ManyProperty<TManyTo>() { }
 }

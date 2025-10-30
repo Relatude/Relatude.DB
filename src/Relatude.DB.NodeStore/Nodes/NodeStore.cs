@@ -18,7 +18,7 @@ namespace Relatude.DB.Nodes;
 
 //public enum NodeOperation : byte {
 //    InsertOrFail, // [DEFAULT] inserts a new node, fails if a node with same ID already exists ( if ID is set )
-//    InsertIfNotExists, // inserts a new node, do nothing if a node with the ID already exists
+//    InsertIfNotExists, // inserts a new node, does nothing if a node with the ID already exists
 //    DeleteOrFail, // [DEFAULT] deletes a node, fails if the node does not exist
 //    DeleteIfExists, // deletes a node, ignored if the node does not exist
 //    UpdateIfExists, // updates a node, ignored if the node does not exist and only updates if changed, faster if not changed (avoids disk writes), slower if changed due to comparison
@@ -72,7 +72,6 @@ public sealed class NodeStore : IDisposable {
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
-
 
     public TransactionResult Insert(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
     public TransactionResult Insert(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);

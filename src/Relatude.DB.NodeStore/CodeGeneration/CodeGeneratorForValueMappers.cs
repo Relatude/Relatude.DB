@@ -75,8 +75,8 @@ internal static class CodeGeneratorForValueMappers {
                         break;
                     case RelationType.ManyToMany:
                         if (string.IsNullOrEmpty(relation.CodeNameSources)) {
-                            if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.Many1);
-                            else code += "." + nameof(ManyToMany<object, object>.Many2);
+                            if (rp.FromTargetToSource) code += "." + nameof(ManyToMany<object, object>.ManyFrom);
+                            else code += "." + nameof(ManyToMany<object, object>.ManyTo);
                         } else {
                             if (string.IsNullOrEmpty(relation.CodeNameTargets)) throw new Exception("Relation " + relation.CodeName + " is missing CodeNameTargets.");
                             if (rp.FromTargetToSource) code += "." + relation.CodeNameSources;
@@ -97,8 +97,8 @@ internal static class CodeGeneratorForValueMappers {
                         code += "." + nameof(OneOne<object>.One);
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.One1);
-                        else code += "." + nameof(OneToOne<object, object>.One2);
+                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.OneFrom);
+                        else code += "." + nameof(OneToOne<object, object>.OneTo);
                         break;
                     case RelationType.OneToMany:
                         code += "." + nameof(OneToMany<object, object>.One);

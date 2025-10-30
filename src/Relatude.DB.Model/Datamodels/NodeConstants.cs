@@ -18,6 +18,13 @@ public static class NodeConstants {
     public static readonly Guid BaseCollectionId = new(BaseCollectionIdString);
     public static readonly Guid BaseCultureId = new(BaseCultureIdString);
 
+    const string RelationUsersToGroupsString = "f161bb73-5434-4dd4-a7b4-558a12412ca6";
+    const string RelationGroupsToGroupsString = "df8e846d-d3e5-41a1-806e-fcd8159d1396";
+    const string RelationCollectionsToCulturesString = "39f5e3e6-56d3-4d63-8703-1eb0b8e75861";
+    public static readonly Guid RelationUsersToGroups = new(RelationUsersToGroupsString);
+    public static readonly Guid RelationGroupsToGroups = new(RelationGroupsToGroupsString);
+    public static readonly Guid RelationCollectionsToCultures = new(RelationCollectionsToCulturesString);
+
 }
 //public enum Revision {
 //    Live = 0,

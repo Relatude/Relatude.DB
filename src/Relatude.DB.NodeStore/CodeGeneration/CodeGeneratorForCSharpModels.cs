@@ -351,8 +351,8 @@ public static class CodeGeneratorForCSharpModels {
                     sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneOne<object>.One) + "{ }");
                     break;
                 case RelationType.OneToOne:
-                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneToOne<object, object>.One1) + "{ }");
-                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(OneToOne<object, object>.One2) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneToOne<object, object>.OneFrom) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(OneToOne<object, object>.OneTo) + "{ }");
                     break;
                 case RelationType.OneToMany:
                     sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(OneToMany<object, object>.One) + "{ }");
@@ -362,8 +362,8 @@ public static class CodeGeneratorForCSharpModels {
                     sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(ManyMany<object>.Many) + "{ }");
                     break;
                 case RelationType.ManyToMany:
-                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(ManyToMany<object, object>.Many1) + "{ }");
-                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(ManyToMany<object, object>.Many2) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameSources + " : " + nameof(ManyToMany<object, object>.ManyFrom) + "{ }");
+                    sb.AppendLine("        public class " + relation.CodeNameTargets + " : " + nameof(ManyToMany<object, object>.ManyTo) + "{ }");
                     break;
                 default:
                     break;

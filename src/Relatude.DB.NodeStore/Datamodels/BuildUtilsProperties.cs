@@ -255,9 +255,9 @@ internal static class BuildUtilsProperties {
     static bool isRelationPropertyFromTargetToSource(Type relationClassType, Type propertyValueType) {
         propertyValueType = propertyValueType.BaseType!;
         return getRelationClassType(relationClassType) switch {
-            RelationType.OneToOne => propertyValueType.Name == nameof(OneToOne<object, object>.One1),
+            RelationType.OneToOne => propertyValueType.Name == nameof(OneToOne<object, object>.OneFrom),
             RelationType.OneToMany => propertyValueType.Name == nameof(OneToMany<object, object>.One),
-            RelationType.ManyToMany => propertyValueType.Name == nameof(ManyToMany<object, object>.Many1),
+            RelationType.ManyToMany => propertyValueType.Name == nameof(ManyToMany<object, object>.ManyFrom),
             RelationType.OneOne => false,
             RelationType.ManyMany => false,
             _ => throw new NotSupportedException("Relation type " + relationClassType.FullName + " is not supported."),

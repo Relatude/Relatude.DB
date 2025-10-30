@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Diagnostics;
-using System.Transactions;
+﻿using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Transactions;
@@ -8,7 +6,8 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
-    internal FastRollingCounter _transactionActivity = new();
+    internal FastRollingCounter _transactionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
+
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null) {
         return Task.FromResult(Execute(transaction, flushToDisk));
     }
@@ -17,24 +16,19 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
-
             var result = execute_outer(transaction, true, flush, out var primitiveActionCount);
-
-            // logging:
             if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
-            
             return result;
-        } else {
-
+        } else { // faster path without logging:
             return execute_outer(transaction, true, flush, out _);
-
         }
     }
 
     TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
+        HashSet<int>? nativeModelsToSync = null;
         try {
             validateDatabaseState();
             if (transaction.Timestamp <= _wal.LastTimestamp) {
@@ -43,9 +37,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
-            execute_inner(transaction, transformValues, flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId);
+            execute_inner(transaction, transformValues, flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId, ref nativeModelsToSync);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
-            return new (transaction.Timestamp, resultingOperations);
+            //if (nativeModelsToSync != null) syn(nativeModelsToSync);
+            return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
             LogError("Transaction Error. ", err);
@@ -60,7 +55,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     void execute_inner(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount,
-        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
+        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, ref HashSet<int>? nativeModelsToSync) {
         HashSet<Guid>? lockExcemptions = null;
         if (transaction.LockExcemptions != null) {
             if (!_nodeWriteLocks.LocksAreActive(transaction.LockExcemptions))
@@ -68,7 +63,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     string.Join(", ", transaction.LockExcemptions) + " are no longer active. ");
             lockExcemptions = new(transaction.LockExcemptions);
         }
-        var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
+        var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId, ref nativeModelsToSync); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
         if (executed.Count == 0) {
             if (flushToDisk) _wal.FlushToDisk(Settings.DeepFlushDisk);
@@ -83,9 +78,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceLastStateSnaphot++;
         _noTransactionsSinceClearCache++;
         _noPrimitiveActionsInLogThatCanBeTruncated += executed.Count(a => a.Operation == PrimitiveOperation.Remove);
+
     }
     List<PrimitiveActionBase> executeActions(TransactionData transaction, HashSet<Guid>? lockExcemptions, bool transformValues,
-        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
+        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, ref HashSet<int>? nativeModelsToSync) {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
         try {
@@ -98,7 +94,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _transactionActivity.Record();
                 foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
                     if (anyLocks) validateLocks(a, lockExcemptions);
-                    executeAction(a); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
+                    executeAction(a, ref nativeModelsToSync); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(a);
                     resultingOperations[i - 1] = resultingOperation;
                 }
@@ -114,9 +110,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             return executed;
         } catch (ExceptionWithoutIntegrityLoss) { // rollback
             // rollback with opposite actions in reverse order:
+            HashSet<int>? sink = null; // no need to track native models during rollback
             for (var n = executed.Count - 1; n >= 0; n--) {
                 // Console.WriteLine("Rollback: " + executed[n]);
-                executeAction(executed[n].Opposite());
+                executeAction(executed[n].Opposite(), ref sink);
             }
             throw;
         } finally {
@@ -136,10 +133,21 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_nodeWriteLocks.IsLocked(ra.Target, transactionLocks)) throw new ExceptionWithoutIntegrityLoss("Node with ID: " + ra.Target + " is locked and cannot have relations changed. ");
         }
     }
-    void executeAction(PrimitiveActionBase action) {
-        if (action is PrimitiveNodeAction na) executeNodeAction(na);
-        else if (action is PrimitiveRelationAction ra) executeRelationAction(ra);
-        else throw new NotImplementedException();
+    void executeAction(PrimitiveActionBase action, ref HashSet<int>? nativeModelsToSync) {
+        if (action is PrimitiveNodeAction na) {
+            if (isActionOnNodeTypeRelevantToNativeContextModel(na.Node.NodeType)) {
+                nativeModelsToSync ??= [];
+                nativeModelsToSync.Add(na.Node.__Id);
+            }
+            executeNodeAction(na);
+        } else if (action is PrimitiveRelationAction ra) {
+            if (isActionOnRelationRelevantToNativeContextModel(ra.RelationId)) {
+                nativeModelsToSync ??= [];
+                nativeModelsToSync.Add(ra.Source);
+                nativeModelsToSync.Add(ra.Target);
+            }
+            executeRelationAction(ra);
+        } else throw new NotImplementedException();
     }
     void executeNodeAction(PrimitiveNodeAction action) {
         switch (action.Operation) {
@@ -168,9 +176,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void executeRelationAction(PrimitiveRelationAction action) {
         _relations.RegisterAction(action);
-    }
-    void validateDatabaseState() {
-        if (_state != Common.DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
     }
 
     public Task<Guid> RequestGlobalLockAsync(double lockDurationInMs, double maxWaitTimeInMs) {

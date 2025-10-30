@@ -11,6 +11,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
+using Relatude.DB.Native;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Tasks;
@@ -47,7 +48,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
-    QueryContext _defaultUserCtx;
+    NativeModelStore _nativeModelStore = new();
+    // QueryContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
     long _noPrimitiveActionsSinceLastStateSnaphot;
@@ -73,7 +75,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IQueueStore? queueStore = null
         ) {
         _initiatedUtc = DateTime.UtcNow;
-        _defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
+        //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
         _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
@@ -116,6 +118,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             Dispose(); // release resources
             throw;
         }
+    }
+    void validateDatabaseState() {
+        if (_state != Common.DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
     }
     public void RegisterRunner(ITaskRunner runner) {
         if (_state != DataStoreState.Closed) {

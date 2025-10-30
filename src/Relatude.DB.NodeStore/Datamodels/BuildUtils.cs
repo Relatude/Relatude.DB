@@ -63,6 +63,7 @@ internal static class BuildUtils {
     }
     static void evaluateCodeNameSourcesAndTargets(RelationModel r, Type type) {
         var nestedTypes = type.GetNestedTypes();
+        if (nestedTypes.Length == 0) return; // no nested types defined
         switch (r.RelationType) {
             case RelationType.OneOne:
             case RelationType.ManyMany: {
@@ -75,7 +76,7 @@ internal static class BuildUtils {
                     if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
                     var a = nestedTypes[0];
                     var b = nestedTypes[1];
-                    if (a.BaseType!.Name == nameof(OneToOne<object, object>.One1)) { // first class is refers to left side of relation ( Many1 )
+                    if (a.BaseType!.Name == nameof(OneToOne<object, object>.OneFrom)) { // first class is refers to left side of relation ( Many1 )
                         r.CodeNameSources = a.Name;
                         r.CodeNameTargets = b.Name;
                     } else {
@@ -101,7 +102,7 @@ internal static class BuildUtils {
                     if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
                     var a = nestedTypes[0];
                     var b = nestedTypes[1];
-                    if (a.BaseType!.Name == nameof(ManyToMany<object, object>.Many1)) { // first class is refers to left side of relation ( Many1 )
+                    if (a.BaseType!.Name == nameof(ManyToMany<object, object>.ManyFrom)) { // first class is refers to left side of relation ( Many1 )
                         r.CodeNameSources = a.Name;
                         r.CodeNameTargets = b.Name;
                     } else {

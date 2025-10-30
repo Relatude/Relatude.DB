@@ -11,6 +11,7 @@ public enum ParsedTypes {
     FloatString, // stored as string to delay parsing when needed type is known ( int vs decimal, etc)
     ArrayOfStrings,
     ArrayOfNumberStrings,
+    ArrayOfNone,
 }
 public class ValueConstantToken : TokenBase {
     readonly object? _value;
@@ -133,6 +134,11 @@ public class ValueConstantToken : TokenBase {
                     var arr = ((string[])_value!).Select(s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)).ToArray();
                     return (T)(object)arr;
                 }
+            case ParsedTypes.ArrayOfNone: {
+                    if (typeof(T) == typeof(string[])) return (T)(object)Array.Empty<string>();
+                    if (typeof(T) == typeof(int[])) return (T)(object)Array.Empty<int>();
+                    throw new Exception("Cannot cast empty array to type " + typeof(T) + ". ");
+                }
             default:
                 throw new Exception("Unknown parsed type " + ParsedTypeHint + ". ");
         }
@@ -172,6 +178,11 @@ public class ValueConstantToken : TokenBase {
         if (firstChar == '[') {
             pos++;
             pos = SkipWhiteSpace(code, pos);
+            if (code[pos] == ']') {
+                // empty array:
+                newPos = pos + 1;
+                return new(Array.Empty<object>(), ParsedTypes.ArrayOfNone, code, pos, newPos);
+            }
             var isStringArray = code[pos] == '\"' || code[pos] == '\'';
             if (isStringArray) {
                 List<string> strValues = [];
