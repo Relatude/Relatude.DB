@@ -203,7 +203,6 @@ namespace Relatude.DB.DataStores.Stores {
             stream.ValidateChecksum();
             stream.ValidateMarker(_marker);
         }
-
         internal string? TextInfo() {
             lock (_lock) {
                 return "ID count: " + _ids.Count.To1000N() + "\n";

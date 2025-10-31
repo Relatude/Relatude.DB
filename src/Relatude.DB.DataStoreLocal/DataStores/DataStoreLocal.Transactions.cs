@@ -39,7 +39,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
             execute_inner(transaction, transformValues, flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId, ref nativeModelsToSync);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
-            //if (nativeModelsToSync != null) syn(nativeModelsToSync);
+            if (nativeModelsToSync != null) syncNativeInfo(nativeModelsToSync);
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back

@@ -31,13 +31,58 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (relationId == NodeConstants.RelationUsersToGroups) return true;
         return false;
     }
-    void syncNativeInfo(HashSet<int> nodeIds) {
-        //_nodes.Contains(nodeIds);
+    enum NativeType {
+        SystemUser,
+        SystemUserGroup,
+        SystemCulture,
+        Collection
     }
-    void syncNativeSystemUser(int nodeId) { }
-    void syncNativeCollection(int nodeId) { }
-    void syncNativeSystemUserGroup(int nodeId) { }
-    void syncNativeSystemCulture(int nodeId) { }
+    void syncNativeInfo(IEnumerable<int> nodeIds) {
+        foreach (var nodeId in nodeIds) {
+            bool exists = _nodes.TryGet(nodeId, out var node, out _);
+            NativeType nativeType;
+            if (exists) {
+                var typeId = node!.NodeType;
+                var types = Datamodel.NodeTypes[typeId].ThisAndAllInheritedTypes;
+                if (types.ContainsKey(NodeConstants.BaseUserId)) nativeType = NativeType.SystemUser;
+                else if (types.ContainsKey(NodeConstants.BaseUserGroupId)) nativeType = NativeType.SystemUserGroup;
+                else if (types.ContainsKey(NodeConstants.BaseCultureId)) nativeType = NativeType.SystemCulture;
+                else if (types.ContainsKey(NodeConstants.BaseCollectionId)) nativeType = NativeType.Collection;
+                else throw new InvalidOperationException("Node is not of a native type.");
+            } else {
+                if (_nativeModelStore._userGroups.ContainsKey(nodeId)) nativeType = NativeType.SystemUserGroup;
+                else if (_nativeModelStore._users.ContainsKey(nodeId)) nativeType = NativeType.SystemUser;
+                else if (_nativeModelStore._cultures.ContainsKey(nodeId)) nativeType = NativeType.SystemCulture;
+                else if (_nativeModelStore._collections.ContainsKey(nodeId)) nativeType = NativeType.Collection;
+                else throw new InvalidOperationException("Node is not of a native type.");
+            }
+            var deleted = !exists;
+            switch (nativeType) {
+                case NativeType.SystemUser: syncNativeSystemUser(nodeId, deleted); break;
+                case NativeType.SystemUserGroup: syncNativeSystemUserGroup(nodeId, deleted); break;
+                case NativeType.SystemCulture: syncNativeSystemCulture(nodeId, deleted); break;
+                case NativeType.Collection: syncNativeCollection(nodeId, deleted); break;
+            }
+        }
+    }
+    void syncNativeSystemUser(int nodeId, bool deleted) {
+        if( deleted) {
+            if (_nativeModelStore._users.TryGetValue(nodeId, out var existingUser)) {
+                _nativeModelStore._users.Remove(nodeId);
+            }
+            return;
+        }
+
+    }
+    void syncNativeCollection(int nodeId, bool deleted) {
+
+    }
+    void syncNativeSystemUserGroup(int nodeId, bool deleted) {
+
+    }
+    void syncNativeSystemCulture(int nodeId, bool deleted) {
+
+    }
 }
 
 
