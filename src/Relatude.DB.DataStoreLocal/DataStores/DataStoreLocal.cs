@@ -11,7 +11,6 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
-using Relatude.DB.Native;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Tasks;
@@ -48,7 +47,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
-    NativeModelStore _nativeModelStore = new();
+    NativeModelStore _nativeModelStore;
     // QueryContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
@@ -101,7 +100,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         TaskQueuePersisted = new(this, queueStore, _taskRunners);
-
         Datamodel = dm;
         dm.EnsureInitalization();
         dm.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
@@ -109,6 +107,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var fs = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
             _fileStores.Add(fs.Id, fs);
         }
+        _nativeModelStore = new(this);
         _defaultFileStore = _fileStores[Guid.Empty];
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
         _scheduler = new(this);

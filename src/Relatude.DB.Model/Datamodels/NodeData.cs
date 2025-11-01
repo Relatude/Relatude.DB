@@ -41,6 +41,22 @@ public interface INodeData {
 
     public static int BaseSize = 1000;
 }
+public static class INodeDataExtensions {
+    public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
+        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
+            value = tValue;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, Func<T> fallback) {
+        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
+            return tValue;
+        }
+        return fallback();
+    }
+}
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;

@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Transactions;
+using Relatude.DB.Native;
 
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
@@ -31,12 +32,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (relationId == NodeConstants.RelationUsersToGroups) return true;
         return false;
     }
-    enum NativeType {
-        SystemUser,
-        SystemUserGroup,
-        SystemCulture,
-        Collection
-    }
     void syncNativeInfo(IEnumerable<int> nodeIds) {
         foreach (var nodeId in nodeIds) {
             bool exists = _nodes.TryGet(nodeId, out var node, out _);
@@ -50,11 +45,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 else if (types.ContainsKey(NodeConstants.BaseCollectionId)) nativeType = NativeType.Collection;
                 else throw new InvalidOperationException("Node is not of a native type.");
             } else {
-                if (_nativeModelStore._userGroups.ContainsKey(nodeId)) nativeType = NativeType.SystemUserGroup;
-                else if (_nativeModelStore._users.ContainsKey(nodeId)) nativeType = NativeType.SystemUser;
-                else if (_nativeModelStore._cultures.ContainsKey(nodeId)) nativeType = NativeType.SystemCulture;
-                else if (_nativeModelStore._collections.ContainsKey(nodeId)) nativeType = NativeType.Collection;
-                else throw new InvalidOperationException("Node is not of a native type.");
+                nativeType = _nativeModelStore.GetNativeType(nodeId);
             }
             var deleted = !exists;
             switch (nativeType) {
@@ -66,21 +57,25 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     void syncNativeSystemUser(int nodeId, bool deleted) {
-        if( deleted) {
-            if (_nativeModelStore._users.TryGetValue(nodeId, out var existingUser)) {
-                _nativeModelStore._users.Remove(nodeId);
-            }
-            return;
-        }
-
+        _nativeModelStore.DeleteUser(nodeId);
+        if (deleted) return;
+        var node = _nodes.Get(nodeId, out _);
+        _nativeModelStore.AddUser(node);
     }
     void syncNativeCollection(int nodeId, bool deleted) {
-
+        _nativeModelStore.DeleteCollection(nodeId);
+        if (deleted) return;
+        _nativeModelStore.AddCollection(nodeId);
     }
     void syncNativeSystemUserGroup(int nodeId, bool deleted) {
-
+        _nativeModelStore.DeleteUserGroup(nodeId);
+        if (deleted) return;
+        _nativeModelStore.AddUserGroup(nodeId);
     }
     void syncNativeSystemCulture(int nodeId, bool deleted) {
+        _nativeModelStore.DeleteCulture(nodeId);
+        if (deleted) return;
+        _nativeModelStore.AddCulture(nodeId);
 
     }
 }

@@ -25,6 +25,13 @@ public static class NodeConstants {
     public static readonly Guid RelationGroupsToGroups = new(RelationGroupsToGroupsString);
     public static readonly Guid RelationCollectionsToCultures = new(RelationCollectionsToCulturesString);
 
+    const string NativeUserPropertyUserTypeString = "61bfa8ff-e8af-47d4-86e3-0b3f82510896";
+    public static readonly Guid NativeUserPropertyUserType = new(NativeUserPropertyUserTypeString);
+
+    const string NativeCulturePropertyCultureCodeString = "95dc7b8b-ac72-4759-9de1-9f81795090c2"; 
+    public static readonly Guid NativeCulturePropertyCultureCode = new(NativeCulturePropertyCultureCodeString);
+
+
 }
 //public enum Revision {
 //    Live = 0,
