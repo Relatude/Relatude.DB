@@ -6,7 +6,7 @@ public enum RelationOperation : byte {
     Add = 0, // throws exception if already exists
     Remove = 1, // throws exception if not exists
     Set = 2, // if already set to current value, does nothing. If set to different value, removes old value and adds new value
-    Clear = 3, // removes relation if exists
+    Clear = 3, // removes relation if exists (source=0 => all targets, target=0 => all sources, target and source =0 => all!)
 }
 public class RelationAction : ActionBase {
     public RelationAction(RelationOperation operation, Guid relationId)

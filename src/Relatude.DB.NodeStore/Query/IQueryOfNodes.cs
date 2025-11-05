@@ -22,8 +22,8 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IQueryOfNodes<TNode, TInclude> Where(IEnumerable<Guid> ids);
     IQueryOfNodes<TNode, TInclude> Where(IEnumerable<int> ids);
     IQueryOfNodes<TNode, TInclude> WhereSearch(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluated = null);
-    IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes);
-    IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes);
+    IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes, bool includeDescendants = true);
+    IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes, bool includeDescendants = true);
     IQueryOfNodes<TNode, TInclude> WhereRelates<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid nodeId);
     IQueryOfNodes<TNode, TInclude> WhereRelates<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty>> relationProperty, Guid nodeId);
     IQueryOfNodes<TNode, TInclude> WhereNotRelates<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid nodeId);
@@ -47,7 +47,7 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, IEnumerable<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, ICollection<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, int? top = null);
-    
+
     //long Update<TProperty>(Expression<Func<TNode, TProperty>> property, object newValue);
 
 }

@@ -34,7 +34,7 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IEnumerable<Guid> NodeGuids { get; }
     ObjectData ToObjectCollection();
     bool TryOrderByIndexes(string propertyName, bool descending);
-    IStoreNodeDataCollection FilterByTypes(Guid[] types);
+    IStoreNodeDataCollection FilterByTypes(Guid[] types, bool includeDescendants);
 }
 public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {
     bool Capped { get; }

@@ -1,12 +1,16 @@
 ﻿using Relatude.DB;
+using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
 
-// NO NAMASPACE ON PURPOSE
+// NO NAMESPACE ON PURPOSE
 public static class AddUse {
     public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
         builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
         builder.Services.AddSingleton<RelatudeDBContext>();
+        builder.Services.AddSingleton((services) => {
+            return services.GetRequiredService<RelatudeDBContext>().Database;
+        });
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = Defaults.AdminUrlRoot,

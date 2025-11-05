@@ -48,7 +48,9 @@ public sealed class NodeStore : IDisposable {
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
         foreach (var plugin in TransactionPlugins) plugin.Store = this;
-        var code = CodeGeneratorForValueMappers.GenerateValueMappers(datastore.Datamodel);
+        var interfaceClasses = InterfaceGen.GetImplementations(datastore.Datamodel);
+        var mappers = MapperGen.GenerateValueMappers(datastore.Datamodel);
+        var code = interfaceClasses.Concat(mappers).ToList();
         var totalCode = string.Join("\n", code.Select(c => c.code));
         ulong codeHash = 0;
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
@@ -72,6 +74,16 @@ public sealed class NodeStore : IDisposable {
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     public DataStoreState State => Datastore.State;
+
+    public T Create<T>() {
+        return Mapper.NewObjectFromType<T>();
+    }
+    public T CreateAndInsert<T>(Action<T>? setProperties = null) {
+        var node = Mapper.NewObjectFromType<T>();
+        setProperties?.Invoke(node);
+        Insert(node!);
+        return Get<T>(Mapper.GetIdGuidOrCreate(node!));
+    }
 
     public TransactionResult Insert(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
     public TransactionResult Insert(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
@@ -104,6 +116,15 @@ public sealed class NodeStore : IDisposable {
     public Task<TransactionResult> UpdateOrFailAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).UpdateOrFail(nodes), flushToDisk);
     public Task<TransactionResult> ForceUpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).ForceUpdate(node), flushToDisk);
     public Task<TransactionResult> ForceUpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).ForceUpdate(nodes), flushToDisk);
+
+    public void DeleteMany<T>(Expression<Func<T, bool>> expression, bool flushDisk = false) {
+        var ids = Query<T>().Where(expression).SelectId().Execute();
+        DeleteIfExists(ids, flushDisk);
+    }
+    public void DeleteMany<T>(bool includeDescendants = true, bool flushDisk = false) {
+        var ids = Query<T>().WhereTypes([typeof(T)], includeDescendants).SelectId().Execute();
+        DeleteIfExists(ids, flushDisk);
+    }
 
     public TransactionResult Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
     public TransactionResult Delete(IEnumerable<int> ids, bool flushToDisk = false) => Execute(new Transaction(this).Delete(ids), flushToDisk);
@@ -144,6 +165,7 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression!, toId), flushToDisk);
     public TransactionResult Relate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, expression, toIds), flushToDisk);
     public TransactionResult Relate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult Relate(int fromId, Guid propertyId, int toId, bool flushToDisk = false) => Execute(new Transaction(this).Relate(fromId, propertyId, toId), flushToDisk);
 
     public TransactionResult Relate<T>(OneOne<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
     public TransactionResult Relate<T>(ManyMany<T> relation, T fromNode, T toNode, bool flushToDisk = false) => Execute(new Transaction(this).Relate(relation, fromNode, toNode), flushToDisk);
@@ -155,6 +177,7 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toId), flushToDisk);
     public TransactionResult UnRelate<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).UnRelate(fromId, expression, toIds), flushToDisk);
     public TransactionResult UnRelate(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).UnRelate(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult UnRelate(int fromId, Guid propertyId, int toId, bool flushToDisk = false) => Execute(new Transaction(this).UnRelate(fromId, propertyId, toId), flushToDisk);
 
     public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNode), flushToDisk);
     public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
@@ -182,6 +205,7 @@ public sealed class NodeStore : IDisposable {
     public TransactionResult ClearRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult ClearRelation<T>(int fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult ClearRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
+    public TransactionResult ClearRelation(int fromId, Guid propertyId, int toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
     public TransactionResult ClearRelations<T>(T fromNode, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromNode, expression), flushToDisk);
     public TransactionResult ClearRelations<T>(int fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
     public TransactionResult ClearRelations<T>(Guid fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);

@@ -356,7 +356,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
     }
     void mapDatamodel(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("get-code"), (Guid storeId, bool addAttributes) => CodeGeneratorForCSharpModels.GenerateCSharpModelCode(db(storeId).Datastore.Datamodel, addAttributes));
+        app.MapPost(path("get-code"), (Guid storeId, bool addAttributes) => ModelGen.GenerateCSharpModelCode(db(storeId).Datastore.Datamodel, addAttributes));
         //app.MapPost(path("get-model"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);
         app.MapPost(path("get-model"), (Guid storeId) => db(storeId).Datastore.Datamodel);
         app.MapPost(path("server"), (Guid storeId, Guid datamodelId) => db(storeId).Datastore.Datamodel);

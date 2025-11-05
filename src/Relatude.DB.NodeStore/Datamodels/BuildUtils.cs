@@ -57,6 +57,7 @@ internal static class BuildUtils {
         if (relationAttr.TargetTypes != null && relationAttr.TargetTypes.Any()) {
             r.TargetTypes.AddRange(relationAttr.TargetTypes.Select(t => Guid.Parse(t)));
         }
+        r.DisallowCircularReferences = relationAttr.DisallowCircularReferences;
         r.SourceTypes = r.SourceTypes.Distinct().ToList();
         r.TargetTypes = r.TargetTypes.Distinct().ToList();
         return r;

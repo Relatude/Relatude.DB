@@ -80,12 +80,12 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         _q.Where(ids);
         return this;
     }
-    public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes) {
-        _q.WhereTypes(nodeTypes);
+    public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes, bool includeDescendants = true) {
+        _q.WhereTypes(nodeTypes, includeDescendants );
         return this;
     }
-    public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes) {
-        _q.WhereTypes(nodeTypes.Select(t => _q.Store.Mapper.GetNodeTypeId(t)));
+    public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes, bool includeDescendants = true) {
+        _q.WhereTypes(nodeTypes.Select(t => _q.Store.Mapper.GetNodeTypeId(t)), includeDescendants);
         return this;
     }
     public IQueryOfNodes<TNode, TInclude> Where(string lambdaCodeAsString) {

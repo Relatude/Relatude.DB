@@ -1,66 +1,47 @@
-﻿using Relatude.DB.Nodes;
-
-
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Nodes;
 namespace Relatude.DB.Native.Models;
 
+[Node(Id = NodeConstants.BaseUserIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemUser {
     Guid Id { get; set; }
     SystemUserType UserType { get; set; }
-    UsersToGroups.Groups Memberships { get; set; }
+    UsersToGroups.Groups Memberships { get; }
 }
+[Node(Id = NodeConstants.BaseUserGroupIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemUserGroup {
     Guid Id { get; set; }
     string GroupName { get; set; }
-    UsersToGroups.Users UserMembers { get; set; }
-    GroupsToGroups.Memberships GroupMemberships { get; set; }
-    GroupsToGroups.Members GroupMembers { get; set; }
+    UsersToGroups.Users UserMembers { get; }
+    GroupsToGroups.Memberships GroupMemberships { get; }
+    GroupsToGroups.Members GroupMembers { get; }
 }
+[Node(Id = NodeConstants.BaseCollectionIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemCollection {
     Guid Id { get; set; }
     string? Name { get; set; }
-    CollectionsToCultures.Cultures Cultures { get; set; }
+    CollectionsToCultures.Cultures Cultures { get; }
 }
+[Node(Id = NodeConstants.BaseCultureIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemCulture {
     Guid Id { get; set; }
     string CultureCode { get; set; }
     string NativeName { get; set; }
     string EnglishName { get; set; }
-    CollectionsToCultures.Collections Collections { get; set; }
+    CollectionsToCultures.Collections Collections { get; }
 }
 
-public class SystemUser : ISystemUser {
-    public Guid Id { get; set; }
-    public SystemUserType UserType { get; set; }
-    public UsersToGroups.Groups Memberships { get; set; } = new();
-}
-public class SystemUserGroup : ISystemUserGroup {
-    public Guid Id { get; set; }
-    public string GroupName { get; set; } = string.Empty;
-    public UsersToGroups.Users UserMembers { get; set; } = new();
-    public GroupsToGroups.Memberships GroupMemberships { get; set; } = new();
-    public GroupsToGroups.Members GroupMembers { get; set; } = new();
-}
-public class SystemCollection : ISystemCollection {
-    public Guid Id { get; set; }
-    public string? Name { get; set; }
-    public CollectionsToCultures.Cultures Cultures { get; set; } = new();
-}
-public class SystemCulture : ISystemCulture {
-    public Guid Id { get; set; }
-    public string CultureCode { get; set; } = string.Empty;
-    public string NativeName { get; set; } = string.Empty;
-    public string EnglishName { get; set; } = string.Empty;
-    public CollectionsToCultures.Collections Collections { get; set; } = new();
-}
-
+[Relation(Id = NodeConstants.RelationUsersToGroupsString)]
 public class UsersToGroups : ManyToMany<ISystemUser, ISystemUserGroup> {
     public class Users : ManyFrom { }
     public class Groups : ManyTo { }
 }
-public class GroupsToGroups : ManyToMany<ISystemUser, ISystemUserGroup> {
+[Relation(Id = NodeConstants.RelationGroupsToGroupsString, DisallowCircularReferences = true)]
+public class GroupsToGroups : ManyToMany<ISystemUserGroup, ISystemUserGroup> {
     public class Memberships : ManyFrom { }
     public class Members : ManyTo { }
 }
+[Relation(Id = NodeConstants.RelationCollectionsToCulturesString)]
 public class CollectionsToCultures : ManyToMany<ISystemCollection, ISystemCulture> {
     public class Collections : ManyFrom { }
     public class Cultures : ManyTo { }

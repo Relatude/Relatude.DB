@@ -40,15 +40,22 @@ namespace Relatude.DB.IO {
             _blobLeaseClient?.Acquire(TimeSpan.FromSeconds(-1));
             if (_blobLeaseClient != null) AzureBlobIOProvider.SaveLastLeaseId(blobName, _blobLeaseClient.LeaseId);
             _writeBuffer = new MemoryStream();
-            Length = _appendBlobClient.GetProperties().Value.ContentLength;
+            _length = _appendBlobClient.GetProperties().Value.ContentLength;
         }
-        public long Length { get; private set; } = 0;
+        long _length = 0;
+        public long Length {
+            get {
+                lock (_lock) {
+                    return _length;
+                }
+            }
+        }
         public void Append(byte[] data) {
             lock (_lock) {
                 _readBuffer = null; // reset read buffer, as new data is appended, that will not be in readbuffer
                 _checkSum.EvaluateChecksumIfRecording(data);
                 _writeBuffer.Write(data, 0, data.Length);
-                Length += data.Length;
+                _length += data.Length;
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
@@ -83,10 +90,10 @@ namespace Relatude.DB.IO {
         public void Get(long position, int count, byte[] result) {
             lock (_lock) {
 
-                if (count > Length - position) throw new Exception("Read beyond end of file");
+                if (count > _length - position) throw new Exception("Read beyond end of file");
 
                 // Try using write buffer
-                var writeBufferOffset = Length - _writeBuffer.Length;
+                var writeBufferOffset = _length - _writeBuffer.Length;
                 var inWriteBuffer = position >= writeBufferOffset;
                 if (inWriteBuffer) {
                     var bufferOffset = position - writeBufferOffset;
@@ -111,7 +118,7 @@ namespace Relatude.DB.IO {
                 var sw = Stopwatch.StartNew();
                 if (fitsInReadBuffer) { 
                     _readBufferOffset = position;
-                    var lengthToRead = (int)Math.Min(this.Length - position, _readBufferSize);
+                    var lengthToRead = (int)Math.Min(this._length - position, _readBufferSize);
                     if (_readBuffer == null) _readBuffer = new byte[_readBufferSize];
                     download(_readBuffer, position, lengthToRead);
                     Array.Copy(_readBuffer, 0, result, 0, count);
@@ -136,7 +143,7 @@ namespace Relatude.DB.IO {
             _isDisposed = true;
             Flush(true);
             _blobLeaseClient?.Release();
-            _disposeCallback(Length);
+            _disposeCallback(_length);
             AzureBlobIOProvider.DeleteLastLeaseId(_appendBlobClient.Name);
         }
     }

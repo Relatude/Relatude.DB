@@ -42,6 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         stream.WriteGuid(_wal.FileId); // must match log file
         _guids.SaveState(stream);
         _nodes.SaveState(stream);
+        _nativeModelStore.SaveState(stream);
         _relations.SaveState(stream);
         _index.SaveState(stream);
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
@@ -49,7 +50,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceLastStateSnaphot = 0;
         if (PersistedIndexStore != null) PersistedIndexStore.Commit(_wal.LastTimestamp);
     }
-    void readState(bool throwOnBadStateFile, Guid currentModelHash, long activityId) {
+    void readState(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
 
@@ -113,7 +114,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 if (_wal.FileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
-                _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.05))); // 5-10%
+                _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
+                UpdateActivity(activityId, "Reading native models", 8); // 8%-10%
+                _nativeModelStore.ReadState(stream);
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _index.ReadState(stream, out var anyIndexesMissing, (d, p) => UpdateActivity(activityId, d, (int)(15 + p! * 0.85))); // 15-100%
                 if (anyIndexesMissing) throw new Exception("Some indexes are missing. "); // causes reload with no state file ( and rebuild of indexes )
@@ -144,7 +147,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             logReader = _wal.CreateLogReader(positionOfLastTransactionSavedToStateFile, lastTimestamp);
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - positionOfLastTransactionSavedToStateFile / logReader.FileSize);
-            while (logReader.ReadNextTransaction(out var transaction, throwOnBadStateFile, logCriticalError, out sizeOfCurrentTransaction)) {
+            while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logCriticalError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
                 actionCountInTransaction = 0;
                 foreach (var a in transaction.ExecutedActions) {
@@ -178,10 +181,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _guids.RegisterAction(a);
                     if (a is PrimitiveNodeAction na) {
                         _nodes.RegisterAction_NotThreadsafe(na);
-                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, na, throwOnBadStateFile, logCriticalError);
+                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, na, throwOnErrors, logCriticalError);
                     } else if (a is PrimitiveRelationAction ra) {
                         _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                     } else throw new NotImplementedException();
+                    _nativeModelStore.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logCriticalError);
                     _noPrimitiveActionsSinceLastStateSnaphot++;
                     if (a.Operation == PrimitiveOperation.Remove)
                         _noPrimitiveActionsInLogThatCanBeTruncated++;
@@ -209,5 +213,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo(_noPrimitiveActionsInLogThatCanBeTruncated.To1000N() + " actions redundant in log file. ");
         LogInfo(_nodes.Count.To1000N() + " nodes in total");
         LogInfo(_relations.TotalCount().To1000N() + " relations in total");
+        LogInfo(_nativeModelStore.CountUsers.To1000N() + " system users");
+        LogInfo(_nativeModelStore.CountUserGroups.To1000N() + " user groups");
+        LogInfo(_nativeModelStore.CountCultures.To1000N() + " cultures");
+        LogInfo(_nativeModelStore.CountCollections.To1000N() + " collections");
+
+
     }
 }

@@ -9,18 +9,18 @@ public static class NodeConstants {
     public static readonly string SystemTextIndexPropertyName = "_textIndex";
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";
 
-    const string BaseUserIdString = "243f1514-46c3-4106-9c6a-4a25fb39238b";
-    const string BaseUserGroupIdString = "afd3b9e4-7565-49ae-ac3b-ed20b5ccfe6a";
-    const string BaseCollectionIdString = "be94c359-2b08-4f58-b116-bb5fef89a5cc";
-    const string BaseCultureIdString = "f51d3f3a-08d4-4b56-a00b-464e037f0009";
+    public const string BaseUserIdString = "243f1514-46c3-4106-9c6a-4a25fb39238b";
+    public const string BaseUserGroupIdString = "afd3b9e4-7565-49ae-ac3b-ed20b5ccfe6a";
+    public const string BaseCollectionIdString = "be94c359-2b08-4f58-b116-bb5fef89a5cc";
+    public const string BaseCultureIdString = "f51d3f3a-08d4-4b56-a00b-464e037f0009";
     public static readonly Guid BaseUserId = new(BaseUserIdString);
     public static readonly Guid BaseUserGroupId = new(BaseUserGroupIdString);
     public static readonly Guid BaseCollectionId = new(BaseCollectionIdString);
     public static readonly Guid BaseCultureId = new(BaseCultureIdString);
 
-    const string RelationUsersToGroupsString = "f161bb73-5434-4dd4-a7b4-558a12412ca6";
-    const string RelationGroupsToGroupsString = "df8e846d-d3e5-41a1-806e-fcd8159d1396";
-    const string RelationCollectionsToCulturesString = "39f5e3e6-56d3-4d63-8703-1eb0b8e75861";
+    public const string RelationUsersToGroupsString = "f161bb73-5434-4dd4-a7b4-558a12412ca6";
+    public const string RelationGroupsToGroupsString = "df8e846d-d3e5-41a1-806e-fcd8159d1396";
+    public const string RelationCollectionsToCulturesString = "39f5e3e6-56d3-4d63-8703-1eb0b8e75861";
     public static readonly Guid RelationUsersToGroups = new(RelationUsersToGroupsString);
     public static readonly Guid RelationGroupsToGroups = new(RelationGroupsToGroupsString);
     public static readonly Guid RelationCollectionsToCultures = new(RelationCollectionsToCulturesString);

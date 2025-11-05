@@ -7,7 +7,7 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
 public sealed partial class Transaction {
     internal TransactionData _transactionData;
-    readonly NodeStore _store;
+    public readonly NodeStore Store;
     /// <summary>
     /// Supplied method is called before committing the transaction internally.
     /// It is called inside the inner transaction scope
@@ -19,17 +19,17 @@ public sealed partial class Transaction {
         _transactionData.InnerCallbackBeforeCommitting = () => action(this);
     }
     public Transaction(NodeStore store) {
-        _store = store;
+        Store = store;
         _transactionData = new();
     }
     public Transaction(NodeStore store, Guid lockExcemption) {
-        _store = store;
+        Store = store;
         _transactionData = new() {
             LockExcemptions = [lockExcemption]
         };
     }
     public Transaction(NodeStore store, IEnumerable<Guid> lockExcemptions) {
-        _store = store;
+        Store = store;
         _transactionData = new() {
             LockExcemptions = lockExcemptions.ToList()
         };
@@ -38,13 +38,19 @@ public sealed partial class Transaction {
         if (_transactionData.LockExcemptions == null) _transactionData.LockExcemptions = [];
         _transactionData.LockExcemptions.Add(lockId);
     }
+    //public Transaction Relate<T, K>(T fromNode, Expression<Func<T, ManyProperty<K>>> expression, K toNode) {
+    //    return this;
+    //}
+    //public Transaction Relate<T, K>(T fromNode, Expression<Func<T, OneProperty<K>>> expression, K toNode) {
+    //    return this;
+    //}
     public Transaction Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (fromNode == null) throw new Exception("From node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             Relate(fromGuid, expression!, toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
             Relate(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -52,11 +58,11 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction Relate(object fromNode, Guid propertyId, object toNode) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             Relate(fromGuid, propertyId, toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
             Relate(fromUint, propertyId, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -83,12 +89,17 @@ public sealed partial class Transaction {
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
+    public Transaction Relate(int idFrom, Guid propertyId, int idTo) {
+        var p = getRelProp(propertyId);
+        _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
+        return this;
+    }
 
 
     Transaction relate<R>(R relation, object? fromNode, object? toNode) {
-        var relationId = _store.Mapper.GetRelationId<R>();
-        var fromGuid = _store.Mapper.GetIdGuidOrCreate(fromNode);
-        var toGuid = _store.Mapper.GetIdGuidOrCreate(toNode);
+        var relationId = Store.Mapper.GetRelationId<R>();
+        var fromGuid = Store.Mapper.GetIdGuidOrCreate(fromNode);
+        var toGuid = Store.Mapper.GetIdGuidOrCreate(toNode);
         _transactionData.AddRelation(relationId, fromGuid, toGuid);
         return this;
     }
@@ -99,11 +110,11 @@ public sealed partial class Transaction {
     public Transaction Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
 
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             SetRelation(fromGuid, expression, toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
             SetRelation(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -111,11 +122,11 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction SetRelation(object fromNode, Guid propertyId, object toNode) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             SetRelation(propertyId, fromGuid, (object)toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
             SetRelation(fromUint, propertyId, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -169,9 +180,9 @@ public sealed partial class Transaction {
     }
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toNodeIds) {
         var pId = getRelProp(expression).Id;
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             foreach (var to in toNodeIds) SetRelation(fromGuid, pId, to);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
             throw new Exception("Both source and target must currently use same datatype for id. Could be improved later. ");
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -180,9 +191,9 @@ public sealed partial class Transaction {
     }
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, IEnumerable<int> toNodeIds) {
         var pId = getRelProp(expression).Id;
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             throw new Exception("Both source and target must currently use same datatype for id. Could be improved later. ");
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
             foreach (var to in toNodeIds) SetRelation(fromUint, pId, to);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -191,11 +202,11 @@ public sealed partial class Transaction {
     }
 
     public Transaction UnRelate<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             UnRelate(fromGuid, expression, toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
             UnRelate(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -222,13 +233,18 @@ public sealed partial class Transaction {
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
+    public Transaction UnRelate(int idFrom, Guid propertyId, int idTo) {
+        var p = getRelProp(propertyId);
+        _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
+        return this;
+    }
 
     public Transaction ClearRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
-            && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
+            && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             ClearRelation(fromGuid, expression, toGuid);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
-              && _store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
+              && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
             ClearRelation(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -245,15 +261,20 @@ public sealed partial class Transaction {
         _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
+    public Transaction ClearRelation(int idFrom, Guid propertyId, int idTo) {
+        var p = getRelProp(propertyId);
+        _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
+        return this;
+    }
     public Transaction ClearRelation(Guid idFrom, Guid propertyId, Guid idTo) {
         var p = getRelProp(propertyId);
         _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
     public Transaction ClearRelations<T>(object fromNode, Expression<Func<T, object>> expression) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             ClearRelations(fromGuid, expression);
-        } else if (_store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
             ClearRelations(fromUint, expression);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -298,9 +319,9 @@ public sealed partial class Transaction {
     }
     public Transaction UpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return UpdateProperty(nodeId, expression, value);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return UpdateProperty(nodeIdUint, expression, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -308,36 +329,36 @@ public sealed partial class Transaction {
     }
     public Transaction UpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.UpdateProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction UpdateProperty<T>(Guid nodeId, Expression<Func<T, object>> expression, object value) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.UpdateProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
-        var propertyIds = propertyValuePairs.Select(tuple => _store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
+        var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
         var values = propertyValuePairs.Select(tuple => tuple.Item2).ToArray();
         _transactionData.UpdateProperties(nodeId, propertyIds, values);
         return this;
     }
     public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
-        var propertyIds = expressions.Select(expression => _store.Mapper.GetProperty(expression).Id).ToArray();
+        var propertyIds = expressions.Select(expression => Store.Mapper.GetProperty(expression).Id).ToArray();
         _transactionData.UpdateProperties(nodeId, propertyIds, values);
         return this;
     }
     public Transaction UpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         if (value == null) throw new Exception("Value cannot be null. ");
         foreach (var id in ids) _transactionData.UpdateProperty(id, propertyId, value);
         return this;
     }
     public Transaction UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.UpdateProperty(nodeId, propertyId, value);
         return this;
     }
@@ -351,9 +372,9 @@ public sealed partial class Transaction {
     }
     public Transaction UpdateIfDifferentProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return UpdateIfDifferentProperty(nodeId, expression, value);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return UpdateIfDifferentProperty(nodeIdUint, expression, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -361,13 +382,13 @@ public sealed partial class Transaction {
     }
     public Transaction UpdateIfDifferentProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction UpdateIfDifferentProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
@@ -381,21 +402,21 @@ public sealed partial class Transaction {
     }
     public Transaction ResetProperty<T, V>(T node, Expression<Func<T, V>> expression) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return ResetProperty(nodeId, expression);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return ResetProperty(nodeIdUint, expression);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
     }
     public Transaction ResetProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.ResetProperty(nodeId, propertyId);
         return this;
     }
     public Transaction ResetProperty<T, V>(int nodeId, Expression<Func<T, V>> expression) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.ResetProperty(nodeId, propertyId);
         return this;
     }
@@ -409,9 +430,9 @@ public sealed partial class Transaction {
     }
     public Transaction AddToProperty<T, V>(T node, Expression<Func<T, V>> expression, object value) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return AddToProperty(nodeId, expression, value);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return AddToProperty(nodeIdUint, expression, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -426,32 +447,32 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction AddToProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, object value) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.AddToProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction AddToProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, object value) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.AddToProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction MultiplyProperty<T, V>(T node, Expression<Func<T, V>> expression, object value) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return MultiplyProperty(nodeId, expression, value);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return MultiplyProperty(nodeIdUint, expression, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
     }
     public Transaction MultiplyProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, object value) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.MultiplyProperty(nodeId, propertyId, value);
         return this;
     }
     public Transaction MultiplyProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, object value) {
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.MultiplyProperty(nodeId, propertyId, value);
         return this;
     }
@@ -465,16 +486,16 @@ public sealed partial class Transaction {
     }
 
     public Transaction ChangeType<T>(object nodeId) {
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(nodeId, out var id)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(nodeId, out var id)) {
             return ChangeType<T>(id);
-        } else if (_store.Mapper.TryGetIdUInt(nodeId, out var idUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(nodeId, out var idUint)) {
             return ChangeType<T>(idUint);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
     }
     public Transaction ChangeType<T>(Guid nodeId) {
-        var nodeTypeId = _store.Mapper.GetNodeTypeId(typeof(T));
+        var nodeTypeId = Store.Mapper.GetNodeTypeId(typeof(T));
         ChangeType(nodeId, nodeTypeId);
         return this;
     }
@@ -498,9 +519,9 @@ public sealed partial class Transaction {
 
     public Transaction ValidateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value, ValueRequirement requirement = ValueRequirement.Equal) {
         if (node == null) throw new Exception("Node cannot be null. ");
-        if (_store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return ValidateProperty(nodeId, expression, value, requirement);
-        } else if (_store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return ValidateProperty(nodeIdUint, expression, value, requirement);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
@@ -508,13 +529,13 @@ public sealed partial class Transaction {
     }
     public Transaction ValidateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value, ValueRequirement requirement = ValueRequirement.Equal) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.ValidateProperty(nodeId, propertyId, requirement, value);
         return this;
     }
     public Transaction ValidateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value, ValueRequirement requirement = ValueRequirement.Equal) {
         if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = _store.Mapper.GetProperty(expression).Id;
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.ValidateProperty(nodeId, propertyId, requirement, value);
         return this;
     }
@@ -532,9 +553,9 @@ public sealed partial class Transaction {
     int target(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? from : to;
     Guid source(Guid from, RelationPropertyModel p, Guid to) => p.FromTargetToSource ? to : from;
     Guid target(Guid from, RelationPropertyModel p, Guid to) => p.FromTargetToSource ? from : to;
-    RelationPropertyModel getRelProp<T>(Expression<Func<T, object>> expression) => getRelProp(_store.Mapper.GetProperty(expression).Id);
+    RelationPropertyModel getRelProp<T>(Expression<Func<T, object>> expression) => getRelProp(Store.Mapper.GetProperty(expression).Id);
     RelationPropertyModel getRelProp(Guid propertyId) {
-        if (!_store.Datastore.Datamodel.Properties.TryGetValue(propertyId, out var property)) {
+        if (!Store.Datastore.Datamodel.Properties.TryGetValue(propertyId, out var property)) {
             throw new Exception("Property with id " + propertyId + " is not part of the datamodel. ");
         }
         if (property is not RelationPropertyModel relationProperty) throw new Exception("Only relation properties accepted. ");
@@ -574,8 +595,8 @@ public sealed partial class Transaction {
         if (inserted != null && inserted.TryGetValue(node, out id)) return this;
 
         var related = ignoreRelated ? null : new RelatedCollection();
-        _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        var nodeData = _store.Mapper.CreateNodeDataFromObject(node, related);
+        Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
+        var nodeData = Store.Mapper.CreateNodeDataFromObject(node, related);
         id = nodeData.Id;
         if (inserted == null) { // root node, insert or fail depending on insertIfNotExists flag
             if (insertIfNotExists) {
@@ -607,8 +628,8 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction ForceUpsert(object node) {
-        _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.ForceUpsert(_store.Mapper.CreateNodeDataFromObject(node, null));
+        Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
+        _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction Upsert(IEnumerable<object> nodes) { 
@@ -616,8 +637,8 @@ public sealed partial class Transaction {
         return this;
     }
     public Transaction Upsert(object node) {
-        _store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.Upsert(_store.Mapper.CreateNodeDataFromObject(node, null));
+        Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
+        _transactionData.Upsert(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
 
@@ -625,15 +646,15 @@ public sealed partial class Transaction {
     public Transaction Update(object node) => UpdateOrFail(node);
     public Transaction Update(IEnumerable node) => UpdateOrFail(node);
     public Transaction UpdateOrFail(object node) {
-        _transactionData.UpdateOrFail(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.UpdateOrFail(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction UpdateIfExists(object node) {
-        _transactionData.UpdateIfExists(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.UpdateIfExists(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction ForceUpdate(object node) {
-        _transactionData.ForceUpdateNode(_store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.ForceUpdateNode(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
     public Transaction UpdateOrFail(IEnumerable node) {
@@ -686,8 +707,14 @@ public sealed partial class Transaction {
     }
     public Transaction Delete(int id) => DeleteOrFail(id);
     public Transaction Delete(Guid id) => DeleteOrFail(id);
-    public Transaction Delete( IEnumerable<Guid> nodeGuids) => Delete(nodeGuids);
-    public Transaction Delete( IEnumerable<int> ids) => Delete(ids);
+    public Transaction Delete(IEnumerable<Guid> nodeGuids) {
+        foreach (var g in nodeGuids) DeleteOrFail(g);
+        return this;
+    }
+    public Transaction Delete(IEnumerable<int> ids) { 
+        foreach (var id in ids) DeleteOrFail(id);
+        return this;
+    }
 
     public int Count => _transactionData.Actions.Count;
 }

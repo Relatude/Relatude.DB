@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Query;
 using Relatude.DB.Query.Expressions;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -10,7 +11,7 @@ namespace Relatude.DB.Nodes;
 /// It is using runtime generated libraries to optimize the performance.
 /// It is also used to get the node type id and property ids from model objects in queries.
 /// </summary>
-public class NodeMapper { 
+public class NodeMapper {
     readonly Dictionary<Guid, IValueMapper> _nodeValueMapperByTypeId;
     readonly Dictionary<Type, KeyValuePair<IValueMapper, Guid>> _mapperByType;
     readonly NodeStore _store;
@@ -59,16 +60,25 @@ public class NodeMapper {
                 typeId = kv.Value;
                 mapper = kv.Key;
             } else {
+                var orgType = objectType;
+                if (objectType.InheritsFromOrImplements<INodeShellAccess>()) {
+                    objectType = objectType.GetInterfaces().First(); // Use the first interface as the type for interface implementations
+                }
                 var guidS = DatamodelExtensions.GetOrCreateNodeAttributeWithId(objectType).Id
                     ?? throw new NullReferenceException("Unable create id for: " + objectType);
                 typeId = Guid.Parse(guidS);
                 if (!_nodeValueMapperByTypeId.TryGetValue(typeId, out mapper)) {
-                    throw new Exception(objectType.FullName + " is not part of the datamodel. ");
+                    if (this._store.Datastore.Datamodel.NodeTypesByFullName.TryGetValue(objectType.FullName!, out var typeDef)) {
+                        typeId = typeDef.Id;
+                        mapper = null; // No mapper defined for this type
+                    } else {
+                        throw new Exception(objectType.FullName + " is not part of the datamodel. ");
+                    }
                 }
-                _mapperByType.Add(objectType, new(mapper, typeId));
+                _mapperByType.Add(orgType, new(mapper!, typeId));
             }
         }
-        return mapper;
+        return mapper!;
     }
     public object CreateObjectFromNodeData(INodeData nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
@@ -107,5 +117,13 @@ public class NodeMapper {
         var type = typeof(T);
         if (_store.Datastore.Datamodel.RelationIdByType.TryGetValue(type, out var id)) return id;
         throw new Exception("Unable to find relation id for type: " + type.FullName);
+    }
+
+    public T NewObjectFromType<T>() => CreateObjectFromType<T>(Guid.NewGuid());
+    public T CreateObjectFromType<T>(Guid guid) {
+        var typeId = GetNodeTypeId(typeof(T));
+        var nowUtc = DateTime.UtcNow;
+        var nodeData = new NodeData(guid, 0, typeId, nowUtc, nowUtc, new Properties<object>(10));
+        return CreateObjectFromNodeData<T>(nodeData);
     }
 }

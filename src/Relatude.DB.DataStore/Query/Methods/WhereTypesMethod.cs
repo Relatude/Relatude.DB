@@ -2,10 +2,10 @@
 using Relatude.DB.Query.Expressions;
 
 namespace Relatude.DB.Query.Methods;
-public class WhereTypesMethod(IExpression input, Guid[] types) : IExpression {
+public class WhereTypesMethod(IExpression input, Guid[] types, bool includeDescendants) : IExpression {
     public object Evaluate(IVariables vars) {
         var evaluatedInput = (IStoreNodeDataCollection)input.Evaluate(vars)!;
-        return evaluatedInput.FilterByTypes(types);
+        return evaluatedInput.FilterByTypes(types, includeDescendants);
     }
     public override string ToString() => input + ".Where(" + ")";
 }

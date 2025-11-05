@@ -182,31 +182,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             throw new NotImplementedException();
         }
     }
-    public IStoreNodeDataCollection FilterByTypes(Guid[] types) {
-        var newIds = _def.Sets.WhereTypes(_ids, types.Select(t => _def.GetAllIdsForType(t)).ToArray());
+    public IStoreNodeDataCollection FilterByTypes(Guid[] types, bool includeDescendants) {
+        var newIds = _def.Sets.WhereTypes(_ids, types.Select(t => _def.GetAllIdsForType(t, includeDescendants)).ToArray());
         return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches);
-        //foreach(var id in _ids.Enumerate()) {
-        //    var typeId = _def.GetTypeOfNode(id);
-        //    _def.GetAllIdsForType(typeId).Has(id);
-        //}
-
-
-
-        //// should be optimized:
-        //var lookUp = new HashSet<Guid>(types);
-        //foreach (var type in types) {
-        //    if (_db.Datamodel.NodeTypes.TryGetValue(type, out var nodeType)) {
-        //        foreach (var subType in nodeType.ThisAndDescendingTypes) {
-        //            lookUp.Add(subType.Key);
-        //        }
-        //    }
-        //}
-        //List<int> ids = new();
-        //foreach (var id in _ids.Enumerate()) {
-        //    var typeId = _def.GetTypeOfNode(id);
-        //    if (lookUp.Contains(typeId)) ids.Add(id);
-        //}
-        //var newIdSet = new IdSet(ids);
-        //return new NodeCollectionData(_db, newIdSet, _nodeType, _includeBranches);
     }
 }

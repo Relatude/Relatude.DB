@@ -8,7 +8,6 @@ public class NativeSystemUser {
     public int Id;
     public SystemUserType UserType;
     public int[] Memberships = [];
-    public int[] EffectiveMemberships = [];
 }
 public class NativeSystemUserGroup {
     public int Id;
@@ -25,9 +24,16 @@ public class NativeSystemCulture {
     public string CultureCode = string.Empty;
     public int[] Collections = [];
 }
-public enum NativeType {
+public enum NativeNodeType {
+    NotRelevant,
     SystemUser,
     SystemUserGroup,
     SystemCulture,
     Collection
+}
+public enum NativeRelationType {
+    NotRelevant,
+    UsersToGroups,
+    GroupsToGroups,
+    CollectionsToCultures
 }

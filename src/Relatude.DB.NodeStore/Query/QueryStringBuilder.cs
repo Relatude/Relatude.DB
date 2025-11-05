@@ -338,9 +338,9 @@ internal sealed class QueryStringBuilder {
         return _sb.ToString().Replace(_branchMarker, include.ToString());
     }
     public override string ToString() => getQueryString();
-    internal void WhereTypes(IEnumerable<Guid> userTypes) {
+    internal void WhereTypes(IEnumerable<Guid> userTypes, bool includeDescendants = true) {
         if (userTypes.Count() == 0) return;
-        add("WhereTypes", userTypes.ToArray());
+        add("WhereTypes", userTypes.ToArray(), includeDescendants);
     }
     internal void Update<TNode, TProperty>(Expression<Func<TNode, TProperty>> property, object newValue) {
         _sb.Append(".Update(");

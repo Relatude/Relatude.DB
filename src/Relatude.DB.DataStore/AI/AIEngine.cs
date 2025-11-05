@@ -32,7 +32,14 @@ public class AIEngine {
         List<resultSet> missing = []; // values not in cache
 
         // check cache for existing embeddings and collect missing:
-        foreach (var v in valueSet) if (!_cache.TryGet(v.Hash, out v.Embedding)) missing.Add(v);
+        foreach (var v in valueSet) {
+            if (_cache.TryGet(v.Hash, out v.Embedding)) continue;
+            if(string.IsNullOrWhiteSpace(v.Text)) {
+                v.Embedding = [];
+                continue;
+            }
+            missing.Add(v);
+        }
 
         totalCached += valueSet.Length - missing.Count;
 

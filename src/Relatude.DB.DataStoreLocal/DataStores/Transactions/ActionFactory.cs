@@ -273,21 +273,21 @@ internal static class ActionFactory {
                 if (!relation.Contains(source, target)) yield break; // nothing to do
                 if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedRelation;
                 yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, source, target, a.ChangeUtc);
-            } else if (source == 0 && target != 0) {
+            } else if (source == 0 && target != 0) { // remove all relations to target
                 foreach (var r in relation.Values) { // remove all relations to target
                     if (r.Target == target) {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelationsToTarget;
                         yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
                     }
                 }
-            } else if (source != 0 && target == 0) {
+            } else if (source != 0 && target == 0) { // remove all relations from source
                 foreach (var r in relation.Values) { // remove all relations from source
                     if (r.Source == source) {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelationsFromSource;
                         yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
                     }
                 }
-            } else { // source == 0 && target == 0                
+            } else { // source == 0 && target == 0 // remove all relations
                 foreach (var r in relation.Values) { // remove all relations
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelations;
                     yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
@@ -303,7 +303,7 @@ internal static class ActionFactory {
         if (a.NodeGuids != null) uints.AddRange(a.NodeGuids.Select(db._guids.GetId));
         if (a.TypeId != null) {
             if (uints.Count > 0) throw new("Cannot update property for multiple nodes and a type. ");
-            uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value).Enumerate());
+            uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value, true).Enumerate());
         }
         // ignore nodes that does not exist, copy to avoid changing original node in case of error:
         var nodes = db._nodes.Get(uints.Where(db._nodes.Contains).ToArray()).Select(n => n.Copy());

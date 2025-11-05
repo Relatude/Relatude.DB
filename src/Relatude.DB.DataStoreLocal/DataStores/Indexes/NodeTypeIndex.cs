@@ -32,19 +32,24 @@ internal class NodeTypeIndex : IIndex {
     Guid[] _guidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     Dictionary<int, short> _typeByIds = [];
 
-    Dictionary<Guid, MutableIdSet> _idsByType = [];
+    Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDecendants = [];
+    Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDecendants = [];
     internal NodeTypeIndex(Definition definition, string uniqueKey) {
         _definition = definition;
         UniqueKey = uniqueKey;
     }
     public string UniqueKey { get; private set; }
 
-    public IdSet GetAllNodeIdsForType(Guid typeId) {
-        if (_idsByType.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+    public IdSet GetAllNodeIdsForType(Guid typeId, bool includeDescendants) {
+        if (includeDescendants) {
+            if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+        } else {
+            if (_idsByTypeWithoutDecendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+        }
         return IdSet.Empty;
     }
     public int GetCountForTypeForStatusInfo(Guid typeId) {
-        if (_idsByType.TryGetValue(typeId, out var ids)) return ids.Count;
+        if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) return ids.Count;
         return 0;
     }
 
@@ -68,34 +73,45 @@ internal class NodeTypeIndex : IIndex {
         throw new Exception("Internal error. Unable to find next available TypeId. Maximum number of " + short.MaxValue + " reached.");
     }
 
-    public void Index(INodeData node) {
-        var id = node.__Id;
-        if (!_shortTypeIdByGuid.TryGetValue(node.NodeType, out var shortId)) {
+    public void Index(INodeData node) => insert(node.__Id, node.NodeType);
+    public void DeIndex(INodeData node) => delete(node.__Id, node.NodeType);
+
+    void insert(int id, Guid nodeTypeId) {
+        if (!_shortTypeIdByGuid.TryGetValue(nodeTypeId, out var shortId)) {
             shortId = findNextAvailableShortId();
-            _shortTypeIdByGuid.Add(node.NodeType, shortId);
-            _guidByShortTypeId[shortId] = node.NodeType;
+            _shortTypeIdByGuid.Add(nodeTypeId, shortId);
+            _guidByShortTypeId[shortId] = nodeTypeId;
         }
         if (_guidByShortTypeId[shortId] == Guid.Empty) throw new Exception("Internal error. Unable to index node with id: " + id + " as the short id: " + shortId + " is already in use.");
         _typeByIds.Add(id, shortId);
-        foreach (var typeId in _definition.Datamodel.NodeTypes[node.NodeType].ThisAndAllInheritedTypes.Keys) {
-            if (!_idsByType.TryGetValue(typeId, out var ids)) _idsByType.Add(typeId, ids = new());
+        foreach (var typeId in _definition.Datamodel.NodeTypes[nodeTypeId].ThisAndAllInheritedTypes.Keys) {
+            if (!_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) _idsByTypeIncludingDecendants.Add(typeId, ids = new());
+            ids.Index(id);
+        }
+        {
+            if (!_idsByTypeWithoutDecendants.TryGetValue(nodeTypeId, out var ids)) _idsByTypeWithoutDecendants.Add(nodeTypeId, ids = new());
             ids.Index(id);
         }
     }
-    public void DeIndex(INodeData node) {
-        var id = node.__Id;
+    void delete(int id, Guid nodeTypeId) {
         _typeByIds.Remove(id);
-        foreach (var typeId in _definition.Datamodel.NodeTypes[node.NodeType].ThisAndAllInheritedTypes.Keys) {
-            if (_idsByType.TryGetValue(typeId, out var ids)) {
+        foreach (var typeId in _definition.Datamodel.NodeTypes[nodeTypeId].ThisAndAllInheritedTypes.Keys) {
+            if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) {
                 ids.DeIndex(id);
-                if (ids.Count == 0) _idsByType.Remove(typeId);
+                if (ids.Count == 0) _idsByTypeIncludingDecendants.Remove(typeId);
             } else {
                 throw new Exception("Internal error. Unable to deindex node with id: " + id + " from type: " + typeId + " as it is not indexed.");
             }
         }
+        {
+            if (_idsByTypeWithoutDecendants.TryGetValue(nodeTypeId, out var ids)) {
+                ids.DeIndex(id);
+                if (ids.Count == 0) _idsByTypeIncludingDecendants.Remove(nodeTypeId);
+            } else {
+                throw new Exception("Internal error. Unable to deindex node with id: " + id + " from type: " + nodeTypeId + " as it is not indexed.");
+            }
+        }
     }
-
-
 
     public void SaveState(IAppendStream stream) {
         stream.WriteVerifiedInt(_typeByIds.Count); // Count of types
@@ -103,34 +119,13 @@ internal class NodeTypeIndex : IIndex {
             stream.WriteUInt((uint)kv.Key); // NodeId
             stream.WriteGuid(_guidByShortTypeId[kv.Value]); // NodeType
         }
-        stream.WriteVerifiedInt(_idsByType.Count);
-        foreach (var kv in _idsByType) {
-            stream.WriteGuid(kv.Key); // NodeType
-            var set = kv.Value.AsUnmutableIdSet();
-            stream.WriteVerifiedInt(set.Count);
-            foreach (var id in set.Enumerate())
-                stream.WriteUInt((uint)id);
-        }
     }
     public void ReadState(IReadStream stream) {
         var noIds = stream.ReadVerifiedInt();
         for (var i = 0; i < noIds; i++) {
             var nodeId = (int)stream.ReadUInt();
             var nodeTypeId = stream.ReadGuid();
-            if (!_shortTypeIdByGuid.TryGetValue(nodeTypeId, out var byteValue)) {
-                byteValue = (byte)_shortTypeIdByGuid.Count;
-                _shortTypeIdByGuid.Add(nodeTypeId, byteValue);
-                _guidByShortTypeId[byteValue] = nodeTypeId;
-            }
-            _typeByIds.Add(nodeId, byteValue);
-        }
-        var noTypes = stream.ReadVerifiedInt();
-        for (var i = 0; i < noTypes; i++) {
-            var typeId = stream.ReadGuid();
-            var set = new MutableIdSet();
-            var noIdsInSet = stream.ReadVerifiedInt();
-            for (var j = 0; j < noIdsInSet; j++) set.Index((int)stream.ReadUInt());
-            _idsByType.Add(typeId, set);
+            insert(nodeId, nodeTypeId);
         }
     }
 

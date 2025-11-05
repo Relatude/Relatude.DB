@@ -182,4 +182,5 @@ public class RelationAttribute : Attribute {
     public string? Id { get; set; }
     public string[]? SourceTypes { get; set; }
     public string[]? TargetTypes { get; set; }
+    public bool DisallowCircularReferences { get; set; }
 }

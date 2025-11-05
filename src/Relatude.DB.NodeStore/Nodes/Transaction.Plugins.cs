@@ -4,12 +4,12 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
 public sealed partial class Transaction {
     public async Task<TransactionResult> ExecuteAsync(bool flushToDisk = false) {
-        var result = await _store.ExecuteAsync(this, flushToDisk);
+        var result = await Store.ExecuteAsync(this, flushToDisk);
         _transactionData = new();
         return result;
     }
     public TransactionResult Execute(bool flushToDisk = false) {
-        var stateId = _store.Execute(this, flushToDisk);
+        var stateId = Store.Execute(this, flushToDisk);
         _transactionData = new();
         return stateId;
     }
@@ -24,20 +24,20 @@ public sealed partial class Transaction {
     }
     List<PluginWithActions>? _relevantPlugins;
     internal void PrepareRelevantPlugins() {
-        if (_store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
+        if (Store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
 
         List<IdKey>? needTypeInfo = null; // we need type info to determine relevant plugins
-        foreach (var plugin in _store.TransactionPlugins) {
+        foreach (var plugin in Store.TransactionPlugins) {
             foreach (var action in _transactionData.Actions) {
                 plugin.AddIdKeysThatNeedTypeInfo(action, ref needTypeInfo);
             }
         }
         Dictionary<IdKey, Guid>? typeByNodeId = null;
         if (needTypeInfo != null && needTypeInfo.Count > 0) { // for most actions we don't need type info as it is already in the action
-            typeByNodeId = _store.Datastore.GetNodeType(needTypeInfo); // all this to reduce callbacks to datastore to max one call per transaction
+            typeByNodeId = Store.Datastore.GetNodeType(needTypeInfo); // all this to reduce callbacks to datastore to max one call per transaction
         }
 
-        foreach (var plugin in _store.TransactionPlugins) {
+        foreach (var plugin in Store.TransactionPlugins) {
             List<ActionsWithIds>? actionNodeIds = null;
             foreach (var action in _transactionData.Actions) {
                 var ids = plugin.GetRelevantNodeIds(action, typeByNodeId);

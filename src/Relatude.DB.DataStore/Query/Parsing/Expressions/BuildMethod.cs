@@ -55,10 +55,11 @@ internal class BuildMethod {
         if (name == "wheretypes") {
             if (e.Subject == null) throw new NullReferenceException();
             var source = ExpressionTreeBuilder.Build(e.Subject, dm);
-            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantToken typeIds) {
-                return new WhereTypesMethod(source, typeIds.GetNodeTypeGuids(dm));
+            if (e.Arguments.Count > 0 && e.Arguments[0] is ValueConstantToken arg1) {
+                bool includeDescendants = e.Arguments.Count > 1 && e.Arguments[1] is ValueConstantToken arg2 ? arg2.GetBoolValue() : true;
+                return new WhereTypesMethod(source, arg1.GetNodeTypeGuids(dm), includeDescendants);
             } else {
-                throw new Exception("WhereTypes statement only accepts one parameter. ");
+                throw new Exception("WhereTypes statement only accepts one or two parameter. ");
             }
         }
         if (name == "orderby") {

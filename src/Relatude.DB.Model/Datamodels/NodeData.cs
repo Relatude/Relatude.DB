@@ -37,6 +37,7 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
+    T GetValue<T>(Guid propertyId);
     INodeData Copy();
 
     public static int BaseSize = 1000;
@@ -49,6 +50,12 @@ public static class INodeDataExtensions {
         }
         value = default;
         return false;
+    }
+    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, T fallback) {
+        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
+            return tValue;
+        }
+        return fallback;
     }
     public static T GetValue<T>(this INodeData nodeData, Guid propertyId, Func<T> fallback) {
         if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
@@ -132,6 +139,7 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         if (_readOnly) throw new Exception("Node data is readonly. ");
         _values.Remove(propertyId);
     }
+    public T GetValue<T>(Guid propertyId) => (T)_values[propertyId];
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) {
         return _values.TryGetValue(propertyId, out value);
     }
@@ -189,6 +197,8 @@ public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
+    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
+
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
 }
@@ -221,6 +231,7 @@ public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly
     public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
+    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
@@ -254,6 +265,7 @@ public class NodeDataOnlyTypeAndId : INodeData, INodeData_OnlyIds { // readonly 
     public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
+    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
@@ -293,6 +305,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();
     public bool Contains(Guid propertyId) => _node.Contains(propertyId);
     public void EnsureReadOnly() => _node.EnsureReadOnly();
+    public T GetValue<T>(Guid propertyId) => _node.GetValue<T>(propertyId);
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
@@ -372,7 +385,7 @@ public class Properties<T> {
     public T this[Guid key] {
         get {
             for (int i = 0; i < _size; i++) if (_values[i].PropertyId == key) return _values[i].Value;
-            throw new KeyNotFoundException();
+            throw new KeyNotFoundException("Property ID " + key + " was not found. ");
         }
         set {
             for (int i = 0; i < _size; i++) {

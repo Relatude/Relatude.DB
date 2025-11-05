@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.DataStores.Indexes.VectorIndex;
 /// <summary>
@@ -36,13 +37,14 @@ public class FlatDiskVectorIndex : IVectorIndex {
         _stream.Seek(offsetFromSegment(segment), SeekOrigin.Begin);
         _stream.Write(_buffer, 0, _recordSegmentLength);
     }
-    public void Set(int nodeId, float[] vectorsForEachParagraph) {
-        if (vectorsForEachParagraph.Length != _dimensions) throw new ArgumentException("Vector dimensions do not match index dimensions");
+    public void Set(int nodeId, float[] vector) {
+        if (vector.Length == 0) return; // do not store empty vectors
+        if (vector.Length != _dimensions) throw new ArgumentException("Vector dimensions do not match index dimensions");
         if (_fileIndex.TryGetValue(nodeId, out var segment)) {
-            writeRecord(nodeId, vectorsForEachParagraph, segment);
+            writeRecord(nodeId, vector, segment);
         } else {
             segment = segmentFromOffset(_stream.Length);
-            writeRecord(nodeId, vectorsForEachParagraph, segment);
+            writeRecord(nodeId, vector, segment);
             _fileIndex[nodeId] = segment;
         }
     }

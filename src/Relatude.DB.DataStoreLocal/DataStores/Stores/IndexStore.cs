@@ -38,7 +38,7 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-    static Guid _indexStoreMarker = new Guid("414f9f60-6290-418f-bf18-3c6ee74cc78c");
+        static Guid _indexStoreMarker = new Guid("414f9f60-6290-418f-bf18-3c6ee74cc78c");
     static Guid _indexMarker = new Guid("554f531c-16fc-495a-b017-31a7804eb765");
     public void SaveState(IAppendStream stream) {
         var indexes = _definition.GetAllIndexes();
@@ -77,6 +77,7 @@ internal class IndexStore : IDisposable {
     }
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction action, bool throwOnErrors, Action<string, Exception> log) {
         _definition.RegisterActionDuringStateLoad(transactionTimestamp, action, throwOnErrors, log);
+
     }
     public void Dispose() {
         foreach (var index in _definition.GetAllIndexes()) {
@@ -88,5 +89,4 @@ internal class IndexStore : IDisposable {
             index.ClearCache();
         }
     }
-
 }

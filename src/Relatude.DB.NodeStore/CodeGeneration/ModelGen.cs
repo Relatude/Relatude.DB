@@ -5,7 +5,7 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 
 namespace Relatude.DB.CodeGeneration;
-public static class CodeGeneratorForCSharpModels {
+public static class ModelGen {
     public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes = true) {
         var sb = new StringBuilder();
         datamodel.EnsureInitalization();
@@ -26,8 +26,6 @@ public static class CodeGeneratorForCSharpModels {
                 sb.AppendLine("}"); // end namespace
             }
         }
-
-
         var relationsByNamespace = datamodel.Relations.Values
             .GroupBy(r => r.Namespace ?? string.Empty)
             .OrderBy(g => g.Key).Select(g => new { Namespace = g.Key, Relations = g });
@@ -46,15 +44,6 @@ public static class CodeGeneratorForCSharpModels {
         }
         return sb.ToString();
     }
-    static string fieldOrProperty(string type, string name, ModelType mType, string? defaultDeclaration = null) {
-        switch (mType) {
-            case ModelType.Interface: return type + " " + name + " { get; set; }";
-            case ModelType.Class: return "public " + type + " " + name + " { get; set; }" + (string.IsNullOrEmpty(defaultDeclaration) ? "" : (" = " + defaultDeclaration + ";"));
-            case ModelType.Record: return "public " + type + " " + name + " { get; set; }";
-            case ModelType.Struct: return type + " " + name + ";";
-            default: throw new Exception("Unknown model type " + mType);
-        }
-    }
     static void appendModelCode(NodeTypeModel nodeDef, Datamodel datamodel, StringBuilder sb, bool addAttributes) {
         if (addAttributes) {
             sb.AppendLine("    [" + nameAtt<NodeAttribute>() + "(" + nameof(NodeAttribute.Id) + " = \"" + nodeDef.Id + "\")]");
@@ -62,10 +51,10 @@ public static class CodeGeneratorForCSharpModels {
         }
         var inheritance = string.Join(", ", nodeDef.Parents
             .Where(id => id != NodeConstants.BaseNodeTypeId)
-            .Select(id => TypeAndNamespace(nodeDef.Namespace, datamodel.NodeTypes[id].FullName)));
+            .Select(id => typeAndNamespace(nodeDef.Namespace, datamodel.NodeTypes[id].FullName)));
         if (!string.IsNullOrEmpty(inheritance)) inheritance = " : " + inheritance;
         sb.AppendLine("    public " + nodeDef.ModelType.ToString().ToLower() + " " + nodeDef.CodeName + inheritance + " {");
-        if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty) && isFirstClassUsingName_NameOfPublicIdProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty) && CodeUtils.IsFirstClassUsingName_NameOfPublicIdProperty(nodeDef, datamodel)) {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<PublicIdPropertyAttribute>() + "()]");
             string typeName = nodeDef.DataTypeOfPublicId switch {
                 DataTypePublicId.Guid => "Guid",
@@ -73,57 +62,31 @@ public static class CodeGeneratorForCSharpModels {
                 _ => throw new Exception("Unknown datatype of public id: " + nodeDef.DataTypeOfPublicId),
             };
             sb.Append("        ");
-            sb.AppendLine(fieldOrProperty(typeName, nodeDef.NameOfPublicIdProperty, nodeDef.ModelType));
+            sb.AppendLine(CodeUtils.FieldOrProperty(typeName, nodeDef.NameOfPublicIdProperty, nodeDef.ModelType));
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty) && isFirstClassUsingName_NameOfInternalIdProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty) && CodeUtils.IsFirstClassUsingName_NameOfInternalIdProperty(nodeDef, datamodel)) {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<InternalIdPropertyAttribute>() + "()]");
             sb.Append("        ");
-            sb.AppendLine(fieldOrProperty(nodeDef.DataTypeOfInternalId?.ToString().ToLower() + "", nodeDef.NameOfInternalIdProperty, nodeDef.ModelType));
+            sb.AppendLine(CodeUtils.FieldOrProperty(nodeDef.DataTypeOfInternalId?.ToString().ToLower() + "", nodeDef.NameOfInternalIdProperty, nodeDef.ModelType));
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfCreatedUtcProperty) && isFirstClassUsingName_NameOfCreatedUtcProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfCreatedUtcProperty) && CodeUtils.IsFirstClassUsingName_NameOfCreatedUtcProperty(nodeDef, datamodel)) {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<CreatedUtcPropertyAttribute>() + "()]");
             sb.Append("        ");
-            sb.AppendLine(fieldOrProperty("DateTime", nodeDef.NameOfCreatedUtcProperty, nodeDef.ModelType));
+            sb.AppendLine(CodeUtils.FieldOrProperty("DateTime", nodeDef.NameOfCreatedUtcProperty, nodeDef.ModelType));
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfChangedUtcProperty) && isFirstClassUsingName_NameOfChangedUtcProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfChangedUtcProperty) && CodeUtils.IsFirstClassUsingName_NameOfChangedUtcProperty(nodeDef, datamodel)) {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<ChangedUtcPropertyAttribute>() + "()]");
             sb.Append("        ");
-            sb.AppendLine(fieldOrProperty("DateTime", nodeDef.NameOfChangedUtcProperty, nodeDef.ModelType));
+            sb.AppendLine(CodeUtils.FieldOrProperty("DateTime", nodeDef.NameOfChangedUtcProperty, nodeDef.ModelType));
         }
         foreach (var p in nodeDef.Properties.Values.Where(p => !p.Private)) {
             if (addAttributes) addPropertyAttribute(p, datamodel, sb);
-            var typeName = CodeGeneratorForValueMappers.GetTypeName(p, datamodel);
-            typeName = TypeAndNamespace(nodeDef.Namespace, typeName);
+            var typeName = CodeUtils.GetTypeName(p, datamodel);
+            typeName = typeAndNamespace(nodeDef.Namespace, typeName);
             sb.Append("        ");
-            sb.AppendLine(fieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, getDefaultDeclaration(nodeDef.Namespace, p, datamodel)));
+            sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel)));
         }
         sb.AppendLine("    }"); // end class
-    }
-    static string? getDefaultDeclaration(string? currentNamespace, PropertyModel p, Datamodel dm) {
-        if (p is not RelationPropertyModel rp) return p.GetDefaultDeclaration();
-        if (rp.RelationValueType != RelationValueType.Native) return p.GetDefaultDeclaration();
-        return "new()";
-    }
-    static bool isFirstClassUsingName_NameOfInternalIdProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
-        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfInternalIdProperty!, nodeDef, datamodel, n => n.NameOfInternalIdProperty!);
-    }
-    static bool isFirstClassUsingName_NameOfPublicIdProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
-        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfPublicIdProperty!, nodeDef, datamodel, n => n.NameOfPublicIdProperty!);
-    }
-    static bool isFirstClassUsingName_NameOfChangedUtcProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
-        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfChangedUtcProperty!, nodeDef, datamodel, n => n.NameOfChangedUtcProperty!);
-    }
-    static bool isFirstClassUsingName_NameOfCreatedUtcProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
-        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfCreatedUtcProperty!, nodeDef, datamodel, n => n.NameOfCreatedUtcProperty!);
-    }
-    static bool isFirstClassInParentsThatUseThisName(string propName, NodeTypeModel nodeDef, Datamodel datamodel, Func<NodeTypeModel, string> getPropName) {
-        if (nodeDef.Parents.Count == 0) return true;
-        foreach (var parentId in nodeDef.Parents) {
-            var parent = datamodel.NodeTypes[parentId];
-            if (getPropName(parent) == propName) return false;
-            if (!isFirstClassInParentsThatUseThisName(propName, parent, datamodel, getPropName)) return false;
-        }
-        return true;
     }
     static void addBaseAttributes<T>(PropertyModel p, Datamodel dm, StringBuilder sb, string? attributeName = null) where T : PropertyAttribute {
         if (attributeName == null) attributeName = nameAtt<T>();
@@ -313,7 +276,7 @@ public static class CodeGeneratorForCSharpModels {
         if (addAttributes) {
             var attributeName = nameof(RelationAttribute);
             attributeName = typeof(RelationAttribute).Namespace + "." + attributeName.Remove(attributeName.Length - "Attribute".Length);
-            attributeName = TypeAndNamespace(relation.Namespace, attributeName);
+            attributeName = typeAndNamespace(relation.Namespace, attributeName);
             sb.Append("    [" + attributeName + "(");
             sb.Append(nameof(RelationAttribute.Id) + " = \"" + relation.Id + "\"");
             if (relation.SourceTypes.Count > 0) {
@@ -324,22 +287,25 @@ public static class CodeGeneratorForCSharpModels {
                 var guidStrings = relation.TargetTypes.Select(t => "\"" + t.ToString() + "\"");
                 sb.Append(", " + nameof(RelationAttribute.TargetTypes) + " = [" + string.Join(", ", guidStrings) + "]");
             }
+            if (relation.DisallowCircularReferences) {
+                sb.Append(", " + nameof(RelationAttribute.DisallowCircularReferences) + " = true");
+            }
             sb.AppendLine(")]");
         }
-        var inheritance = " : " + TypeAndNamespace(relation.Namespace, typeof(IRelation).Namespace, relation.RelationType.ToString()) + "<" + (relation.RelationType switch {
+        var inheritance = " : " + typeAndNamespace(relation.Namespace, typeof(IRelation).Namespace, relation.RelationType.ToString()) + "<" + (relation.RelationType switch {
             RelationType.OneToMany =>
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
             RelationType.OneToOne =>
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
             RelationType.ManyToMany =>
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName) + ", " +
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.TargetTypes).FullName),
             RelationType.OneOne =>
-            TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
+            typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
             RelationType.ManyMany =>
-                TypeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
+                typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
             _ => throw new Exception("Unknown relation type " + relation.RelationType),
         });
         inheritance += ">"; 
@@ -375,11 +341,11 @@ public static class CodeGeneratorForCSharpModels {
         if (type.IsGenericType) {
             var typeName = type.Name.Substring(0, type.Name.IndexOf('`')); // remove the generic type parameter count
             var typeNamespace = type.Namespace ?? string.Empty;
-            return TypeAndNamespace(currentNameSpace, typeNamespace, typeName);
+            return typeAndNamespace(currentNameSpace, typeNamespace, typeName);
         }
-        return TypeAndNamespace(currentNameSpace, type.Namespace, type.Name);
+        return typeAndNamespace(currentNameSpace, type.Namespace, type.Name);
     }
-    public static string TypeAndNamespace(string? currentNameSpace, string fullTypeName) {
+    static string typeAndNamespace(string? currentNameSpace, string fullTypeName) {
         var typeName = fullTypeName;
         string? typeNamespace = null;
         if (fullTypeName.Contains('.')) {
@@ -387,9 +353,9 @@ public static class CodeGeneratorForCSharpModels {
             typeNamespace = fullTypeName[..lastDotIndex];
             typeName = fullTypeName[(lastDotIndex + 1)..];
         }
-        return TypeAndNamespace(currentNameSpace, typeNamespace, typeName);
+        return typeAndNamespace(currentNameSpace, typeNamespace, typeName);
     }
-    public static string TypeAndNamespace(string? currentNameSpace, string? typeNamespace, string typeName) {
+    static string typeAndNamespace(string? currentNameSpace, string? typeNamespace, string typeName) {
         if (string.IsNullOrEmpty(typeNamespace)) return typeName; // no namespace, just the type name
         if (string.IsNullOrEmpty(currentNameSpace)) return typeNamespace + "." + typeName; // no current namespace, use the type namespace
         //use relative namespace:

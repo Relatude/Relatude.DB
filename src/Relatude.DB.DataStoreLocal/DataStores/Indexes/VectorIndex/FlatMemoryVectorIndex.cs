@@ -18,10 +18,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         if (vector.Length == 0) return; // do not store empty vectors
         _index[nodeId] = vector;
     }
-
     public void Clear(int nodeId) => _index.Remove(nodeId);
-
-
     public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
         if (minCosineSimilarity >= 1f) minCosineSimilarity = 0.9999f;
         else if (minCosineSimilarity <= -1f) minCosineSimilarity = -0.9999f; // avoid precision issues
