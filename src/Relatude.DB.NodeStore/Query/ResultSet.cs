@@ -3,7 +3,13 @@
 namespace Relatude.DB.Query;
 public class ResultSet<T> : IEnumerable<T> {
     public ResultSet(IEnumerable<T> values, int count, int totalCount, int pageIndex, int? pageSize, double durationMs = 0) {
-        Values = values;
+
+        T[] arr = new T[count];
+        int i = 0;
+        foreach (var v in values) arr[i++] = v;
+        Values = arr;
+        //Values = values;
+
         Count = count;
         TotalCount = totalCount;
         PageIndex = pageIndex;
@@ -24,6 +30,14 @@ public class ResultSet<T> : IEnumerable<T> {
     public double DurationMs { get; set; }
     public IEnumerator<T> GetEnumerator() => Values.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => Values.GetEnumerator();
+    public T[] ToArray() {
+        if (Values is T[] arr) return arr;
+        return Values.ToArray();
+    }
+    public List<T> ToList() {
+        if (Values is T[] arr) return [.. arr];
+        return Values.ToList();
+    }
 }
 public class ResultSetNotEnumerable<T> {
     public ResultSetNotEnumerable(IEnumerable<T> values, int count, int totalCount, int pageIndex, int? pageSize, double durationMs, bool capped) {
@@ -42,7 +56,7 @@ public class ResultSetNotEnumerable<T> {
     public bool IsAll { get; }
     public bool IsLastPage { get; }
     public int TotalCount { get; }
-    public bool Capped{ get; }
+    public bool Capped { get; }
     public int PageIndex { get; }
     public int PageSize { get; }
     public int PageCount { get; }
