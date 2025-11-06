@@ -29,8 +29,10 @@ app.MapGet("/Del", (NodeStore db) => {
 app.MapGet("/Add", (NodeStore db) => {
 
     var transaction = db.CreateTransaction();
-
     var culture = db.Create<ISystemCulture>();
+
+
+
     transaction.Insert(culture);
     for (int i = 0; i < 10; i++) {
         var collection = db.Create<ISystemCollection>();

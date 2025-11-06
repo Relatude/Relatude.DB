@@ -30,7 +30,6 @@ public interface ISystemCulture {
     string EnglishName { get; set; }
     CollectionsToCultures.Collections Collections { get; }
 }
-
 [Relation(Id = NodeConstants.RelationUsersToGroupsString)]
 public class UsersToGroups : ManyToMany<ISystemUser, ISystemUserGroup> {
     public class Users : ManyFrom { }
