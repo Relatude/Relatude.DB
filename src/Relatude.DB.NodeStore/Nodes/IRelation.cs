@@ -167,13 +167,20 @@ public interface IOneToMany : IRelation { }
 public interface IManyMany : IRelation { }
 public interface IManyToMany : IRelation { }
 
+public interface IRelation<TFrom, TTo> : IRelation { }
+public interface IOneOne<T> : IRelation<T, T>, IOneOne { }
+public interface IOneToOne<TFrom, TTo> : IRelation<TFrom, TTo>, IOneToOne { }
+public interface IOneToMany<TFrom, TTo> : IRelation<TFrom, TTo>, IOneToMany { }
+public interface IManyMany<T> : IRelation<T, T>, IManyMany { }
+public interface IManyToMany<TFrom, TTo> : IRelation<TFrom, TTo>, IManyToMany { }
+
 /// <summary>
 /// Symmetric one-to-one relation
 /// Example: Spouse relation
 /// If one spouse is related to the other, the other is automatically related to the first.
 /// One spouse can be related to only one other spouse. Effectively, this creates a pair.
 /// </summary>
-public class OneOne<TOne> : IOneOne {
+public class OneOne<TOne> : IOneOne<TOne> {
     public class One() : OneProperty<TOne>() { }
 }
 /// <summary>
@@ -182,7 +189,7 @@ public class OneOne<TOne> : IOneOne {
 /// If the husband is related to the wife, the wife is automatically related back to the husband.
 /// One husband can be related to only one wife, and one wife can be related to only one husband.
 /// </summary>
-public class OneToOne<TOneFrom, TOneTo> : IOneToOne {
+public class OneToOne<TOneFrom, TOneTo> : IOneToOne<TOneFrom, TOneTo> {
     public class OneFrom() : OneProperty<TOneFrom>() { }
     public class OneTo() : OneProperty<TOneTo>() { }
 }
@@ -192,7 +199,7 @@ public class OneToOne<TOneFrom, TOneTo> : IOneToOne {
 /// If the parent is related to the children, the children are automatically related back to the parent.
 /// One parent can be related to many children, but each child is related to only one parent.
 /// </summary>
-public class OneToMany<TOne, TMany> : IOneToMany {
+public class OneToMany<TOne, TMany> : IOneToMany<TOne, TMany> {
     public class One() : OneProperty<TOne>() { }
     public class Many() : ManyProperty<TMany>() { }
 }
@@ -202,7 +209,7 @@ public class OneToMany<TOne, TMany> : IOneToMany {
 /// If one friend is related to another, the other is automatically related back to the first.
 /// One friend can be related to many friends and vice versa.
 /// </summary>
-public class ManyMany<TMany> : IManyMany {
+public class ManyMany<TMany> : IManyMany<TMany> {
     public class Many() : ManyProperty<TMany>() { }
 }
 /// <summary>
@@ -211,7 +218,7 @@ public class ManyMany<TMany> : IManyMany {
 /// If a teacher is related to students, the students are automatically related back to the teacher.
 /// Many teachers can be related to many students and vice versa.
 /// </summary>
-public class ManyToMany<TManyFrom, TManyTo> : IManyToMany {
+public class ManyToMany<TManyFrom, TManyTo> : IManyToMany<TManyFrom, TManyTo> {
     public class ManyFrom() : ManyProperty<TManyFrom>() { }
     public class ManyTo() : ManyProperty<TManyTo>() { }
 }

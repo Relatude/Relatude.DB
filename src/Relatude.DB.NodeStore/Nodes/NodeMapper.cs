@@ -113,8 +113,8 @@ public class NodeMapper {
     public INodeData CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection) {
         return getNodeValueMapper(node.GetType(), out _).CreateNodeDataFromObject(node, relatedCollection);
     }
-    public Guid GetRelationId<T>() {
-        var type = typeof(T);
+    public Guid GetRelationId<T>() => GetRelationId(typeof(T));
+    public Guid GetRelationId(Type type) {
         if (_store.Datastore.Datamodel.RelationIdByType.TryGetValue(type, out var id)) return id;
         throw new Exception("Unable to find relation id for type: " + type.FullName);
     }

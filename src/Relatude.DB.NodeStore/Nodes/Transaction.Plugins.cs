@@ -2,7 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
-public sealed partial class Transaction {
+public partial class Transaction {
     public async Task<TransactionResult> ExecuteAsync(bool flushToDisk = false) {
         var result = await Store.ExecuteAsync(this, flushToDisk);
         _transactionData = new();

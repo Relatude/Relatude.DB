@@ -1,11 +1,14 @@
-﻿using System;
-using System.Collections;
-using System.Linq.Expressions;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Query;
 using Relatude.DB.Transactions;
+using System;
+using System.Collections;
+using System.Linq.Expressions;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.Nodes;
-public sealed partial class Transaction {
+public partial class Transaction {
     internal TransactionData _transactionData;
     public readonly NodeStore Store;
     /// <summary>
@@ -95,19 +98,19 @@ public sealed partial class Transaction {
         return this;
     }
 
+    public TransactionRelation Relation => new TransactionRelation(this);
+    //public Transaction Relate<R, TFrom, TTo>(TFrom fromNode, TTo toNode) where R : IRelation<TFrom, TTo> {
+    //    return this;
+    //}
+    //public Transaction Relate<R, TFrom, TTo>(TFrom fromNode, TTo toNode) where R : IRelation<TFrom, TTo> {
+    //    return this;
+    //}
 
-    Transaction relate<R>(R relation, object? fromNode, object? toNode) {
-        var relationId = Store.Mapper.GetRelationId<R>();
-        var fromGuid = Store.Mapper.GetIdGuidOrCreate(fromNode);
-        var toGuid = Store.Mapper.GetIdGuidOrCreate(toNode);
-        _transactionData.AddRelation(relationId, fromGuid, toGuid);
-        return this;
-    }
-    public Transaction Relate<T>(OneOne<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<T>(ManyMany<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
-    public Transaction Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
+    //public Transaction Relate<T>(OneOne<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
+    //public Transaction Relate<T>(ManyMany<T> relation, T fromNode, T toNode) => relate(relation, fromNode, toNode);
+    //public Transaction Relate<TFrom, TTo>(OneToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
+    //public Transaction Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
+    //public Transaction Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
 
     public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
@@ -548,7 +551,7 @@ public sealed partial class Transaction {
         return this;
     }
 
-    // helpers:
+    // helpers, to aid directionality of relations:
     int source(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? to : from;
     int target(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? from : to;
     Guid source(Guid from, RelationPropertyModel p, Guid to) => p.FromTargetToSource ? to : from;
@@ -605,7 +608,7 @@ public sealed partial class Transaction {
                 _transactionData.InsertOrFail(nodeData);
             }
         } else {  // any child node is InsertIfNotExists as children are always only added if new
-            _transactionData.InsertIfNotExists(nodeData); 
+            _transactionData.InsertIfNotExists(nodeData);
         }
         if (related == null) return this; // means ignoreRelated was true or no related found
         inserted ??= [];
@@ -632,7 +635,7 @@ public sealed partial class Transaction {
         _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null));
         return this;
     }
-    public Transaction Upsert(IEnumerable<object> nodes) { 
+    public Transaction Upsert(IEnumerable<object> nodes) {
         foreach (var n in nodes) Upsert(n);
         return this;
     }
@@ -711,7 +714,7 @@ public sealed partial class Transaction {
         foreach (var g in nodeGuids) DeleteOrFail(g);
         return this;
     }
-    public Transaction Delete(IEnumerable<int> ids) { 
+    public Transaction Delete(IEnumerable<int> ids) {
         foreach (var id in ids) DeleteOrFail(id);
         return this;
     }

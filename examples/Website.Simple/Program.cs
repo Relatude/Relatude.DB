@@ -41,6 +41,10 @@ app.MapGet("/Add", (NodeStore db) => {
     var userGroup1 = db.Create<ISystemUserGroup>();
     transaction.Insert(userGroup1);
 
+    var user10 = db.CreateAndInsert<ISystemUser>((u, t) => {
+        u.Memberships.Relate(userGroup1, t);
+    });
+
     var userGroup2 = db.Create<ISystemUserGroup>();
     transaction.Insert(userGroup2);
 
@@ -48,10 +52,13 @@ app.MapGet("/Add", (NodeStore db) => {
     transaction.Insert(userGroup3);
 
     transaction.Relate(userGroup2, u => u.GroupMembers, userGroup1);
-    transaction.Relate(userGroup3, u => u.GroupMembers, userGroup2);
+    ISystemUser u = db.Create<ISystemUser>();
+
+    transaction.Relation.Relate<UsersToGroups, ISystemUser, ISystemUserGroup>(u, userGroup3);
+    
 
 
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 100; i++) {
         var user = db.Create<ISystemUser>();
         transaction.Insert(user);
         transaction.Relate(user, u => u.Memberships, userGroup1);
