@@ -14,13 +14,13 @@ app.UseStaticFiles();
 app.MapPost("/start", () => {
     Status.Current.Running = true;
     var dataSetMultiplier = 100;
-    var timeMultiplier = 5;
+    var timeMultiplier = 1;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
     options.UserCount = 1000 * dataSetMultiplier;
     options.CompanyCount = 500 * dataSetMultiplier;
     options.DocumentCount = 1000 * dataSetMultiplier;
-    options.Duration = TimeSpan.FromMilliseconds(100* timeMultiplier);
+    options.Duration = TimeSpan.FromMilliseconds(1000 * timeMultiplier);
     //options.SelectedTests = [nameof(ITester.UpdateUserAge)];
     var testData = Generator.Generate(options);
 
