@@ -37,6 +37,12 @@ public partial class NodeTypeModel { // with default values
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
     public ModelType ModelType { get; set; }
+    public bool DefaultAdminAccess { get; set; }
+    public bool AccessControl { get; set; }
+    public bool Cultures { get; set; }
+    public bool Collections { get; set; }
+    public bool Revisions { get; set; }
+
     public string? NameOfPublicIdProperty { get; set; }
     public string? NameOfInternalIdProperty { get; set; }
     public DataTypePublicId? DataTypeOfPublicId { get; set; }//= DataTypePublicId.Guid;

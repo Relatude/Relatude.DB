@@ -3,10 +3,9 @@ using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
 [Flags]
 public enum NodeDataVersionFlag {
+    Legacy = 0,
     Minimal = 1,
-    Access = 2,
-    Revisions = 4,
-    Cultures = 8,
+    Normal = 2, // Access, Revisions, Cultures
 }
 public interface INodeData_NoNodeType {
 }
@@ -17,18 +16,18 @@ public interface INodeData {
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
-    //Guid CollectionId { get; }
-    //int LCID { get; }
-    //int DerivedFromLCID { get; set; }
-    ////int Revision { get; } // 0: live, -1: preliminary, 1: 
-    //Guid ReadAccess { get; }
-    //Guid WriteAccess { get; }
+
+    int ReadAccess { get; }
+    int WriteAccess { get; }
+    int CollectionId { get; }
+    int CultureId { get; }
+    int RevisionId { get; }
+
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
     IEnumerable<PropertyEntry<object>> Values { get; }
 
     bool ReadOnly { get; }
-    //bool IsDerived { get; }
     IRelations Relations { get; }
     int ValueCount { get; }
     void Add(Guid propertyId, object value);
@@ -40,7 +39,8 @@ public interface INodeData {
     T GetValue<T>(Guid propertyId);
     INodeData Copy();
 
-    public static int BaseSize = 1000;
+    public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
+
 }
 public static class INodeDataExtensions {
     public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
@@ -57,20 +57,13 @@ public static class INodeDataExtensions {
         }
         return fallback;
     }
-    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, Func<T> fallback) {
-        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
-            return tValue;
-        }
-        return fallback();
-    }
 }
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
     int _uid;
     Guid _gid;
-    Properties<object> _values; // experiment to see if this is faster than Dictionary
-    //Dictionary<Guid, object> _values;
+    Properties<object> _values;
     static public NodeData CreateEmptyDerivedNode(Guid id, int lcid) {
         throw new NotImplementedException();
         //if (lcid == 0) throw new Exception("Culture ID cannot be 0. ");
@@ -80,7 +73,6 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         //return new NodeData(id, 0, e, e, lcid, lcid, e, e, now, now, new(0));
     }
     public NodeData(Guid id, int uid, Guid nodeType,
-        //Guid collectionId, int lcid, int derivedFromLcidId, Guid readAccess, Guid writeAccess, 
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values) {
         _gid = id;
@@ -110,21 +102,16 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
             _gid = value;
         }
     }
-    //public Guid CollectionId { get; set; }
-    //public int LCID { get; }
-    // public bool IsDerived { get => LCID != 0; }
-    //public int DerivedFromLCID { get; set; }
-    //public Guid ReadAccess { get; }
-    //public Guid WriteAccess { get; }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
+    public int ReadAccess { get; set; }
+    public int WriteAccess { get; set; }
+    public int CollectionId { get; set; }
+    public int CultureId { get; set; }
+    public int RevisionId { get; set; }
+
     public Guid NodeType { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
-    //public IEnumerable<KeyValuePair<Guid, object>> Values {
-    //    get {
-    //        foreach (var v in _values) yield return v;
-    //    }
-    //}
     public int ValueCount => _values.Count;
     public bool ReadOnly => _readOnly;
     public void Add(Guid propertyId, object value) {
@@ -177,18 +164,18 @@ public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds
     int _id;
     public int __Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType => throw new NotImplementedException();
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess => throw new NotImplementedException();
-    public Guid WriteAccess => throw new NotImplementedException();
+    public int ReadAccess => throw new NotImplementedException();
+    public int WriteAccess => throw new NotImplementedException();
+    public int CultureId => throw new NotImplementedException();
+    public int CollectionId => throw new NotImplementedException();
+    public int RevisionId => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
-
     public int ValueCount => throw new NotImplementedException();
     public bool ReadOnly => throw new NotImplementedException();
     public bool IsDerived => throw new NotImplementedException();
+    public bool IsReadOnly => throw new NotImplementedException();
     public IRelations Relations => throw new NotImplementedException();
 
     public void Add(Guid propertyId, object value) => throw new NotImplementedException();
@@ -212,11 +199,11 @@ public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly
     Guid _nodeType;
     public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    //public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public Guid ReadAccess => throw new NotImplementedException();
-    //public Guid WriteAccess => throw new NotImplementedException();
+    public int ReadAccess => throw new NotImplementedException();
+    public int WriteAccess => throw new NotImplementedException();
+    public int CultureId => throw new NotImplementedException();
+    public int CollectionId => throw new NotImplementedException();
+    public int RevisionId => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -246,11 +233,11 @@ public class NodeDataOnlyTypeAndId : INodeData, INodeData_OnlyIds { // readonly 
     Guid _nodeType;
     public Guid Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    //public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public int LCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public int DerivedFromLCID { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    //public Guid ReadAccess => throw new NotImplementedException();
-    //public Guid WriteAccess => throw new NotImplementedException();
+    public int ReadAccess => throw new NotImplementedException();
+    public int WriteAccess => throw new NotImplementedException();
+    public int CultureId => throw new NotImplementedException();
+    public int CollectionId => throw new NotImplementedException();
+    public int RevisionId => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -286,11 +273,11 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public Guid Id { get => _node.Id; set => throwReadOnlyError(); }
     public int __Id { get => _node.__Id; set => throwReadOnlyError(); }
     public Guid NodeType => _node.NodeType;
-    //public Guid CollectionId { get => _node.CollectionId; set => throwReadOnlyError(); }
-    //public int LCID { get => _node.LCID; set => throwReadOnlyError(); }
-    //public int DerivedFromLCID { get => _node.DerivedFromLCID; set => throwReadOnlyError(); }
-    //public Guid ReadAccess => _node.ReadAccess;
-    //public Guid WriteAccess => _node.WriteAccess;
+    public int ReadAccess => _node.ReadAccess;
+    public int WriteAccess => _node.WriteAccess;
+    public int CultureId => _node.CultureId;
+    public int CollectionId => _node.CollectionId;
+    public int RevisionId => _node.RevisionId;
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }
     public DateTime ChangedUtc => _node.ChangedUtc;
     public IEnumerable<PropertyEntry<object>> Values => _node.Values;
@@ -329,7 +316,7 @@ public class EmptyRelations : IRelations { // Always empty relations ( for cache
     public bool TryGetManyRelation(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] value) { value = null; return false; }
 }
 // number of properties will be relatively small, so we can use a simple array
-// it is faster and uses less memory than a dictionary
+// it is faster and uses less memory than a dictionary, when the number of items less than ~20
 public struct PropertyEntry<T>(Guid key, T value) {
     public Guid PropertyId = key;
     public T Value = value;

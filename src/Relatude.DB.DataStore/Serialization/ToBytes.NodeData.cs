@@ -2,24 +2,23 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query.Data;
+using Relatude.DB.Query.Methods;
 using Relatude.DB.Transactions;
 using System.Text;
 
 namespace Relatude.DB.Serialization;
 public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
-        //NodeData_Legacy(nodeData, datamodel, stream);
-        NodeData_Minimal(nodeData, datamodel, stream);
+        var nodeType = datamodel.NodeTypes[nodeData.NodeType];
+        //NodeData_Minimal(nodeData, datamodel, stream);
+        NodeData_Normal(nodeData, datamodel, stream);
     }
-    static void NodeData_Legacy(INodeData nodeData, Datamodel datamodel, Stream stream) { 
+    static void NodeData_Minimal(INodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
+        stream.WriteUInt(0); // indicating newer format version
+        stream.WriteInt((int)NodeDataVersionFlag.Minimal);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
-        //stream.WriteGuid(nodeData.CollectionId);
-        //stream.WriteInt(nodeData.LCID);
-        //stream.WriteInt(nodeData.DerivedFromLCID);
-        //stream.WriteGuid(nodeData.ReadAccess);
-        //stream.WriteGuid(nodeData.WriteAccess);
         stream.WriteDateTime(nodeData.CreatedUtc);
         stream.WriteDateTime(nodeData.ChangedUtc);
         var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;
@@ -31,21 +30,35 @@ public static partial class ToBytes {
             }
         }
         stream.WriteInt(propsToStore.Count);
-        stream.WriteInt(propsToStore.Count);  // written twice for some verification later
         foreach (var p in propsToStore) {
             var bytes = serializePropertyValue(p.Value, p.Key.PropertyType);
             stream.WriteGuid(p.Key.Id);// prop ID
-            if ((int)p.Key.PropertyType == 0) throw new Exception("Internal serialization error. ");
             stream.WriteUInt((uint)p.Key.PropertyType);// prop type
             stream.WriteByteArray(bytes); // data
         }
     }
-    static void NodeData_Minimal(INodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Normal(INodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
-        stream.WriteUInt(0);
-        stream.WriteInt((int)NodeDataVersionFlag.Minimal);
+        stream.WriteUInt(0); // indicating newer format version
+        stream.WriteInt((int)NodeDataVersionFlag.Normal);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
+
+        var all0 =
+            nodeData.ReadAccess == 0
+            && nodeData.WriteAccess == 0
+            && nodeData.CultureId == 0
+            && nodeData.CollectionId == 0
+            && nodeData.RevisionId == 0;
+        stream.WriteBool(all0);
+        if (!all0) {
+            stream.WriteInt(nodeData.ReadAccess);
+            stream.WriteInt(nodeData.WriteAccess);
+            stream.WriteInt(nodeData.CultureId);
+            stream.WriteInt(nodeData.CollectionId);
+            stream.WriteInt(nodeData.RevisionId);
+        }
+
         stream.WriteDateTime(nodeData.CreatedUtc);
         stream.WriteDateTime(nodeData.ChangedUtc);
         var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;
