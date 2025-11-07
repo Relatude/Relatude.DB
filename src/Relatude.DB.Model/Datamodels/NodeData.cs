@@ -163,6 +163,7 @@ public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds
     }
     int _id;
     public int __Id { get => _id; set => throw new NotImplementedException(); }
+
     public Guid NodeType => throw new NotImplementedException();
     public int ReadAccess => throw new NotImplementedException();
     public int WriteAccess => throw new NotImplementedException();
