@@ -36,6 +36,7 @@ public class RelatudeDBTester : ITester {
         settings.WriteSystemLogConsole = true;
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
+        settings.SecondaryBackupLog = true;
         settings.AutoFlushDiskInBackground = _flushMode == RelatudeDiskFlushMode.AutoFlush;
         settings.DeepFlushDisk = _flushMode == RelatudeDiskFlushMode.DiskFlush;
         var io = new IOProviderDisk(_dataFolderPath!);

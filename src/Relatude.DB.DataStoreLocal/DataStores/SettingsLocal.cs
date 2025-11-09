@@ -35,6 +35,8 @@
     public int NoYearlyBackUps { get; set; } = 10;
     public bool TruncateBackups { get; set; } = false;
 
+    public bool SecondaryBackupLog { get; set; } = false;
+
     public bool AutoTruncate { get; set; } = false; //true;
     public double AutoTruncateIntervalInMinutes { get; set; } = 60;
     public int AutoTruncateActionCountUpperLimit { get; set; } = 50000;

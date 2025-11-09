@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.DataStores.Relations;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -14,7 +15,7 @@ public static class RelationUtils {
     /// - GetRelatedTo(id): outgoing neighbors of id (id -> neighbor)
     /// - GetRelatedFrom(id): incoming neighbors of id (neighbor -> id)
     /// </summary>
-    internal static bool WillCauseCircularReference(int from, int to, IRelationIndex relation, out IEnumerable<int>? loop) {
+    internal static bool WillCauseCircularReference(int from, int to, IRelationIndex relation, [MaybeNullWhen(false)] out IEnumerable<int> loop) {
         // Trivial self-loop case
         if (from == to) {
             loop = new[] { from, from };

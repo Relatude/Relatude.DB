@@ -51,7 +51,7 @@ internal class SearchQueryResultData : ISearchQueryResultData {
         _hits = new List<SearchResultHitData>(_rawHits.Count());
         var nodeIdsToGet = _rawHits.Select(h => h.NodeId);
         var nodeIdsById = nodes.ToDictionary(n => n.__Id, n => n);
-        var searchTerms = TermSet.Parse(Search, _searchProperty.MinWordLength, _searchProperty.MaxWordLength);
+        var searchTerms = TermSet.Parse(Search, _searchProperty.MinWordLength, _searchProperty.MaxWordLength, _searchProperty.InfixSearch);
         foreach (var hit in _rawHits) {
             var node = nodeIdsById[hit.NodeId];
             if (node.TryGetValue(_searchProperty.Id, out var textO)) {

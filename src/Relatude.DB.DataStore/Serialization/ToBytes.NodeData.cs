@@ -16,7 +16,7 @@ public static partial class ToBytes {
     static void NodeData_Minimal(INodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataVersionFlag.Minimal);
+        stream.WriteInt((int)NodeDataStorageVersions.Minimal);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
         stream.WriteDateTime(nodeData.CreatedUtc);
@@ -40,7 +40,7 @@ public static partial class ToBytes {
     static void NodeData_Normal(INodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataVersionFlag.Normal);
+        stream.WriteInt((int)NodeDataStorageVersions.Normal);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
 

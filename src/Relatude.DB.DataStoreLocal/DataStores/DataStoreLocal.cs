@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Data;
+using System.Diagnostics;
 using Relatude.DB.AccessControl;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
@@ -34,6 +35,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly FileKeyUtility _fileKeys;
     readonly IIOProvider _io;
     readonly IIOProvider _ioLog;
+    readonly IIOProvider _ioLog2;
     readonly IIOProvider _ioAutoBackup;
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
@@ -71,7 +73,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? log = null,
         AIEngine? ai = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
-        IQueueStore? queueStore = null
+        IQueueStore? queueStore = null,
+        IIOProvider? secondaryLogIO = null
         ) {
         _initiatedUtc = DateTime.UtcNow;
         //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
@@ -80,6 +83,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _io = dbIO;
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
+        _ioLog2 = secondaryLogIO ?? _io;
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
@@ -192,7 +196,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
             if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
         };
-        _wal = new(_fileKeys.WAL_GetLatestFileKey(_io), _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback);
+        var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
+        var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
+        var fileKey2 = _settings.SecondaryBackupLog ? _fileKeys.WAL_GetSecondaryFileKey() : null;
+        _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback, io2, fileKey2);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);
@@ -215,6 +222,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             if (_state != DataStoreState.Closed) throw new Exception("Store cannot be opened as current state is " + _state);
             _state = DataStoreState.Opening;
+            _wal.EnsureSecondaryLogFile(activityId, this, false);
             readState(throwOnBadStateFile, currentModelHash, activityId);
             _state = DataStoreState.Open;
             _startUpTimeMs = sw.ElapsedMilliseconds;
@@ -254,6 +262,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _scheduler.Start();
         }
     }
+
     Variables getRootVariables() {
         Variables vars = new Variables();
         // Sample static data:

@@ -40,6 +40,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
         stream.WriteVerifiedLong(_wal.FileSize);
         stream.WriteGuid(_wal.FileId); // must match log file
+        if(PersistedIndexStore != null) PersistedIndexStore.Reset(_wal.FileId, PersistedIndexStore.ModelHash);
         _guids.SaveState(stream);
         _nodes.SaveState(stream);
         _nativeModelStore.SaveState(stream);

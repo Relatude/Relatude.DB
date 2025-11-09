@@ -17,6 +17,11 @@ export const component = () => {
         });
         return () => { poller.dispose(); }
     }, []);
+    const truncateLog = () => {
+        if (!storeId) return;
+        const deleteOld = window.confirm("Do you want to delete old log entries? (OK = Yes, Cancel = No)");
+        app.api.maintenance.truncateLog(storeId, deleteOld);
+    }
     if (!storeId) return;
     if (!currentContainer) return;
     const state = status.state;
@@ -28,7 +33,8 @@ export const component = () => {
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Stop</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!)}>Save Index</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
-                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.truncateLog(app.ui.selectedStoreId!)}>Compact</Button>
+                <Button variant="light" disabled={state != "Open"} onClick={truncateLog}>Compact</Button>
+                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(app.ui.selectedStoreId!)}>Reset transaction log</Button>
             </Group>
             <pre>
                 {JSON.stringify(status, null, 2)}

@@ -167,7 +167,7 @@ public class TermSet(SearchTerm[] terms) {
         }
         return sb.ToString();
     }
-    public static TermSet Parse(string text, int minWordLength, int maxWordLength) {
+    public static TermSet Parse(string text, int minWordLength, int maxWordLength, bool allowInfix) {
         var cleaned = SearchUtil.Clean(text, minWordLength, maxWordLength); // leaves * ?
         if (string.IsNullOrEmpty(cleaned)) return Empty;
         var words = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -178,7 +178,7 @@ public class TermSet(SearchTerm[] terms) {
             var prefix = strippedWord.EndsWith(SearchConst.WILDCARD);
             var infix = strippedWord.StartsWith(SearchConst.WILDCARD);
             strippedWord = strippedWord.Replace(SearchConst.WILDCARD.ToString(), string.Empty);
-            if (strippedWord.Length > 0) searches.Add(new(strippedWord, prefix, infix, fuzzy));
+            if (strippedWord.Length > 0) searches.Add(new(strippedWord, prefix, allowInfix ? infix : false, fuzzy));
         }
         return new TermSet([.. searches]);
     }

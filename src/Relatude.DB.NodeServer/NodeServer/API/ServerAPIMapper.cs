@@ -210,8 +210,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             ioSourceStream.Dispose();
             server.TempIO.DeleteIfItExists(uploadId.ToString());
         });
-        app.MapPost(path("truncate-log"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog));
+        app.MapPost(path("truncate-log"), (HttpContext ctx, Guid storeId, bool deleteOld) => {
+            db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog);
+            if (deleteOld) db(storeId).MaintenanceAsync(MaintenanceAction.DeleteOldLogs);
+        });
         app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.SaveIndexStates));
+        app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));
         app.MapPost(path("clear-cache"), (HttpContext ctx, Guid storeId) => db(storeId).Datastore.MaintenanceAsync(MaintenanceAction.ClearCache | MaintenanceAction.GarbageCollect));
         app.MapPost(path("info"), async (HttpContext ctx, Guid storeId) => {
             var store = container(storeId).Store;

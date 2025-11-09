@@ -18,16 +18,16 @@ var app = builder.Build();
 app.UseCors("AllowALL");
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
-    var noObjects = ctx.Database.Query<DemoArticle>().Execute().Count;
+    var noObjects = ctx.Database.Query<DemoArticle>().Count();
     return "Open. Total objects: " + noObjects.ToString("N0");
 });
-app.MapGet("/Del", (NodeStore db) => {
+app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
-    var sys = db.Create<ISystemUser>();
+    ctx.Database.DeleteMany<DemoArticle>();
 
 });
-app.MapGet("/Add", (NodeStore db) => {
-
+app.MapGet("/Add", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
     var transaction = db.CreateTransaction();
     var culture = db.Create<ISystemCulture>();
 

@@ -16,11 +16,11 @@ namespace Relatude.DB.Serialization {
             var __id = stream.ReadUInt();
             if (__id != 0) return readVersion_0_Legacy(datamodel, stream, guid, (int)__id);
             // newer versioned format:
-            var version = (NodeDataVersionFlag)stream.ReadInt();
+            var version = (NodeDataStorageVersions)stream.ReadInt();
             __id = stream.ReadUInt();
             return version switch {
-                NodeDataVersionFlag.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
-                NodeDataVersionFlag.Normal => readVersion_2_Normal(datamodel, stream, guid, (int)__id),
+                NodeDataStorageVersions.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
+                NodeDataStorageVersions.Normal => readVersion_2_Normal(datamodel, stream, guid, (int)__id),
                 _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
             };
         }

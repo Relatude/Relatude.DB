@@ -16,6 +16,7 @@ public class FileKeyUtility {
 
     string _prefix = "";
     static HashSet<string> storeNames = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
+    string walSecondaryFilePattern => _prefix + "db.log";
     string walFilePattern => _prefix + "db.*.bin";
     string walFileBackupPattern => _prefix + "db.*.bkup";
     string walFileBackupPatternKeepForever => _prefix + "db.bkup.keep.*.bkup";
@@ -73,6 +74,7 @@ public class FileKeyUtility {
 
     public string WAL_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));
     public string[] WAL_GetAllFileKeys(IIOProvider io) => io.Search(walFilePattern).Order().ToArray();
+    public string WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
     public string WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
     public string WAL_NextFileKey(IIOProvider io) {
         var parts = WAL_GetLatestFileKey(io).Split('.');
@@ -155,9 +157,11 @@ public class FileKeyUtility {
     public static string FileTypeDescription(string fileKey) {
         ValidateFileKeyString(fileKey);
         if (fileKey.MatchesWildcard(_anyPrefix.walFilePattern)) return "Database";
+        if (fileKey.MatchesWildcard(_anyPrefix.walSecondaryFilePattern)) return "Transaction log";
         if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPattern)) return "Backup";
         if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup Protected";
         if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
+        if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern + "*")) return "AI Temp";
         if (fileKey.MatchesWildcard(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
         if (fileKey.MatchesWildcard(_anyPrefix.fileStorePattern)) return "Filestore";
         if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "Index State";

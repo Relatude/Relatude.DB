@@ -145,7 +145,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     // building up a cache to look up node types by one call, needed for performance while evaluating which nodes are relevant for a specific plugin
     public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys) {
         if (action is NodeAction nodeAction) {
-            if (nodeAction.Node is INodeData_NoNodeType) {
+            if (nodeAction.Node is NodeDataOnlyId) {
                 keys ??= [];
                 keys.Add(nodeAction.Node.IdKey);
             }
@@ -158,7 +158,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     public List<IdKey> GetRelevantNodeIds(ActionBase action, Dictionary<IdKey, Guid>? typeInfo) {
         if (action is NodeAction nodeAction) {
             Guid nodeTypeId;
-            if (nodeAction.Node is INodeData_NoNodeType) {
+            if (nodeAction.Node is NodeDataOnlyId) {
                 nodeTypeId = typeInfo![nodeAction.Node.IdKey]; // typeInfo should never be null here, as we added the IdKey in AddIdKeysThatNeedTypeInfo
             } else {
                 nodeTypeId = nodeAction.Node.NodeType;

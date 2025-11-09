@@ -1,9 +1,10 @@
-﻿using Relatude.DB.IO;
-using Relatude.DB.Serialization;
-using Relatude.DB.Transactions;
-using Relatude.DB.DataStores.Definitions;
+﻿using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Relations;
 using Relatude.DB.DataStores.Transactions;
+using Relatude.DB.IO;
+using Relatude.DB.Serialization;
+using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
@@ -62,7 +63,7 @@ internal class LogRewriter {
         _newSegements = new();
         _newStore = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => {
             _newSegements[nodeId] = seg;
-        }, null); // no ValueIndex store
+        }, null, null, null); // no ValueIndex store
         _diff = new();
     }
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
@@ -76,7 +77,7 @@ internal class LogRewriter {
         var i = 0;
         foreach (var chunk in chunks) {
             i++;
-            reportProgress("Rewriting node " + i * chunkSize + " of " + _nodes.Length, 10+(70 * i / chunks.Length));
+            reportProgress("Rewriting node " + i * chunkSize + " of " + _nodes.Length, 10 + (70 * i / chunks.Length));
             var segmentBytes = _threadSafeReadSegments(chunk.Select(c => c.segment).ToArray(), out _);
             var actions = new List<PrimitiveActionBase>(segmentBytes.Length);
             foreach (var bytes in segmentBytes) {

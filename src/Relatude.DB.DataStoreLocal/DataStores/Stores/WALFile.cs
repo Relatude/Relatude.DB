@@ -1,12 +1,13 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Stores;
+using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Serialization;
 using Relatude.DB.Transactions;
-using Relatude.DB.DataStores.Transactions;
-using Relatude.DB.DataStores.Stores;
+using System.Runtime;
 
 namespace Relatude.DB.DataStores.Stores {
     internal delegate void RegisterNodeSegmentCallbackFunc(int id, NodeSegment seg);
@@ -35,9 +36,12 @@ namespace Relatude.DB.DataStores.Stores {
         readonly DiskFlushCallback? _flushCallback; // callback for updating PersistentIndexStore if used, syncing timestamp and committing transactions
         readonly LogQueue _workQueue; // queue for write operations, to make sure they are written in bacthes for better performance
         IIOProvider _io;
+        IIOProvider? _ioSecondary;
+        IAppendStream? _secondaryAppendStream;
+        string? _secondaryFileKey;
         long _lastTimestampID;
 
-        public WALFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, DiskFlushCallback? flushCallback) {
+        public WALFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, DiskFlushCallback? flushCallback, IIOProvider? ioSecondary, string? secondaryFileKey) {
             FileKey = fileKey;
             _io = io;
             _definition = definition;
@@ -45,7 +49,9 @@ namespace Relatude.DB.DataStores.Stores {
             _workQueue = new(write);
             _lastTimestampID = 0;
             _flushCallback = flushCallback;
-            _appendStream = getWriteStream(_io);
+            _ioSecondary = ioSecondary;
+            _secondaryFileKey = secondaryFileKey;
+            _appendStream = getWriteStream(_io, FileKey, false); // locks file for writing
         }
         static long getFirstTimestampIfAny(IAppendStream appendStream) {
             if (appendStream.Length > posOfFirstTransaction) {
@@ -54,17 +60,22 @@ namespace Relatude.DB.DataStores.Stores {
                 return 0;
             }
         }
+        public static long GetLastTimestampInLog(IIOProvider io, string fileKey) {
+            throw new NotImplementedException("Not implemented yet. ");
+        }
         public long FirstTimestamp { get; private set; }
         public long LastTimestamp { get => _lastTimestampID; }
         public long FileSize { get => _appendStream!.Length; }
-        IAppendStream getWriteStream(IIOProvider io) {
+        IAppendStream getWriteStream(IIOProvider io, string fileKey, bool isSecondaryLog) {
             IAppendStream? s = null;
             try {
-                s = io.OpenAppend(FileKey);
+                s = io.OpenAppend(fileKey);
                 if (s.Length == 0) {
                     s.WriteMarker(_logStartMarker);// pos 0
                     s.WriteVerifiedLong(_logVersioNumber); // pos 16
-                    FileId = Guid.NewGuid();
+                    if (!isSecondaryLog) {
+                        FileId = Guid.NewGuid(); // do not create new file id for secondary log
+                    }
                     s.WriteGuid(FileId); // pos 32
                     // now at pos 48 
                     FirstTimestamp = 0;
@@ -73,9 +84,11 @@ namespace Relatude.DB.DataStores.Stores {
                     var version = s.GetVerifiedLong(16);
                     if (version != _logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + _logVersioNumber + " but found " + version + " .");
                     var readFileId = s.GetGuid(32);
-                    if (FileId == Guid.Empty) FileId = readFileId;
-                    else if (readFileId != FileId) throw new Exception("FileId mismatch. ");
-                    FirstTimestamp = getFirstTimestampIfAny(s);
+                    if (!isSecondaryLog) {
+                        if (FileId == Guid.Empty) FileId = readFileId;
+                        else if (readFileId != FileId) throw new Exception("FileId mismatch. ");
+                        FirstTimestamp = getFirstTimestampIfAny(s);
+                    }
                 }
                 return s;
             } catch {
@@ -96,11 +109,16 @@ namespace Relatude.DB.DataStores.Stores {
         }
         public void EndLogReader(LogReader? log) {
             if (log != null) log.Dispose();
-            if (_appendStream == null) _appendStream = getWriteStream(_io);
+            if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
         }
         long write(List<ExecutedPrimitiveTransaction> transactions) {
-            if (_appendStream == null) _appendStream = getWriteStream(_io);
-            return writeStatic(transactions, _appendStream, _definition.Datamodel, _registerAndConfrimeNodeWrite);
+            if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
+            var written = writeStatic(transactions, _appendStream, _definition.Datamodel, _registerAndConfrimeNodeWrite);
+            if (_ioSecondary != null) {
+                if (_secondaryAppendStream == null) _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey!, true);
+                writeStatic(transactions, _secondaryAppendStream, _definition.Datamodel, null);
+            }
+            return written;
         }
         static long writeStatic(List<ExecutedPrimitiveTransaction> transactions, IAppendStream stream, Datamodel datamodel, RegisterNodeSegmentCallbackFunc? regCallback) {
             long bytesStartPos = stream.Length;
@@ -144,6 +162,7 @@ namespace Relatude.DB.DataStores.Stores {
         public void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
             _workQueue.CompleteAddedWork(out transactionCount, out actionCount, out bytesWritten); // write everything to stream
             if (_appendStream != null) _appendStream.Flush(deepFlush);
+            if (_secondaryAppendStream != null) _secondaryAppendStream.Flush(deepFlush);
             if (_flushCallback != null) _flushCallback(_lastTimestampID);
         }
         static int batchLimit = 1024 * 1024 * 10; // 10MB. Too low, and we get too many calls to io stream, to high and allocate unnecessary memory
@@ -154,7 +173,7 @@ namespace Relatude.DB.DataStores.Stores {
         // this is particularly important if the io stream is remote or an Azure blob store
         public byte[] ReadOneNodeSegments(NodeSegment segment) {
             lock (_lock) {
-                if (_appendStream == null) _appendStream = getWriteStream(_io);
+                if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
                 var buffer = new byte[segment.Length];
                 _appendStream.Get(segment.AbsolutePosition, segment.Length, buffer);
                 return buffer;
@@ -172,7 +191,7 @@ namespace Relatude.DB.DataStores.Stores {
             if (count == 1) {
                 var segment = segments.First();
                 lock (_lock) {
-                    if (_appendStream == null) _appendStream = getWriteStream(_io);
+                    if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
                     var buffer = new byte[segment.Length];
                     _appendStream.Get(segment.AbsolutePosition, segment.Length, buffer);
                     diskReads++;
@@ -206,7 +225,7 @@ namespace Relatude.DB.DataStores.Stores {
             var end = lastSeg.seg.AbsolutePosition + lastSeg.seg.Length;
             var length = (int)(end - start);
             lock (_lock) { // lock to avoid simultaneous reads to common buffer
-                if (_appendStream == null) _appendStream = getWriteStream(_io);
+                if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
                 if (_buffer.Length < length) _buffer = new byte[length];  // ensure buffer is large enough
                 _appendStream.Get(start, length, _buffer);
                 diskReads++;
@@ -225,6 +244,10 @@ namespace Relatude.DB.DataStores.Stores {
                 _appendStream.Dispose();
                 _appendStream = null;
             }
+            if (_secondaryAppendStream != null) {
+                _secondaryAppendStream.Dispose();
+                _secondaryAppendStream = null;
+            }
             if (_flushCallback != null) _flushCallback(_lastTimestampID);
         }
         internal void ReplaceDataFile(string newFileKey, long lastTimestamp) {
@@ -238,7 +261,7 @@ namespace Relatude.DB.DataStores.Stores {
             if (_flushCallback != null) _flushCallback(_lastTimestampID);
             FileKey = newFileKey;
             FileId = Guid.Empty; // reset file id, so that it is read from new file
-            _appendStream = getWriteStream(_io);
+            _appendStream = getWriteStream(_io, FileKey, false);
         }
         internal void StoreTimestamp(long timestamp) {
             if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
@@ -250,13 +273,11 @@ namespace Relatude.DB.DataStores.Stores {
             if (readTimestamp <= _lastTimestampID) return;
             _lastTimestampID = readTimestamp;
         }
-
         internal void AddInfo(StoreStatus s) {
             s.LogWritesQueued = _workQueue.Count;
             s.LogFileKey = FileKey;
             s.LogFileSize = _appendStream?.Length ?? 0;
         }
-
         internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
             try {
                 if (destinationIO == null) destinationIO = _io;
@@ -283,8 +304,47 @@ namespace Relatude.DB.DataStores.Stores {
                 writeStream.Dispose();
                 readStream.Dispose();
             } finally {
-                _appendStream = getWriteStream(_io);
+                _appendStream = getWriteStream(_io, FileKey, false);
             }
+        }
+        internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {
+            FlushToDisk(true);
+            if (!store.Settings.SecondaryBackupLog) {
+                store.LogInfo("Secondary backup log not enabled. ");
+                return;
+            }
+            if (_ioSecondary == null) throw new Exception("Secondary IO provider not configured. ");
+            if (_secondaryFileKey == null) throw new Exception("Secondary file key not configured. ");
+            if(_secondaryAppendStream != null) {
+                _secondaryAppendStream.Dispose();
+                _secondaryAppendStream = null;
+            }
+            if(resetSecondaryFile) {
+                store.LogInfo("Resetting secondary log file as requested. ");
+                _ioSecondary.DeleteIfItExists(_secondaryFileKey);
+            }
+            var hasSecondary = _ioSecondary.ExistsAndIsNotEmpty(_secondaryFileKey);
+            if (!hasSecondary) {
+                store.LogInfo("Secondary log file missing, creating from primary. ");
+                store.UpdateActivity(activityId, "Creating secondary log file from primary. ", 0);
+                _appendStream?.Dispose();
+                _appendStream = null;
+                _io.CopyFile(_ioSecondary, FileKey, _secondaryFileKey, progress => {
+                    store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
+                });
+                _appendStream = getWriteStream(_io, FileKey, false);
+            } else {
+                store.LogInfo("Both primary and secondary log files exists. ");
+                // Add checks for latest timestamp match between primary and secondary log files
+
+                // check if timestamps match?...
+                //var latestPrimaryTimestamp = WALFile.GetLastTimestampInLog(_io, fileKey);
+                //var latestSecondaryTimestamp = WALFile.GetLastTimestampInLog(_io2, fileKey2);
+                //if(latestPrimaryTimestamp!= latestSecondaryTimestamp) {
+                //    throw new Exception("Primary and secondary log files are out of sync. ");
+                //}
+            }
+            _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
         }
     }
 }

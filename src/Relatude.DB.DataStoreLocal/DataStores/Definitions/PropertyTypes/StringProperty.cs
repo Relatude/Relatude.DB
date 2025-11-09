@@ -131,7 +131,7 @@ internal class StringProperty : Property, IPropertyContainsValue {
     }
     public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
-        var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength);
+        var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
             var wordHits = WordIndex == null ? IdSet.Empty : WordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
             var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
@@ -148,7 +148,7 @@ internal class StringProperty : Property, IPropertyContainsValue {
     }
     internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, out int totalHits) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
-        var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength);
+        var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
         var useWords = ratioSemantic < 0.99 && IndexedByWords;
         if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");

@@ -15,7 +15,7 @@ public static class IIOProviderExtensions {
         return io.GetFiles().Select(f => f.Key).FilterByWildcard(wildcardPattern).ToList();
     }
     public static List<FileMeta> SearchMeta(this IIOProvider io, string? wildcardPattern = null) {
-        return io.GetFiles().Where(f => wildcardPattern!=null && f.Key.MatchesWildcard(wildcardPattern)).OrderBy(f=>f.Key).ToList();
+        return io.GetFiles().Where(f => wildcardPattern != null && f.Key.MatchesWildcard(wildcardPattern)).OrderBy(f => f.Key).ToList();
     }
     public static string ReadString(this IIOProvider io, string fileKey, string? fallback = null) {
         if (io.GetFileSizeOrZeroIfUnknown(fileKey) == 0) return fallback ?? string.Empty;
@@ -74,15 +74,15 @@ public static class IIOProviderExtensions {
         } catch { return false; }
     }
     public static string SuperPathCombine(this string path1, string? path2) {
-        if(path2 == null) return path1; 
+        if (path2 == null) return path1;
         var delimiter = Path.DirectorySeparatorChar;
         var otherDelimiter = delimiter == '/' ? '\\' : '/';
         path1 = path1.Replace(otherDelimiter, delimiter);
         path2 = path2.Replace(otherDelimiter, delimiter);
         while (path1.EndsWith(delimiter)) path1 = path1.Substring(0, path1.Length - 1);
         while (path2.StartsWith(delimiter)) path2 = path2.Substring(1);
-        if(path1.Length == 0) return path2;
-        if(path2.Length == 0) return path1;
+        if (path1.Length == 0) return path2;
+        if (path2.Length == 0) return path1;
         return path1 + delimiter + path2;
     }
     public static void CopyFile(this IIOProvider io, string fromFileName, string toIoFileName) {
@@ -100,5 +100,21 @@ public static class IIOProviderExtensions {
         using var readStream = new ReadStreamWrapper(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         readStream.CopyTo(writeStream);
+    }
+    public static void CopyFile(this IIOProvider fromIo, IIOProvider toIo, string fromFileName, string toIoFileName, Action<int> progress) {
+        if (!toIo.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
+        using var fromReader = fromIo.OpenRead(fromFileName, 0);
+        using var toWriter = toIo.OpenAppend(toIoFileName);
+        using var readStream = new ReadStreamWrapper(fromReader);
+        using var writeStream = new WriteStreamWrapper(toWriter);
+        var buffer = new byte[1024 * 1024]; // 1 MB buffer
+        long totalBytesCopied = 0;
+        int bytesRead;
+        while ((bytesRead = readStream.Read(buffer, 0, buffer.Length)) > 0) {
+            writeStream.Write(buffer, 0, bytesRead);
+            totalBytesCopied += bytesRead;
+            var progressPercent = (int)((totalBytesCopied * 100) / fromReader.Length);
+            progress(progressPercent);
+        }
     }
 }

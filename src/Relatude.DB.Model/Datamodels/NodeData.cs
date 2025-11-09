@@ -1,15 +1,10 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
-[Flags]
-public enum NodeDataVersionFlag {
+public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
     Normal = 2, // Access, Revisions, Cultures
-}
-public interface INodeData_NoNodeType {
-}
-public interface INodeData_OnlyIds {
 }
 public interface INodeData {
     Guid Id { get; set; }
@@ -17,11 +12,14 @@ public interface INodeData {
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
 
+    bool HasVersions { get; }
+
     int ReadAccess { get; }
     int WriteAccess { get; }
     int CollectionId { get; }
     int CultureId { get; }
     int RevisionId { get; }
+    NodeData[] Versions { get; }
 
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
@@ -38,40 +36,16 @@ public interface INodeData {
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
     T GetValue<T>(Guid propertyId);
     INodeData Copy();
-
     public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
 
 }
-public static class INodeDataExtensions {
-    public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
-        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
-            value = tValue;
-            return true;
-        }
-        value = default;
-        return false;
-    }
-    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, T fallback) {
-        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
-            return tValue;
-        }
-        return fallback;
-    }
-}
+
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
     int _uid;
     Guid _gid;
     Properties<object> _values;
-    static public NodeData CreateEmptyDerivedNode(Guid id, int lcid) {
-        throw new NotImplementedException();
-        //if (lcid == 0) throw new Exception("Culture ID cannot be 0. ");
-        //// updating with a derived node will cause removal of culture
-        //var e = Guid.Empty;
-        //var now = DateTime.UtcNow;
-        //return new NodeData(id, 0, e, e, lcid, lcid, e, e, now, now, new(0));
-    }
     public NodeData(Guid id, int uid, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values) {
@@ -109,6 +83,8 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     public int CollectionId { get; set; }
     public int CultureId { get; set; }
     public int RevisionId { get; set; }
+    public bool HasVersions => false;
+    public NodeData[] Versions => throw new Exception("Node has no versions. ");
 
     public Guid NodeType { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
@@ -150,7 +126,52 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
 }
-public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds { // readonly node data with possibility to add relations for use in "include" queries
+
+public class NodeDataWithVersions : INodeData {
+    public NodeDataWithVersions(Guid guid, int id, Guid typeId, int readAccess, int writeAccess, int cultureId, int collectionId, NodeData[] versions) {
+        _id = id;
+        _gid = guid;
+        _nodeType = typeId;
+        Versions = versions;
+        ReadAccess = readAccess;
+        WriteAccess = writeAccess;
+        CultureId = cultureId;
+        CollectionId = collectionId;
+    }
+    int _id;
+    public int __Id { get => _id; set => throw new NotImplementedException(); }
+    Guid _gid;
+    public Guid Id { get => _gid; set => throw new NotImplementedException(); }
+    Guid _nodeType;
+    public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
+    public int ReadAccess { get; }
+    public int WriteAccess { get; }
+    public int CultureId { get; }
+    public int CollectionId { get; }
+    public int RevisionId => throw new NotImplementedException();
+    public bool HasVersions => true;
+    public NodeData[] Versions { get; }
+    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public DateTime ChangedUtc => throw new NotImplementedException();
+    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
+
+    public int ValueCount => throw new NotImplementedException();
+    public bool ReadOnly => true;
+    public bool IsDerived => throw new NotImplementedException();
+    public IRelations Relations => throw new NotImplementedException();
+
+    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
+    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
+    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
+    public bool Contains(Guid propertyId) => throw new NotImplementedException();
+    public void EnsureReadOnly() => throw new NotImplementedException();
+    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
+    public INodeData Copy() => throw new NotImplementedException();
+    public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
+}
+
+public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyId(Guid gid) => _gid = gid;
     public NodeDataOnlyId(int id) => _id = id;
     Guid _gid;
@@ -170,6 +191,10 @@ public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
+    public bool HasVersions => false;
+    public NodeData[] Versions => throw new Exception("Node has no versions. ");
+
+
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -190,7 +215,7 @@ public class NodeDataOnlyId : INodeData, INodeData_NoNodeType, INodeData_OnlyIds
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
 }
-public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndUId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndUId(int id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
@@ -205,6 +230,8 @@ public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
+    public bool HasVersions => false;
+    public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -224,7 +251,7 @@ public class NodeDataOnlyTypeAndUId : INodeData, INodeData_OnlyIds { // readonly
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
 }
-public class NodeDataOnlyTypeAndId : INodeData, INodeData_OnlyIds { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(Guid id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
@@ -239,6 +266,8 @@ public class NodeDataOnlyTypeAndId : INodeData, INodeData_OnlyIds { // readonly 
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
+    public bool HasVersions => false;
+    public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -279,6 +308,8 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public int CultureId => _node.CultureId;
     public int CollectionId => _node.CollectionId;
     public int RevisionId => _node.RevisionId;
+    public bool HasVersions => false;
+    public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }
     public DateTime ChangedUtc => _node.ChangedUtc;
     public IEnumerable<PropertyEntry<object>> Values => _node.Values;
@@ -298,6 +329,24 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
 }
+
+public static class INodeDataExtensions {
+    public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
+        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
+            value = tValue;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, T fallback) {
+        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
+            return tValue;
+        }
+        return fallback;
+    }
+}
+
 public interface IRelations {
     void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation);
     void AddOneRelation(Guid propertyId, NodeDataWithRelations oneRelation);

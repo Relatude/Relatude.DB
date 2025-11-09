@@ -193,6 +193,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();
         _lock.EnterWriteLock();
         try {
+            if (a.HasFlag(MaintenanceAction.ResetSecondaryLogFile)) _wal.EnsureSecondaryLogFile(0, this, true);
             if (a.HasFlag(MaintenanceAction.ClearAiCache)) _ai?.ClearCache();
             if (a.HasFlag(MaintenanceAction.ClearCache)) {
                 _nodes.ClearCache();

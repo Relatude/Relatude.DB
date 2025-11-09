@@ -11,4 +11,5 @@ public enum MaintenanceAction {
     ClearAiCache = 128, // saves state of all caches to disk for faster opening ( AI service caches )
     PurgeCache = 256, // purges cache
     GarbageCollect = 512, // runs garbage collection
+    ResetSecondaryLogFile = 1024, // resets secondary log file
 }
