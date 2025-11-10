@@ -23,7 +23,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
-            _wal.FlushToDisk(deepFlush, out transactionCount, out actionCount, out bytesWritten);
+            _wal.FlushToDisk(deepFlush, (txt, prg) => {
+                UpdateActivity(activityId, txt, prg);
+            }, out transactionCount, out actionCount, out bytesWritten);
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
@@ -193,7 +195,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();
         _lock.EnterWriteLock();
         try {
-            if (a.HasFlag(MaintenanceAction.ResetSecondaryLogFile)) _wal.EnsureSecondaryLogFile(0, this, true);
+            if (a.HasFlag(MaintenanceAction.ResetSecondaryLogFile)) {
+                var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Resetting secondary log file");
+                try {
+                    _wal.EnsureSecondaryLogFile(activityId, this, true);
+                } finally {
+                    DeRegisterActivity(activityId);
+                }
+            }
             if (a.HasFlag(MaintenanceAction.ClearAiCache)) _ai?.ClearCache();
             if (a.HasFlag(MaintenanceAction.ClearCache)) {
                 _nodes.ClearCache();
@@ -265,7 +274,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _definition.AddInfo(info);
             _nodes.AddInfo(info);
             info.RelationCount = _relations.TotalCount();
-            _wal.AddInfo(info);
+            try { _wal.AddInfo(info); } catch { } // as files may be closed...
             _sets.AddInfo(info);
             info.LogStateFileSize = _io.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
         } finally {

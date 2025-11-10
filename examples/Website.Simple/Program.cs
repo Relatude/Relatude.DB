@@ -1,8 +1,6 @@
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
-using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
-using static Lucene.Net.Documents.Field;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB();
@@ -57,7 +55,7 @@ app.MapGet("/Add", (RelatudeDBContext ctx) => {
     ISystemUser u = db.Create<ISystemUser>();
 
     transaction.Relation.Relate<UsersToGroups, ISystemUser, ISystemUserGroup>(u, userGroup3);
-    
+
 
 
     for (int i = 0; i < 100; i++) {

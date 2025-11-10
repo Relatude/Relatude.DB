@@ -60,6 +60,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public long Length {
         get {
             lock (_lock) {
+                if (!_stream.CanRead) return 0;
                 return _stream.Length;
             }
         }

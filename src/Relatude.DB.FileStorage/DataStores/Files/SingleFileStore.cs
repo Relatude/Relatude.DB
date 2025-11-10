@@ -180,6 +180,7 @@ public class SingleFileStore : IDisposable, IFileStore {
     public void Dispose() {
         _file?.Dispose();
         _asyncLock.Dispose();
+        _ioProvider.CloseAllOpenStreams();
     }
 }
 

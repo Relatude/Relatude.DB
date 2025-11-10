@@ -222,7 +222,7 @@ public class CharArrayTrie : IDisposable {
         }
     }
     public void WriteState(IAppendStream stream) {
-
+        
         // word counts
         _docWordCounts.WriteState(stream);
 

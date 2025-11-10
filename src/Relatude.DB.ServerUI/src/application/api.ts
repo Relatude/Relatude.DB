@@ -122,8 +122,8 @@ class MaintenanceAPI {
     deleteAllButDb = (storeId: string) => this.server.execute(this.controller, 'delete-all-but-db', { storeId });
     deleteAllFiles = (storeId: string, ioId: string) => this.server.execute(this.controller, 'delete-all-files', { storeId, ioId });
     downloadFullDb = (storeId: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId });
-    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });
-    resetIoLocks(storeId: string, ioId: string) { return this.server.execute(this.controller, 'reset-io-locks', { storeId, ioId }); }
+    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });    
+    closeAllOpenStreams(storeId: string, ioId: string) { return this.server.execute(this.controller, 'close-all-open-streams', { storeId, ioId }); }
     isFileKeyLegal = async (fileKey: string | null) => !fileKey ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-key-legal', { fileKey: fileKey! })).isLegal;
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
     getSizeTempFiles = () => this.server.queryJson<{ totalSize: number }>(this.controller, 'get-size-temp-files').then(r => r.totalSize);

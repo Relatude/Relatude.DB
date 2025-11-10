@@ -33,7 +33,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
 
-
     public Datamodel? Datamodel { get; private set; }
     public DataStoreStatus Status {
         get {
@@ -79,6 +78,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
             string? diskFallBackPath = null;
             if (ioDatabase is IOProviderDisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
+            if(diskFallBackPath == null) {
+                diskFallBackPath = server.DefaultSubDataFolderPath;
+            }
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {

@@ -339,5 +339,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { TaskQueue?.Dispose(); } catch { }
         try { TaskQueuePersisted?.Dispose(); } catch { }
         if (_state == DataStoreState.Open) _state = DataStoreState.Closed; // if in error state, do not change state
+        try { this._io.CloseAllOpenStreams(); } catch { }
+        try { this._ioAutoBackup.CloseAllOpenStreams(); } catch { }
+        try { this._ioLog.CloseAllOpenStreams(); } catch { }
+        try { this._ioLog2.CloseAllOpenStreams(); } catch { }
     }
 }

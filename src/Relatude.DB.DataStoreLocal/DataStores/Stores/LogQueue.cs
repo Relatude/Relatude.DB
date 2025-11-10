@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.DataStores.Transactions;
 
 namespace Relatude.DB.DataStores.Stores;
-internal delegate long BatchCallback(List<ExecutedPrimitiveTransaction> batch);
+internal delegate long BatchCallback(List<ExecutedPrimitiveTransaction> batch, Action<string, int>? progress, int actionCount, int transactionCount);
 internal class LogQueue : IDisposable {
     readonly BatchCallback _workCallback;
     List<ExecutedPrimitiveTransaction> _queue;
@@ -15,7 +15,7 @@ internal class LogQueue : IDisposable {
             _queue.Add(work);
         }
     }
-    public void CompleteAddedWork(out int transactionCount, out int actionCount, out long bytesWritten) {
+    public void CompleteAddedWork(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         List<ExecutedPrimitiveTransaction> batch;
         lock (_lock) {
             batch = _queue;
@@ -24,10 +24,10 @@ internal class LogQueue : IDisposable {
         actionCount = batch.Sum(x => x.ExecutedActions.Count);
         transactionCount = batch.Count;
         bytesWritten = 0;
-        if (transactionCount > 0) bytesWritten = _workCallback(batch);
+        if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
     }
     public void Dispose() {
-        CompleteAddedWork(out _, out _, out _);
+        CompleteAddedWork(null, out _, out _, out _);
     }
     public int Count {
         get {

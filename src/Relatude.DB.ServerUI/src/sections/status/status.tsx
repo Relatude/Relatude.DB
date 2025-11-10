@@ -30,7 +30,7 @@ export const component = () => {
             <Title>{currentContainer.name}</Title>
             <Group>
                 <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Start</Button>
-                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Stop</Button>
+                <Button variant="light" disabled={state != "Open" && state != "Error"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Stop</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!)}>Save Index</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={truncateLog}>Compact</Button>

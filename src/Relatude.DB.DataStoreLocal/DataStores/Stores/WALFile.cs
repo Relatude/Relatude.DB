@@ -98,7 +98,7 @@ namespace Relatude.DB.DataStores.Stores {
         }
         public LogReader CreateLogReader(long fromTransactionAtPos, long fromTimespam) {
             if (_appendStream != null) {
-                FlushToDisk(true, out _, out _, out _);
+                FlushToDisk(true, null, out _, out _, out _);
                 _appendStream.Dispose();
                 _appendStream = null;
             }
@@ -111,28 +111,37 @@ namespace Relatude.DB.DataStores.Stores {
             if (log != null) log.Dispose();
             if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
         }
-        long write(List<ExecutedPrimitiveTransaction> transactions) {
+        long write(List<ExecutedPrimitiveTransaction> transactions, Action<string, int>? progress, int actionCount, int transactionCount) {
             if (_appendStream == null) _appendStream = getWriteStream(_io, FileKey, false);
-            var written = writeStatic(transactions, _appendStream, _definition.Datamodel, _registerAndConfrimeNodeWrite);
+            Action<string, int>? progress1 = progress != null ? (_ioSecondary != null ? (msg, perc) => progress("Primary: " + msg, perc / 2) : progress) : null;
+            var written = writeStatic(transactions, _appendStream, _definition.Datamodel, _registerAndConfrimeNodeWrite, progress1, actionCount, transactionCount);
             if (_ioSecondary != null) {
+                Action<string, int>? progress2 = progress != null ? (msg, perc) => progress("Secondary: " + msg, 50 + (perc / 2)) : null;
                 if (_secondaryAppendStream == null) _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey!, true);
-                writeStatic(transactions, _secondaryAppendStream, _definition.Datamodel, null);
+                writeStatic(transactions, _secondaryAppendStream, _definition.Datamodel, null, progress, actionCount, transactionCount);
             }
             return written;
         }
-        static long writeStatic(List<ExecutedPrimitiveTransaction> transactions, IAppendStream stream, Datamodel datamodel, RegisterNodeSegmentCallbackFunc? regCallback) {
+        static long writeStatic(List<ExecutedPrimitiveTransaction> transactions, IAppendStream stream, Datamodel datamodel, RegisterNodeSegmentCallbackFunc? regCallback, Action<string, int>? progress, int actionCount, int transactionCount) {
             long bytesStartPos = stream.Length;
+            if (progress != null) progress("Flushing " + transactionCount + " transactions and " + actionCount + " actions", 0);
+            int transactionsWritten = 0;
+            int actionsWritten = 0;
             foreach (var transaction in transactions) {
+                transactionsWritten++;
                 stream.WriteMarker(_transactionStartMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
                 stream.WriteLong(transaction.Timestamp);
                 stream.WriteVerifiedInt(transaction.ExecutedActions.Count);
                 foreach (var action in transaction.ExecutedActions) {
+                    actionsWritten++;
                     stream.WriteMarker(_actionMarker);
                     var ms = new MemoryStream();
                     PToBytes.ActionBase(action, datamodel, ms, out long nodeSegmentRelativeOffset, out int nodeSegmentLength);
                     var actionData = ms.ToArray();
                     var segmentStreamPosition = stream.Length + 8; // add 8 as first byte is for array length, we only want exact position of node data bytes
                     stream.WriteByteArray(actionData);
+                    if (actionsWritten % 93 == 0 && progress != null) // update progress every 93 actions
+                        progress("Flushing " + transactionsWritten + " of " + transactionCount + " transactions and " + actionsWritten + " of " + actionCount + " actions", (int)((transactionsWritten / (double)transactionCount) * 100));
                     stream.WriteUInt(actionData.GetChecksum());
                     if (action is PrimitiveNodeAction na) {
                         var absolutePosition = segmentStreamPosition + nodeSegmentRelativeOffset;
@@ -141,6 +150,7 @@ namespace Relatude.DB.DataStores.Stores {
                 }
                 stream.WriteMarker(_transactionEndMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
             }
+            if (progress != null) progress("Flushed " + transactionCount + " transactions and " + actionCount + " actions", 100);
             long bytesWritten = stream.Length - bytesStartPos;
             return bytesWritten;
         }
@@ -158,9 +168,9 @@ namespace Relatude.DB.DataStores.Stores {
             if (FirstTimestamp == 0) FirstTimestamp = transaction.Timestamp;
             _workQueue.Add(transaction);
         }
-        public void FlushToDisk(bool deepFlush) => FlushToDisk(deepFlush, out _, out _, out _);
-        public void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
-            _workQueue.CompleteAddedWork(out transactionCount, out actionCount, out bytesWritten); // write everything to stream
+        public void FlushToDisk(bool deepFlush) => FlushToDisk(deepFlush, null, out _, out _, out _);
+        public void FlushToDisk(bool deepFlush, Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
+            _workQueue.CompleteAddedWork(progress, out transactionCount, out actionCount, out bytesWritten); // write everything to stream
             if (_appendStream != null) _appendStream.Flush(deepFlush);
             if (_secondaryAppendStream != null) _secondaryAppendStream.Flush(deepFlush);
             if (_flushCallback != null) _flushCallback(_lastTimestampID);
@@ -239,7 +249,7 @@ namespace Relatude.DB.DataStores.Stores {
             }
         }
         public void Dispose() {
-            _workQueue.CompleteAddedWork(out _, out _, out _);
+            _workQueue.CompleteAddedWork(null, out _, out _, out _);
             if (_appendStream != null) {
                 _appendStream.Dispose();
                 _appendStream = null;
@@ -253,7 +263,7 @@ namespace Relatude.DB.DataStores.Stores {
         internal void ReplaceDataFile(string newFileKey, long lastTimestamp) {
             FirstTimestamp = 0; // will be read from file
             _lastTimestampID = lastTimestamp;
-            _workQueue.CompleteAddedWork(out _, out _, out _);
+            _workQueue.CompleteAddedWork(null, out _, out _, out _);
             if (_appendStream != null) {
                 _appendStream.Dispose();
                 _appendStream = null;
@@ -267,7 +277,7 @@ namespace Relatude.DB.DataStores.Stores {
             if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
             _lastTimestampID = timestamp;
             QueDiskWrites(new(new(), timestamp));
-            FlushToDisk(true, out _, out _, out _);
+            FlushToDisk(true, null, out _, out _, out _);
         }
         public void EnsureTimestamps(long readTimestamp) {
             if (readTimestamp <= _lastTimestampID) return;
@@ -315,17 +325,17 @@ namespace Relatude.DB.DataStores.Stores {
             }
             if (_ioSecondary == null) throw new Exception("Secondary IO provider not configured. ");
             if (_secondaryFileKey == null) throw new Exception("Secondary file key not configured. ");
-            if(_secondaryAppendStream != null) {
+            if (_secondaryAppendStream != null) {
                 _secondaryAppendStream.Dispose();
                 _secondaryAppendStream = null;
             }
-            if(resetSecondaryFile) {
-                store.LogInfo("Resetting secondary log file as requested. ");
+            if (resetSecondaryFile) {
+                store.LogInfo("Resetting secondary log file. ");
                 _ioSecondary.DeleteIfItExists(_secondaryFileKey);
             }
             var hasSecondary = _ioSecondary.ExistsAndIsNotEmpty(_secondaryFileKey);
             if (!hasSecondary) {
-                store.LogInfo("Secondary log file missing, creating from primary. ");
+                store.LogInfo("Creating secondary log file from primary. ");
                 store.UpdateActivity(activityId, "Creating secondary log file from primary. ", 0);
                 _appendStream?.Dispose();
                 _appendStream = null;
@@ -334,7 +344,7 @@ namespace Relatude.DB.DataStores.Stores {
                 });
                 _appendStream = getWriteStream(_io, FileKey, false);
             } else {
-                store.LogInfo("Both primary and secondary log files exists. ");
+                store.LogInfo("Secondary log file active. ");
                 // Add checks for latest timestamp match between primary and secondary log files
 
                 // check if timestamps match?...

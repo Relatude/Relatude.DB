@@ -1,14 +1,15 @@
 ﻿namespace Relatude.DB.IO;
+// thread-safe interface for IO operations
 public interface IIOProvider {
     IReadStream OpenRead(string fileKey, long position);
     IAppendStream OpenAppend(string fileKey);
     bool DoesNotExistOrIsEmpty(string fileKey);
     void DeleteIfItExists(string fileKey);
     FileMeta[] GetFiles();
-    void ResetLocks();
     long GetFileSizeOrZeroIfUnknown(string file);
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
+    void CloseAllOpenStreams();
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {
@@ -107,7 +108,7 @@ public static class IIOProviderExtensions {
         using var toWriter = toIo.OpenAppend(toIoFileName);
         using var readStream = new ReadStreamWrapper(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
-        var buffer = new byte[1024 * 1024]; // 1 MB buffer
+        var buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
         long totalBytesCopied = 0;
         int bytesRead;
         while ((bytesRead = readStream.Read(buffer, 0, buffer.Length)) > 0) {

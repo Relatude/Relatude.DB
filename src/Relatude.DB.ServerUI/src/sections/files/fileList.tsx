@@ -52,9 +52,9 @@ export const component = (p: { storeId: string }) => {
             alert(e.message);
         }
     }
-    const resetLocks = async () => {
+    const closeAllOpenStreams = async () => {
         if (!confirm("Are you sure you want to reset all locks?")) return;
-        await app.api.maintenance.resetIoLocks(p.storeId, selectedIo!);
+        await app.api.maintenance.closeAllOpenStreams(p.storeId, selectedIo!);
         await updateFiles();
     }
     const renameFile = async (fileName: string) => {
@@ -164,7 +164,10 @@ export const component = (p: { storeId: string }) => {
         {selectedIOIsDatabase && <Button variant="light" onClick={() => app.api.maintenance.downloadFullDb(p.storeId)}
             title='A copy of the current database file with transaction history. This will temporarily block execution. '
         >Download with history</Button>}
-        {(selectedIOIsDatabase && selectedRows.length > 0) && <Button variant="light" color='red' onClick={deleteSelectedFiles}
+        {/* {selectedIOIsDatabase && <Button variant="outline" onClick={() => app.api.maintenance.closeAllOpenStreams(p.storeId, selectedIo!)}
+            title='Force close all open read and write streams to files in this IO. '
+        >Force close all</Button>} */}
+        {(selectedIo && selectedRows.length > 0) && <Button variant="light" color='red' onClick={deleteSelectedFiles}
             title='Permanently delete selected files. '
         >Delete {selectedRows.length == 1 ? " 1 file" : (selectedRows.length + " files")}</Button>}
         <Table>

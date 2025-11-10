@@ -6,7 +6,9 @@ public class AzureBlobIOProvider : IIOProvider {
     readonly BlobContainerClient _container;
     readonly bool _lockBlob;
     readonly Dictionary<string, FileMeta> _files = new(StringComparer.OrdinalIgnoreCase);
-    public AzureBlobIOProvider(string blobConnectionString, string blobContainerName, bool lockBlob) {
+    readonly object _lock = new();
+    readonly List<IStream> _openStreams = new();
+    public AzureBlobIOProvider(string blobContainerName, string blobConnectionString, bool lockBlob) {
         var blobContainer = new BlobContainerClient(blobConnectionString, blobContainerName);
         _container = blobContainer;
         _lockBlob = lockBlob;
@@ -57,21 +59,27 @@ public class AzureBlobIOProvider : IIOProvider {
     }
 
     public IReadStream OpenRead(string fileKey, long position) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        FileMeta meta;
-        lock (_files) {
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            FileMeta meta;
             if (!_files.TryGetValue(fileKey, out meta!)) throw new Exception($"File {fileKey} does not exist");
             if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+            meta.Readers++;
+            AzureBlobIOReadStream? stream = null;
+            stream = new AzureBlobIOReadStream(_container, fileKey, position, _lockBlob, () => {
+                lock (_lock) {
+                    meta.Readers--;
+                    _openStreams.Remove(stream!);
+                }
+            });
+            _openStreams.Add(stream);
+            return stream;
         }
-        meta.Readers++;
-        return new AzureBlobIOReadStream(_container, fileKey, position, _lockBlob, () => {
-            meta.Readers--;
-        });
     }
     public IAppendStream OpenAppend(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        FileMeta meta;
-        lock (_files) {
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            FileMeta meta;
             if (!_files.TryGetValue(fileKey, out meta!)) {
                 meta = new FileMeta { Key = fileKey };
                 _files.Add(fileKey, meta);
@@ -79,53 +87,67 @@ public class AzureBlobIOProvider : IIOProvider {
                 if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
                 if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
             }
+            meta.Writers++;
+            AzureBlobIOAppendStream? stream = null;
+            stream = new AzureBlobIOAppendStream(_container, fileKey, fileKey, _lockBlob, (long size) => {
+                lock (_lock) {
+                    meta.Writers--;
+                    meta.LastModifiedUtc = DateTime.UtcNow;
+                    meta.Size = size;
+                    _openStreams.Remove(stream!);
+                }
+            });
+            _openStreams.Add(stream);
+            return stream;
         }
-        meta.Writers++;
-        return new AzureBlobIOAppendStream(_container, fileKey, fileKey, _lockBlob, (long size) => {
-            meta.Writers--;
-            meta.LastModifiedUtc = DateTime.UtcNow;
-            meta.Size = size;
-        });
     }
     public void DeleteIfItExists(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_files) {
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
             if (_files.TryGetValue(fileKey, out var meta)) {
                 if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
                 if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
             }
+            EnsureResetOfLeaseId(_container, fileKey);
+            _container.DeleteBlobIfExists(fileKey);
+            if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
         }
-        EnsureResetOfLeaseId(_container, fileKey);
-        _container.DeleteBlobIfExists(fileKey);
-        lock (_files) {
-            if (_files.TryGetValue(fileKey, out var meta)) _files.Remove(fileKey);
-        }
-
     }
     public bool DoesNotExistOrIsEmpty(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var client = _container.GetBlobClient(fileKey);
-        if (!client.Exists()) return true;
-        return client.GetProperties().Value.ContentLength == 0;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var client = _container.GetBlobClient(fileKey);
+            if (!client.Exists()) return true;
+            return client.GetProperties().Value.ContentLength == 0;
+        }
     }
     public FileMeta[] GetFiles() {
-        var existing = _container.GetBlobs().ToArray();
-        lock (_files) {
+        lock (_lock) {
+            var existing = _container.GetBlobs().ToArray();
             syncDirInfo(existing);
             return _files.Values.ToArray();
         }
     }
     public long GetFileSizeOrZeroIfUnknown(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var client = _container.GetBlobClient(fileKey);
-        return client.Exists() ? client.GetProperties().Value.ContentLength : 0;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var client = _container.GetBlobClient(fileKey);
+            return client.Exists() ? client.GetProperties().Value.ContentLength : 0;
+        }
     }
     public bool CanRenameFile => false;
     public void RenameFile(string fileKey, string newFileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        throw new NotSupportedException();
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            throw new NotSupportedException();
+        }
     }
-    public void ResetLocks() {
-        throw new NotImplementedException();
+    public void CloseAllOpenStreams() {
+        lock (_lock) {
+            foreach (var stream in _openStreams.ToArray()) {
+                stream.Dispose();
+            }
+            if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+        }
     }
 }

@@ -155,7 +155,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             container(storeId).CloseIfOpen();
             if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
         });
-        app.MapPost(path("reset-io-locks"), (Guid storeId, Guid ioId) => server.GetIO(ioId).ResetLocks());
+        app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));

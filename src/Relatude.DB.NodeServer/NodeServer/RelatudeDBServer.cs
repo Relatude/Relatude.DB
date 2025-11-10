@@ -81,6 +81,7 @@ public partial class RelatudeDBServer {
         }
     }
     internal string RootDataFolderPath => _rootDataFolderPath;
+    internal string DefaultSubDataFolderPath => Path.Combine(_rootDataFolderPath, Defaults.DataFolderPath);
     internal string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };

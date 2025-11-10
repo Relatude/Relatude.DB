@@ -1,38 +1,32 @@
 ﻿namespace Relatude.DB.IO;
 public class IOProviderDisk : IIOProvider {
     readonly bool _readOnly;
-    readonly string _baseFolder;
-    public string BaseFolder => _baseFolder;
-    object _regLock = new();
-    Dictionary<string, int> _openReaders = [];
-    Dictionary<string, int> _openWriters = [];
+    readonly object _lock = new();
+    readonly Dictionary<string, int> _openReaders = [];
+    readonly Dictionary<string, int> _openWriters = [];
+    readonly List<IStream> _openStreams = [];
     public IOProviderDisk(string baseFolder, bool readOnly = false) {
-        _baseFolder = baseFolder;
+        BaseFolder = baseFolder;
         _readOnly = readOnly;
-        if (!Directory.Exists(_baseFolder)) Directory.CreateDirectory(_baseFolder);
+        if (!Directory.Exists(BaseFolder)) Directory.CreateDirectory(BaseFolder);
     }
+    public string BaseFolder { get; }
     void registerReader(string fileKey) {
-        lock (_regLock) {
-            if (_openReaders.ContainsKey(fileKey)) _openReaders[fileKey]++;
-            else _openReaders[fileKey] = 1;
-        }
+        if (_openReaders.ContainsKey(fileKey)) _openReaders[fileKey]++;
+        else _openReaders[fileKey] = 1;
     }
     void unregisterReader(string fileKey) {
-        lock (_regLock) {
-            if (_openReaders.ContainsKey(fileKey)) {
-                _openReaders[fileKey]--;
-                if (_openReaders[fileKey] <= 0) _openReaders.Remove(fileKey);
-            }
+        if (_openReaders.ContainsKey(fileKey)) {
+            _openReaders[fileKey]--;
+            if (_openReaders[fileKey] <= 0) _openReaders.Remove(fileKey);
         }
     }
     void registerWriter(string fileKey) {
-        lock (_regLock) {
-            if (_openWriters.ContainsKey(fileKey)) _openWriters[fileKey]++;
-            else _openWriters[fileKey] = 1;
-        }
+        if (_openWriters.ContainsKey(fileKey)) _openWriters[fileKey]++;
+        else _openWriters[fileKey] = 1;
     }
     void unregisterWriter(string fileKey) {
-        lock (_regLock) {
+        lock (_lock) {
             if (_openWriters.ContainsKey(fileKey)) {
                 _openWriters[fileKey]--;
                 if (_openWriters[fileKey] <= 0) _openWriters.Remove(fileKey);
@@ -40,68 +34,99 @@ public class IOProviderDisk : IIOProvider {
         }
     }
     public IReadStream OpenRead(string fileKey, long position) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        var stream = new StoreStreamDiscRead(filePath, position, () => {
-            unregisterReader(fileKey);
-        });
-        registerReader(fileKey);
-        return stream;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            StoreStreamDiscRead? stream = null;
+            stream = new StoreStreamDiscRead(filePath, position, () => {
+                lock (_lock) {
+                    unregisterReader(fileKey);
+                    _openStreams.Remove(stream!);
+                }
+            });
+            registerReader(fileKey);
+            _openStreams.Add(stream);
+            return stream;
+        }
     }
     public IAppendStream OpenAppend(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        var stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
-            unregisterWriter(fileKey);
-        });
-        registerWriter(fileKey);
-        return stream;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            StoreStreamDiscWrite? stream = null;
+            stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
+                lock (_lock) {
+                    unregisterWriter(fileKey);
+                    _openStreams.Remove(stream!);
+                }
+            });
+            registerWriter(fileKey);
+            _openStreams.Add(stream);
+            return stream;
+        }
     }
     public void DeleteIfItExists(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        if (File.Exists(filePath)) File.Delete(filePath);
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            if (File.Exists(filePath)) File.Delete(filePath);
+        }
     }
     public bool DoesNotExistOrIsEmpty(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        return !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            return !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
+        }
     }
     public FileMeta[] GetFiles() {
-        var files = new DirectoryInfo(_baseFolder).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
-        lock (_regLock) {
-            foreach (var f in files) {
-                if (_openReaders.ContainsKey(f.Key)) f.Readers = _openReaders[f.Key];
-                if (_openWriters.ContainsKey(f.Key)) f.Writers = _openWriters[f.Key];
+        lock (_lock) {
+            var files = new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
+            lock (_lock) {
+                foreach (var f in files) {
+                    if (_openReaders.ContainsKey(f.Key)) f.Readers = _openReaders[f.Key];
+                    if (_openWriters.ContainsKey(f.Key)) f.Writers = _openWriters[f.Key];
+                }
             }
+            return files;
         }
-        return files;
     }
     public long GetFileSizeOrZeroIfUnknown(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        if (!File.Exists(filePath)) return 0;
-        return new FileInfo(filePath).Length;
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            if (!File.Exists(filePath)) return 0;
+            return new FileInfo(filePath).Length;
+        }
     }
     public void MoveFile(IOProviderDisk sourceIo, string sourceFileKey, string destFileKey, bool overwrite) {
-        FileKeyUtility.ValidateFileKeyString(sourceFileKey);
-        FileKeyUtility.ValidateFileKeyString(destFileKey);
-        var source = Path.Combine(sourceIo._baseFolder, sourceFileKey);
-        var dest = Path.Combine(_baseFolder, destFileKey);
-        if (overwrite) DeleteIfItExists(destFileKey);
-        if (File.Exists(destFileKey)) throw new Exception($"File {destFileKey} already exists");
-        File.Move(source, dest);
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(sourceFileKey);
+            FileKeyUtility.ValidateFileKeyString(destFileKey);
+            var source = Path.Combine(sourceIo.BaseFolder, sourceFileKey);
+            var dest = Path.Combine(BaseFolder, destFileKey);
+            if (overwrite) DeleteIfItExists(destFileKey);
+            if (File.Exists(destFileKey)) throw new Exception($"File {destFileKey} already exists");
+            File.Move(source, dest);
+        }
     }
     public void RenameFile(string fileKey, string newFileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        FileKeyUtility.ValidateFileKeyString(newFileKey);
-        var filePath = Path.Combine(_baseFolder, fileKey);
-        var newFilePath = Path.Combine(_baseFolder, newFileKey);
-        if (File.Exists(newFilePath)) throw new Exception($"File {newFileKey} already exists");
-        File.Move(filePath, newFilePath);
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            FileKeyUtility.ValidateFileKeyString(newFileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            var newFilePath = Path.Combine(BaseFolder, newFileKey);
+            if (File.Exists(newFilePath)) throw new Exception($"File {newFileKey} already exists");
+            File.Move(filePath, newFilePath);
+        }
     }
     public bool CanRenameFile => true;
-    public void ResetLocks() {
-
+    public void CloseAllOpenStreams() {
+        lock (_lock) {
+            foreach (var stream in _openStreams.ToArray()) {
+                stream.Dispose();
+            }
+            if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+        }
     }
 }
