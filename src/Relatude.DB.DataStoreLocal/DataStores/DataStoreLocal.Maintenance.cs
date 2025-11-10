@@ -19,7 +19,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return transactionCount;
     }
     internal void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
-        _lock.EnterWriteLock();
+        //_lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
@@ -31,14 +31,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
             DeRegisterActivity(activityId);
-            _lock.ExitWriteLock();
+            //_lock.ExitWriteLock();
         }
     }
     public void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null) {
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try {
-            _wal.FlushToDisk(true);
             _wal.Copy(newLogFileKey, destinationIO);
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -83,7 +82,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
-            _wal.FlushToDisk(true); // maing sure every segment exists in _nodes ( through call back )
+            _wal.FlushToDisk(true); // making sure every segment exists in _nodes ( through call back )
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);

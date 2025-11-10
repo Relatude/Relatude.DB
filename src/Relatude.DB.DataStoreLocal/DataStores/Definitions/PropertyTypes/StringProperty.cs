@@ -151,8 +151,17 @@ internal class StringProperty : Property, IPropertyContainsValue {
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
         var useWords = ratioSemantic < 0.99 && IndexedByWords;
-        if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
-        if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
+        
+        //if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
+        if (useSemantic && semanticIndex == null) useSemantic = false;
+
+        //if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
+        if (useWords && WordIndex == null) useWords = false;
+
+        if(!useSemantic && !useWords) {
+            totalHits = 0;
+            return [];
+        }
 
         IEnumerable<RawSearchHit> wordHits;
         IEnumerable<RawSearchHit> semanticHits;

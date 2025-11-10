@@ -27,12 +27,12 @@ app.MapPost("/start", () => {
     ITester[] testers = [
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
-        //new LiteDBTester(),
-        //new SQLiteDBTester(),
+        new LiteDBTester(),
+        new SQLiteDBTester(),
         new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
-        //new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
-        //new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
-        //new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         ];
 
     Status.Current.Initialize(testers.Select(t => t.Name).ToArray(), TestRunner.GetTestNames(), options);

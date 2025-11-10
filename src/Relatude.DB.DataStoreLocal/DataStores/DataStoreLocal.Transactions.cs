@@ -90,10 +90,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             foreach (var action in transaction.Actions) {
                 UpdateActivityProgress(activityId, 100 * i++ / count);
                 _transactionActivity.Record();
-                foreach (var a in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
-                    if (anyLocks) validateLocks(a, lockExcemptions);
-                    executeAction(a); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
-                    executed.Add(a);
+                foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
+                    if (anyLocks) validateLocks(primitive, lockExcemptions);
+                    executeAction(primitive); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
+                    executed.Add(primitive);
                     resultingOperations[i - 1] = resultingOperation;
                 }
             }
