@@ -13,7 +13,7 @@ public class StoreStreamDiscRead : IReadStream {
         _stream = getStream(_filePath);
         _stream.Position = position;
     }
-
+    public string FileKey => Path.GetFileName(_filePath);
     const int numberOfRetries = 5;
     static FileStream getStream(string filePath) {
         Exception? lastException = null;

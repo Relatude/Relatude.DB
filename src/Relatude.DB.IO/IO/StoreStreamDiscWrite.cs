@@ -10,6 +10,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public string FileKey { get; }
     Action _disposeCallback;
     object _lock = new();
+    long _length;
     public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
@@ -19,6 +20,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
         _stream = getStream(_filePath);
+        _length = _stream.Length;
     }
     const int numberOfRetries = 5;
     FileStream getStream(string filePath) {
@@ -41,6 +43,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             if (!_unflushed) _unflushed = true;
+            _length = _stream.Length;
         }
     }
     bool _unflushed = true;
@@ -60,7 +63,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public long Length {
         get {
             lock (_lock) {
-                if (!_stream.CanRead) return 0;
+                if (!_stream.CanRead) return _length; // stream is closed
                 return _stream.Length;
             }
         }

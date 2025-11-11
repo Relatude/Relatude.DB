@@ -14,6 +14,7 @@ public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
                 PropertyNamingPolicy = null,
                 WriteIndented = true,
                 PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
                 //DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             };
             _options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());

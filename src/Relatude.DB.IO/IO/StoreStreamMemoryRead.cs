@@ -8,11 +8,13 @@ public class StoreStreamMemoryRead : IReadStream {
     bool _isDisposed;
     Action _onDispose;
     ChecksumUtil _checkSum = new();
-    public StoreStreamMemoryRead(byte[] bytes, long position, Action onDispose) {
+    public StoreStreamMemoryRead(string fileKey, byte[] bytes, long position, Action onDispose) {
+        FileKey = fileKey; 
         _bytes = bytes;
         _position = position;
         _onDispose = onDispose;
     }
+    public string FileKey { get; }
     public long Position { get => _position; set => _position = value; }
     public bool More() => _position < _bytes.Length;
     public byte[] Read(int length) {

@@ -30,7 +30,7 @@ public class IOProviderMemory : IIOProvider {
             if (file.Meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
             file.Meta.Readers++;
             StoreStreamMemoryRead? stream = null;
-            stream = new StoreStreamMemoryRead(file.Bytes, position, () => {
+            stream = new StoreStreamMemoryRead(fileKey, file.Bytes, position, () => {
                 lock (_lock) {
                     file.Meta.Readers--;
                     _openStreams.Remove(stream!);

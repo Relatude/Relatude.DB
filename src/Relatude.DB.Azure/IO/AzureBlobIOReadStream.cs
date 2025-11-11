@@ -15,9 +15,8 @@ public class AzureBlobIOReadStream : IReadStream {
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
-    string _fileKey;
     public AzureBlobIOReadStream(BlobContainerClient container, string fileKey, long position, bool lockBlob, Action disposeCallback) {
-        _fileKey = fileKey;
+        FileKey = fileKey;
         _disposeCallback = disposeCallback;
         _blobClient = container.GetBlobClient(fileKey);
         AzureBlobIOProvider.EnsureResetOfLeaseId(container, fileKey);
@@ -31,6 +30,7 @@ public class AzureBlobIOReadStream : IReadStream {
         if (_blobClient.Exists()) _totalLength = _blobClient.GetProperties().Value.ContentLength;
         Position = position;
     }
+    public string FileKey { get ; }
     public long Position { get; set; }
     public long Length { get => _totalLength; }
     public bool More() {

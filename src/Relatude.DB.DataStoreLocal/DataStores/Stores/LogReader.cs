@@ -22,12 +22,17 @@ internal class LogReader : IDisposable {
     long _lastTimestampID;
     readonly Definition _definition;
     long _fileSize;
-    public LogReader(string fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp, out Guid fileId) {
-        fileId = Guid.Empty;
+    public LogReader(string fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp) {
         _fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
-        if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out fileId);
+        if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _);
         _definition = definition;
         _lastTimestampID = fromTimestamp;
+    }
+    public static Guid ReadFileId( string fileKey, IIOProvider io) {
+        Guid fileId;
+        using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId)) {
+            return fileId;
+        }
     }
     static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId) {
         var readStream = io.OpenRead(fileKey, 0);

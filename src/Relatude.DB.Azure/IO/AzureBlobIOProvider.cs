@@ -44,14 +44,24 @@ public class AzureBlobIOProvider : IIOProvider {
         }
     }
     void syncDirInfo(BlobItem[] existing) {
-        foreach (var f in existing) {
-            if (!_files.ContainsKey(f.Name)) {
-                _files.Add(f.Name, new FileMeta {
-                    Key = f.Name,
-                    Size = f.Properties.ContentLength.HasValue ? f.Properties.ContentLength.Value : 0,
-                    LastModifiedUtc = f.Properties.LastModified.HasValue ? f.Properties.LastModified.Value.UtcDateTime : DateTime.MinValue,
-                    CreationTimeUtc = f.Properties.CreatedOn.HasValue ? f.Properties.CreatedOn.Value.UtcDateTime : DateTime.MinValue,
+        long getSize(BlobItem blob) {
+            var match = _openStreams.Where(s => s.FileKey == blob.Name).FirstOrDefault();
+            if (match != null)
+                return match.Length;
+            return blob.Properties.ContentLength.HasValue ? blob.Properties.ContentLength.Value : 0;
+        }
+        foreach (var blob in existing) {
+            if (!_files.TryGetValue(blob.Name, out var meta)) {
+                _files.Add(blob.Name, new FileMeta {
+                    Key = blob.Name,
+                    Size = getSize(blob),
+                    LastModifiedUtc = blob.Properties.LastModified.HasValue ? blob.Properties.LastModified.Value.UtcDateTime : DateTime.MinValue,
+                    CreationTimeUtc = blob.Properties.CreatedOn.HasValue ? blob.Properties.CreatedOn.Value.UtcDateTime : DateTime.MinValue,
                 });
+            } else {
+                meta.Size = getSize(blob);
+                meta.LastModifiedUtc = blob.Properties.LastModified.HasValue ? blob.Properties.LastModified.Value.UtcDateTime : DateTime.MinValue;
+                meta.CreationTimeUtc = blob.Properties.CreatedOn.HasValue ? blob.Properties.CreatedOn.Value.UtcDateTime : DateTime.MinValue;
             }
         }
         var deleted = _files.Keys.Where(k => !existing.Any(f => f.Name == k)).ToArray();
@@ -93,7 +103,7 @@ public class AzureBlobIOProvider : IIOProvider {
                 lock (_lock) {
                     meta.Writers--;
                     meta.LastModifiedUtc = DateTime.UtcNow;
-                    meta.Size = size;
+                    meta.Size = 0;
                     _openStreams.Remove(stream!);
                 }
             });

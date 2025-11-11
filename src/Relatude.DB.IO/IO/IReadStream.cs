@@ -4,7 +4,6 @@ public interface IReadStream : IStream {
     byte[] Read(int length);
     void Skip(long length);
     long Position { get; set; }
-    long Length { get; }
     void RecordChecksum();
     void ValidateChecksum();
 }

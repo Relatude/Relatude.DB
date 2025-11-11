@@ -1,11 +1,13 @@
-﻿using Relatude.DB.Common;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Serialization;
 using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.DataStores.Transactions;
+
 
 
 namespace Relatude.DB.DataStores.Stores {
@@ -17,6 +19,7 @@ namespace Relatude.DB.DataStores.Stores {
 
     // threadsafe, excect when loading and using method "_NotThreadsafe"
     internal sealed class NodeStore {
+
         object _lock = new();
         static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
         readonly ReadSegmentsFunc _read;
@@ -29,8 +32,18 @@ namespace Relatude.DB.DataStores.Stores {
             _definition = definition;
             _cache = new((long)(config.NodeCacheSizeGb * Math.Pow(1024, 3)));
         }
+        public void VerifyNoQueuedSegments() {
+            lock (_lock) {
+                var count = _segments.Where(kv => kv.Value.Length == 0).Count();
+                if (count > 0) throw new Exception("There are still queued segments not written to log. Count: " + count);
+            }
+        }
         public (int nodeId, NodeSegment segment)[] Snapshot() {
-            lock (_lock) return _segments.Select(kv => (nodeId: kv.Key, segment: kv.Value)).ToArray();
+            lock (_lock) {
+                var result = _segments.Select(kv => (nodeId: kv.Key, segment: kv.Value)).ToArray();
+                if (result.Where(s => s.segment.Length == 0).Any()) throw new Exception("Snapshot not ready");
+                return result;
+            }
         }
         public INodeData Get(int id) {
             if (TryGet(id, out var node, out _)) return node;

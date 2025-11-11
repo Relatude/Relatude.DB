@@ -23,7 +23,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
         try {
             validateDatabaseState();
-            _wal.FlushToDisk(deepFlush, (txt, prg) => {
+            _wal.DequeuAllTransactionWritesAndFlushStreams(deepFlush, (txt, prg) => {
                 UpdateActivity(activityId, txt, prg);
             }, out transactionCount, out actionCount, out bytesWritten);
         } catch (Exception err) {
@@ -82,7 +82,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
-            _wal.FlushToDisk(true); // making sure every segment exists in _nodes ( through call back )
+            _wal.DequeuAllTransactionWritesAndFlushStreams(true); // making sure every segment exists in _nodes ( through call back )
+            
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);
@@ -130,7 +131,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
         try {
             validateDatabaseState();
-            _wal.FlushToDisk(true);
+            _wal.DequeuAllTransactionWritesAndFlushStreams(true);
             PersistedIndexStore?.OptimizeDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -171,7 +172,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 validateDatabaseState();
                 if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
                     LogInfo("Initiating index state write.");
-                    _wal.FlushToDisk(true);
+                    _wal.DequeuAllTransactionWritesAndFlushStreams(true);
                     saveState();
                     LogInfo("Index state write completed.");
                 } else {
