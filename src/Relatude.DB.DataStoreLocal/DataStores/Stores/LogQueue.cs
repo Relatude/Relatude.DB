@@ -5,25 +5,30 @@ internal delegate long BatchCallback(ExecutedPrimitiveTransaction[] batch, Actio
 internal class LogQueue : IDisposable {
     readonly BatchCallback _workCallback;
     List<ExecutedPrimitiveTransaction> _queue;
-    object _lock = new();
+    object _workLock = new();
+    object _queueLock = new();
     int _estimatedCount;
     public LogQueue(BatchCallback workCallback) {
         _workCallback = workCallback;
         _queue = [];
     }
     public void Add(ExecutedPrimitiveTransaction work) {
-        lock (_lock) {
-            _queue.Add(work);            
+        lock (_queueLock) {
+            _queue.Add(work);
         }
         System.Threading.Interlocked.Increment(ref _estimatedCount);
     }
     public void DequeAllWork(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
-        lock (_lock) { // lock is needed to prevent multiple batches running simultaneously, ( would cause problem with disk flushes as they have no lock, and could interleave with db rewrite, that uses flush to ensure all node segments are written)
+        ExecutedPrimitiveTransaction[] batch;
+        lock (_queueLock) {
             actionCount = _queue.Sum(x => x.ExecutedActions.Count);
+            batch = _queue.ToArray();
             transactionCount = _queue.Count;
+            _queue = [];
+        }
+        lock (_workLock) { // _workLock is needed to prevent multiple batches running simultaneously, ( would cause problem with disk flushes as they have no lock, and could interleave with db rewrite, that uses flush to ensure all node segments are written)
             bytesWritten = 0;
-            if (transactionCount > 0) bytesWritten = _workCallback(_queue.ToArray(), progress, actionCount, transactionCount);
-            _queue.Clear();
+            if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
         }
         System.Threading.Interlocked.Add(ref _estimatedCount, -transactionCount);
     }

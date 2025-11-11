@@ -113,7 +113,7 @@ internal class Scheduler(DataStoreLocal _db) {
         if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
     static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db) {
-        if (oneThread.IsRunning_IfNotFlagToRunning()) return;
+        if (oneThread.IsRunning_IfNotSetFlagToRunning()) return;
         long activityId = -1;
         try {
             if (db.State != DataStoreState.Open) return;
@@ -154,7 +154,7 @@ internal class Scheduler(DataStoreLocal _db) {
     }
     DateTime _lastAutoFlush = DateTime.UtcNow;
     void autoFlushDisk(object? state) {
-        if (_autoFlushTaskRunningFlag.IsRunning_IfNotFlagToRunning()) return;
+        if (_autoFlushTaskRunningFlag.IsRunning_IfNotSetFlagToRunning()) return;
         try {
             if (_db.State != DataStoreState.Open) return;
             var now = DateTime.UtcNow;
@@ -188,7 +188,7 @@ internal class Scheduler(DataStoreLocal _db) {
     }
 
     void backgroundTaskPulse(object? state) {
-        if (_backgroundTaskRunningFlag.IsRunning_IfNotFlagToRunning()) return;
+        if (_backgroundTaskRunningFlag.IsRunning_IfNotSetFlagToRunning()) return;
         try {
             if (_db.State != DataStoreState.Open) return;
             if (_s.AutoBackUp) runAutoBackup();
@@ -255,12 +255,14 @@ internal class Scheduler(DataStoreLocal _db) {
         }
         _lastSaveIndexStates = DateTime.UtcNow;
     }
+    DateTime _lastCompletedAutoTruncate = DateTime.MinValue;
     void runAutoTruncateIfDue() {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoTruncate) return;
-            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
-            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
+            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay
+            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay      
+            if (now.Subtract(_lastCompletedAutoTruncate).TotalMinutes < 60) return; // do not auto run more than once per hour, as it is an expensive operation and some locks are held during the operation
             var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
             var belowUpperLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountUpperLimit;
             if (belowUpperLimit) {
@@ -282,6 +284,7 @@ internal class Scheduler(DataStoreLocal _db) {
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto truncate started");
             _db.Maintenance(MaintenanceAction.TruncateLog);
+            _lastCompletedAutoTruncate = DateTime.UtcNow;
             _db.LogInfo("Auto truncate finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
             if (_s.AutoTruncateDeleteOldFileOnSuccess) {
                 _db.LogInfo("Auto truncate delete old log files started");

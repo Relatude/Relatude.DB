@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Transactions;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     public long GetNoPrimitiveActionsInLogThatCanBeTruncated() {
@@ -71,6 +72,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (string.IsNullOrEmpty(newLogFileKey)) throw new Exception("New log file name cannot be empty. ");
         if (newLogFileKey == _wal.FileKey) throw new Exception("New log file name cannot be the same as current. ");
         if (_rewriter != null) throw new Exception("Rewriter already initialized. ");
+        var sw=Stopwatch.StartNew();
+        UpdateActivity(activityId, "Flushing stream before rewrite lock", 1);
+        FlushToDisk(true); // ensuring a flush before starting rewrite and lock to minized time for flush while locked...
+        sw.Stop();
+        UpdateActivity(activityId, $"Flush completed in {sw.ElapsedMilliseconds} ms", 1);
         _lock.EnterWriteLock();
         try {
             if (LogRewriter.LogRewriterAlreadyInprogress(destinationIO)) {
@@ -82,8 +88,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var initialNoPrimitiveActionsInLogThatCanBeTruncated = _noPrimitiveActionsInLogThatCanBeTruncated;
         try {
+            sw.Restart();
+            UpdateActivity(activityId, "Second flushing of stream inside rewrite lock", 2);
             _wal.DequeuAllTransactionWritesAndFlushStreams(true); // making sure every segment exists in _nodes ( through call back )
-            
+            sw.Stop();
+            UpdateActivity(activityId, $"Second flush completed in {sw.ElapsedMilliseconds} ms", 2);
+
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);

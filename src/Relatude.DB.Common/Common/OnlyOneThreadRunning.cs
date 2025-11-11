@@ -8,7 +8,7 @@ public class OnlyOneThreadRunning {
 
     // Checks if already running. If not, sets it to running and returns false.
     // If already running, returns true.
-    public bool IsRunning_IfNotFlagToRunning() {
+    public bool IsRunning_IfNotSetFlagToRunning() {
         // Try to set from 0 (not running) to 1 (running)
         int original = Interlocked.CompareExchange(ref _runningFlag, 1, 0);
         return original == 1; // true if already running
