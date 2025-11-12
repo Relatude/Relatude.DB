@@ -115,7 +115,6 @@ internal class LogRewriter {
         _finalizing = true;
         foreach (var t in _diff) _newStore.QueDiskWrites(t); // final transactions, added while last step was running
         _newStore.DequeuAllTransactionWritesAndFlushStreams(true); // flush all writes to disk, so that the new file is ready to be used
-        oldLogStore.DequeuAllTransactionWritesAndFlushStreams(true); // flush old log file, so that it is ready to be replaced
         _newStore.Dispose(); // dispose new store, so that it can be used by the db
         if (swapToNewFile) {
             // if swapping to new file, all node segments must be registered, so that the new file is used

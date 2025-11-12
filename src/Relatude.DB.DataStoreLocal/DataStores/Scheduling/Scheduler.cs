@@ -15,8 +15,8 @@ internal class Scheduler(DataStoreLocal _db) {
     OnlyOneThreadRunning _dequeIndexTaskPersistedRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
     OnlyOneThreadRunning _backgroundTaskRunningFlag = new(); // flag to ensure only one thread is running background tasks at a time
 
-    DateTime _lastSaveIndexStates = DateTime.UtcNow;
-    DateTime _lastTruncate = DateTime.UtcNow;
+    DateTime _lastSaveIndexStates = DateTime.MinValue; // running at startup if above min action count
+    DateTime _lastTruncate = DateTime.UtcNow; // do not run truncate at startup unless due
     DateTime _lastCachePurge = DateTime.UtcNow;
     DateTime _lastAutoBackup = DateTime.UtcNow;
 
@@ -229,22 +229,17 @@ internal class Scheduler(DataStoreLocal _db) {
             if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
             if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
             var noActionsNotInStateFile = _db.GetLogActionsNotItInStatefile();
-            var belowUpperLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountUpperLimit;
-            if (belowUpperLimit) {
-                var belowLowerLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountLowerLimit;
-                if (belowLowerLimit) {
-                    // _db.Log("Auto save index states not due yet, unsaved action count below lower limit. ");
-                    return;
-                }
-                var belowTimeLimit = (now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes;
-                if (belowTimeLimit) {
-                    // _db.Log("Auto save index states not due yet, based on time interval. ");
-                    return;
-                } else {
-                    _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
-                }
+            var belowLowerLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountLowerLimit;
+            if (belowLowerLimit) {
+                // _db.Log("Auto save index states not due yet, unsaved action count below lower limit. ");
+                return;
+            }
+            var belowTimeLimit = (now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes;
+            if (belowTimeLimit) {
+                // _db.Log("Auto save index states not due yet, based on time interval. ");
+                return;
             } else {
-                _db.LogInfo("Auto save index states due, upper unsaved action count limit exceeded. ");
+                _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
             }
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto save index states started");
@@ -255,36 +250,28 @@ internal class Scheduler(DataStoreLocal _db) {
         }
         _lastSaveIndexStates = DateTime.UtcNow;
     }
-    DateTime _lastCompletedAutoTruncate = DateTime.MinValue;
     void runAutoTruncateIfDue() {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoTruncate) return;
             if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay
             if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay      
-            if (now.Subtract(_lastCompletedAutoTruncate).TotalMinutes < 60) return; // do not auto run more than once per hour, as it is an expensive operation and some locks are held during the operation
             var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
-            var belowUpperLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountUpperLimit;
-            if (belowUpperLimit) {
-                var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
-                if (belowLowerLimit) {
-                    // _db.Log("Truncate not due yet, unsaved action count below lower limit. ");
-                    return;
-                }
-                var belowTimeLimit = (now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes;
-                if (belowTimeLimit) {
-                    // _db.Log("Truncate not due yet, based on time interval. ");
-                    return;
-                } else {
-                    _db.LogInfo("Auto truncate due, time interval and lower unsaved action count limit exceeded. ");
-                }
+            var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
+            if (belowLowerLimit) {
+                // _db.Log("Truncate not due yet, unsaved action count below lower limit. ");
+                return;
+            }
+            var belowTimeLimit = (now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes;
+            if (belowTimeLimit) {
+                // _db.Log("Truncate not due yet, based on time interval. ");
+                return;
             } else {
-                _db.LogInfo("Auto truncate due, upper unsaved action count limit exceeded. ");
+                _db.LogInfo("Auto truncate due, time interval and lower unsaved action count limit exceeded. ");
             }
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto truncate started");
             _db.Maintenance(MaintenanceAction.TruncateLog);
-            _lastCompletedAutoTruncate = DateTime.UtcNow;
             _db.LogInfo("Auto truncate finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
             if (_s.AutoTruncateDeleteOldFileOnSuccess) {
                 _db.LogInfo("Auto truncate delete old log files started");

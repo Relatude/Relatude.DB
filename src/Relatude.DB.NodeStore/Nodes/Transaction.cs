@@ -320,59 +320,72 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction UpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
+
+    public Transaction UpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) => UpdateIfDifferentProperty(node, expression, value);
+    public Transaction UpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value) => UpdateIfDifferentProperty(nodeId, expression, value);
+    public Transaction UpdateProperty<T>(Guid nodeId, Expression<Func<T, object>> expression, object value) => UpdateIfDifferentProperty(nodeId, expression, value);
+    public Transaction UpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value) => UpdateIfDifferentProperty(ids, expression, value);
+    public Transaction UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) => UpdateIfDifferentProperty(nodeId, expression, value);
+    public Transaction UpdateProperty(Guid nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
+    public Transaction UpdateProperty(int nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
+    public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) => UpdateIfDifferentProperties(nodeId, propertyValuePairs);
+    public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
+
+    public Transaction ForceUpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
-            return UpdateProperty(nodeId, expression, value);
+            return ForceUpdateProperty(nodeId, expression, value);
         } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
-            return UpdateProperty(nodeIdUint, expression, value);
+            return ForceUpdateProperty(nodeIdUint, expression, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
     }
-    public Transaction UpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value) {
+    public Transaction ForceUpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value) {
         if (value == null) throw new Exception("Value cannot be null. ");
         var propertyId = Store.Mapper.GetProperty(expression).Id;
-        _transactionData.UpdateProperty(nodeId, propertyId, value);
+        _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
         return this;
     }
-    public Transaction UpdateProperty<T>(Guid nodeId, Expression<Func<T, object>> expression, object value) {
+    public Transaction ForceUpdateProperty<T>(Guid nodeId, Expression<Func<T, object>> expression, object value) {
         if (value == null) throw new Exception("Value cannot be null. ");
         var propertyId = Store.Mapper.GetProperty(expression).Id;
-        _transactionData.UpdateProperty(nodeId, propertyId, value);
+        _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
         return this;
     }
-    public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
+    public Transaction ForceUpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value) {
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
+        if (value == null) throw new Exception("Value cannot be null. ");
+        foreach (var id in ids) _transactionData.ForceUpdateProperty(id, propertyId, value);
+        return this;
+    }
+    public Transaction ForceUpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) {
+        if (value == null) throw new Exception("Value cannot be null. ");
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
+        _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
+        return this;
+    }
+    public Transaction ForceUpdateProperty(Guid nodeId, Guid propertyId, object value) {
+        _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
+        return this;
+    }
+    public Transaction ForceUpdateProperty(int nodeId, Guid propertyId, object value) {
+        _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
+        return this;
+    }
+    public Transaction ForceUpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
         var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
         var values = propertyValuePairs.Select(tuple => tuple.Item2).ToArray();
-        _transactionData.UpdateProperties(nodeId, propertyIds, values);
+        _transactionData.ForceUpdateProperties(nodeId, propertyIds, values);
         return this;
     }
-    public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
+    public Transaction ForceUpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
         var propertyIds = expressions.Select(expression => Store.Mapper.GetProperty(expression).Id).ToArray();
-        _transactionData.UpdateProperties(nodeId, propertyIds, values);
+        _transactionData.ForceUpdateProperties(nodeId, propertyIds, values);
         return this;
     }
-    public Transaction UpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value) {
-        var propertyId = Store.Mapper.GetProperty(expression).Id;
-        if (value == null) throw new Exception("Value cannot be null. ");
-        foreach (var id in ids) _transactionData.UpdateProperty(id, propertyId, value);
-        return this;
-    }
-    public Transaction UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) {
-        if (value == null) throw new Exception("Value cannot be null. ");
-        var propertyId = Store.Mapper.GetProperty(expression).Id;
-        _transactionData.UpdateProperty(nodeId, propertyId, value);
-        return this;
-    }
-    public Transaction UpdateProperty(Guid nodeId, Guid propertyId, object value) {
-        _transactionData.UpdateProperty(nodeId, propertyId, value);
-        return this;
-    }
-    public Transaction UpdateProperty(int nodeId, Guid propertyId, object value) {
-        _transactionData.UpdateProperty(nodeId, propertyId, value);
-        return this;
-    }
+
+
     public Transaction UpdateIfDifferentProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
@@ -399,10 +412,28 @@ public partial class Transaction {
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
+    public Transaction UpdateIfDifferentProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value) {
+        var propertyId = Store.Mapper.GetProperty(expression).Id;
+        if (value == null) throw new Exception("Value cannot be null. ");
+        foreach (var id in ids) _transactionData.UpdateIfDifferentProperty(id, propertyId, value);
+        return this;
+    }
     public Transaction UpdateIfDifferentProperty(int nodeId, Guid propertyId, object value) {
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
+    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
+        var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
+        var values = propertyValuePairs.Select(tuple => tuple.Item2).ToArray();
+        _transactionData.UpdateIfDifferentProperties(nodeId, propertyIds, values);
+        return this;
+    }
+    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
+        var propertyIds = expressions.Select(expression => Store.Mapper.GetProperty(expression).Id).ToArray();
+        _transactionData.UpdateIfDifferentProperties(nodeId, propertyIds, values);
+        return this;
+    }
+
     public Transaction ResetProperty<T, V>(T node, Expression<Func<T, V>> expression) {
         if (node == null) throw new Exception("Node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {

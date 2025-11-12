@@ -37,6 +37,7 @@ public class RelatudeDBTester : ITester {
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
         settings.SecondaryBackupLog = true;
+        settings.ForceDiskFlushAfterActionCountLimit = int.MaxValue;
         settings.AutoFlushDiskInBackground = _flushMode == RelatudeDiskFlushMode.AutoFlush;
         settings.DeepFlushDisk = _flushMode == RelatudeDiskFlushMode.DiskFlush;
         var io = new IOProviderDisk(_dataFolderPath!);
@@ -82,7 +83,7 @@ public class RelatudeDBTester : ITester {
         return _store.Query<TestUser>().Where(u => u.Age == age).Execute().ToArray();
     }
     public void UpdateUserAge(Guid userId, int newAge) {
-        _store.UpdateProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
+        _store.ForceUpdateProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
     }
     public void FlushToDisk() {
         _store.Flush();

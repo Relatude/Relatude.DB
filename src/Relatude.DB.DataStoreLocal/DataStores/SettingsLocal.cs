@@ -5,16 +5,15 @@
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 
-    public bool EnableSystemLog { get; set; } = false;
-    public bool OnlyLogErrorsToSystemLog { get; set; } = true;
-    //public bool EnableQueryLog { get; set; } = false;
-    //public bool EnableQueryLogDetails { get; set; } = false;
+    public bool EnableSimpleSystemLog { get; set; } = false;
+    public bool OnlyLogErrorsToSimpleSystemLog { get; set; } = true;
     public bool WriteSystemLogConsole { get; set; } = true;
+
     public bool DoNotCacheMapperFile { get; set; } = false;
-    public int DaysToKeepSystemLog { get; set; } = 10;
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
     public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
+    public int ForceDiskFlushAfterActionCountLimit { get; set; } = 10000;
     public bool DeepFlushDisk { get; set; } = false;
 
     public bool AutoFlushDiskInBackground { get; set; } = true;
@@ -24,7 +23,6 @@
 
     public bool AutoSaveIndexStates { get; set; } = true;
     public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 30;
-    public int AutoSaveIndexStatesActionCountUpperLimit { get; set; } = 50000;
     public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 10000;
 
     public bool AutoBackUp { get; set; } = false;
@@ -39,8 +37,7 @@
 
     public bool AutoTruncate { get; set; } = false; //true;
     public double AutoTruncateIntervalInMinutes { get; set; } = 60;
-    public int AutoTruncateActionCountUpperLimit { get; set; } = 50000;
-    public int AutoTruncateActionCountLowerLimit { get; set; } = 10000;
+    public int AutoTruncateActionCountLowerLimit { get; set; } = 50000;
     public bool AutoTruncateDeleteOldFileOnSuccess { get; set; } = false; //true;
 
     public bool AutoPurgeCache { get; set; } = true;

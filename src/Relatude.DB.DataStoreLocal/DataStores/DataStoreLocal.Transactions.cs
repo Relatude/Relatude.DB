@@ -13,12 +13,28 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null) {
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
+        if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) {
+            var activityId = this.RegisterActvity(DataStoreActivityCategory.Flushing, "Auto flushing due to action count limit");
+            //LogInfo("Auto flushing due to limit. Queued actions: " + _wal.GetQueueActionCount() + ". Limit: " + Settings.ForceDiskFlushAfterActionCountLimit);
+            try {
+                var sw = Stopwatch.StartNew();
+                FlushToDisk(Settings.DeepFlushDisk, out var t, out var a, out var w);
+                if (t > 0) LogInfo("Auto flushing "
+                    + sw.ElapsedMilliseconds.To1000N() + "ms, "
+                    + t + " transaction" + (t != 1 ? "s" : "") + ", "
+                    + a + " action" + (a != 1 ? "s" : "") + ", "
+                    + w.ToByteString() + " written. ");
+            } finally {
+                this.DeRegisterActivity(activityId);
+            }
+        }
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
             var result = execute_outer(transaction, true, flush, out var primitiveActionCount);
             if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
+            if (flush) FlushToDisk(Settings.DeepFlushDisk); // outside write lock to reduce time lock is held
             return result;
         } else { // faster path without logging:
             return execute_outer(transaction, true, flush, out _);
@@ -26,6 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
+        if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk); // outside write lock to reduce time lock is held
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         try {
@@ -36,7 +53,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
-            execute_inner(transaction, transformValues, flushToDisk, out primitiveActionCount, resultingOperations, newTasks, activityId);
+            execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
@@ -52,7 +69,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    void execute_inner(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount,
+    void execute_inner(TransactionData transaction, bool transformValues, out int primitiveActionCount,
         ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
         HashSet<Guid>? lockExcemptions = null;
         if (transaction.LockExcemptions != null) {
@@ -63,14 +80,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
-        if (executed.Count == 0) {
-            if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);
-            return; // no actions executed, no need to write to disk
-        }
+        if (executed.Count == 0) return; // no actions executed, no need to write to disk
         var executedTransaction = new ExecutedPrimitiveTransaction(executed, transaction.Timestamp);
         _wal.QueDiskWrites(executedTransaction);
         _rewriter?.RegisterNewTransactionWhileRewriting(executedTransaction);
-        if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);
+        //if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);
         _noPrimitiveActionsSinceLastStateSnaphot += primitiveActionCount;
         _noPrimitiveActionsSinceClearCache += primitiveActionCount;
         _noTransactionsSinceLastStateSnaphot++;

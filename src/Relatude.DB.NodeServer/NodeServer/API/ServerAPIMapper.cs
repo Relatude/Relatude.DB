@@ -431,7 +431,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("populate"), (Guid storeId, int count, bool wikipediaData) => {
             var store = db(storeId);
             var sw = new Stopwatch();
-            var chunkSize = 10000;
+            var chunkSize = 1000;
             var created = 0;
             var path = "C:\\WAF_Sources\\wikipedia\\wiki-articles.json"; // temporary hardcoded path to wikipedia data file...
             var seed = 0; // same every time for reproducible results
@@ -448,9 +448,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
                 sw.Stop();
                 created += create;
             }
-            sw.Start();
-            store.Flush();
-            sw.Stop();
             return new {
                 CountCreated = count,
                 ElapsedMs = sw.Elapsed.TotalMilliseconds

@@ -10,7 +10,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public string FileKey { get; }
     Action _disposeCallback;
     object _lock = new();
-    long _length;
+    long _lastLength;
     public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
@@ -20,7 +20,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
         _stream = getStream(_filePath);
-        _length = _stream.Length;
+        _lastLength = _stream.Length;
     }
     const int numberOfRetries = 5;
     FileStream getStream(string filePath) {
@@ -38,12 +38,12 @@ public class StoreStreamDiscWrite : IAppendStream {
         }
         throw new Exception($"Failed to open file {filePath} after {numberOfRetries} attempts. " + lastException?.Message);
     }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void Append(byte[] data) {
         lock (_lock) {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             if (!_unflushed) _unflushed = true;
-            _length = _stream.Length;
         }
     }
     bool _unflushed = true;
@@ -63,7 +63,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public long Length {
         get {
             lock (_lock) {
-                if (!_stream.CanRead) return _length; // stream is closed
+                if (!_stream.CanRead) return _lastLength;
                 return _stream.Length;
             }
         }
@@ -92,6 +92,9 @@ public class StoreStreamDiscWrite : IAppendStream {
 
     bool _hasDisposed;
     public void Dispose() {
+        try {
+            if (_stream.CanRead) _lastLength = _stream.Length;
+        } catch { }
         if (_hasDisposed) return;
         _hasDisposed = true;
         _stream.Dispose();

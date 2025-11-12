@@ -82,7 +82,10 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public Guid LogFileId {
         get => Guid.Parse(getSetting("LogFileId", Guid.Empty.ToString()));
-        private set => setSetting("LogFileId", value.ToString());
+        set {
+            setSetting("LogFileId", value.ToString());
+            commit();
+        }
     }
     public Guid ModelHash {
         get => Guid.Parse(getSetting("ModelHash", Guid.Empty.ToString()));
@@ -115,7 +118,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
             commit();
         }
     }
-    public void Reset(Guid logFileId, Guid modelHash) {
+    public void ResetIfNotMatching(Guid logFileId, Guid modelHash) {
+        if (LogFileId == logFileId && ModelHash == modelHash) return;
         commit();
         _transaction.Dispose();
         try {

@@ -20,7 +20,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
             var nodesAndText = db.GetTextExtractsForExistingNodesAndWhereContent(ids);
             var t = new TransactionData();
             foreach (var n in nodesAndText) {
-                t.UpdateProperty(n.NodeId, NodeConstants.SystemTextIndexPropertyId, n.Text);
+                t.ForceUpdateProperty(n.NodeId, NodeConstants.SystemTextIndexPropertyId, n.Text);
             }
             db.Execute(t);
         }

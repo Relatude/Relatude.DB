@@ -3,8 +3,8 @@
 namespace Relatude.DB.Transactions;
 public enum NodePropertyOperation : byte {
     Reset = 0,
-    Update,
-    UpdateIfDifferent,
+    ForceUpdate, // always update the property, even if the value is the same
+    UpdateIfDifferent, // [DEFAULT] update the property only if the value is different
     Add,
     Multiply,
 }
@@ -39,7 +39,7 @@ public class NodePropertyAction : ActionBase {
     public override string ToString() {
         return Operation switch {
             NodePropertyOperation.Reset => "Reset node property. ",
-            NodePropertyOperation.Update => "Update node property. ",
+            NodePropertyOperation.ForceUpdate => "Update node property. ",
             NodePropertyOperation.Add => "Add node property. ",
             NodePropertyOperation.Multiply => "Multiply node property. ",
             NodePropertyOperation.UpdateIfDifferent => "Ensure node property. ",

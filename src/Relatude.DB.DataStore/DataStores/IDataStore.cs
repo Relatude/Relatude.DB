@@ -123,7 +123,7 @@ public static class IDataStoreExtensions {
     }
     public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool? flushToDisk = null) {
         var transaction = new TransactionData();
-        transaction.UpdateProperty(nodeId, propertyId, value);
+        transaction.UpdateIfDifferentProperty(nodeId, propertyId, value);
         store.Execute(transaction, flushToDisk);
     }
 }

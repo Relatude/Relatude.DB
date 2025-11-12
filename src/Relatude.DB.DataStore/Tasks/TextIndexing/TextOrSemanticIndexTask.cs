@@ -27,7 +27,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
         var vector = await ai.GetEmbeddingsAsync(texts);
         for (int i = 0; i < nodesAndSemText.Length; i++) {
             if (vector[i] == null) continue; // Skip if no vector was generated
-            t.UpdateProperty(nodesAndSemText[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, vector[i]);
+            t.ForceUpdateProperty(nodesAndSemText[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, vector[i]);
         }
     }
     async Task updateTextAndMaybeSemanticIndex(IEnumerable<TextOrSemanticIndexTask> tasks, TransactionData t) {
@@ -53,13 +53,13 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
             float[]? vector = null;
             vectorsByNodeId.TryGetValue(task.NodeId, out vector);
             if (text != null && vector != null) {
-                t.UpdateProperties(task.NodeId,
+                t.ForceUpdateProperties(task.NodeId,
                     [NodeConstants.SystemTextIndexPropertyId, NodeConstants.SystemVectorIndexPropertyId],
                     [text, vector]);
             } else if (text != null) {
-                t.UpdateProperty(task.NodeId, NodeConstants.SystemTextIndexPropertyId, text);
+                t.ForceUpdateProperty(task.NodeId, NodeConstants.SystemTextIndexPropertyId, text);
             } else if (vector != null) {
-                t.UpdateProperty(task.NodeId, NodeConstants.SystemVectorIndexPropertyId, vector);
+                t.ForceUpdateProperty(task.NodeId, NodeConstants.SystemVectorIndexPropertyId, vector);
             } else {
                 // should never happen, but just in case
                 throw new Exception("Internal error");

@@ -40,7 +40,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
         stream.WriteVerifiedLong(_wal.FileSize);
         stream.WriteGuid(_wal.FileId); // must match log file
-        if (PersistedIndexStore != null) PersistedIndexStore.Reset(_wal.FileId, PersistedIndexStore.ModelHash);
+        if (PersistedIndexStore != null) {
+            PersistedIndexStore.LogFileId = _wal.FileId;
+        }
         _guids.SaveState(stream);
         _nodes.SaveState(stream);
         _nativeModelStore.SaveState(stream);
@@ -88,7 +90,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 if (PersistedIndexStore.ModelHash != currentModelHash) {
                     // if there is no state file, but there is persisted index store and the datamodel has changed
                     LogInfo("Resetting persisted index store, datamodel has changed. ");
-                    PersistedIndexStore.Reset(walFileId, currentModelHash);
+                    PersistedIndexStore.ResetIfNotMatching(walFileId, currentModelHash);
                 }
             }
         } else { // read state, before reading rest from log file

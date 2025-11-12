@@ -20,7 +20,7 @@ namespace Relatude.DB.IO {
         readonly BlobLeaseClient? _blobLeaseClient;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
-        long _maxBufferBeforeFlush = 1024 * 1024 * 2; //2 mb
+        long _maxBufferBeforeFlush = 1024 * 1024 * 20; //20 mb
         int _readBufferSize = 1024 * 50 * 2; // 50KB
         long _readBufferOffset = 0;
         byte[]? _readBuffer; // 50KB

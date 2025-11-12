@@ -309,7 +309,7 @@ internal static class ActionFactory {
         var nodes = db._nodes.Get(uints.Where(db._nodes.Contains).ToArray()).Select(n => n.Copy());
         foreach (var node in nodes) {
             switch (a.Operation) {
-                case NodePropertyOperation.Update: {
+                case NodePropertyOperation.ForceUpdate: {
                         if (a.Values == null) throw new("Value cannot be null if updating a property. ");
                         for (var i = 0; i < a.PropertyIds.Length; i++) {
                             node.AddOrUpdate(a.PropertyIds[i], a.Values[i]);

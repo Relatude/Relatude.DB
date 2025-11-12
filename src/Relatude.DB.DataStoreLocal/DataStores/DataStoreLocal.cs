@@ -193,8 +193,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             PersistedIndexStore = _createPersistedIndexStore();
         }
         DiskFlushCallback? indexStoreFlushCallback = timestamp => {
-            if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
-            if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
+            _lock.EnterWriteLock();
+            try {
+                if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
+                if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
+            } finally {
+                _lock.ExitWriteLock();
+            }
         };
         var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
@@ -241,7 +246,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     initialize();
                     if (PersistedIndexStore != null) {
                         LogInfo("Resetting persisted index store, index store is out of sync");
-                        PersistedIndexStore.Reset(_wal.FileId, currentModelHash);
+                        PersistedIndexStore.ResetIfNotMatching(_wal.FileId, currentModelHash);
                     }
                     readState(throwOnBadStateFile, currentModelHash, activityId);
                     _state = DataStoreState.Open;

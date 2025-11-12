@@ -16,7 +16,7 @@ public class PropertyHelper<T>(NodeStore store, Transaction transaction) where T
         return store.Query<T>(nodeIds).Execute();
     }
     public void SetProperty(Guid nodeId, Expression<Func<T, object>> property, object value) {
-        transaction.UpdateProperty(nodeId, GetPropertyId(property), value);
+        transaction.UpdateIfDifferentProperty(nodeId, GetPropertyId(property), value);
     }
     public object GetProperty(Guid nodeId, Expression<Func<T, object>> property) {
         var nodeData = store.Datastore.Get(nodeId);

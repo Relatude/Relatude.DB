@@ -20,10 +20,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         return transactionCount;
     }
     internal void FlushToDisk(bool deepFlush, out int transactionCount, out int actionCount, out long bytesWritten) {
-        //_lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing to disk");
+        validateDatabaseState();
         try {
-            validateDatabaseState();
             _wal.DequeuAllTransactionWritesAndFlushStreams(deepFlush, (txt, prg) => {
                 UpdateActivity(activityId, txt, prg);
             }, out transactionCount, out actionCount, out bytesWritten);
@@ -32,10 +31,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
             DeRegisterActivity(activityId);
-            //_lock.ExitWriteLock();
         }
     }
     public void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null) {
+        lock (_isRewritingOrCopyingLock) {
+            if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
+            _isRewritingOrCopying = true;
+        }
+        FlushToDisk(true);
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try {
@@ -46,6 +49,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
+            lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
         }
     }
     byte[][] threadSafeReadSegments(NodeSegment[] segments, out int diskReads) {
@@ -57,12 +61,19 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+    readonly object _isRewritingOrCopyingLock = new();
+    bool _isRewritingOrCopying = false;
     public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
+        lock (_isRewritingOrCopyingLock) {
+            if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
+            _isRewritingOrCopying = true;
+        }
         var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Starting rewrite of log file", 0);
         try {
             rewriteStore(activityId, hotSwapToNewFile, newLogFileKey, destinationIO);
         } finally {
             DeRegisterActivity(activityId);
+            lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
         }
     }
     void rewriteStore(long activityId, bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
@@ -72,11 +83,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (string.IsNullOrEmpty(newLogFileKey)) throw new Exception("New log file name cannot be empty. ");
         if (newLogFileKey == _wal.FileKey) throw new Exception("New log file name cannot be the same as current. ");
         if (_rewriter != null) throw new Exception("Rewriter already initialized. ");
-        var sw=Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         UpdateActivity(activityId, "Flushing stream before rewrite lock", 1);
         FlushToDisk(true); // ensuring a flush before starting rewrite and lock to minized time for flush while locked...
         sw.Stop();
         UpdateActivity(activityId, $"Flush completed in {sw.ElapsedMilliseconds} ms", 1);
+        LogInfo($"Rewrite first flush completed in {sw.ElapsedMilliseconds} ms");
         _lock.EnterWriteLock();
         try {
             if (LogRewriter.LogRewriterAlreadyInprogress(destinationIO)) {
@@ -90,9 +102,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             sw.Restart();
             UpdateActivity(activityId, "Second flushing of stream inside rewrite lock", 2);
-            _wal.DequeuAllTransactionWritesAndFlushStreams(true); // making sure every segment exists in _nodes ( through call back )
+            FlushToDisk(true); // making sure every segment exists in _nodes ( through call back )
             sw.Stop();
             UpdateActivity(activityId, $"Second flush completed in {sw.ElapsedMilliseconds} ms", 2);
+            LogInfo($"Rewrite second flush completed in {sw.ElapsedMilliseconds} ms");
 
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
@@ -137,11 +150,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void TruncateIndexes() {
+        FlushToDisk(true); // ensuring all writes are flushed before entering lock
         _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
         try {
+            FlushToDisk(true);
             validateDatabaseState();
-            _wal.DequeuAllTransactionWritesAndFlushStreams(true);
             PersistedIndexStore?.OptimizeDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -174,17 +188,18 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     object _saveStateLock = new();
     public void SaveIndexStates(bool forceRefresh = false) {
+        FlushToDisk(true); // ensuring all writes are flushed before locking
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
-            //_lock.EnterWriteLock();
-            _lock.EnterReadLock();
+            _lock.EnterWriteLock();
             var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
             try {
                 validateDatabaseState();
                 if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
+                    FlushToDisk(true); // ensuring all writes are flushed before saving state
+                    var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
-                    _wal.DequeuAllTransactionWritesAndFlushStreams(true);
                     saveState();
-                    LogInfo("Index state write completed.");
+                    LogInfo("Index state write completed in " + sw.ElapsedMilliseconds.To1000N() + " ms.");
                 } else {
                     LogInfo("Index state write skipped as file reflects latest changes. ");
                 }
@@ -193,8 +208,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Failed to save index states. ", err);
             } finally {
                 DeRegisterActivity(activityId);
-                //_lock.ExitWriteLock();
-                _lock.ExitReadLock();
+                _lock.ExitWriteLock();
             }
         }
     }
@@ -222,10 +236,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _noQueriesSinceClearCache = 0;
                 _noNodeGetsSinceClearCache = 0;
                 foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             }
             if (a.HasFlag(MaintenanceAction.PurgeCache)) {
                 _nodes.HalfCacheSize();
                 _sets.HalfCacheSize();
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             }
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
             if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);

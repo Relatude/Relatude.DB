@@ -22,7 +22,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(FileValue.GetStorageId(fileValue));
         await fileStore.DeleteAsync(fileValue);
         var t = new TransactionData();
-        t.UpdateProperty(nodeId, propertyId, FileValue.Empty);
+        t.ForceUpdateProperty(nodeId, propertyId, FileValue.Empty);
         execute_outer(t, false, true, out _);
     }
     public async Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName) {
@@ -33,7 +33,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         using var inputStream = source.OpenRead(fileKey, 0);
         var fileValue = await fileStore.InsertAsync(inputStream, fileName);
         var t = new TransactionData();
-        t.UpdateProperty(nodeId, propertyId, fileValue);
+        t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, out _);
     }
     public async Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName) {
@@ -43,7 +43,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
         var fileValue = await fileStore.InsertAsync(source, fileName);
         var t = new TransactionData();
-        t.UpdateProperty(nodeId, propertyId, fileValue);
+        t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, out _);
     }
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {

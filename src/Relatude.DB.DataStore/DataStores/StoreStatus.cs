@@ -21,7 +21,8 @@ public class StoreStatus {
     public long LogTruncatableActions { get; set; }
     public long LogActionsNotItInStatefile { get; set; }
     public long LogTransactionsNotItInStatefile { get; set; }
-    public int LogWritesQueued { get; set; }
+    public int LogWritesQueuedTransactions { get; set; }
+    public int LogWritesQueuedActions { get; set; }
     public string? LogFileKey { get; set; }
     public long LogFileSize { get; set; }
     public long LogStateFileSize { get; set; }

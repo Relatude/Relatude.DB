@@ -7,7 +7,7 @@ internal class LogQueue : IDisposable {
     List<ExecutedPrimitiveTransaction> _queue;
     object _workLock = new();
     object _queueLock = new();
-    int _estimatedCount;
+    int _estimatedTransactionCount;
     public LogQueue(BatchCallback workCallback) {
         _workCallback = workCallback;
         _queue = [];
@@ -16,7 +16,7 @@ internal class LogQueue : IDisposable {
         lock (_queueLock) {
             _queue.Add(work);
         }
-        System.Threading.Interlocked.Increment(ref _estimatedCount);
+        System.Threading.Interlocked.Increment(ref _estimatedTransactionCount);
     }
     public void DequeAllWork(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         ExecutedPrimitiveTransaction[] batch;
@@ -30,14 +30,21 @@ internal class LogQueue : IDisposable {
             bytesWritten = 0;
             if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
         }
-        System.Threading.Interlocked.Add(ref _estimatedCount, -transactionCount);
+        System.Threading.Interlocked.Add(ref _estimatedTransactionCount, -transactionCount);
     }
     public void Dispose() {
         DequeAllWork(null, out _, out _, out _);
     }
-    public int EstimateCount { // no lock
+
+    internal int GetQueueActionCount() {
+        lock(_queueLock) {
+            return _queue.Sum(x => x.ExecutedActions.Count);
+        }
+    }
+
+    public int EstimateTransactionCount { // no lock
         get {
-            return System.Threading.Interlocked.CompareExchange(ref _estimatedCount, 0, 0);
+            return System.Threading.Interlocked.CompareExchange(ref _estimatedTransactionCount, 0, 0);
         }
     }
 }

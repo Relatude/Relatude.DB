@@ -11,7 +11,7 @@ public class AzureBlobIOReadStream : IReadStream {
     BlobLeaseClient? _blobLeaseClient;
     ChecksumUtil _checksum = new();
     readonly long _totalLength = 0;
-    readonly long _readAheadBufferSize = 1024 * 1024;
+    readonly long _readAheadBufferSize = 1024 * 1024 * 20; // 20 mb read ahead buffer
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
