@@ -263,12 +263,19 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+
+    StoreStatus? _lastStoreStatusWhenOpen;
     public StoreStatus GetInfo() {
         var info = new StoreStatus();
         if (_state != DataStoreState.Open) return info;
-        _lock.EnterWriteLock();
+        if (!_lock.TryEnterWriteLock(100)) {
+            if (_lastStoreStatusWhenOpen == null) return info;
+            _lastStoreStatusWhenOpen.IsFresh = false;
+            return _lastStoreStatusWhenOpen;
+        }
         try {
             if (_state != DataStoreState.Open) return info;
+            info.IsFresh = true;
             info.LogFirstStateUtc = new DateTime(_wal.FirstTimestamp, DateTimeKind.Utc);
             info.LogLastChange = new DateTime(_wal.LastTimestamp, DateTimeKind.Utc);
             info.StartUpMs = _startUpTimeMs;
@@ -306,6 +313,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             _lock.ExitWriteLock();
         }
+        _lastStoreStatusWhenOpen = info;
         return info;
     }
     public Task MaintenanceAsync(MaintenanceAction actions) {

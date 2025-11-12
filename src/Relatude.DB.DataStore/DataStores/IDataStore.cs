@@ -70,6 +70,7 @@ public interface IDataStore : IDisposable {
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);
     void Maintenance(MaintenanceAction actions);
+    void SaveIndexStates(bool forceRefresh = false);
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);

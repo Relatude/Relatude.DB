@@ -1,7 +1,5 @@
-﻿using System.Text;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Serialization;
-using Relatude.DB.Query.Data;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores;
 public class StoreStatus {
@@ -11,6 +9,10 @@ public class StoreStatus {
     public Dictionary<string, int> QueuedTaskStateCountsPersisted { get; set; } = [];
     public Dictionary<string, int> QueuedBatchesStateCounts { get; set; } = [];
     public Dictionary<string, int> QueuedBatchesStateCountsPersisted { get; set; } = [];
+
+    public DateTime Created { get; } = DateTime.UtcNow;
+    public bool IsFresh { get; set; }
+    public int AgeMs => (int)Math.Round((DateTime.UtcNow - Created).TotalMilliseconds);
 
     public long UptimeMs { get; set; }
     public long StartUpMs { get; set; }

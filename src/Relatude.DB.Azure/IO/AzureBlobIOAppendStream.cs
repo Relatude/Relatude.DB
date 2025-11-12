@@ -14,13 +14,12 @@ namespace Relatude.DB.IO {
 
     // in general: the read buffer size should be so small that the blob access latency is comparable to the download time of the read buffer
     // a first appriximation 50kb is a good size for the read buffer, and 2mb for the write buffer
-
     public class AzureBlobIOAppendStream : IAppendStream {
         readonly AppendBlobClient _appendBlobClient;
         readonly BlobLeaseClient? _blobLeaseClient;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
-        long _maxBufferBeforeFlush = 1024 * 1024 * 20; //20 mb
+        long _maxBufferBeforeFlush = 1024 * 1024 * 5; // 5 mb
         int _readBufferSize = 1024 * 50 * 2; // 50KB
         long _readBufferOffset = 0;
         byte[]? _readBuffer; // 50KB
@@ -45,6 +44,7 @@ namespace Relatude.DB.IO {
         public long Length {
             get {
                 lock (_lock) {
+                    if (_isDisposed) throw new Exception("Stream is closed");
                     return _length;
                 }
             }

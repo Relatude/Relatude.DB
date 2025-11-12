@@ -1,4 +1,7 @@
 ﻿namespace Relatude.DB.IO;
+/// <summary>
+/// Not thread safe read stream interface.
+/// </summary>
 public interface IReadStream : IStream {
     bool More();
     byte[] Read(int length);

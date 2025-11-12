@@ -6,12 +6,11 @@ using System.Diagnostics;
 using Relatude.DB.Common;
 namespace Relatude.DB.IO;
 public class AzureBlobIOReadStream : IReadStream {
-    object _lock = new();
     readonly BlobClient _blobClient;
     BlobLeaseClient? _blobLeaseClient;
     ChecksumUtil _checksum = new();
     readonly long _totalLength = 0;
-    readonly long _readAheadBufferSize = 1024 * 1024 * 20; // 20 mb read ahead buffer
+    readonly long _readAheadBufferSize = 1024 * 1024 * 5; // 5 mb read ahead buffer
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
@@ -34,40 +33,30 @@ public class AzureBlobIOReadStream : IReadStream {
     public long Position { get; set; }
     public long Length { get => _totalLength; }
     public bool More() {
-        lock (_lock) {
-            return Position < _totalLength;
-        }
-    }
-    internal byte[] ReadAll() {
-        lock (_lock) {
-            Position = 0;
-            return Read((int)_totalLength);
-        }
+        return Position < _totalLength;
     }
     public byte[] Read(int length) {
-        lock (_lock) {
-            length = (int)Math.Min(length, _totalLength - Position);
-            if (Position + length > _readAheadBuffer.Length + _bufferStartPos) {
-                var lengthToRead = Math.Max(length, _readAheadBufferSize);
-                if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
-                var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
-                var options = new BlobDownloadOptions { Range = new HttpRange(Position, lengthToRead), Conditions = conditions };
-                var sw = Stopwatch.StartNew();
-                _readAheadBuffer = _blobClient.DownloadContent(options).Value.Content.ToArray();
-                // _log(" - Reader Downloaded " + _fileKey + " " + lengthToRead.ToTransferString(sw) + " offset:" + Position.To1000N());
-                _bufferStartPos = Position;
-            }
-            byte[] result;
-            if (length == _readAheadBuffer.Length) {
-                result = _readAheadBuffer;
-            } else {
-                result = new byte[length];
-                Array.Copy(_readAheadBuffer, Position - _bufferStartPos, result, 0, length);
-            }
-            Position += length;
-            _checksum.EvaluateChecksumIfRecording(result);
-            return result;
+        length = (int)Math.Min(length, _totalLength - Position);
+        if (Position + length > _readAheadBuffer.Length + _bufferStartPos) {
+            var lengthToRead = Math.Max(length, _readAheadBufferSize);
+            if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
+            var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
+            var options = new BlobDownloadOptions { Range = new HttpRange(Position, lengthToRead), Conditions = conditions };
+            var sw = Stopwatch.StartNew();
+            _readAheadBuffer = _blobClient.DownloadContent(options).Value.Content.ToArray();
+            // _log(" - Reader Downloaded " + _fileKey + " " + lengthToRead.ToTransferString(sw) + " offset:" + Position.To1000N());
+            _bufferStartPos = Position;
         }
+        byte[] result;
+        if (length == _readAheadBuffer.Length) {
+            result = _readAheadBuffer;
+        } else {
+            result = new byte[length];
+            Array.Copy(_readAheadBuffer, Position - _bufferStartPos, result, 0, length);
+        }
+        Position += length;
+        _checksum.EvaluateChecksumIfRecording(result);
+        return result;
     }
     public void Skip(long length) {
         Position += length;

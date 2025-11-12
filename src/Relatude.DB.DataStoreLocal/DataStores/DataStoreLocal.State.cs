@@ -63,6 +63,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceLastStateSnaphot = 0;
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
         var sw = Stopwatch.StartNew();
+        var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
 
@@ -115,7 +116,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     }
                 }
 
-                if (_wal.FileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
+                if (walFileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
@@ -138,7 +139,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         int actionCount = 0;
         validateIndexesIfDebug();
         var readingFrom = lastTimestamp > 0 ? "UTC " + new DateTime(lastTimestamp, DateTimeKind.Utc) : " the beginning.";
-        var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / (_wal.FileSize + 1);
+        var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / (walFileSize + 1);
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
         UpdateActivity(activityId, "Reading log file", 0);
         sw.Restart();

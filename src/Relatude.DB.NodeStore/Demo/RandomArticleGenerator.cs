@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.Demo.Models;
 namespace Relatude.DB.Demo;
 public class RandomArticleGenerator(int seed = 0) : IArticleGenerator {
-    readonly TextGenerator _textGenerator = new(seed);
+    TextGenerator _textGenerator = new(seed);
     public DemoArticle One() {
         return new DemoArticle {
             Title = _textGenerator.GenerateTitle(50),
@@ -18,6 +18,6 @@ public class RandomArticleGenerator(int seed = 0) : IArticleGenerator {
         for (int i = 0; i < count; i++) articles[i] = One();
         return articles;
     }
-    public void Dispose() {
+    public void Dispose() {        
     }
 }

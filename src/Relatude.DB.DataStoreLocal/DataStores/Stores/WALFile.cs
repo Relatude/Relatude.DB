@@ -67,9 +67,8 @@ internal class WALFile : IDisposable {
     }
     public long FirstTimestamp { get; private set; }
     public long LastTimestamp { get => _lastTimestampID; }
-    public long FileSize {
+    public long FileSize { // requires file to be opened
         get {
-            if (_appendStream == null) return _io.GetFileSizeOrZeroIfUnknown(FileKey);
             return _appendStream.Length;
         }
     }

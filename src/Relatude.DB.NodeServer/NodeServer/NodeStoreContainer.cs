@@ -104,7 +104,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     var indexPath = settings.LocalSettings.PersistedValueIndexFolderPath;
                     if (indexPath == null) {
                         if (ioDatabase is IOProviderDisk ioDisk) indexPath = ioDisk.BaseFolder;
-                        else throw new Exception("The setting PersistedValueIndexFolderPath is required for LocalSettings.PersistedValueIndexFolderPath");
+                        else indexPath = diskFallBackPath;
+                        //else throw new Exception("The setting PersistedValueIndexFolderPath is required for LocalSettings.PersistedValueIndexFolderPath");
                     }
                     indexPath = Path.Combine(indexPath, new FileKeyUtility(settings.LocalSettings.FilePrefix).IndexStoreFolderKey);
                     IPersistentWordIndexFactory? textIndexFactory = null;

@@ -163,7 +163,7 @@ class MaintenanceAPI {
     completeUpload = (storeId: string, ioId: string, uploadId: string, fileName: string, overwrite: boolean) => this.server.execute(this.controller, 'complete-upload', { storeId, ioId, uploadId, fileName, overwrite: overwrite ? "true" : "false" });
     copyFile = (storeId: string, fromIoId: string, fromFileName: string, toIoId: string, toIoFileName: string) => this.server.execute(this.controller, 'copy-file', { storeId, fromIoId, fromFileName, toIoId, toIoFileName });
     truncateLog = (storeId: string, deleteOld: boolean) => this.server.execute(this.controller, 'truncate-log', { storeId, deleteOld });
-    saveIndexStates = (storeId: string) => this.server.execute(this.controller, 'save-index-states', { storeId });
+    saveIndexStates = (storeId: string, forceRefresh: boolean) => this.server.execute(this.controller, 'save-index-states', { storeId, forceRefresh: forceRefresh });
     resetSecondaryLogFile = (storeId: string) => this.server.execute(this.controller, 'reset-secondary-log-file', { storeId });
     clearCache = (storeId: string) => this.server.execute(this.controller, 'clear-cache', { storeId });
     info = (storeId: string) => this.server.queryJson<StoreStatus>(this.controller, 'info', { storeId });
