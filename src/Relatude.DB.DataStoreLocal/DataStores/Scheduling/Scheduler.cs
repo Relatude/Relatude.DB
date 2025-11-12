@@ -174,12 +174,17 @@ internal class Scheduler(DataStoreLocal _db) {
             }
             _lastAutoFlush = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
-            _db.FlushToDisk(true, out var t, out var a, out var w);
-            if (t > 0) _db.LogInfo("Background disk flush. "
-                + sw.ElapsedMilliseconds.To1000N() + "ms, "
-                + t + " transaction" + (t != 1 ? "s" : "") + ", "
-                + a + " action" + (a != 1 ? "s" : "") + ", "
-                + w.ToByteString() + " written. ");
+            var activityId = _db.RegisterActvity(DataStoreActivityCategory.Flushing, "Auto disk flush", 0);
+            try {
+                _db.FlushToDisk(true, activityId, out var t, out var a, out var w);
+                if (t > 0) _db.LogInfo("Background disk flush. "
+                    + sw.ElapsedMilliseconds.To1000N() + "ms, "
+                    + t + " transaction" + (t != 1 ? "s" : "") + ", "
+                    + a + " action" + (a != 1 ? "s" : "") + ", "
+                    + w.ToByteString() + " written. ");
+            } finally {
+                _db.DeRegisterActivity(activityId);
+            }
         } catch (Exception err) {
             _db.LogError("Auto disk flush failed: ", err);
         } finally {

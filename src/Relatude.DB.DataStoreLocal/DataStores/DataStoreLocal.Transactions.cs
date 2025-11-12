@@ -18,7 +18,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             //LogInfo("Auto flushing due to limit. Queued actions: " + _wal.GetQueueActionCount() + ". Limit: " + Settings.ForceDiskFlushAfterActionCountLimit);
             try {
                 var sw = Stopwatch.StartNew();
-                FlushToDisk(Settings.DeepFlushDisk, out var t, out var a, out var w);
+                FlushToDisk(Settings.DeepFlushDisk, activityId, out var t, out var a, out var w);
                 if (t > 0) LogInfo("Auto flushing "
                     + sw.ElapsedMilliseconds.To1000N() + "ms, "
                     + t + " transaction" + (t != 1 ? "s" : "") + ", "
@@ -34,17 +34,17 @@ public sealed partial class DataStoreLocal : IDataStore {
             var result = execute_outer(transaction, true, flush, out var primitiveActionCount);
             if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
-            if (flush) FlushToDisk(Settings.DeepFlushDisk); // outside write lock to reduce time lock is held
             return result;
         } else { // faster path without logging:
-            return execute_outer(transaction, true, flush, out _);
+            var result = execute_outer(transaction, true, flush, out _);
+            return result;
         }
     }
 
     TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
-        if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk); // outside write lock to reduce time lock is held
-        _lock.EnterWriteLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
+        if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk, activityId); // outside write lock to reduce time lock is held
+        _lock.EnterWriteLock();
         try {
             validateDatabaseState();
             if (transaction.Timestamp <= _wal.LastTimestamp) {
@@ -65,8 +65,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             logCriticalTransactionError("Critical Transaction Error. ", err, transaction);
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
-            DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
+            try {
+                if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk, activityId); // outside write lock to reduce time lock is held
+            } finally {
+                DeRegisterActivity(activityId); // ensure activity is always deregistered
+            }
         }
     }
     void execute_inner(TransactionData transaction, bool transformValues, out int primitiveActionCount,

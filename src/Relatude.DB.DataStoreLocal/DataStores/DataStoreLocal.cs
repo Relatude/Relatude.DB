@@ -335,7 +335,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
         try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
         try { _scheduler.Stop(); } catch { }
-        try { if (_state == DataStoreState.Open) FlushToDisk(true); } catch { }
+        try { if (_state == DataStoreState.Open) FlushToDisk(true, 0); } catch { }
         try { _index?.Dispose(); } catch { }
         try { _wal?.Dispose(); } catch { }
         try { _logger?.Dispose(); } catch { }

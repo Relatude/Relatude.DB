@@ -11,6 +11,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return new(State, activities);
     }
+    public long RegisterActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) { 
+        if(parentId== 0) {
+            return RegisterActvity(category, description, percentageProgress);
+        } else {
+            return RegisterChildActvity(parentId, category, description, percentageProgress);
+        }
+    }
     public long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
         lock (_currentActiveties) {
             _activityIdCounter++;

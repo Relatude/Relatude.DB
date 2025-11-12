@@ -51,11 +51,15 @@ namespace Relatude.DB.IO {
         }
         public void Append(byte[] data) {
             lock (_lock) {
+                //try {
                 _readBuffer = null; // reset read buffer, as new data is appended, that will not be in readbuffer
                 _checkSum.EvaluateChecksumIfRecording(data);
                 _writeBuffer.Write(data, 0, data.Length);
                 _length += data.Length;
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
+                //} catch (OutOfMemoryException ex) {
+                //    throw new Exception("Out of memory appending " + data.Length + " bytes to AzureBlobIOAppendStream. ", ex);
+                //}
             }
         }
         public void Flush(bool deepFlush) {
@@ -105,7 +109,7 @@ namespace Relatude.DB.IO {
                 // Try using read buffer
                 if (_readBuffer != null) {
                     var inReadBuffer = position >= _readBufferOffset && position + count <= _readBufferOffset + _readBuffer.Length;
-                    if (inReadBuffer) { 
+                    if (inReadBuffer) {
                         Array.Copy(_readBuffer, position - _readBufferOffset, result, 0, count);
                         return;
                     }
@@ -115,7 +119,7 @@ namespace Relatude.DB.IO {
                 var fitsInReadBuffer = count <= _readBufferSize;
                 var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
                 var sw = Stopwatch.StartNew();
-                if (fitsInReadBuffer) { 
+                if (fitsInReadBuffer) {
                     _readBufferOffset = position;
                     var lengthToRead = (int)Math.Min(this._length - position, _readBufferSize);
                     if (_readBuffer == null) _readBuffer = new byte[_readBufferSize];
