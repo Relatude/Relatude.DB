@@ -33,7 +33,7 @@ export class QueryBuilderStore {
         }
         let query = new QueryOfNodes<any>(fromName, this._connection, this._storeId);
         if (whereTypes) query = query.WhereTypes(whereTypes);
-        if (this._searchText) query.Search(this._searchText, this._semanticRation, this._semanticLimit);
+        if (this._searchText) query.Search(this._searchText, this._semanticRation, this._semanticLimit, false, 100,1000);
         if (this._page) query = query.Page(this._page.page, this._page.pageSize);
         return query;
     }

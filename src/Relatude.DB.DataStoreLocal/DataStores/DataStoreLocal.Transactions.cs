@@ -6,20 +6,19 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
-    internal FastRollingCounter _transactionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
+    internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
 
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null) {
         return Task.FromResult(Execute(transaction, flushToDisk));
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null) {
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
-        if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) {
+        if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) { // if no flush is specified, and above limit, do a flush
             var activityId = this.RegisterActvity(DataStoreActivityCategory.Flushing, "Auto flushing due to action count limit");
-            //LogInfo("Auto flushing due to limit. Queued actions: " + _wal.GetQueueActionCount() + ". Limit: " + Settings.ForceDiskFlushAfterActionCountLimit);
             try {
                 var sw = Stopwatch.StartNew();
                 FlushToDisk(Settings.DeepFlushDisk, activityId, out var t, out var a, out var w);
-                if (t > 0) LogInfo("Auto flushing "
+                if (t > 0) LogInfo("Count limit flushing "
                     + sw.ElapsedMilliseconds.To1000N() + "ms, "
                     + t + " transaction" + (t != 1 ? "s" : "") + ", "
                     + a + " action" + (a != 1 ? "s" : "") + ", "
@@ -107,8 +106,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
                 UpdateActivityProgress(activityId, 100 * i++ / count);
-                _transactionActivity.Record();
                 foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
+                    _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
                     executeAction(primitive); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(primitive);

@@ -13,7 +13,7 @@
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
     public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
-    public int ForceDiskFlushAfterActionCountLimit { get; set; } = 10000;
+    public int ForceDiskFlushAfterActionCountLimit { get; set; } = 10000; // to reduce memory usage, but avoid flushing too often (latency)
     public bool DeepFlushDisk { get; set; } = false;
 
     public bool AutoFlushDiskInBackground { get; set; } = true;
@@ -22,8 +22,8 @@
     public double MaxDelayAutoDiskFlushIfBusyInSeconds { get; set; } = 15;
 
     public bool AutoSaveIndexStates { get; set; } = true;
-    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 30;
-    public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 10000;
+    public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 120;
+    public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 100000;
 
     public bool AutoBackUp { get; set; } = false;
     public int NoHourlyBackUps { get; set; } = 10;
@@ -36,8 +36,8 @@
     public bool SecondaryBackupLog { get; set; } = false;
 
     public bool AutoTruncate { get; set; } = false; //true;
-    public double AutoTruncateIntervalInMinutes { get; set; } = 60;
-    public int AutoTruncateActionCountLowerLimit { get; set; } = 50000;
+    public double AutoTruncateIntervalInMinutes { get; set; } = 240;
+    public int AutoTruncateActionCountLowerLimit { get; set; } = 100000;
     public bool AutoTruncateDeleteOldFileOnSuccess { get; set; } = false; //true;
 
     public bool AutoPurgeCache { get; set; } = true;

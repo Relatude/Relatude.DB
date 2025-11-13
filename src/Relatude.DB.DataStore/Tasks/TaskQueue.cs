@@ -94,39 +94,39 @@ public class TaskQueue : IDisposable {
             if (totalMs.ElapsedMilliseconds >= maxDurationMs) break;
             var startTime = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
-            var next = Dequeue();
-            if (next == null) break; // no more tasks to process
-            taskNo += next.TaskCount;
+            var nextBatch = Dequeue();
+            if (nextBatch == null) break; // no more tasks to process
+            taskNo += nextBatch.TaskCount;
             TaskLogger? taskLogging = null;
             if (_store.Logger.LoggingTask) {
                 taskLogging = (bool success, string id, string details) => {
-                    _store.Logger.RecordTask(next.Meta.TaskTypeId, success, next.Meta.BatchId, id, details);
+                    _store.Logger.RecordTask(nextBatch.Meta.TaskTypeId, success, nextBatch.Meta.BatchId, id, details);
                 };
             }
             BatchTaskResult result;
             try {
-                if (!_runners.TryGetValue(next.Meta.TaskTypeId, out var runner)) throw new Exception("No runner for: " + next.Meta.TaskTypeId);
+                if (!_runners.TryGetValue(nextBatch.Meta.TaskTypeId, out var runner)) throw new Exception("No runner for: " + nextBatch.Meta.TaskTypeId);
                 var tasksLeft = CountTasks(BatchState.Pending);
                 var progress = tasksLeft + taskNo > 0 ? (100 * taskNo / (tasksLeft + taskNo)) : 100;
                 childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, $"Running task {taskNo} of {tasksLeft + taskNo}. ", progress);
-                await runner.ExecuteAsyncGeneric(next, taskLogging);
+                await runner.ExecuteAsyncGeneric(nextBatch, taskLogging);
                 lock (_lock) {
                     if (runner.DeleteOnSuccess) {
-                        _queue.Delete([next.Meta.BatchId]);
+                        _queue.Delete([nextBatch.Meta.BatchId]);
                     } else {
-                        _queue.Set([next.Meta.BatchId], BatchState.Completed);
+                        _queue.Set([nextBatch.Meta.BatchId], BatchState.Completed);
                     }
                 }
-                result = new BatchTaskResult(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount);
+                result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount);
             } catch (Exception err) {
                 lock (_lock) {
-                    _queue.Set(next.Meta.BatchId, err);
+                    _queue.Set(nextBatch.Meta.BatchId, err);
                 }
-                result = new BatchTaskResult(next.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, next.TaskCount, err);
+                result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount, err);
             } finally {
                 if (childActivityId > -1) _store.DeRegisterActivity(childActivityId);
             }
-            if (_store.Logger.LoggingTaskBatch) _store.Logger.RecordTaskBatch(next.Meta.BatchId, result);
+            if (_store.Logger.LoggingTaskBatch) _store.Logger.RecordTaskBatch(nextBatch.Meta.BatchId, result);
             results.Add(result);
         }
         if (_isShuttingdown) _hasShutdown = true;

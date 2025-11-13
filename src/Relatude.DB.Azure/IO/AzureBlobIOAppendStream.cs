@@ -19,7 +19,7 @@ namespace Relatude.DB.IO {
         readonly BlobLeaseClient? _blobLeaseClient;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
-        long _maxBufferBeforeFlush = 1024 * 1024 * 5; // 5 mb
+        long _maxBufferBeforeFlush = 1024 * 1024 * 20; // 20 mb
         int _readBufferSize = 1024 * 50 * 2; // 50KB
         long _readBufferOffset = 0;
         byte[]? _readBuffer; // 50KB
@@ -69,7 +69,7 @@ namespace Relatude.DB.IO {
                 var conditions = new AppendBlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
                 var options = new AppendBlobAppendBlockOptions() { Conditions = conditions };
                 if (_writeBuffer.Length < _maxBufferBeforeFlush) {
-                    Stopwatch sw = Stopwatch.StartNew();
+                    //Stopwatch sw = Stopwatch.StartNew();
                     _appendBlobClient.AppendBlock(_writeBuffer, options);
                     // _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
                 } else {

@@ -231,7 +231,7 @@ internal class Scheduler(DataStoreLocal _db) {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoSaveIndexStates) return;
-            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
+            if (_db._transactionActionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
             if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
             var noActionsNotInStateFile = _db.GetLogActionsNotItInStatefile();
             var belowLowerLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountLowerLimit;
@@ -259,7 +259,7 @@ internal class Scheduler(DataStoreLocal _db) {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoTruncate) return;
-            if (_db._transactionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay
+            if (_db._transactionActionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay
             if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay      
             var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
             var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
