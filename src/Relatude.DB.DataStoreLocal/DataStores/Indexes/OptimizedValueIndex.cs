@@ -49,4 +49,6 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public void SaveState(IAppendStream stream) { _o.Dequeue(); _i.SaveState(stream); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive); }
+    public long Timestamp { get { _o.Dequeue(); return Timestamp; } }
+    public void Commit(long timestamp) { _o.Dequeue(); _i.Commit(timestamp); }
 }

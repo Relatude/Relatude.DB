@@ -126,4 +126,6 @@ public class WordIndexSqlite : IWordIndex {
 
         return hits;
     }
+    public long Timestamp { get { return _store.Timestamp; } }
+    public void Commit(long timestamp) {  _store.Commit(timestamp); }
 }

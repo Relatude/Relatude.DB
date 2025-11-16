@@ -334,4 +334,40 @@ internal class WALFile : IDisposable {
         _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
         }
     }
+
+    internal void FindPositionOfTimestamp(long lowestTimestamp, out long positionOfLastTransactionSavedToStateFile) {
+        // binary search for position of last transaction with timestamp <= lowestTimestamp
+        positionOfLastTransactionSavedToStateFile = 64; // start of first transaction
+        long left = 64;
+        long right = _appendStream.Length;
+        while (left < right) {
+            long mid = (left + right) / 2;
+            // move mid to start of transaction
+            mid = moveToStartOfNextTransaction(mid);
+            if (mid >= _appendStream.Length) {
+                right = mid;
+                continue;
+            }
+            var ts = _appendStream.GetLong(mid + 16); // timestamp is after start marker
+            if (ts <= lowestTimestamp) {
+                positionOfLastTransactionSavedToStateFile = mid;
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+    }
+    long moveToStartOfNextTransaction(long position) {
+        // move position to start of next transaction start marker
+        // transaction start marker is 16 bytes long
+        position = Math.Max(64, position); // ensure we are after header
+        while (position < _appendStream.Length - 16) {
+            var marker = _appendStream.GetGuid(position);
+            if (marker == _transactionStartMarker) {
+                return position;
+            }
+            position++;
+        }
+        return _appendStream.Length;
+    }
 }

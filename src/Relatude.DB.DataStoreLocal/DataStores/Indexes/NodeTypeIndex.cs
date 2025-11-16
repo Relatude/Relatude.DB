@@ -25,9 +25,9 @@ class MutableIdSet() {
         return _lastSet ??= new(_ids, _state.Current);
     }
 }
-internal class NodeTypeIndex : IIndex {
+internal class NodeTypeIndex {
     Definition _definition;
-
+    long _timestamp = 0;
     Dictionary<Guid, short> _shortTypeIdByGuid = [];
     Guid[] _guidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     Dictionary<int, short> _typeByIds = [];
@@ -128,13 +128,5 @@ internal class NodeTypeIndex : IIndex {
             insert(nodeId, nodeTypeId);
         }
     }
-
-    public void Add(int nodeId, object value) => throw new NotSupportedException("Not relevant");
-    public void Remove(int nodeId, object value) => throw new NotSupportedException("Not relevant");
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => throw new NotSupportedException("Not relevant");
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => throw new NotSupportedException("Not relevant");
-    public void CompressMemory() { }
-    public void Dispose() { }
-    public void ClearCache() { }
 
 }

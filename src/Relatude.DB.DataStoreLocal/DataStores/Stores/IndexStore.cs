@@ -9,6 +9,7 @@ using Relatude.DB.DataStores.Transactions;
 
 // threadsafe, for read operations, not for write
 namespace Relatude.DB.DataStores.Stores;
+
 internal class IndexStore : IDisposable {
     readonly Definition _definition;
     public IndexStore(Definition definition) {
@@ -38,7 +39,7 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-        static Guid _indexStoreMarker = new Guid("414f9f60-6290-418f-bf18-3c6ee74cc78c");
+    static Guid _indexStoreMarker = new Guid("414f9f60-6290-418f-bf18-3c6ee74cc78c");
     static Guid _indexMarker = new Guid("554f531c-16fc-495a-b017-31a7804eb765");
     public void SaveState(IAppendStream stream) {
         var indexes = _definition.GetAllIndexes();
@@ -51,30 +52,35 @@ internal class IndexStore : IDisposable {
         }
         stream.WriteGuid(_indexStoreMarker);
     }
-    public void ReadState(IReadStream stream, out bool anyIndexesMissing, Action<string?, int?> progress) {
-        Dictionary<string, bool> indexesRedByKey = new();
-        if (stream.ReadGuid() != _indexStoreMarker) throw new Exception("Error in index state stream. ");
-        var noIndexes = stream.ReadVerifiedInt();
-        for (var i = 0; i < noIndexes; i++) {
-            if (stream.ReadGuid() != _indexMarker) throw new Exception("Error in state stream of index " + i + ". ");
-            var indexUniqueKey = stream.ReadString();
-            if (_definition.TryGetIndex(indexUniqueKey, out var index)) {
-                progress("Reading index " + (i + 1) + " of " + noIndexes, (100 * i / noIndexes));
-                index.ReadState(stream);
-                indexesRedByKey[indexUniqueKey] = true;
-            } else {
-                throw new InvalidDataException();
-            }
-        }
-        if (stream.ReadGuid() != _indexStoreMarker) throw new Exception("Error in index state stream. ");
+    public void ReadStates(Guid walFileId) {
         foreach (var index in _definition.GetAllIndexes()) {
-            if (!indexesRedByKey.ContainsKey(index.UniqueKey)) {
-                anyIndexesMissing = true;
-                return;
-            }
+            index.ReadState(walFileId);
         }
-        anyIndexesMissing = false;
     }
+    //public void ReadState(IReadStream stream, out bool anyIndexesMissing, Action<string?, int?> progress) {
+    //    Dictionary<string, bool> indexesRedByKey = new();
+    //    if (stream.ReadGuid() != _indexStoreMarker) throw new Exception("Error in index state stream. ");
+    //    var noIndexes = stream.ReadVerifiedInt();
+    //    for (var i = 0; i < noIndexes; i++) {
+    //        if (stream.ReadGuid() != _indexMarker) throw new Exception("Error in state stream of index " + i + ". ");
+    //        var indexUniqueKey = stream.ReadString();
+    //        if (_definition.TryGetIndex(indexUniqueKey, out var index)) {
+    //            progress("Reading index " + (i + 1) + " of " + noIndexes, (100 * i / noIndexes));
+    //            index.ReadState(stream);
+    //            indexesRedByKey[indexUniqueKey] = true;
+    //        } else {
+    //            throw new InvalidDataException();
+    //        }
+    //    }
+    //    if (stream.ReadGuid() != _indexStoreMarker) throw new Exception("Error in index state stream. ");
+    //    foreach (var index in _definition.GetAllIndexes()) {
+    //        if (!indexesRedByKey.ContainsKey(index.UniqueKey)) {
+    //            anyIndexesMissing = true;
+    //            return;
+    //        }
+    //    }
+    //    anyIndexesMissing = false;
+    //}
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction action, bool throwOnErrors, Action<string, Exception> log) {
         _definition.RegisterActionDuringStateLoad(transactionTimestamp, action, throwOnErrors, log);
 
@@ -89,4 +95,14 @@ internal class IndexStore : IDisposable {
             index.ClearCache();
         }
     }
+    internal void ResetAllIndexesWhereFileIdIsDifferent(Guid walFileId) {
+        foreach (var index in _definition.GetAllIndexes()) {
+            if (walFileId != index.WalFileId) {
+                index.Reset();
+            }
+
+        }
+    }
+
+    internal long GetLowestTimestamp() => _definition.GetAllIndexes().Min(i => i.Timestamp);
 }

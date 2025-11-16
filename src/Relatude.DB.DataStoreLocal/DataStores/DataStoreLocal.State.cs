@@ -6,6 +6,7 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Transactions;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     byte[][] readSegments(NodeSegment[] segments, out int diskReads) => _wal.ReadNodeSegments(segments, out diskReads);
     void updateNodeDataPositionInLogFile(int id, NodeSegment seg) {
@@ -36,18 +37,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         using var stream = _io.OpenAppend(_fileKeys.StateFileKey);
         stream.WriteVerifiedInt(_fileVersion); // fileversion
         stream.WriteVerifiedLong(_wal.LastTimestamp);
-        stream.WriteVerifiedLong(_wal.GetPositionOfLastTransaction());
         stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
         stream.WriteVerifiedLong(_wal.FileSize);
         stream.WriteGuid(_wal.FileId); // must match log file
-        if (PersistedIndexStore != null) {
-            PersistedIndexStore.LogFileId = _wal.FileId;
-        }
         _guids.SaveState(stream);
         _nodes.SaveState(stream);
         _nativeModelStore.SaveState(stream);
         _relations.SaveState(stream);
-        _index.SaveState(stream);
+        _definition.NodeTypeIndex.SaveState(stream);
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
@@ -57,8 +54,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
 
-        long positionOfLastTransactionSavedToStateFile;
-        long lastTimestamp;
+        long stateFileTimestamp;
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
@@ -67,33 +63,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
 
-        if (PersistedIndexStore != null) {
-            if (PersistedIndexStore.LogFileId == Guid.Empty) {
-                throw new IndexReadException("Persisted index missing, re-open necessary. ", null);
-            }
-            if (PersistedIndexStore.LogFileId != walFileId) {
-                // will cause a delete of all state files and a new try of reload
-                throw new IndexReadException("Index state file does not belong to log file. It cannot be used. ", null);
-            }
-        } else {  // delete
-            if (_io is IOProviderDisk iODisk) {
-                var path = iODisk.BaseFolder;
-                var prefix = _settings.FilePrefix;
-                IPersistedIndexStore.DeleteFilesInDefaultFolder(path, prefix);
-            }
-        }
+        _index.ReadStates(walFileId);
 
         if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
-            lastTimestamp = 0;
-            positionOfLastTransactionSavedToStateFile = 0;
+            stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
-            if (PersistedIndexStore != null) {
-                if (PersistedIndexStore.ModelHash != currentModelHash) {
-                    // if there is no state file, but there is persisted index store and the datamodel has changed
-                    LogInfo("Resetting persisted index store, datamodel has changed. ");
-                    PersistedIndexStore.ResetIfNotMatching(walFileId, currentModelHash);
-                }
-            }
         } else { // read state, before reading rest from log file
             try {
                 LogInfo("Reading state file");
@@ -102,43 +76,37 @@ public sealed partial class DataStoreLocal : IDataStore {
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
                 if (version != _fileVersion) throw new Exception("   State file version mismatch. ");
-                lastTimestamp = stream.ReadVerifiedLong();
-                positionOfLastTransactionSavedToStateFile = stream.ReadVerifiedLong();
+                stateFileTimestamp = stream.ReadVerifiedLong();
                 var storedModelHash = stream.ReadGuid();
                 if (storedModelHash != currentModelHash) throw new Exception("Datamodel have changed, checksum does not match.");
                 var logFileSize = stream.ReadVerifiedLong();
                 var fileId = stream.ReadGuid();
                 if (fileId != walFileId) throw new Exception("Statefile does not belong to log file. It cannot be used. ");
 
-                if (PersistedIndexStore != null) {
-                    if (PersistedIndexStore.Timestamp < lastTimestamp) {
-                        throw new Exception("Statefile was created from a newer log file. State file cannot be used. ");
-                    }
-                }
-
-                if (walFileSize < logFileSize) throw new Exception("State file was created from a longer log file. Longer means later and therefore newer log file. State file cannot be used. ");
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
                 UpdateActivity(activityId, "Reading native models", 8); // 8%-10%
                 _nativeModelStore.ReadState(stream);
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
-                _index.ReadState(stream, out var anyIndexesMissing, (d, p) => UpdateActivity(activityId, d, (int)(15 + p! * 0.85))); // 15-100%
-                if (anyIndexesMissing) throw new Exception("Some indexes are missing. "); // causes reload with no state file ( and rebuild of indexes )
+                _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
                 var errMsg = "Failed loading index states. " + err.Message; // try to continue with loading from log file
-                throw new IndexReadException(errMsg, err);
+                throw new StateFileReadException(errMsg, err);
             }
         }
-        _wal.EnsureTimestamps(lastTimestamp); // from statefile, making sure next written transaction is not less than state file
+        _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
+
+        var lowestTimestamp = Math.Min(_index.GetLowestTimestamp(), stateFileTimestamp);
+        _wal.FindPositionOfTimestamp(lowestTimestamp, out var positionOfLastTransactionSavedToStateFile);
         int transactionCount = 0;
         int actionCount = 0;
         validateIndexesIfDebug();
-        var readingFrom = lastTimestamp > 0 ? "UTC " + new DateTime(lastTimestamp, DateTimeKind.Utc) : " the beginning.";
+        var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : " the beginning.";
         var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / (walFileSize + 1);
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
         UpdateActivity(activityId, "Reading log file", 0);
@@ -147,7 +115,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
-        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, positionOfLastTransactionSavedToStateFile, lastTimestamp)) {
+        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, positionOfLastTransactionSavedToStateFile, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - positionOfLastTransactionSavedToStateFile / logReader.FileSize);
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logCriticalError, out sizeOfCurrentTransaction)) {
@@ -200,7 +168,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (PersistedIndexStore != null) {
             if (PersistedIndexStore.Timestamp > _wal.LastTimestamp) {
                 // will cause a delete of all state files and a new try of reload
-                throw new IndexReadException("Persited state file is older than log file and cannot be used. ", null);
+                throw new StateFileReadException("Persited state file is older than log file and cannot be used. ", null);
             }
             PersistedIndexStore.Commit(_wal.LastTimestamp);
         }

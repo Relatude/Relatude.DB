@@ -171,4 +171,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         throw new NotImplementedException();
     }
+    public long Timestamp => _store.Timestamp;
+    public void Commit(long timestamp) => _store.Commit(timestamp);
 }
+

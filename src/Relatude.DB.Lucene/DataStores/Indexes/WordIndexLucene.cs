@@ -134,7 +134,7 @@ public class WordIndexLucene : IPersistentWordIndex {
         List<RawSearchHit> result = [];
         foreach (var hit in hits.Skip(pageIndex * pageSize).Take(pageSize)) {
             var doc = searcher.Doc(hit.Doc);
-            result.Add(new () { NodeId = int.Parse(doc.Get("id")), Score = hit.Score});
+            result.Add(new() { NodeId = int.Parse(doc.Get("id")), Score = hit.Score });
         }
         totalHits = hits.Length;
         return result;
@@ -161,4 +161,8 @@ public class WordIndexLucene : IPersistentWordIndex {
         Close();
         Open();
     }
+
+    public long Timestamp => _store.Timestamp;
+    public void Commit(long timestamp) => _store.Commit(timestamp);
+
 }

@@ -45,6 +45,7 @@ internal sealed class Definition {
     readonly Cache<long, Property[]> _facetPropCache = new(400);
     Dictionary<string, IIndex> _indexes { get; set; }
     NodeTypeIndex _nodeTypeIndex;
+    public NodeTypeIndex NodeTypeIndex => _nodeTypeIndex;
     public IdSet GetAllIdsForType(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, includeDescendants);
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
@@ -56,7 +57,6 @@ internal sealed class Definition {
         }
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.Indexes).ToDictionary(k => k.UniqueKey, k => k);
-        _indexes.Add(_nodeTypeIndex.UniqueKey, _nodeTypeIndex);
     }
     internal void IndexNode(INodeData node) {
         foreach (var kv in node.Values) {

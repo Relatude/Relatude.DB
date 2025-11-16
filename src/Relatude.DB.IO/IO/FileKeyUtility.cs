@@ -27,7 +27,8 @@ public class FileKeyUtility {
 
     string dateTimeTemplate => "yyyy-MM-dd-HH-mm-ss";
     string dateOnlyTemplate => "yyyy-MM-dd";
-    string stateFilePattern => _prefix + "index.state.bin";
+    string stateFilePattern => _prefix + "state.bin";
+    string indexFilePattern => _prefix + "index.*.bin";
 
     string aiCacheFilePattern => _prefix + "ai.cache.bin";
     string indexStoreFolderPattern => _prefix + "indexes";
@@ -72,6 +73,11 @@ public class FileKeyUtility {
         return DateOnly.ParseExact(dtSection, dateOnlyTemplate, System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    public string Index_GetFileKey(string indexId) {
+        return indexFilePattern.Replace("*", indexId);
+    }
+
+
     public string WAL_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));
     public string[] WAL_GetAllFileKeys(IIOProvider io) => io.Search(walFilePattern).Order().ToArray();
     public string WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
@@ -90,7 +96,6 @@ public class FileKeyUtility {
     public string[] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern).Order()];
     public string WAL_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
     public bool WAL_KeepForever(string fileKey) => fileKey.MatchesWildcard(walFileBackupPatternKeepForever);
-
 
     public string FileStore_GetFileKey(int n) => fileStorePattern.Replace("*", n.ToString("00000000"));
     public string[] FileStore_GetAllFileKeys(IIOProvider io) => io.Search(fileStorePattern).Order().ToArray();
@@ -164,10 +169,11 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern + "*")) return "AI Temp";
         if (fileKey.MatchesWildcard(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
         if (fileKey.MatchesWildcard(_anyPrefix.fileStorePattern)) return "Filestore";
-        if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "Index State";
+        if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "State";
         if (fileKey.MatchesWildcard(_anyPrefix.indexStoreFolderPattern)) return "Index Store";
         if (fileKey.MatchesWildcard(_anyPrefix.queueFileKeyPattern)) return "Task queue";
         if (fileKey.MatchesWildcard(_anyPrefix.loggerAllFilePattern)) return "Log file";
+        if (fileKey.MatchesWildcard(_anyPrefix.indexFilePattern)) return "Index";
         return "-";
     }
     static HashSet<char> _legalFileKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789()-–_. ".ToHashSet();

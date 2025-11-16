@@ -6,12 +6,14 @@ using Relatude.DB.Common;
 using System.Diagnostics;
 
 namespace Relatude.DB.DataStores.Indexes;
+
 internal class SemanticIndex : IIndex {
     readonly IVectorIndex _index;
     readonly AIEngine _ai;
     readonly SetRegister _register;
     long _searchIndexStateId;
     readonly DataStoreLocal _db;
+    long _timestamp = 0;
     public SemanticIndex(SetRegister sets, string uniqueKey, AIEngine ai, DataStoreLocal db) {
         _register = sets;
         //_index = new HnswVectorIndex();
@@ -83,4 +85,6 @@ internal class SemanticIndex : IIndex {
         // more to be done later here....
         return sourceText;
     }
+    public long Timestamp => _timestamp;
+    public void Commit(long timestamp) => _timestamp = timestamp;
 }

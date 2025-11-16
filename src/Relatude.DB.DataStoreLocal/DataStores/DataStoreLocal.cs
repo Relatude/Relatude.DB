@@ -232,7 +232,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Open;
             _startUpTimeMs = sw.ElapsedMilliseconds;
             LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
-        } catch (IndexReadException e) {
+        } catch (StateFileReadException e) {
             LogInfo("Indexfile out of sync: " + e.Message);
             if (throwOnBadStateFile) {
                 _state = DataStoreState.Error;
@@ -244,10 +244,6 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _io.DeleteIfItExists(_fileKeys.StateFileKey);
                     Dispose();
                     initialize();
-                    if (PersistedIndexStore != null) {
-                        LogInfo("Resetting persisted index store, index store is out of sync");
-                        PersistedIndexStore.ResetIfNotMatching(_wal.FileId, currentModelHash);
-                    }
                     readState(throwOnBadStateFile, currentModelHash, activityId);
                     _state = DataStoreState.Open;
                     _startUpTimeMs = sw.ElapsedMilliseconds;

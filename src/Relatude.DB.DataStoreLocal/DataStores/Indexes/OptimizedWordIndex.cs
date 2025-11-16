@@ -25,5 +25,8 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
     //public int MaxCount(string value, bool orSearch) { _o.Dequeue(); return _i.MaxCount(value, orSearch); }
     public void ClearCache() { _o.Dequeue(); _i.ClearCache(); }
     public void CompressMemory() { _o.Dequeue(); _i.CompressMemory(); }
+    public long Timestamp { get { _o.Dequeue(); return Timestamp; } }
+    public void Commit(long timestamp) { _o.Dequeue(); _i.Commit(timestamp); }
+
     public void Dispose() { _o.Dequeue(); _i.Dispose(); }
 }

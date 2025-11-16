@@ -4,10 +4,12 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Indexes.Trie;
+
 internal class WordIndexTrie : IWordIndex {
     readonly CharArrayTrie _trie;
     long _searchIndexStateId;
     SetRegister _register;
+    long _timestamp;
     public WordIndexTrie(SetRegister sets, string uniqueKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
@@ -59,11 +61,13 @@ internal class WordIndexTrie : IWordIndex {
             totalHits = 0;
             return [];
         }
-        var result = _trie.Search(value, out totalHits, true, pageSize * pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated,  orSearch);
+        var result = _trie.Search(value, out totalHits, true, pageSize * pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch);
         List<RawSearchHit> hits = [];
         foreach (var r in result) {
             hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
         }
         return hits;
     }
+    public long Timestamp => _timestamp;
+    public void Commit(long timestamp) => _timestamp = timestamp;
 }

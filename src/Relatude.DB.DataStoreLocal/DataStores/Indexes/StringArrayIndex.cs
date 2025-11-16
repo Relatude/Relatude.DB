@@ -8,6 +8,7 @@ public class StringArrayIndex : IIndex {
     readonly IdByValue<string> _nodeIdByValue;
     readonly Dictionary<int, string[]> _valueByNodeId;
     readonly SetRegister _sets;
+    long _timestamp = 0;
     internal StringArrayIndex(Definition def, string uniqueKey, Guid propertyId) {
         _nodeIdByValue = new(def.Sets);
         _valueByNodeId = new();
@@ -106,8 +107,10 @@ public class StringArrayIndex : IIndex {
             Add(k, v);
         }
     }
-    public void CompressMemory() {
-    }
+    public void CompressMemory() {}
     public void Dispose() { }
     public void ClearCache() { }
+    public long Timestamp => _timestamp;
+    public void Commit(long timestamp) => _timestamp = timestamp;
+
 }

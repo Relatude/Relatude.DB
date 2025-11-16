@@ -75,7 +75,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
             if (__timestamp == -1) __timestamp = long.Parse(getSetting("Timestamp", "0"));
             return __timestamp;
         }
-        private set {
+        set {
             setSetting("Timestamp", value.ToString());
             __timestamp = value;
         }
@@ -118,8 +118,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
             commit();
         }
     }
-    public void ResetIfNotMatching(Guid logFileId, Guid modelHash) {
-        if (LogFileId == logFileId && ModelHash == modelHash) return;
+    public void ResetIfNotMatching(Guid logFileId) {
+        if (LogFileId == logFileId) return;
         commit();
         _transaction.Dispose();
         try {
@@ -162,7 +162,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         } finally {
             _transaction = _connection.BeginTransaction();
             LogFileId = logFileId;
-            ModelHash = modelHash;
             Timestamp = 0;
             commit();
         }

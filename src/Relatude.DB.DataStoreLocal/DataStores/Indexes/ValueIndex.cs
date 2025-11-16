@@ -2,6 +2,7 @@
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 public enum QueryType {
     Equal,
     NotEqual,
@@ -34,10 +35,14 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly IdByValue<T> _idByValue;
     readonly Dictionary<int, T> _valueById = [];
     readonly StateIdValueTracker<T> _stateId;
-
-    public ValueIndex(SetRegister register, string uniqueKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
+    readonly IOProviderDisk _io;
+    readonly FileKeyUtility _fileKeys;
+    long _timestamp;
+    public ValueIndex(SetRegister register, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
+        _io = io;
+        _fileKeys = fileKey;
         _sets = register;
         _stateId = new(register);
         _idByValue = new(register);
@@ -189,13 +194,21 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             _writeValue(value, stream);
         }
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(Guid walFileId) {
+        WalFileId = walFileId;
+        Timestamp = 0;
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
+        using var stream = _io.OpenRead(fileName, 0);
+        var fileWafFileId = stream.ReadGuid();
+        if (fileWafFileId != walFileId) return; // no state to read as wal file id does not match
         var noIds = stream.ReadVerifiedInt();
         for (var i = 0; i < noIds; i++) {
-            var id = (int)stream.ReadUInt();
+            var id = stream.ReadInt();
             var value = _readValue(stream);
             add(id, value);
         }
+        Timestamp = stream.ReadLong();
     }
     public void CompressMemory() {
 
@@ -236,4 +249,9 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             _ => IdCount,
         };
     }
+    public long Timestamp { get; private set; }
+    public void Commit(long timestamp) => Timestamp = timestamp;
+    public void Reset() {
+    }
+    public Guid WalFileId { get; private set; }
 }
