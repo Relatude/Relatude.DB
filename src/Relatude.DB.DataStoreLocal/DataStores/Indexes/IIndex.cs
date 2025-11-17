@@ -14,5 +14,6 @@ namespace Relatude.DB.DataStores.Indexes {
 
         void ReadState(IReadStream stream);
         void SaveState(IAppendStream stream);
+
     }
 }

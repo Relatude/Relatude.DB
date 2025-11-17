@@ -17,9 +17,11 @@ public class PersistedIndexStore : IPersistedIndexStore {
     public string GetTableName(string id) => _idxs[id].Table;
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
     readonly IPersistentWordIndexFactory? _wordIndexFactory;
+    readonly string _indexPath;
     public PersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
         _useExternalWordIndex = wordIndexFactory != null;
+        _indexPath = indexPath;
         var sqlLiteFolder = Path.Combine(indexPath, "sqlite");
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
         var dbFileName = "index.db";
@@ -217,5 +219,9 @@ public class PersistedIndexStore : IPersistedIndexStore {
         cmd.ExecuteNonQuery();
         _transaction = _connection.BeginTransaction();
         foreach (var i in _wordIndexLucenes) i.Value.OptimizeAndMerge();
+    }
+    public long GetTotalDiskSpace() {
+        if (!Directory.Exists(_indexPath)) return 0;
+        return Directory.GetFiles(_indexPath, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
     }
 }

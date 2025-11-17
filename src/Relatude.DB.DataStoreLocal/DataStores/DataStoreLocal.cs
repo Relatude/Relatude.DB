@@ -53,6 +53,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     // QueryContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
+
+    long _noPrimitiveActionsSinceStartup;
     long _noPrimitiveActionsSinceLastStateSnaphot;
     long _noPrimitiveActionsInLogThatCanBeTruncated;
     long _noPrimitiveActionsSinceClearCache;

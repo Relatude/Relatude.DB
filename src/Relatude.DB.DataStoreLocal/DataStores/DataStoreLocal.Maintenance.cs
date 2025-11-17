@@ -1,7 +1,8 @@
-﻿using Relatude.DB.IO;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Stores;
+using Relatude.DB.IO;
 using Relatude.DB.Transactions;
+using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
@@ -302,6 +303,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.QueuedBatchesStateCounts = TaskQueue.BatchCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
             info.QueuedBatchesPendingPersisted = TaskQueuePersisted?.CountBatch(Tasks.BatchState.Pending) ?? 0;
             info.QueuedBatchesStateCountsPersisted = TaskQueuePersisted?.BatchCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value) ?? [];
+
+            info.DiskSpacePersistedIndexes = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L;
+            info.ProcessWorkingMemory = Process.GetCurrentProcess().WorkingSet64;
 
             _definition.AddInfo(info);
             _nodes.AddInfo(info);

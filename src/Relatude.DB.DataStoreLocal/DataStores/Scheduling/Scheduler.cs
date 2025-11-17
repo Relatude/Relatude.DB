@@ -84,17 +84,44 @@ internal class Scheduler(DataStoreLocal _db) {
     DateTime _lastDeleteExpiredTasks = DateTime.MinValue;
     DateTime _lastDeleteExpiredPersistedTasks = DateTime.MinValue;
 
+    long _actionCountAtCompletionOfTaskDequeue;
     void dequeueTaskQueues(object? state) {
         if (_db.State != DataStoreState.Open) return;
+        _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
+        var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfTaskDequeue;
+        _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
+        if (actionsPerSecondSinceLastDequeue > 500) { // requires a constant interval between runs to be meaningful
+            // wait a longer since there is a lot of activity
+            _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+            _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
+            return;
+        }
         deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
         dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db);
+        _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
     }
+
+    long _actionCountAtCompletionOfPersistedTaskDequeue;
     void dequeuePersistedTaskQueues(object? state) {
         if (_db.State != DataStoreState.Open) return;
+        _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
+        var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfPersistedTaskDequeue;
+        _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
+        if (actionsPerSecondSinceLastDequeue > 500) { // requires a constant interval between runs to be meaningful
+            // wait a longer since there is a lot of activity
+            _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+            _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
+            return;
+        }
         if (_db.TaskQueuePersisted != null) {
             deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
             dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db);
         }
+        _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
     }
 
     static void initTaskQueue(DataStoreLocal db, TaskQueue queue, string name) {

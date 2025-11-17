@@ -68,6 +68,9 @@ public class StoreStatus {
     public int QueuedBatchesPending { get; set; }
     public int QueuedBatchesPendingPersisted { get; set; }
 
+    public long DiskSpacePersistedIndexes { get; set; }
+    public long ProcessWorkingMemory { get; set; }
+
     public static StoreStatus DeSerialize(Stream stream) {
         var json = stream.ReadString();
         return FromJson.StoreInfo(json);
