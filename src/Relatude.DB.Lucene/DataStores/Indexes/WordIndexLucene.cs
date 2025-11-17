@@ -69,18 +69,14 @@ public class WordIndexLucene : IPersistentWordIndex {
     }
     public void Add(int id, object value) => add(id, (string)value);
     public void Remove(int id, object value) => remove(id, (string)value);
-    public void RegisterAddDuringStateLoad(int id, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) add(id, (string)value);
-    }
-    public void RegisterRemoveDuringStateLoad(int id, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) remove(id, (string)value);
-    }
+    public void RegisterAddDuringStateLoad(int id, object value) => add(id, (string)value);
+    public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (string)value);
     public void ClearCache() { }
     public void CompressMemory() { }
     public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public int GetQueuedTaskCount() => 0;
-    public void ReadState(IReadStream stream) { }
-    public void SaveState(IAppendStream stream) { }
+    public void ReadStateForMemoryIndexes() { } // not relevant for lucene indexes
+    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for lucene indexes
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
@@ -134,7 +130,7 @@ public class WordIndexLucene : IPersistentWordIndex {
         List<RawSearchHit> result = [];
         foreach (var hit in hits.Skip(pageIndex * pageSize).Take(pageSize)) {
             var doc = searcher.Doc(hit.Doc);
-            result.Add(new () { NodeId = int.Parse(doc.Get("id")), Score = hit.Score});
+            result.Add(new() { NodeId = int.Parse(doc.Get("id")), Score = hit.Score });
         }
         totalHits = hits.Length;
         return result;
@@ -154,11 +150,11 @@ public class WordIndexLucene : IPersistentWordIndex {
         _analyzer.Dispose();
         _directory.Dispose();
     }
-
     public void OptimizeAndMerge() {
         _writer.Commit();
         _writer.ForceMerge(1, true);
         Close();
         Open();
     }
+    public long PersistedTimestamp { get; set; }
 }

@@ -29,8 +29,6 @@ app.MapGet("/Add", (RelatudeDBContext ctx) => {
     var transaction = db.CreateTransaction();
     var culture = db.Create<ISystemCulture>();
 
-
-
     transaction.Insert(culture);
     for (int i = 0; i < 10; i++) {
         var collection = db.Create<ISystemCollection>();
@@ -65,11 +63,6 @@ app.MapGet("/Add", (RelatudeDBContext ctx) => {
     }
 
     transaction.Execute();
-
-
-
-
-
 
 });
 

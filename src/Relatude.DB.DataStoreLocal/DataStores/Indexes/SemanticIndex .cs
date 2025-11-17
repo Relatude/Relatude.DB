@@ -6,20 +6,23 @@ using Relatude.DB.Common;
 using System.Diagnostics;
 
 namespace Relatude.DB.DataStores.Indexes;
+
 internal class SemanticIndex : IIndex {
     readonly IVectorIndex _index;
     readonly AIEngine _ai;
     readonly SetRegister _register;
+    readonly IIOProvider _io;
+    readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
-    readonly DataStoreLocal _db;
-    public SemanticIndex(SetRegister sets, string uniqueKey, AIEngine ai, DataStoreLocal db) {
+    public SemanticIndex(SetRegister sets, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
         _register = sets;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
         _ai = ai;
         newSetState();
-        _db = db;
+        _io = io;
+        _fileKeys = fileKey;
     }
     public string UniqueKey { get; private set; }
     void newSetState() {
@@ -56,18 +59,28 @@ internal class SemanticIndex : IIndex {
         _index.Clear(nodeId);
         newSetState();
     }
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => Remove(nodeId, value);
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public int MaxCount(string value) {
         return 10;
     }
-    public void ReadState(IReadStream stream) {
-        newSetState();
-        _index.ReadState(stream);
-    }
-    public void SaveState(IAppendStream stream) {
+    public void SaveStateForMemoryIndexes(long logTimestamp) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        using var stream = _io.OpenAppend(fileName);
         newSetState();
         _index.SaveState(stream);
+        stream.WriteVerifiedLong(logTimestamp);
+        PersistedTimestamp = logTimestamp;
+    }
+    public void ReadStateForMemoryIndexes() {
+        PersistedTimestamp = 0;
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
+        using var stream = _io.OpenRead(fileName, 0);
+        newSetState();
+        _index.ReadState(stream);
+        PersistedTimestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() {
     }
@@ -83,4 +96,5 @@ internal class SemanticIndex : IIndex {
         // more to be done later here....
         return sourceText;
     }
+    public long PersistedTimestamp { get; set; }
 }

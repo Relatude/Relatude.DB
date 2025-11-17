@@ -1,12 +1,15 @@
 ﻿using Microsoft.Data.Sqlite;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
+
 public class PersistedIndexStore : IPersistedIndexStore {
-    class idxInfo(string id, PropertyType dataType, string tableName) {
+    class idxInfo(string id, PropertyType dataType, string tableName, IIndex index) {
         public string Id { get; } = id;
         public PropertyType DataType { get; } = dataType;
         public string Table { get; } = tableName;
+        public IIndex Index { get; } = index;
     }
     string _cnnStr;
     static string _settingsTableName = "settings";
@@ -71,16 +74,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
-    long __timestamp = -1;
-    public long Timestamp {
-        get {
-            if (__timestamp == -1) __timestamp = long.Parse(getSetting("Timestamp", "0"));
-            return __timestamp;
-        }
-        private set {
-            setSetting("Timestamp", value.ToString());
-            __timestamp = value;
-        }
+    public long GetTimestamp(string indexId) {
+        var key = "Timestamp_" + indexId;
+        return long.Parse(getSetting(key, "0"));
+    }
+    private void setTimestamp(string indexId, long timestamp) {
+        var key = "Timestamp_" + indexId;
+        setSetting(key, timestamp.ToString());
     }
     public Guid LogFileId {
         get => Guid.Parse(getSetting("LogFileId", Guid.Empty.ToString()));
@@ -94,8 +94,10 @@ public class PersistedIndexStore : IPersistedIndexStore {
         private set => setSetting("ModelHash", value.ToString());
     }
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, PropertyType type) where T : notnull {
-        _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_")));
-        return new ValueIndexSqlite<T>(sets, this, key);
+        var index = new ValueIndexSqlite<T>(sets, this, key);
+        _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_"), index));
+        index.PersistedTimestamp = GetTimestamp(key);
+        return index;
     }
     string getSqlType(PropertyType type) {
         return type switch {
@@ -114,14 +116,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
         foreach (var i in _wordIndexLucenes.Values) i.Commit();
         _transaction = _connection.BeginTransaction();
     }
-    public void Commit(long timestamp) {
-        if (timestamp > Timestamp) {
-            Timestamp = timestamp;
-            commit();
-        }
+    public void FlushAndCommitTimestamp(long timestamp) {
+        _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
+        commit();
+        _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
     }
-    public void ResetIfNotMatching(Guid logFileId, Guid modelHash) {
-        if (LogFileId == logFileId && ModelHash == modelHash) return;
+    public void ResetIfNotMatching(Guid logFileId) {
+        if (LogFileId == logFileId) return;
         commit();
         _transaction.Dispose();
         try {
@@ -164,9 +165,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         } finally {
             _transaction = _connection.BeginTransaction();
             LogFileId = logFileId;
-            ModelHash = modelHash;
-            Timestamp = 0;
-            commit();
+            FlushAndCommitTimestamp(0);
         }
     }
     public void Dispose() {
@@ -199,15 +198,18 @@ public class PersistedIndexStore : IPersistedIndexStore {
         return value;
     }
     public IWordIndex OpenWordIndex(SetRegister sets, string key, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+        IWordIndex index;
         if (_idxs.ContainsKey(key)) return _wordIndexLucenes[key];
-        _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_")));
         if (_wordIndexFactory != null) {
             var idx = _wordIndexFactory!.Create(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
             _wordIndexLucenes.Add(key, idx);
-            return idx;
+            index = idx;
         } else {
-            return new WordIndexSqlite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            index = new WordIndexSqlite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
+        index.PersistedTimestamp = GetTimestamp(key);
+        _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
+        return index;
     }
     public void OptimizeDisk() {
         _transaction.Commit();

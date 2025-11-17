@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
@@ -24,6 +25,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
             return _idCount;
         }
     }
+
     void add(int id, T value) {
         using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
         cmd.Parameters.AddWithValue("@id", id);
@@ -41,12 +43,12 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) add(nodeId, (T)value);
-    }
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) remove(nodeId, (T)value);
-    }
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
+    public long PersistedTimestamp { get; set; } // only set during state load
+    public void ReadStateForMemoryIndexes() { } // not relevant for sqlite indexes  
+    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for sqlite indexes  
+
     public IEnumerable<int> Ids {
         get {
             using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName);
@@ -166,9 +168,8 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         using var reader = cmd.ExecuteReader();
         while (reader.Read()) yield return reader.GetInt32(0);
     }
-    public void ReadState(IReadStream stream) { }
-    public void SaveState(IAppendStream stream) { }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         throw new NotImplementedException();
     }
 }
+

@@ -6,7 +6,8 @@ using Relatude.DB.IO;
 using Relatude.DB.Serialization;
 using Relatude.DB.Transactions;
 
-namespace Relatude.DB.DataStores.Stores; 
+namespace Relatude.DB.DataStores.Stores;
+
 internal delegate void RegisterNodeSegmentCallbackFunc(int id, NodeSegment seg);
 internal delegate void DiskFlushCallback(long timestamp);
 /// <summary>
@@ -48,7 +49,7 @@ internal class WALFile : IDisposable {
         _secondaryFileKey = secondaryFileKey;
         _appendStream = getWriteStream(_io, FileKey, false); // open primary log file, to lock file, even though it may not be used right away
     }
-    public void Open() {
+    public void OpenForAppending() {
         _appendStream = getWriteStream(_io, FileKey, false);
         if (_ioSecondary != null && _secondaryFileKey != null) {
             _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
@@ -77,12 +78,12 @@ internal class WALFile : IDisposable {
         try {
             s = io.OpenAppend(fileKey);
             if (s.Length == 0) {
-                s.WriteMarker(_logStartMarker);// pos 0
-                s.WriteVerifiedLong(_logVersioNumber); // pos 16
+                s.WriteMarker(_logStartMarker);// from pos 0
+                s.WriteVerifiedLong(_logVersioNumber); // from pos 16
                 if (!isSecondaryLog) {
                     FileId = Guid.NewGuid(); // do not create new file id for secondary log
                 }
-                s.WriteGuid(FileId); // pos 32
+                s.WriteGuid(FileId); // from pos 32
                 // now at pos 48 
                 FirstTimestamp = 0;
             } else {
@@ -145,7 +146,7 @@ internal class WALFile : IDisposable {
         long bytesWritten = stream.Length - bytesStartPos;
         return bytesWritten;
     }
-    public long GetPositionOfLastTransaction() {
+    public long GetPositionAfterLastTransaction() {
         return _appendStream.Length;
     }
     public long NewTimestamp() {
@@ -243,7 +244,7 @@ internal class WALFile : IDisposable {
         Close();
         FileKey = newFileKey;
         FileId = Guid.Empty; // reset file id, so that it is read from new file
-        Open();
+        OpenForAppending();
     }
     internal void StoreTimestamp(long timestamp) {
         if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
@@ -262,7 +263,9 @@ internal class WALFile : IDisposable {
         s.LogWritesQueuedTransactions = _workQueue.EstimateTransactionCount;
         s.LogWritesQueuedActions = _workQueue.GetQueueActionCount();
         s.LogFileKey = FileKey;
-        s.LogFileSize = _appendStream?.Length ?? 0;
+        try {
+            s.LogFileSize = _appendStream?.Length ?? 0;
+        } catch { } // file may be closed....
     }
     internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreams(true);
@@ -290,7 +293,7 @@ internal class WALFile : IDisposable {
             writeStream.Dispose();
             readStream.Dispose();
         } finally {
-            Open();
+            OpenForAppending();
         }
     }
     internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {
@@ -319,7 +322,7 @@ internal class WALFile : IDisposable {
                     store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
                 });
             } finally {
-                Open();
+                OpenForAppending();
             }
         } else {
             store.LogInfo("Secondary log file active. ");
@@ -331,7 +334,8 @@ internal class WALFile : IDisposable {
             //if(latestPrimaryTimestamp!= latestSecondaryTimestamp) {
             //    throw new Exception("Primary and secondary log files are out of sync. ");
             //}
-        _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
+            _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
         }
     }
+
 }

@@ -14,8 +14,8 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
 
     public void Add(int id, object value) => _o.Add(id, value);
     public void Remove(int id, object value) => _o.Remove(id, value);
-    public void RegisterAddDuringStateLoad(int id, object value, long timestampId) => _o.RegisterAddDuringStateLoad(id, value, timestampId);
-    public void RegisterRemoveDuringStateLoad(int id, object value, long timestampId) => _o.RegisterRemoveDuringStateLoad(id, value, timestampId);
+    public void RegisterAddDuringStateLoad(int id, object value) => _o.RegisterAddDuringStateLoad(id, value);
+    public void RegisterRemoveDuringStateLoad(int id, object value) => _o.RegisterRemoveDuringStateLoad(id, value);
 
     public long StateId { get { _o.Dequeue(); return _i.StateId; } }
     public int IdCount { get { _o.Dequeue(); return _i.IdCount; } }
@@ -45,8 +45,9 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public T? MaxValue() { _o.Dequeue(); return _i.MaxValue(); }
     public T? MinValue() { _o.Dequeue(); return _i.MinValue(); }
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.RangeSearch(from, to, fromInclusive, toInclusive); }
-    public void ReadState(IReadStream stream) { _o.Dequeue(); _i.ReadState(stream); }
-    public void SaveState(IAppendStream stream) { _o.Dequeue(); _i.SaveState(stream); }
+    public void ReadStateForMemoryIndexes() { _o.Dequeue(); _i.ReadStateForMemoryIndexes(); }
+    public void SaveStateForMemoryIndexes(long logTimestamp) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive); }
+    public long PersistedTimestamp { get { _o.Dequeue(); return PersistedTimestamp; } set { _o.Dequeue(); _i.PersistedTimestamp = value; } }
 }

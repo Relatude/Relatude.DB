@@ -44,7 +44,8 @@ internal sealed class Definition {
     internal Dictionary<Guid, Relation> Relations { get; }
     readonly Cache<long, Property[]> _facetPropCache = new(400);
     Dictionary<string, IIndex> _indexes { get; set; }
-    NodeTypeIndex _nodeTypeIndex;
+    NodeTypeStore _nodeTypeIndex;
+    public NodeTypeStore NodeTypeIndex => _nodeTypeIndex;
     public IdSet GetAllIdsForType(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, includeDescendants);
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
@@ -56,7 +57,6 @@ internal sealed class Definition {
         }
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.Indexes).ToDictionary(k => k.UniqueKey, k => k);
-        _indexes.Add(_nodeTypeIndex.UniqueKey, _nodeTypeIndex);
     }
     internal void IndexNode(INodeData node) {
         foreach (var kv in node.Values) {
@@ -83,11 +83,12 @@ internal sealed class Definition {
         foreach (var kv in na.Node.Values) {
             if (Properties.TryGetValue(kv.PropertyId, out var property)) {
                 foreach (var index in property.Indexes) {
+                    if (transactionTimestamp <= index.PersistedTimestamp) continue;
                     try {
                         if (property.IsNodeRelevantForIndex(na.Node, index)) {
                             switch (na.Operation) {
-                                case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(na.Node.__Id, kv.Value, transactionTimestamp); break;
-                                case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(na.Node.__Id, kv.Value, transactionTimestamp); break;
+                                case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(na.Node.__Id, kv.Value); break;
+                                case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(na.Node.__Id, kv.Value); break;
                                 default: throw new NotImplementedException();
                             }
                         }
@@ -100,11 +101,6 @@ internal sealed class Definition {
             } else {
                 // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
             }
-        }
-        switch (na.Operation) {
-            case PrimitiveOperation.Add: _nodeTypeIndex.Index(na.Node); break;
-            case PrimitiveOperation.Remove: _nodeTypeIndex.DeIndex(na.Node); break;
-            default: break;
         }
     }
     internal void AddInfo(StoreStatus info) {

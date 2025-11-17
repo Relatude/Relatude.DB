@@ -30,6 +30,7 @@ public static class IReadStreamExtensions {
         }
         return true;
     }
+
     /// <summary>
     /// Reads the next bytes and valides it to the marker. It throws an exception if the marker does not match.
     /// </summary>
@@ -42,8 +43,5 @@ public static class IReadStreamExtensions {
     public static void WriteMarker(this IAppendStream s, Guid v) {
         s.Append(v.ToByteArray());
     }
-
-
-
 
 }

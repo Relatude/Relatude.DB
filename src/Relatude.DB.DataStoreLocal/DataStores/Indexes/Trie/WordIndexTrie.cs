@@ -2,16 +2,19 @@
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-
 namespace Relatude.DB.DataStores.Indexes.Trie;
 internal class WordIndexTrie : IWordIndex {
     readonly CharArrayTrie _trie;
     long _searchIndexStateId;
     SetRegister _register;
-    public WordIndexTrie(SetRegister sets, string uniqueKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    readonly IIOProvider _io;
+    readonly FileKeyUtility _fileKeys;
+    public WordIndexTrie(SetRegister sets, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
         UniqueKey = uniqueKey;
+        _io = io;
+        _fileKeys = fileKey;
         newSetState();
     }
     public string UniqueKey { get; private set; }
@@ -41,16 +44,26 @@ internal class WordIndexTrie : IWordIndex {
 #endif
         newSetState();
     }
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => Remove(nodeId, value);
-
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public IEnumerable<string> SuggestSpelling(string query, bool boostCommonWords) => _trie.Suggest(query, boostCommonWords);
-    //public int MaxCount(string value, bool orSearch) => _trie.SearchCount(TermSet.Parse(value, _trie.MinWordLength, _trie.MaxWordLength), orSearch);
-    public void ReadState(IReadStream stream) {
+    public void SaveStateForMemoryIndexes(long logTimestamp) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        using var stream = _io.OpenAppend(fileName);
+        _trie.WriteState(stream);
+        stream.WriteVerifiedLong(logTimestamp);
+        PersistedTimestamp = logTimestamp;
+    }
+    public void ReadStateForMemoryIndexes() {
+        PersistedTimestamp = 0;
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
+        using var stream = _io.OpenRead(fileName, 0);
         _trie.ReadState(stream);
         newSetState();
+        PersistedTimestamp = stream.ReadVerifiedLong();
     }
-    public void SaveState(IAppendStream stream) => _trie.WriteState(stream);
     public void CompressMemory() => _trie.CompressMemory();
     public void Dispose() => _trie.Dispose();
     public void ClearCache() => _trie.ClearCache();
@@ -59,11 +72,12 @@ internal class WordIndexTrie : IWordIndex {
             totalHits = 0;
             return [];
         }
-        var result = _trie.Search(value, out totalHits, true, pageSize * pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated,  orSearch);
+        var result = _trie.Search(value, out totalHits, true, pageSize * pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch);
         List<RawSearchHit> hits = [];
         foreach (var r in result) {
             hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
         }
         return hits;
     }
+    public long PersistedTimestamp { get; set; }
 }
