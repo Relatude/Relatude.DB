@@ -19,6 +19,7 @@ using Relatude.DB.Tasks.TextIndexing;
 using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores;
+
 public delegate byte[][] ReadSegmentsFunc(NodeSegment[] segments, out int noDiskReads);
 public sealed partial class DataStoreLocal : IDataStore {
     readonly SettingsLocal _settings;
@@ -195,7 +196,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         DiskFlushCallback? indexStoreFlushCallback = timestamp => {
             _lock.EnterWriteLock();
             try {
-                if (PersistedIndexStore != null) PersistedIndexStore.Commit(timestamp);
+                if (PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(timestamp);
                 if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
             } finally {
                 _lock.ExitWriteLock();
@@ -282,40 +283,38 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return vars;
     }
-    void validateIndexesIfDebug() {
-        //#if DEBUG
-        //        // temporary code, to be deleted later on;
-        //        // testing indexes
-        //        foreach (var n in _nodes.Snapshot()) {
-        //            var uid = n.nodeId;
-        //            var node = _nodes.Get(uid);
-        //            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
-        //                throw new Exception("Node type mismatch. ");
-        //            }
-        //            if (_guids.GetId(node.Id) != uid) {
-        //                throw new Exception("Guid mismatch. ");
-        //            }
-        //            if (_guids.GetGuid(uid) != node.Id) {
-        //                throw new Exception("Guid mismatch. ");
-        //            }
-        //        }
+    void validateStateInfoIfDebug() {
+#if DEBUG
+        // temporary code, to be deleted later on;
+        // testing indexes
+        foreach (var n in _nodes.Snapshot()) {
+            var uid = n.nodeId;
+            var node = _nodes.Get(uid);
+            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
+                throw new Exception("Node type mismatch. ");
+            }
+            if (_guids.GetId(node.Id) != uid) {
+                throw new Exception("Guid mismatch. ");
+            }
+            if (_guids.GetGuid(uid) != node.Id) {
+                throw new Exception("Guid mismatch. ");
+            }
+        }
 
-
-
-        //        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
-        //        foreach (var r in _definition.Relations.Values) {
-        //            foreach (var v in r.Values) {
-        //                if (!_nodes.Contains(v.Target)) {
-        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-        //                    // r.DeleteIfReferenced(id); // fix
-        //                }
-        //                if (!_nodes.Contains(v.Source)) {
-        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-        //                    // r.DeleteIfReferenced(id); // fix
-        //                }
-        //            }
-        //        }
-        //#endif
+        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
+        foreach (var r in _definition.Relations.Values) {
+            foreach (var v in r.Values) {
+                if (!_nodes.Contains(v.Target)) {
+                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+                    // r.DeleteIfReferenced(id); // fix
+                }
+                if (!_nodes.Contains(v.Source)) {
+                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+                    // r.DeleteIfReferenced(id); // fix
+                }
+            }
+        }
+#endif
     }
     public long GetLastTimestampID() {
         _lock.EnterReadLock();

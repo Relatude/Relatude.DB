@@ -37,7 +37,6 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly StateIdValueTracker<T> _stateId;
     readonly IOProviderDisk _io;
     readonly FileKeyUtility _fileKeys;
-    long _timestamp;
     public ValueIndex(SetRegister register, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
@@ -187,28 +186,30 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public T GetValue(int nodeId) => _valueById[nodeId];
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
-    public void SaveState(IAppendStream stream) {
+    public void SaveStateForMemoryIndexes(long timestampId) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedInt(_valueById.Count);
         foreach (var (id, value) in _valueById) {
             stream.WriteUInt((uint)id);
             _writeValue(value, stream);
         }
+        stream.WriteVerifiedLong(timestampId);
+        Timestamp = timestampId;
     }
-    public void ReadState(Guid walFileId) {
-        WalFileId = walFileId;
+    public void ReadStateForMemoryIndexes() {
         Timestamp = 0;
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
-        var fileWafFileId = stream.ReadGuid();
-        if (fileWafFileId != walFileId) return; // no state to read as wal file id does not match
         var noIds = stream.ReadVerifiedInt();
         for (var i = 0; i < noIds; i++) {
             var id = stream.ReadInt();
             var value = _readValue(stream);
             add(id, value);
         }
-        Timestamp = stream.ReadLong();
+        Timestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() {
 
@@ -250,8 +251,5 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         };
     }
     public long Timestamp { get; private set; }
-    public void Commit(long timestamp) => Timestamp = timestamp;
-    public void Reset() {
-    }
-    public Guid WalFileId { get; private set; }
+    
 }

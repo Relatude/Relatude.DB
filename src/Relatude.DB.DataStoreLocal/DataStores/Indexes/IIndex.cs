@@ -21,12 +21,9 @@ public interface IIndex : IDisposable {
     void RegisterAddDuringStateLoad(int id, object value, long timestampId);
     void RegisterRemoveDuringStateLoad(int id, object value, long timestampId);
 
-    void ReadState(Guid walFileId);
-    void SaveState(IAppendStream stream);
+    void ReadStateForMemoryIndexes();
+    void SaveStateForMemoryIndexes(long timestampId);
 
-    Guid WalFileId { get; }
-    long Timestamp { get; }
-    void Commit(long timestamp);
-    void Reset();
+    long Timestamp { get; set; }
 
 }

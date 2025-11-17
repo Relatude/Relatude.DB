@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
@@ -13,6 +14,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         _stateId = new(sets);
         _sets = sets;
         _tableName = store.GetTableName(indexId);
+        Timestamp = _store.GetTimestamp(_indexId);
     }
     int _idCount = -1;
     public int IdCount {
@@ -24,6 +26,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
             return _idCount;
         }
     }
+
     void add(int id, T value) {
         using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
         cmd.Parameters.AddWithValue("@id", id);
@@ -42,11 +45,21 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
     public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) add(nodeId, (T)value);
+        if (timestampId > Timestamp) {
+            add(nodeId, (T)value);
+            Timestamp = timestampId; // not really needed as timestamp is set when state load is completed
+        }
     }
     public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) remove(nodeId, (T)value);
+        if (timestampId > Timestamp) {
+            remove(nodeId, (T)value);
+            Timestamp = timestampId; // not really needed as timestamp is set when state load is completed
+        }
     }
+    public long Timestamp { get; set; } // only set during state load
+    public void ReadStateForMemoryIndexes() { } // not relevant for sqlite indexes  
+    public void SaveStateForMemoryIndexes(long timestampId) { } // not relevant for sqlite indexes  
+
     public IEnumerable<int> Ids {
         get {
             using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName);
@@ -166,12 +179,8 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         using var reader = cmd.ExecuteReader();
         while (reader.Read()) yield return reader.GetInt32(0);
     }
-    public void ReadState(IReadStream stream) { }
-    public void SaveState(IAppendStream stream) { }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         throw new NotImplementedException();
     }
-    public long Timestamp => _store.Timestamp;
-    public void Commit(long timestamp) => _store.Commit(timestamp);
 }
 

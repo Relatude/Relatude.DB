@@ -44,8 +44,8 @@ internal sealed class Definition {
     internal Dictionary<Guid, Relation> Relations { get; }
     readonly Cache<long, Property[]> _facetPropCache = new(400);
     Dictionary<string, IIndex> _indexes { get; set; }
-    NodeTypeIndex _nodeTypeIndex;
-    public NodeTypeIndex NodeTypeIndex => _nodeTypeIndex;
+    NodeTypeStore _nodeTypeIndex;
+    public NodeTypeStore NodeTypeIndex => _nodeTypeIndex;
     public IdSet GetAllIdsForType(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, includeDescendants);
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
@@ -100,11 +100,6 @@ internal sealed class Definition {
             } else {
                 // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
             }
-        }
-        switch (na.Operation) {
-            case PrimitiveOperation.Add: _nodeTypeIndex.Index(na.Node); break;
-            case PrimitiveOperation.Remove: _nodeTypeIndex.DeIndex(na.Node); break;
-            default: break;
         }
     }
     internal void AddInfo(StoreStatus info) {

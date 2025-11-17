@@ -4,15 +4,19 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 public class StringArrayIndex : IIndex {
     readonly IdByValue<string> _nodeIdByValue;
     readonly Dictionary<int, string[]> _valueByNodeId;
     readonly SetRegister _sets;
-    long _timestamp = 0;
-    internal StringArrayIndex(Definition def, string uniqueKey, Guid propertyId) {
+    readonly IOProviderDisk _io;
+    readonly FileKeyUtility _fileKeys;
+    internal StringArrayIndex(Definition def, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, Guid propertyId) {
         _nodeIdByValue = new(def.Sets);
         _valueByNodeId = new();
         UniqueKey = uniqueKey;
+        _io = io;
+        _fileKeys = fileKey;
         _sets = def.Sets;
     }
     public string UniqueKey { get; private set; }
@@ -92,25 +96,33 @@ public class StringArrayIndex : IIndex {
         //    return new(ids);
         //}
     }
-    public void SaveState(IAppendStream stream) {
+    public void SaveStateForMemoryIndexes(long timestampId) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedInt(_valueByNodeId.Count);
         foreach (var kv in _valueByNodeId) {
             stream.WriteUInt((uint)kv.Key);
             stream.WriteStringArray(kv.Value);
         }
+        stream.WriteVerifiedLong(timestampId);
+        Timestamp = timestampId;
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadStateForMemoryIndexes() {
+        Timestamp = 0;
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
+        using var stream = _io.OpenRead(fileName, 0);
         var count_valueByNodeId = stream.ReadVerifiedInt();
         for (var i = 0; i < count_valueByNodeId; i++) {
             var k = (int)stream.ReadUInt();
             var v = stream.ReadStringArray();
             Add(k, v);
         }
+        Timestamp = stream.ReadVerifiedLong();
     }
-    public void CompressMemory() {}
+    public void CompressMemory() { }
     public void Dispose() { }
     public void ClearCache() { }
-    public long Timestamp => _timestamp;
-    public void Commit(long timestamp) => _timestamp = timestamp;
-
+    public long Timestamp { get; private set; }
 }

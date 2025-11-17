@@ -163,6 +163,5 @@ public class WordIndexLucene : IPersistentWordIndex {
     }
 
     public long Timestamp => _store.Timestamp;
-    public void Commit(long timestamp) => _store.Commit(timestamp);
 
 }

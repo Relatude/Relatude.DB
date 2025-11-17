@@ -48,7 +48,7 @@ internal class WALFile : IDisposable {
         _secondaryFileKey = secondaryFileKey;
         _appendStream = getWriteStream(_io, FileKey, false); // open primary log file, to lock file, even though it may not be used right away
     }
-    public void Open() {
+    public void OpenForAppending() {
         _appendStream = getWriteStream(_io, FileKey, false);
         if (_ioSecondary != null && _secondaryFileKey != null) {
             _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
@@ -243,7 +243,7 @@ internal class WALFile : IDisposable {
         Close();
         FileKey = newFileKey;
         FileId = Guid.Empty; // reset file id, so that it is read from new file
-        Open();
+        OpenForAppending();
     }
     internal void StoreTimestamp(long timestamp) {
         if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
@@ -290,7 +290,7 @@ internal class WALFile : IDisposable {
             writeStream.Dispose();
             readStream.Dispose();
         } finally {
-            Open();
+            OpenForAppending();
         }
     }
     internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {
@@ -319,7 +319,7 @@ internal class WALFile : IDisposable {
                     store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
                 });
             } finally {
-                Open();
+                OpenForAppending();
             }
         } else {
             store.LogInfo("Secondary log file active. ");

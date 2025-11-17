@@ -6,7 +6,6 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Transactions;
 namespace Relatude.DB.DataStores;
-
 public sealed partial class DataStoreLocal : IDataStore {
     byte[][] readSegments(NodeSegment[] segments, out int diskReads) => _wal.ReadNodeSegments(segments, out diskReads);
     void updateNodeDataPositionInLogFile(int id, NodeSegment seg) {
@@ -48,7 +47,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
-        if (PersistedIndexStore != null) PersistedIndexStore.Commit(_wal.LastTimestamp);
+        _index.SaveStateForMemoryIndexes(_wal.LastTimestamp);
     }
     void readState(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
@@ -62,9 +61,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
-
-        _index.ReadStates(walFileId);
-
+        LogInfo("Reading indexes...");
+        _index.ReadStateForMemoryIndexes(); // could introduce lazy loading of indexes later....
         if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
@@ -82,7 +80,6 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var logFileSize = stream.ReadVerifiedLong();
                 var fileId = stream.ReadGuid();
                 if (fileId != walFileId) throw new Exception("Statefile does not belong to log file. It cannot be used. ");
-
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
@@ -94,6 +91,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);
+                validateStateInfoIfDebug();
             } catch (Exception err) {
                 var errMsg = "Failed loading index states. " + err.Message; // try to continue with loading from log file
                 throw new StateFileReadException(errMsg, err);
@@ -101,11 +99,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
 
+        // figuring out from where to read the log file to reach latest state, building on current read state
         var lowestTimestamp = Math.Min(_index.GetLowestTimestamp(), stateFileTimestamp);
         _wal.FindPositionOfTimestamp(lowestTimestamp, out var positionOfLastTransactionSavedToStateFile);
+
         int transactionCount = 0;
         int actionCount = 0;
-        validateIndexesIfDebug();
         var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : " the beginning.";
         var positionInPercentage = positionOfLastTransactionSavedToStateFile * 100 / (walFileSize + 1);
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% " + readingFrom);
@@ -121,6 +120,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logCriticalError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
                 actionCountInTransaction = 0;
+                var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
+                // "stateSstores" are: _guids, _nodes, _relations, _nativeModelStore, _definition.NodeTypeIndex,
+                // but not _index which may need all actions to build correctly
                 foreach (var a in transaction.ExecutedActions) {
                     actionCount++;
                     actionCountInTransaction++;
@@ -136,44 +138,35 @@ public sealed partial class DataStoreLocal : IDataStore {
                         var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
                         var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
                         lastProgress = (int)sw.ElapsedMilliseconds;
-                        var desc = "   - " + (int)estimatedTotalProgress
-                            + "% - " + readBytes.ToByteString()
-                            //+ " (" + totalBytes.ToByteString() + ")"
-                            + " - " + bytesPerSecond.ToByteString() + "/s"
-                            //+ " - " + transactionCount.To1000N() + " transactions"
-                            + " - " + actionCount.To1000N() + " actions"
-                            + remaining;
-                        //    0-100% - 1.2GB (4.5GB) - 12MB/s - 2345 transactions - 34567 actions - 1m23s remaining
+                        var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
                         LogInfo(desc);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
                         UpdateActivity(activityId, desc.Trim(), progressBar);
                         lastBytesRead = readBytes;
                     }
-                    _guids.RegisterAction(a);
-                    if (a is PrimitiveNodeAction na) {
-                        _nodes.RegisterAction_NotThreadsafe(na);
-                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, na, throwOnErrors, logCriticalError);
-                    } else if (a is PrimitiveRelationAction ra) {
-                        _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
-                    } else throw new NotImplementedException();
-                    _nativeModelStore.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logCriticalError);
-                    _noPrimitiveActionsSinceLastStateSnaphot++;
-                    if (a.Operation == PrimitiveOperation.Remove)
-                        _noPrimitiveActionsInLogThatCanBeTruncated++;
+                    _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logCriticalError);
+                    if (isTransactionRelevantForStateStores) {
+                        _guids.RegisterAction(a);
+                        if (a is PrimitiveNodeAction na) {
+                            _nodes.RegisterAction_NotThreadsafe(na);
+                            _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logCriticalError);
+                        } else if (a is PrimitiveRelationAction ra) {
+                            _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
+                        } else throw new NotImplementedException();
+                        _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logCriticalError);
+                        _noPrimitiveActionsSinceLastStateSnaphot++;
+                        if (a.Operation == PrimitiveOperation.Remove) _noPrimitiveActionsInLogThatCanBeTruncated++;
+                    }
                 }
-                _noTransactionsSinceLastStateSnaphot++;
+                if (isTransactionRelevantForStateStores) {
+                    _noTransactionsSinceLastStateSnaphot++;
+                }
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
-        if (PersistedIndexStore != null) {
-            if (PersistedIndexStore.Timestamp > _wal.LastTimestamp) {
-                // will cause a delete of all state files and a new try of reload
-                throw new StateFileReadException("Persited state file is older than log file and cannot be used. ", null);
-            }
-            PersistedIndexStore.Commit(_wal.LastTimestamp);
-        }
-        _wal.Open(); // read for appending again
-        validateIndexesIfDebug();
+        if(PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(_wal.LastTimestamp); // ensure persisted indexes have updated timestamp
+        _wal.OpenForAppending(); // read for appending again
+        validateStateInfoIfDebug();
         if (actionCount > 0) {
             LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         } else {

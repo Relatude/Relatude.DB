@@ -1,9 +1,10 @@
-﻿using System.Dynamic;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 class MutableIdSet() {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
@@ -25,16 +26,15 @@ class MutableIdSet() {
         return _lastSet ??= new(_ids, _state.Current);
     }
 }
-internal class NodeTypeIndex {
+internal class NodeTypeStore {
     Definition _definition;
-    long _timestamp = 0;
     Dictionary<Guid, short> _shortTypeIdByGuid = [];
     Guid[] _guidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     Dictionary<int, short> _typeByIds = [];
 
     Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDecendants = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDecendants = [];
-    internal NodeTypeIndex(Definition definition, string uniqueKey) {
+    internal NodeTypeStore(Definition definition, string uniqueKey) {
         _definition = definition;
         UniqueKey = uniqueKey;
     }
@@ -73,6 +73,20 @@ internal class NodeTypeIndex {
         throw new Exception("Internal error. Unable to find next available TypeId. Maximum number of " + short.MaxValue + " reached.");
     }
 
+    public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception> log) {
+        var node = na.Node;
+        try {
+            switch (na.Operation) {
+                case PrimitiveOperation.Add: insert(node.__Id, node.NodeType); break;
+                case PrimitiveOperation.Remove: delete(node.__Id, node.NodeType); break;
+                default: break;
+            }
+        } catch (Exception ex) {
+            var msg = "Error registering action during index type state load for node id: " + node.__Id + " operation: " + na.Operation + " . Error: " + ex.Message;
+            log(msg, ex);
+            if (throwOnErrors) throw new Exception(msg, ex);
+        }
+    }
     public void Index(INodeData node) => insert(node.__Id, node.NodeType);
     public void DeIndex(INodeData node) => delete(node.__Id, node.NodeType);
 

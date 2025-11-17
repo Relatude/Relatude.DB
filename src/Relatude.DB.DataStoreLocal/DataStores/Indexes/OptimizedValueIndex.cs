@@ -45,10 +45,9 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public T? MaxValue() { _o.Dequeue(); return _i.MaxValue(); }
     public T? MinValue() { _o.Dequeue(); return _i.MinValue(); }
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.RangeSearch(from, to, fromInclusive, toInclusive); }
-    public void ReadState(IReadStream stream) { _o.Dequeue(); _i.ReadState(stream); }
-    public void SaveState(IAppendStream stream) { _o.Dequeue(); _i.SaveState(stream); }
+    public void ReadStateForMemoryIndexes( ) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(); }
+    public void SaveStateForMemoryIndexes(long timestamp) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(timestamp); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive); }
-    public long Timestamp { get { _o.Dequeue(); return Timestamp; } }
-    public void Commit(long timestamp) { _o.Dequeue(); _i.Commit(timestamp); }
+    public long Timestamp { get { _o.Dequeue(); return Timestamp; } }    
 }

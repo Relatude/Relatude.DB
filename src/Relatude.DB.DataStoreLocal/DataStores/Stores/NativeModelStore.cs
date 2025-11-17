@@ -203,7 +203,7 @@ public class NativeModelStore(DataStoreLocal store) {
         }
     }
 
-    public void RegisterActionDuringStateLoad(long timestamp, PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
+    public void RegisterActionDuringStateLoad(PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
         try {
             if (action is PrimitiveNodeAction na) {
                 UpdateNodeActionIfRelevant(na);

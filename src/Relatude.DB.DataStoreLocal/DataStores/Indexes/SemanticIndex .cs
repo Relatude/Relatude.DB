@@ -11,17 +11,18 @@ internal class SemanticIndex : IIndex {
     readonly IVectorIndex _index;
     readonly AIEngine _ai;
     readonly SetRegister _register;
+    readonly IOProviderDisk _io;
+    readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
-    readonly DataStoreLocal _db;
-    long _timestamp = 0;
-    public SemanticIndex(SetRegister sets, string uniqueKey, AIEngine ai, DataStoreLocal db) {
+    public SemanticIndex(SetRegister sets, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, AIEngine ai) {
         _register = sets;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
         _ai = ai;
         newSetState();
-        _db = db;
+        _io = io;
+        _fileKeys = fileKey;
     }
     public string UniqueKey { get; private set; }
     void newSetState() {
@@ -63,13 +64,23 @@ internal class SemanticIndex : IIndex {
     public int MaxCount(string value) {
         return 10;
     }
-    public void ReadState(IReadStream stream) {
-        newSetState();
-        _index.ReadState(stream);
-    }
-    public void SaveState(IAppendStream stream) {
+    public void SaveStateForMemoryIndexes(long timestampId) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        using var stream = _io.OpenAppend(fileName);
         newSetState();
         _index.SaveState(stream);
+        stream.WriteVerifiedLong(timestampId);
+        Timestamp = timestampId;
+    }
+    public void ReadStateForMemoryIndexes() {
+        Timestamp = 0;
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
+        using var stream = _io.OpenRead(fileName, 0);
+        newSetState();
+        _index.ReadState(stream);
+        Timestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() {
     }
@@ -85,6 +96,5 @@ internal class SemanticIndex : IIndex {
         // more to be done later here....
         return sourceText;
     }
-    public long Timestamp => _timestamp;
-    public void Commit(long timestamp) => _timestamp = timestamp;
+    public long Timestamp { get; private set; }
 }
