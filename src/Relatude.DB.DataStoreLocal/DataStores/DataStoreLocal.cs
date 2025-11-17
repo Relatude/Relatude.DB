@@ -35,6 +35,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly ReaderWriterLockSlim _lock;
     readonly FileKeyUtility _fileKeys;
     readonly IIOProvider _io;
+    readonly IIOProvider _ioIndex;
     readonly IIOProvider _ioLog;
     readonly IIOProvider _ioLog2;
     readonly IIOProvider _ioAutoBackup;
@@ -75,13 +76,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         AIEngine? ai = null,
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
         IQueueStore? queueStore = null,
-        IIOProvider? secondaryLogIO = null
+        IIOProvider? secondaryLogIO = null,
+        IIOProvider? indexIO = null
+
         ) {
         _initiatedUtc = DateTime.UtcNow;
         //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
         _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
+        _ioIndex = indexIO ?? _io;
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
@@ -147,6 +151,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public AIEngine AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
     public IStoreLogger Logger => _logger;
     public IIOProvider IO => _io;
+    public IIOProvider IOIndex => _ioIndex;
     public IIOProvider IOBackup => _ioAutoBackup;
     public SettingsLocal Settings => _settings;
     public long Timestamp {

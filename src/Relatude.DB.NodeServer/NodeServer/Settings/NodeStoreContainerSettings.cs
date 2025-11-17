@@ -9,6 +9,8 @@ public class NodeStoreContainerSettingsBase {
 public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public IOSettings[]? IOSettings { get; set; }
     public Guid? IoDatabase { get; set; }
+    public Guid? IoDatabaseSecondary { get; set; }
+    public Guid? IoIndexes { get; set; }
     public Guid[]? IoFiles { get; set; }
     public Guid? IoBackup { get; set; }
     public Guid? IoLog { get; set; }

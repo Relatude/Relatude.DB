@@ -23,13 +23,13 @@ public class AddRemoveOptimization(IIndex index) {
         _lastRemovedNodeId = id;
         _lastRemovedValue = value;
     }
-    public void RegisterAddDuringStateLoad(int id, object value, long timestampId) {
+    public void RegisterAddDuringStateLoad(int id, object value) {
         dequeue();
-        _index.RegisterAddDuringStateLoad(id, value, timestampId);
+        _index.RegisterAddDuringStateLoad(id, value);
     }
-    public void RegisterRemoveDuringStateLoad(int id, object value, long timestampId) {
+    public void RegisterRemoveDuringStateLoad(int id, object value) {
         dequeue();
-        _index.RegisterRemoveDuringStateLoad(id, value, timestampId);
+        _index.RegisterRemoveDuringStateLoad(id, value);
     }
     void dequeue() {
         if (_lastRemovedNodeId == 0) return;

@@ -5,11 +5,12 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
+
 internal class StringArrayProperty : Property, IPropertyContainsValue {
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) Index = new StringArrayIndex(def, Id + nameof(StringArrayIndex), Id);
+        if (Indexed) Index = new StringArrayIndex(def, Id + nameof(StringArrayIndex), store.IOIndex, store.FileKeys, Id);
         if (Index != null) Indexes.Add(Index);
     }
     public override IRangeIndex? ValueIndex => null;
@@ -59,7 +60,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
     public override bool AreValuesEqual(object v1, object v2) {
         var a1 = StringArrayPropertyModel.ForceValueType(v1, out _);
         var a2 = StringArrayPropertyModel.ForceValueType(v2, out _);
-        if(a1 == null && a2 == null) return true; // both are null
+        if (a1 == null && a2 == null) return true; // both are null
         if (a1 == null || a2 == null) return false; // one is null, the other is not
         if (a1.Length != a2.Length) return false; // different lengths
         for (int i = 0; i < a1.Length; i++) {

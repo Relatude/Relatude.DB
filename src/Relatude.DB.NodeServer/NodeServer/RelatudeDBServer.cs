@@ -309,6 +309,10 @@ public partial class RelatudeDBServer {
             return _ais.TryGetValue(id + filePrefix, out ai);
         }
     }
+    public IIOProvider? GetOrNullIO(Guid? id) {
+        if(id == null) return null;
+        return GetIO(id.Value);
+    }
     public IIOProvider GetIO(Guid id) {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;

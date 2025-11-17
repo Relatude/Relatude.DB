@@ -15,7 +15,7 @@ public class StoreStreamMemoryRead : IReadStream {
         _onDispose = onDispose;
     }
     public string FileKey { get; }
-    public long Position { get => _position; set => _position = value; }
+    public long Position { get => _position;  set => _position = value; }
     public bool More() => _position < _bytes.Length;
     public byte[] Read(int length) {
         if (_isDisposed) throw new ObjectDisposedException("Stream is disposed. ");

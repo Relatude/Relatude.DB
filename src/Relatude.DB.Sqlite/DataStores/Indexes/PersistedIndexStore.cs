@@ -72,7 +72,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
-    internal long GetTimestamp(string indexId) {
+    public long GetTimestamp(string indexId) {
         var key = "Timestamp_" + indexId;
         return long.Parse(getSetting(key, "0"));
     }
@@ -94,6 +94,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, PropertyType type) where T : notnull {
         var index = new ValueIndexSqlite<T>(sets, this, key);
         _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_"), index));
+        index.PersistedTimestamp = GetTimestamp(key);
         return index;
     }
     string getSqlType(PropertyType type) {
@@ -116,7 +117,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     public void FlushAndCommitTimestamp(long timestamp) {
         _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
         commit();
-        _idxs.Values.ForEach(i => i.Index.Timestamp = timestamp);
+        _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
     }
     public void ResetIfNotMatching(Guid logFileId) {
         if (LogFileId == logFileId) return;
@@ -204,6 +205,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         } else {
             index = new WordIndexSqlite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
+        index.PersistedTimestamp = GetTimestamp(key);
         _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
         return index;
     }

@@ -3,6 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+
 public class WordIndexSqlite : IWordIndex {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
@@ -42,19 +43,15 @@ public class WordIndexSqlite : IWordIndex {
     }
     public void Add(int id, object value) => add(id, (string)value);
     public void Remove(int id, object value) => remove(id, (string)value);
-    public void RegisterAddDuringStateLoad(int id, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) add(id, (string)value);
-    }
-    public void RegisterRemoveDuringStateLoad(int id, object value, long timestampId) {
-        if (timestampId > _store.Timestamp) remove(id, (string)value);
-    }
+    public void RegisterAddDuringStateLoad(int id, object value) => add(id, (string)value);
+    public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (string)value);
     public void ClearCache() { }
     public void CompressMemory() { }
     public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public void Dispose() { }
     public int GetQueuedTaskCount() => 0;
-    public void ReadState(IReadStream stream) { }
-    public void SaveState(IAppendStream stream) { }
+    public void ReadStateForMemoryIndexes() { } // not relevant for lucene indexes
+    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for lucene indexes
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
@@ -116,7 +113,7 @@ public class WordIndexSqlite : IWordIndex {
         while (reader.Read()) result.Add(new(reader.GetInt32(0), reader.GetDouble(1)));
         List<RawSearchHit> hits = [];
         foreach (var r in result) {
-            hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d)});
+            hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
         }
 
         var sql2 = "SELECT COUNT(id) FROM " + _tableName + " WHERE value MATCH @query";
@@ -126,6 +123,5 @@ public class WordIndexSqlite : IWordIndex {
 
         return hits;
     }
-    public long Timestamp { get { return _store.Timestamp; } }
-    public void Commit(long timestamp) {  _store.FlushAndCommitTimestamp(timestamp); }
+    public long PersistedTimestamp { get; set; }
 }

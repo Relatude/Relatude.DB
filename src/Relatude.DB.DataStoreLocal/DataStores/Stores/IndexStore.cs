@@ -1,8 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
-using Relatude.DB.IO;
-using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Transactions;
@@ -39,7 +37,7 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-    public void SaveStateForMemoryIndexes(long timestamp) => _definition.GetAllIndexes().ForEach(index => index.SaveStateForMemoryIndexes(timestamp));
+    public void SaveStateForMemoryIndexes(long logTimestamp) => _definition.GetAllIndexes().ForEach(index => index.SaveStateForMemoryIndexes(logTimestamp));
     public void ReadStateForMemoryIndexes() {
         //Parallel.ForEach(_definition.GetAllIndexes(), index => index.ReadStateForMemoryIndexes());
         _definition.GetAllIndexes().ForEach(index => index.ReadStateForMemoryIndexes());
@@ -49,6 +47,6 @@ internal class IndexStore : IDisposable {
         _definition.RegisterActionDuringStateLoad(transactionTimestamp, na, throwOnErrors, log);
     }
     public void ClearCache() => _definition.GetAllIndexes().ForEach(index => index.ClearCache());
-    internal long GetLowestTimestamp() => _definition.GetAllIndexes().Min(i => i.Timestamp);
+    internal long GetOldestPersistedTimestamp() => _definition.GetAllIndexes().Min(i => i.PersistedTimestamp);
     public void Dispose() => _definition.GetAllIndexes().ForEach(index => index.Dispose());
 }

@@ -13,7 +13,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public SemanticIndex? Index { get; private set; }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed && ai != null) {
-                Index = new SemanticIndex(def.Sets, Id.ToString(), ai, store);
+                Index = new SemanticIndex(def.Sets, Id.ToString(), store.IOIndex, store.FileKeys, ai);
                 Indexes.Add(Index);
             }
         }

@@ -6,7 +6,8 @@ using Relatude.DB.IO;
 using Relatude.DB.Serialization;
 using Relatude.DB.Transactions;
 
-namespace Relatude.DB.DataStores.Stores; 
+namespace Relatude.DB.DataStores.Stores;
+
 internal delegate void RegisterNodeSegmentCallbackFunc(int id, NodeSegment seg);
 internal delegate void DiskFlushCallback(long timestamp);
 /// <summary>
@@ -77,12 +78,12 @@ internal class WALFile : IDisposable {
         try {
             s = io.OpenAppend(fileKey);
             if (s.Length == 0) {
-                s.WriteMarker(_logStartMarker);// pos 0
-                s.WriteVerifiedLong(_logVersioNumber); // pos 16
+                s.WriteMarker(_logStartMarker);// from pos 0
+                s.WriteVerifiedLong(_logVersioNumber); // from pos 16
                 if (!isSecondaryLog) {
                     FileId = Guid.NewGuid(); // do not create new file id for secondary log
                 }
-                s.WriteGuid(FileId); // pos 32
+                s.WriteGuid(FileId); // from pos 32
                 // now at pos 48 
                 FirstTimestamp = 0;
             } else {
@@ -145,7 +146,7 @@ internal class WALFile : IDisposable {
         long bytesWritten = stream.Length - bytesStartPos;
         return bytesWritten;
     }
-    public long GetPositionOfLastTransaction() {
+    public long GetPositionAfterLastTransaction() {
         return _appendStream.Length;
     }
     public long NewTimestamp() {
@@ -262,7 +263,9 @@ internal class WALFile : IDisposable {
         s.LogWritesQueuedTransactions = _workQueue.EstimateTransactionCount;
         s.LogWritesQueuedActions = _workQueue.GetQueueActionCount();
         s.LogFileKey = FileKey;
-        s.LogFileSize = _appendStream?.Length ?? 0;
+        try {
+            s.LogFileSize = _appendStream?.Length ?? 0;
+        } catch { } // file may be closed....
     }
     internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreams(true);
@@ -331,43 +334,8 @@ internal class WALFile : IDisposable {
             //if(latestPrimaryTimestamp!= latestSecondaryTimestamp) {
             //    throw new Exception("Primary and secondary log files are out of sync. ");
             //}
-        _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
+            _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true);
         }
     }
 
-    internal void FindPositionOfTimestamp(long lowestTimestamp, out long positionOfLastTransactionSavedToStateFile) {
-        // binary search for position of last transaction with timestamp <= lowestTimestamp
-        positionOfLastTransactionSavedToStateFile = 64; // start of first transaction
-        long left = 64;
-        long right = _appendStream.Length;
-        while (left < right) {
-            long mid = (left + right) / 2;
-            // move mid to start of transaction
-            mid = moveToStartOfNextTransaction(mid);
-            if (mid >= _appendStream.Length) {
-                right = mid;
-                continue;
-            }
-            var ts = _appendStream.GetLong(mid + 16); // timestamp is after start marker
-            if (ts <= lowestTimestamp) {
-                positionOfLastTransactionSavedToStateFile = mid;
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
-    }
-    long moveToStartOfNextTransaction(long position) {
-        // move position to start of next transaction start marker
-        // transaction start marker is 16 bytes long
-        position = Math.Max(64, position); // ensure we are after header
-        while (position < _appendStream.Length - 16) {
-            var marker = _appendStream.GetGuid(position);
-            if (marker == _transactionStartMarker) {
-                return position;
-            }
-            position++;
-        }
-        return _appendStream.Length;
-    }
 }

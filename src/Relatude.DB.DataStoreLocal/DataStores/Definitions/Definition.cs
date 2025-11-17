@@ -83,11 +83,12 @@ internal sealed class Definition {
         foreach (var kv in na.Node.Values) {
             if (Properties.TryGetValue(kv.PropertyId, out var property)) {
                 foreach (var index in property.Indexes) {
+                    if (transactionTimestamp <= index.PersistedTimestamp) continue;
                     try {
                         if (property.IsNodeRelevantForIndex(na.Node, index)) {
                             switch (na.Operation) {
-                                case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(na.Node.__Id, kv.Value, transactionTimestamp); break;
-                                case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(na.Node.__Id, kv.Value, transactionTimestamp); break;
+                                case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(na.Node.__Id, kv.Value); break;
+                                case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(na.Node.__Id, kv.Value); break;
                                 default: throw new NotImplementedException();
                             }
                         }

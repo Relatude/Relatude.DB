@@ -18,12 +18,12 @@ public interface IIndex : IDisposable {
     void Add(int id, object value);
     void Remove(int id, object value);
 
-    void RegisterAddDuringStateLoad(int id, object value, long timestampId);
-    void RegisterRemoveDuringStateLoad(int id, object value, long timestampId);
+    void RegisterAddDuringStateLoad(int id, object value);
+    void RegisterRemoveDuringStateLoad(int id, object value);
 
     void ReadStateForMemoryIndexes();
-    void SaveStateForMemoryIndexes(long timestampId);
+    void SaveStateForMemoryIndexes(long logTimestamp);
 
-    long Timestamp { get; set; }
+    long PersistedTimestamp { get; set; }
 
 }

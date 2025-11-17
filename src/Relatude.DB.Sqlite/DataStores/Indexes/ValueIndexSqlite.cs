@@ -14,7 +14,6 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         _stateId = new(sets);
         _sets = sets;
         _tableName = store.GetTableName(indexId);
-        Timestamp = _store.GetTimestamp(_indexId);
     }
     int _idCount = -1;
     public int IdCount {
@@ -44,21 +43,11 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > Timestamp) {
-            add(nodeId, (T)value);
-            Timestamp = timestampId; // not really needed as timestamp is set when state load is completed
-        }
-    }
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) {
-        if (timestampId > Timestamp) {
-            remove(nodeId, (T)value);
-            Timestamp = timestampId; // not really needed as timestamp is set when state load is completed
-        }
-    }
-    public long Timestamp { get; set; } // only set during state load
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
+    public long PersistedTimestamp { get; set; } // only set during state load
     public void ReadStateForMemoryIndexes() { } // not relevant for sqlite indexes  
-    public void SaveStateForMemoryIndexes(long timestampId) { } // not relevant for sqlite indexes  
+    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for sqlite indexes  
 
     public IEnumerable<int> Ids {
         get {

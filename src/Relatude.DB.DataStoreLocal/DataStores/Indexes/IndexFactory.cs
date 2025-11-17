@@ -23,7 +23,7 @@ internal static class IndexFactory {
         if (useProvider && store.PersistedIndexStore != null) {
             index = store.PersistedIndexStore.OpenValueIndex<T>(sets, uniqueKey, property.PropertyType);
         } else {
-            index = new ValueIndex<T>(sets, uniqueKey, writeValue, readValue);
+            index = new ValueIndex<T>(sets, uniqueKey, store.IOIndex, store.FileKeys, writeValue, readValue);
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedValueIndex<T>(index);
@@ -41,7 +41,7 @@ internal static class IndexFactory {
         if (useProvider && store.PersistedIndexStore != null) {
             index = store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         } else {
-            index = new WordIndexTrie(sets, uniqueKey, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            index = new WordIndexTrie(sets, uniqueKey, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);

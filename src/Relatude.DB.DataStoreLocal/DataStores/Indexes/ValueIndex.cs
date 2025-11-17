@@ -35,9 +35,9 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly IdByValue<T> _idByValue;
     readonly Dictionary<int, T> _valueById = [];
     readonly StateIdValueTracker<T> _stateId;
-    readonly IOProviderDisk _io;
+    readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    public ValueIndex(SetRegister register, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
+    public ValueIndex(SetRegister register, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
         _io = io;
@@ -107,8 +107,8 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => Remove(nodeId, value);
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public T? MinValue() {
         if (_min != null) return _min;
         if (ValueCount > 0) _min = _idByValue.Values.Min();
@@ -186,7 +186,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public T GetValue(int nodeId) => _valueById[nodeId];
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
-    public void SaveStateForMemoryIndexes(long timestampId) {
+    public void SaveStateForMemoryIndexes(long logTimestamp) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         _io.DeleteIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
@@ -195,11 +195,11 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             stream.WriteUInt((uint)id);
             _writeValue(value, stream);
         }
-        stream.WriteVerifiedLong(timestampId);
-        Timestamp = timestampId;
+        stream.WriteVerifiedLong(logTimestamp);
+        PersistedTimestamp = logTimestamp;
     }
     public void ReadStateForMemoryIndexes() {
-        Timestamp = 0;
+        PersistedTimestamp = 0;
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
@@ -209,7 +209,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             var value = _readValue(stream);
             add(id, value);
         }
-        Timestamp = stream.ReadVerifiedLong();
+        PersistedTimestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() {
 
@@ -250,6 +250,6 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             _ => IdCount,
         };
     }
-    public long Timestamp { get; private set; }
+    public long PersistedTimestamp { get; set; }
     
 }

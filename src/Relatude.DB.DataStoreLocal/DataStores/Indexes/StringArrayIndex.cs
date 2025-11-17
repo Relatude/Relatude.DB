@@ -4,14 +4,13 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
-
 public class StringArrayIndex : IIndex {
     readonly IdByValue<string> _nodeIdByValue;
     readonly Dictionary<int, string[]> _valueByNodeId;
     readonly SetRegister _sets;
-    readonly IOProviderDisk _io;
+    readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    internal StringArrayIndex(Definition def, string uniqueKey, IOProviderDisk io, FileKeyUtility fileKey, Guid propertyId) {
+    internal StringArrayIndex(Definition def, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, Guid propertyId) {
         _nodeIdByValue = new(def.Sets);
         _valueByNodeId = new();
         UniqueKey = uniqueKey;
@@ -42,8 +41,8 @@ public class StringArrayIndex : IIndex {
         _valueByNodeId.Remove(nodeId);
         foreach (var str in v) _nodeIdByValue.DeIndex(str, nodeId);
     }
-    public void RegisterAddDuringStateLoad(int nodeId, object value, long timestampId) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value, long timestampId) => Remove(nodeId, value);
+    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public bool ContainsValue(string value) => _nodeIdByValue.ContainsValue(value);
     public IEnumerable<string> GetUniqueValues() {
         return _nodeIdByValue.Values;
@@ -96,7 +95,7 @@ public class StringArrayIndex : IIndex {
         //    return new(ids);
         //}
     }
-    public void SaveStateForMemoryIndexes(long timestampId) {
+    public void SaveStateForMemoryIndexes(long logTimestamp) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         _io.DeleteIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
@@ -105,11 +104,11 @@ public class StringArrayIndex : IIndex {
             stream.WriteUInt((uint)kv.Key);
             stream.WriteStringArray(kv.Value);
         }
-        stream.WriteVerifiedLong(timestampId);
-        Timestamp = timestampId;
+        stream.WriteVerifiedLong(logTimestamp);
+        PersistedTimestamp = logTimestamp;
     }
     public void ReadStateForMemoryIndexes() {
-        Timestamp = 0;
+        PersistedTimestamp = 0;
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
@@ -119,10 +118,10 @@ public class StringArrayIndex : IIndex {
             var v = stream.ReadStringArray();
             Add(k, v);
         }
-        Timestamp = stream.ReadVerifiedLong();
+        PersistedTimestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() { }
     public void Dispose() { }
     public void ClearCache() { }
-    public long Timestamp { get; private set; }
+    public long PersistedTimestamp { get; set; }
 }

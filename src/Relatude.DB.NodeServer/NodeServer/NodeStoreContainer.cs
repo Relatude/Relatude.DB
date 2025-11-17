@@ -75,12 +75,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             CloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
-            IIOProvider? ioDatabase = settings.IoDatabase.HasValue && settings.IoDatabase != Guid.Empty ? server.GetIO(settings.IoDatabase.Value) : null;
+            var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
+            var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
+            var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
+
             string? diskFallBackPath = null;
-            if (ioDatabase is IOProviderDisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
-            if(diskFallBackPath == null) {
-                diskFallBackPath = server.DefaultSubDataFolderPath;
-            }
+            if (diskFallBackPath == null && ioDatabase is IOProviderDisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
+            if (diskFallBackPath == null && ioIndexes is IOProviderDisk ioDisk2) diskFallBackPath = ioDisk2.BaseFolder;
+            if (diskFallBackPath == null) diskFallBackPath = server.DefaultSubDataFolderPath;
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
@@ -90,8 +92,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     else fs = [.. fs, new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
                 }
             }
-            IIOProvider? ioBackup = settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty ? server.GetIO(settings.IoBackup.Value) : null;
-            IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
+            var ioBackup = server.GetOrNullIO(settings.IoBackup);
+            var ioLog = server.GetOrNullIO(settings.IoLog);
             AIEngine? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
                 server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, diskFallBackPath) : null;
             Func<IPersistedIndexStore>? createIndexStore = null;
@@ -138,7 +140,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioLog,
                     ai,
                     createIndexStore,
-                    queueStore);
+                    queueStore,
+                    ioSecondary,
+                    ioIndexes
+                    );
             Interlocked.Increment(ref _initializationCounter);
             var runners = server.GetRegisteredTaskRunners(this);
             foreach (var runner in runners) Datastore.RegisterRunner(runner);
