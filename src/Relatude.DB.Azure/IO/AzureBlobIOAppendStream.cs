@@ -51,15 +51,11 @@ namespace Relatude.DB.IO {
         }
         public void Append(byte[] data) {
             lock (_lock) {
-                //try {
                 _readBuffer = null; // reset read buffer, as new data is appended, that will not be in readbuffer
                 _checkSum.EvaluateChecksumIfRecording(data);
                 _writeBuffer.Write(data, 0, data.Length);
                 _length += data.Length;
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
-                //} catch (OutOfMemoryException ex) {
-                //    throw new Exception("Out of memory appending " + data.Length + " bytes to AzureBlobIOAppendStream. ", ex);
-                //}
             }
         }
         public void Flush(bool deepFlush) {
@@ -69,9 +65,7 @@ namespace Relatude.DB.IO {
                 var conditions = new AppendBlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
                 var options = new AppendBlobAppendBlockOptions() { Conditions = conditions };
                 if (_writeBuffer.Length < _maxBufferBeforeFlush) {
-                    //Stopwatch sw = Stopwatch.StartNew();
                     _appendBlobClient.AppendBlock(_writeBuffer, options);
-                    // _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
                 } else {
                     var segment = new byte[_maxBufferBeforeFlush];
                     var segmengStream = new MemoryStream((int)_maxBufferBeforeFlush);
@@ -84,7 +78,6 @@ namespace Relatude.DB.IO {
                         segmengStream.SetLength(read);
                         Stopwatch sw = Stopwatch.StartNew();
                         _appendBlobClient.AppendBlock(segmengStream, options);
-                        // _log("Uploaded " + FileKey + " " + _writeBuffer.Length.ToTransferString(sw));
                     }
                 }
                 _writeBuffer = new MemoryStream();
