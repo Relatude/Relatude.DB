@@ -18,7 +18,7 @@ public class WordIndexLuceneFactory : IPersistentWordIndexFactory {
         if (!System.IO.Directory.Exists(_luceneFolderPath)) System.IO.Directory.CreateDirectory(_luceneFolderPath);
     }
     public IPersistentWordIndex Create(SetRegister sets, IPersistedIndexStore index, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        return new WordIndexLucene(sets, index, key, friendlyName, _luceneFolderPath, minWordLength, maxWordLength, prefixSearch, infixSearch);
+        return new WordIndexLucene(sets, key, friendlyName, _luceneFolderPath, minWordLength, maxWordLength, prefixSearch, infixSearch);
     }
     public void DeleteAllFiles() {
         if (System.IO.Directory.Exists(_luceneFolderPath)) {
@@ -30,7 +30,6 @@ public class WordIndexLuceneFactory : IPersistentWordIndexFactory {
 public class WordIndexLucene : IPersistentWordIndex {
     static LuceneVersion _version = LuceneVersion.LUCENE_48;
     readonly string _indexId;
-    readonly IPersistedIndexStore _store;
     readonly StateIdValueTracker<string> _stateId;
     readonly SetRegister _sets;
     readonly string _path;
@@ -41,11 +40,10 @@ public class WordIndexLucene : IPersistentWordIndex {
     public int MaxWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    public WordIndexLucene(SetRegister sets, IPersistedIndexStore store, string indexId, string friendlyName,string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexLucene(SetRegister sets, string indexId, string friendlyName,string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _path = Path.Combine(folderPath, indexId.ToLower().Replace("wordindex", ""));
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _indexId = indexId;
-        _store = store;
         _stateId = new(sets);
         _sets = sets;
         MinWordLength = minWordLength;

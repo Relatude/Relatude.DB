@@ -21,7 +21,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
     readonly IPersistentWordIndexFactory? _wordIndexFactory;
     readonly string _indexPath;
-    bool _isDirty = false;
     long _lastTimestamp = -1;
     public PersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
@@ -68,7 +67,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         var cmd = _connection.CreateCommand();
         cmd.Transaction = _transaction;
         if (sql != null) cmd.CommandText = sql;
-        _isDirty = true;
         return cmd;
     }
     void executeCommand(string sql) {
@@ -123,10 +121,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public void FlushAndCommitTimestamp(long timestamp) {
         if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
-        if (_isDirty) {
-            commit();
-            _isDirty = false;
-        }
+        commit();
         if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
         _lastTimestamp = timestamp;
     }
@@ -177,10 +172,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public void Dispose() {
         foreach (var i in _wordIndexLucenes) i.Value.Dispose();
-        try {
-            _transaction.Commit();
-            _connection.Close();
-        } catch { }
+        try { _transaction.Commit(); } catch { }
+        try { _connection.Close(); } catch { }
         _transaction.Dispose();
         _connection.Dispose();
     }

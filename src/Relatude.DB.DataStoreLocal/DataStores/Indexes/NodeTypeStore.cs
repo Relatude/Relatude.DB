@@ -120,7 +120,7 @@ internal class NodeTypeStore {
         {
             if (_idsByTypeWithoutDecendants.TryGetValue(nodeTypeId, out var ids)) {
                 ids.DeIndex(id);
-                if (ids.Count == 0) _idsByTypeIncludingDecendants.Remove(nodeTypeId);
+                if (ids.Count == 0) _idsByTypeWithoutDecendants.Remove(nodeTypeId);
             } else {
                 throw new Exception("Internal error. Unable to deindex node with id: " + id + " from type: " + nodeTypeId + " as it is not indexed.");
             }

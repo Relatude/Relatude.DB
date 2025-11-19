@@ -5,14 +5,13 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>0.1.0.50</Version>
+		<Version>0.1.0.52</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.1" />
 	</ItemGroup>
-
 	<ItemGroup>
-		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
+	  <ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
 	</ItemGroup>
 
 </Project>

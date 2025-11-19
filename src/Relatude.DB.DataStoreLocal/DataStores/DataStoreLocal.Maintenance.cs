@@ -21,6 +21,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return transactionCount;
     }
     internal void FlushToDisk(bool deepFlush, long parentActivityId, out int transactionCount, out int actionCount, out long bytesWritten) {
+        _lock.EnterWriteLock();
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Flushing, "Flushing to disk");
         validateDatabaseState();
         try {
@@ -31,6 +32,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
+            _lock.ExitWriteLock();
             DeRegisterActivity(activityId);
         }
     }
@@ -192,7 +194,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
         FlushToDisk(true, activityId); // ensuring all writes are flushed before locking
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
-            _lock.EnterReadLock();
+            _lock.EnterWriteLock();
             FlushToDisk(true, activityId); // ensuring all writes are flushed after locking
             try {
                 validateDatabaseState();
@@ -210,7 +212,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Failed to save index states. ", err);
             } finally {
                 DeRegisterActivity(activityId);
-                _lock.ExitReadLock();
+                _lock.EnterWriteLock();
             }
         }
     }
@@ -248,7 +250,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
             if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) {
-                IOIndex.DeleteIfItExists(_fileKeys.StateFileKey); 
+                IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
                 var indexesFiles = FileKeys.Index_GetAll(IOIndex);
                 foreach (var i in indexesFiles) IOIndex.DeleteIfItExists(i);
                 PersistedIndexStore?.ResetAll();
@@ -276,6 +278,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     public StoreStatus GetInfo() {
         var info = new StoreStatus();
         if (_state != DataStoreState.Open) return info;
+        if (_lock.IsReadLockHeld) return info;
+        if (_lock.IsWriteLockHeld) return info;
         if (!_lock.TryEnterWriteLock(100)) {
             if (_lastStoreStatusWhenOpen == null) return info;
             _lastStoreStatusWhenOpen.IsFresh = false;
