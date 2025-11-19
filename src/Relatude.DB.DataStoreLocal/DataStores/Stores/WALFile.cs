@@ -9,7 +9,6 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Stores;
 
 internal delegate void RegisterNodeSegmentCallbackFunc(int id, NodeSegment seg);
-internal delegate void DiskFlushCallback(long timestamp);
 /// <summary>
 // WAL (Write Ahead Log) store, used to store all changes to the database
 // Threadsafe read operations to support multiple read queries at the same time
@@ -29,7 +28,6 @@ internal class WALFile : IDisposable {
     internal string FileKey { get; private set; }
     readonly Definition _definition;
     readonly RegisterNodeSegmentCallbackFunc _registerAndConfrimeNodeWrite; // callback to store to register byte position a node in log file
-    readonly DiskFlushCallback? _flushCallback; // callback for updating PersistentIndexStore if used, syncing timestamp and committing transactions
     readonly LogQueue _workQueue; // queue for write operations, to make sure they are written in bacthes for better performance
     IIOProvider _io;
     IIOProvider? _ioSecondary;
@@ -37,14 +35,13 @@ internal class WALFile : IDisposable {
     IAppendStream? _secondaryAppendStream;
     string? _secondaryFileKey;
     long _lastTimestampID;
-    public WALFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, DiskFlushCallback? flushCallback, IIOProvider? ioSecondary, string? secondaryFileKey) {
+    public WALFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, IIOProvider? ioSecondary, string? secondaryFileKey) {
         FileKey = fileKey;
         _io = io;
         _definition = definition;
         _registerAndConfrimeNodeWrite = confirmWrite;
         _workQueue = new(write);
         _lastTimestampID = 0;
-        _flushCallback = flushCallback;
         _ioSecondary = ioSecondary;
         _secondaryFileKey = secondaryFileKey;
         _appendStream = getWriteStream(_io, FileKey, false); // open primary log file, to lock file, even though it may not be used right away
@@ -158,13 +155,12 @@ internal class WALFile : IDisposable {
         if (FirstTimestamp == 0) FirstTimestamp = transaction.Timestamp;
         _workQueue.Add(transaction);
     }
-    public void DequeuAllTransactionWritesAndFlushStreams(bool deepFlush) => DequeuAllTransactionWritesAndFlushStreams(deepFlush, null, out _, out _, out _);
-    public void DequeuAllTransactionWritesAndFlushStreams(bool deepFlush, Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
+    public void DequeuAllTransactionWritesAndFlushStreamsThreadSafe(bool deepFlush) => DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, null, out _, out _, out _);
+    public void DequeuAllTransactionWritesAndFlushStreamsThreadSafe(bool deepFlush, Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         // write everything to stream, no locks needed as _workQueue is threadsafe ( and write method uses locks)
-        _workQueue.DequeAllWork(progress, out transactionCount, out actionCount, out bytesWritten);
+        _workQueue.DequeAllWorkThreadSafe(progress, out transactionCount, out actionCount, out bytesWritten);
         _appendStream.Flush(deepFlush);
         if (_secondaryAppendStream != null) _secondaryAppendStream.Flush(deepFlush);
-        if (_flushCallback != null) _flushCallback(_lastTimestampID);
     }
     static int batchLimit = 1024 * 1024 * 10; // 10MB. Too low, and we get too many calls to io stream, to high and allocate unnecessary memory
     static int deltaLimit = 1024 * 200; // 200K. Too low and we get to many batches, too high and we read a lot of unnecessary data
@@ -233,14 +229,14 @@ internal class WALFile : IDisposable {
         }
     }
     public void Dispose() {
-        DequeuAllTransactionWritesAndFlushStreams(true);
+        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         _appendStream.Dispose();
         if (_secondaryAppendStream != null) _secondaryAppendStream.Dispose();
     }
     internal void ReplaceDataFile(string newFileKey, long lastTimestamp) {
         FirstTimestamp = 0; // 0 means it will be read from file
         _lastTimestampID = lastTimestamp;
-        DequeuAllTransactionWritesAndFlushStreams(true);
+        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         Close();
         FileKey = newFileKey;
         FileId = Guid.Empty; // reset file id, so that it is read from new file
@@ -250,7 +246,7 @@ internal class WALFile : IDisposable {
         if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
         _lastTimestampID = timestamp;
         QueDiskWrites(new(new(), timestamp));
-        DequeuAllTransactionWritesAndFlushStreams(true);
+        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
     }
     public void EnsureTimestamps(long readTimestamp) {
         if (readTimestamp <= _lastTimestampID) return;
@@ -268,7 +264,7 @@ internal class WALFile : IDisposable {
         } catch { } // file may be closed....
     }
     internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
-        DequeuAllTransactionWritesAndFlushStreams(true);
+        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         try {
             if (destinationIO == null) destinationIO = _io;
             if (newLogFileKey == FileKey && _io == destinationIO) throw new Exception("Cannot copy to same file. ");

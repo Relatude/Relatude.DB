@@ -3,6 +3,7 @@ using Relatude.DB.DataStores;
 using System.Diagnostics;
 
 namespace Relatude.DB.Tasks;
+
 public class TaskQueue : IDisposable {
     public TaskQueue(IDataStore store, IQueueStore queue, Dictionary<string, ITaskRunner> runners) {
         _store = store;
@@ -227,8 +228,10 @@ public class TaskQueue : IDisposable {
     }
 
     public void FlushDisk() {
-        //Stopwatch sw = Stopwatch.StartNew();
-        _queue.FlushDiskIfNeeded();
-        //Console.WriteLine("Flushed disk in " + sw.Elapsed.TotalMilliseconds.ToString("0.00ms"));
+        lock (_lock) {
+            //Stopwatch sw = Stopwatch.StartNew();
+            _queue.FlushDiskIfNeeded();
+            //Console.WriteLine("Flushed disk in " + sw.Elapsed.TotalMilliseconds.ToString("0.00ms"));
+        }
     }
 }

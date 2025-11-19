@@ -3,7 +3,7 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
-namespace Relatude.DB.DataStores.Indexes;
+namespace Relatude.DB.DataStores.Stores;
 
 class MutableIdSet() {
     readonly StateIdTracker _state = new();

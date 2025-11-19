@@ -6,8 +6,6 @@ namespace Relatude.DB.DataStores.Indexes;
 public interface IPersistedIndexStore : IDisposable {
     IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type) where T : notnull;
     IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch);
-    Guid LogFileId { get; }
-    void FlushAndCommitTimestamp(long timestamp);
     public static void DeleteFilesInDefaultFolder(string databaseFolderPath, string? filePrefix) {
         var path = Path.Combine(databaseFolderPath, new FileKeyUtility(filePrefix).IndexStoreFolderKey);
         if (Directory.Exists(path)) {
@@ -17,6 +15,8 @@ public interface IPersistedIndexStore : IDisposable {
             }
         }
     }
+    public void StartTransaction();
+    public void CommitTransaction(long timestamp);
     long GetTotalDiskSpace();
     void OptimizeDisk();
     void ReOpen();

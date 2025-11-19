@@ -6,6 +6,7 @@ using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Transactions;
+using Relatude.DB.DataStores.Stores;
 
 namespace Relatude.DB.DataStores.Definitions;
 internal sealed class Definition {

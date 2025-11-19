@@ -1,9 +1,10 @@
-﻿using System.Diagnostics;
-using Relatude.DB.IO;
-using Relatude.DB.Common;
-using Relatude.DB.Transactions;
+﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
+using Relatude.DB.IO;
+using Relatude.DB.Transactions;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
@@ -74,6 +75,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
+
         LogInfo("Reading indexes:");
         _index.ReadStateForMemoryIndexes((txt, prg) => {
             LogInfo("   " + txt);
@@ -117,6 +119,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
+            
+        var whereOutSide = _nodes.Snapshot().Where(n => n.segment.AbsolutePosition + n.segment.Length > walFileSize);
+        if (whereOutSide.Any()) throw new StateFileReadException("Some node segments point outside log file. ", null);
 
         // figuring out from where to read the log file to reach latest state, building on current read state
 
@@ -125,7 +130,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw new Exception("   Warning: State file position beyond log file size. Cannot use state file. ");
         }
         var oldestPersistedIndexTimestamp = _index.GetOldestPersistedTimestamp();
-        if (stateFileTimestamp != oldestPersistedIndexTimestamp) {
+        if (stateFileTimestamp > oldestPersistedIndexTimestamp) {
             readLogFileFom = 0; // need to read all to build indexes correctly ( this could be optimized later, to search from timestamp in log file )
         }
 
@@ -134,7 +139,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : " the beginning.";
         int positionInPercentage = (int)Math.Round(readLogFileFom * 100d / (walFileSize + 1d));
         long bytesToRead = walFileSize - readLogFileFom;
-        LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString()+" to read)" );
+        LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString() + " to read)");
         UpdateActivity(activityId, "Reading log file", 0);
         sw.Restart();
         var lastProgress = 0D;
@@ -194,8 +199,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
-        if (PersistedIndexStore != null)
-            PersistedIndexStore.FlushAndCommitTimestamp(_wal.LastTimestamp); // ensure persisted indexes have updated timestamp
+        if (PersistedIndexStore != null) {
+            // ensure persisted indexes have updated timestamp
+            PersistedIndexStore.StartTransaction();
+            PersistedIndexStore.CommitTransaction(_wal.LastTimestamp);
+        }
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {

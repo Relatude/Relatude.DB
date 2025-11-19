@@ -5,7 +5,6 @@ using Relatude.DB.Transactions;
 using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
-
 public sealed partial class DataStoreLocal : IDataStore {
     public long GetNoPrimitiveActionsInLogThatCanBeTruncated() {
         if (_state != DataStoreState.Open) return 0;
@@ -21,18 +20,17 @@ public sealed partial class DataStoreLocal : IDataStore {
         return transactionCount;
     }
     internal void FlushToDisk(bool deepFlush, long parentActivityId, out int transactionCount, out int actionCount, out long bytesWritten) {
-        _lock.EnterWriteLock();
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Flushing, "Flushing to disk");
         validateDatabaseState();
         try {
-            _wal.DequeuAllTransactionWritesAndFlushStreams(deepFlush, (txt, prg) => {
+            _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, (txt, prg) => {
                 UpdateActivity(activityId, txt, prg);
             }, out transactionCount, out actionCount, out bytesWritten);
+            TaskQueuePersisted?.FlushDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
-            _lock.ExitWriteLock();
             DeRegisterActivity(activityId);
         }
     }
@@ -113,7 +111,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
             LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);
-            _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, _nodes.Snapshot(), _relations.Snapshot(), threadSafeReadSegments, updateNodeDataPositionInLogFile);
+            var snapshot = _nodes.Snapshot();
+            var streamLen = _wal.FileSize;
+            var whereOutSide = snapshot.Where(n => n.segment.AbsolutePosition + n.segment.Length > streamLen);
+            if (whereOutSide.Any()) throw new Exception("Some node segments point outside log file. ");
+            _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, _relations.Snapshot(), threadSafeReadSegments, updateNodeDataPositionInLogFile);
             UpdateActivity(activityId, "Starting rewrite of log file", 10);
         } catch (Exception err) {
             _state = DataStoreState.Error;
@@ -132,6 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             _lock.EnterWriteLock();
             UpdateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
+            FlushToDisk(true, activityId); // ensuring all old and queued writes to old log file are flushed before finalizing rewrite ( so they do not write after hot swap )
             if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
             try {
                 _rewriter.Step2_HotSwap_RequiresWriteLock(_wal, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
@@ -139,7 +142,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
                     // reset, since we have a new log file
                 }
-                //if (hotSwapToNewFile) saveState(); // needed to refresh state file with new log file
+                if (hotSwapToNewFile) SaveIndexStates(true, true); // needed to refresh state file with new log file
                 if (hotSwapToNewFile) IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
             } finally {
                 _lock.ExitWriteLock();
@@ -192,10 +195,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     object _saveStateLock = new();
     public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) {
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
-        FlushToDisk(true, activityId); // ensuring all writes are flushed before locking
+        FlushToDisk(true, activityId); // ensuring all writes are flushed before locking, to minimize time spent locked
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
             _lock.EnterWriteLock();
-            FlushToDisk(true, activityId); // ensuring all writes are flushed after locking
+            FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock
             try {
                 validateDatabaseState();
                 if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
@@ -211,8 +214,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _state = DataStoreState.Error;
                 throw new Exception("Failed to save index states. ", err);
             } finally {
+                _lock.ExitWriteLock();
                 DeRegisterActivity(activityId);
-                _lock.EnterWriteLock();
             }
         }
     }
@@ -264,6 +267,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
     }
+    public Task MaintenanceAsync(MaintenanceAction actions) {
+        Maintenance(actions);
+        return Task.CompletedTask;
+    }
     public Task<StoreStatus> GetInfoAsync() => Task.FromResult(GetInfo());
     public long GetLogActionsNotItInStatefile() {
         _lock.EnterReadLock();
@@ -273,14 +280,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-
     StoreStatus? _lastStoreStatusWhenOpen;
     public StoreStatus GetInfo() {
         var info = new StoreStatus();
         if (_state != DataStoreState.Open) return info;
-        if (_lock.IsReadLockHeld) return info;
-        if (_lock.IsWriteLockHeld) return info;
-        if (!_lock.TryEnterWriteLock(100)) {
+        if (!_lock.TryEnterWriteLock(5)) {
             if (_lastStoreStatusWhenOpen == null) return info;
             _lastStoreStatusWhenOpen.IsFresh = false;
             return _lastStoreStatusWhenOpen;
@@ -330,10 +334,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _lastStoreStatusWhenOpen = info;
         return info;
-    }
-    public Task MaintenanceAsync(MaintenanceAction actions) {
-        Maintenance(actions);
-        return Task.CompletedTask;
     }
     public void SetTimestamp(long timestamp) {
         _lock.EnterWriteLock();

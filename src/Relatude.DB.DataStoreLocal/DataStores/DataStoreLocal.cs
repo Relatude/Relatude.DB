@@ -32,7 +32,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal NodeStore _nodes = default!;
     internal Variables _variables = default!;
     long _startUpTimeMs;
-    readonly ReaderWriterLockSlim _lock;
+    readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
@@ -84,7 +84,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         ) {
         _initiatedUtc = DateTime.UtcNow;
         //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
-        _lock = new(LockRecursionPolicy.SupportsRecursion);
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
         _ioIndex = indexIO ?? _io;
@@ -120,7 +119,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _nativeModelStore = new(this);
         _defaultFileStore = _fileStores[Guid.Empty];
-        LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
+        LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io, FileKeys);
         _scheduler = new(this);
         try {
             initialize();
@@ -200,14 +199,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_createPersistedIndexStore != null) {
             PersistedIndexStore = _createPersistedIndexStore();
         }
-        DiskFlushCallback? walFlushCallback = timestamp => {
-            if (PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(timestamp);
-            if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
-        };
         var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? _fileKeys.WAL_GetSecondaryFileKey() : null;
-        _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, walFlushCallback, io2, fileKey2);
+        _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, io2, fileKey2);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);
@@ -288,37 +283,37 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void validateStateInfoIfDebug() {
         return;
-#if DEBUG
-        // temporary code, to be deleted later on;
-        // testing indexes
-        foreach (var n in _nodes.Snapshot()) {
-            var uid = n.nodeId;
-            var node = _nodes.Get(uid);
-            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
-                throw new Exception("Node type mismatch. ");
-            }
-            if (_guids.GetId(node.Id) != uid) {
-                throw new Exception("Guid mismatch. ");
-            }
-            if (_guids.GetGuid(uid) != node.Id) {
-                throw new Exception("Guid mismatch. ");
-            }
-        }
+//#if DEBUG
+//        // temporary code, to be deleted later on;
+//        // testing indexes
+//        foreach (var n in _nodes.Snapshot()) {
+//            var uid = n.nodeId;
+//            var node = _nodes.Get(uid);
+//            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
+//                throw new Exception("Node type mismatch. ");
+//            }
+//            if (_guids.GetId(node.Id) != uid) {
+//                throw new Exception("Guid mismatch. ");
+//            }
+//            if (_guids.GetGuid(uid) != node.Id) {
+//                throw new Exception("Guid mismatch. ");
+//            }
+//        }
 
-        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
-        foreach (var r in _definition.Relations.Values) {
-            foreach (var v in r.Values) {
-                if (!_nodes.Contains(v.Target)) {
-                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-                    // r.DeleteIfReferenced(id); // fix
-                }
-                if (!_nodes.Contains(v.Source)) {
-                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-                    // r.DeleteIfReferenced(id); // fix
-                }
-            }
-        }
-#endif
+//        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
+//        foreach (var r in _definition.Relations.Values) {
+//            foreach (var v in r.Values) {
+//                if (!_nodes.Contains(v.Target)) {
+//                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+//                    // r.DeleteIfReferenced(id); // fix
+//                }
+//                if (!_nodes.Contains(v.Source)) {
+//                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+//                    // r.DeleteIfReferenced(id); // fix
+//                }
+//            }
+//        }
+//#endif
     }
     public long GetLastTimestampID() {
         _lock.EnterReadLock();

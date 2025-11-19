@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
 
@@ -52,7 +53,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
+            PersistedIndexStore?.StartTransaction();
             execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId);
+            PersistedIndexStore?.CommitTransaction(transaction.Timestamp);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {

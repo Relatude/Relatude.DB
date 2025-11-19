@@ -18,7 +18,7 @@ internal class LogQueue : IDisposable {
         }
         System.Threading.Interlocked.Increment(ref _estimatedTransactionCount);
     }
-    public void DequeAllWork(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
+    public void DequeAllWorkThreadSafe(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         ExecutedPrimitiveTransaction[] batch;
         lock (_queueLock) {
             actionCount = _queue.Sum(x => x.ExecutedActions.Count);
@@ -33,7 +33,7 @@ internal class LogQueue : IDisposable {
         System.Threading.Interlocked.Add(ref _estimatedTransactionCount, -transactionCount);
     }
     public void Dispose() {
-        DequeAllWork(null, out _, out _, out _);
+        DequeAllWorkThreadSafe(null, out _, out _, out _);
     }
 
     internal int GetQueueActionCount() {

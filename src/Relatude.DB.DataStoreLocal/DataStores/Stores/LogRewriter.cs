@@ -9,12 +9,13 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
     static readonly string _logRewriterStartFile = "rewrite.flag";
-    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io) {
+    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io, FileKeyUtility keys) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
         using var stream = io.OpenRead(_logRewriterStartFile, 0);
         var fileKey = stream.ReadString();
         if (string.IsNullOrWhiteSpace(fileKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
         io.DeleteIfItExists(fileKey);
+        io.DeleteIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
         stream.Dispose();
         io.DeleteIfItExists(_logRewriterStartFile);
     }
@@ -57,15 +58,17 @@ internal class LogRewriter {
         _destIO = destinationIO;
         _destIO.DeleteIfItExists(FileKey);
         _snapshot = snapshot;
+        // validate snapshot:
         var whereNull = snapshot.Where(n => n.segment.Length == 0);
         if(whereNull.Any()) throw new Exception("Some node segments have zero length. ");
+
         _relations = relations;
         _threadSafeReadSegments = threadSafeReadSegments;
         _registerNodeSegment = registerNodeSegment;
         _newSegements = new();
         _newWAL = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => {
             _newSegements[nodeId] = seg;
-        }, null, null, null); // no ValueIndex store, or secondary log store
+        }, null, null); // no ValueIndex store, or secondary log store
         _newTransactionsWhileRewriting = new();
     }
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
@@ -89,7 +92,7 @@ internal class LogRewriter {
             }
             var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
             _newWAL.QueDiskWrites(t);
-            _newWAL.DequeuAllTransactionWritesAndFlushStreams(true);
+            _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }
         i = 0;
         foreach (var r in _relations) {
@@ -102,28 +105,28 @@ internal class LogRewriter {
             }
             var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
             _newWAL.QueDiskWrites(t);
-            _newWAL.DequeuAllTransactionWritesAndFlushStreams(true);
+            _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }
         // add transactions added while running above code, swap variable to allow new writes to be added while writing
         var d2 = _newTransactionsWhileRewriting;
         lock (_newTransactionsWhileRewriting) _newTransactionsWhileRewriting = new(); // make new so that new transactions can be added while writing
         
         foreach (var t in d2) _newWAL.QueDiskWrites(t);
-        _newWAL.DequeuAllTransactionWritesAndFlushStreams(true);
+        _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
     }
     public void Step2_HotSwap_RequiresWriteLock(WALFile oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
         if (_finalizing) throw new Exception("Finalizing already started. ");
         _finalizing = true;
 
         foreach (var t in _newTransactionsWhileRewriting) _newWAL.QueDiskWrites(t); // final transactions, added while last step was running
-        _newWAL.DequeuAllTransactionWritesAndFlushStreams(true); // flush all writes to disk, so that the new file is ready to be used
+        _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true); // flush all writes to disk, so that the new file is ready to be used
         _newWAL.Dispose(); // dispose new store, so that it can be used by the db
         if (swapToNewFile) {
             // if swapping to new file, all node segments must be registered, so that the new file is used
+            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp); // replace old log file with new, and allow db to continue
             foreach (var node in _newSegements) {
                 _registerNodeSegment(node.Key, node.Value); // ensuring that the new segments are registered in segment cache ( NodeStore )
             }
-            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp); // replace old log file with new, and allow db to continue
         }
     }
     internal void SetTimestamp(long timestamp) {

@@ -14,14 +14,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
     string _cnnStr;
     static string _settingsTableName = "settings";
     SqliteConnection _connection;
-    SqliteTransaction _transaction;
+    SqliteTransaction? _transaction;
     readonly bool _useExternalWordIndex;
     readonly Dictionary<string, idxInfo> _idxs = [];
     public string GetTableName(string id) => _idxs[id].Table;
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
     readonly IPersistentWordIndexFactory? _wordIndexFactory;
     readonly string _indexPath;
-    long _lastTimestamp = -1;
     public PersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
         _useExternalWordIndex = wordIndexFactory != null;
@@ -36,16 +35,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
         var cmd = _connection.CreateCommand();
         cmd.CommandText = "PRAGMA journal_mode=WAL";
         cmd.ExecuteNonQuery();
-        _transaction = _connection.BeginTransaction();
-        if (!doesTableExist(_settingsTableName)) {
-            createSettingsTable();
-            commit();
-        }
+        if (!doesTableExist(_settingsTableName)) createSettingsTable();
     }
     bool doesTableExist(string tableName) {
         var result = executeScalar("SELECT name FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
         return result != null;
     }
+
     void createSettingsTable() {
         executeCommand("CREATE TABLE " + _settingsTableName + " (key TEXT PRIMARY KEY, value TEXT)");
     }
@@ -53,7 +49,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand("SELECT value FROM " + _settingsTableName + " WHERE key = @key");
         cmd.Parameters.AddWithValue("@key", key);
         var result = cmd.ExecuteScalar();
-        Console.WriteLine("GetSetting: " + key + " = " + (result == null ? "null" : (string)result));
+        // Console.WriteLine("GetSetting: " + key + " = " + (result == null ? "null" : (string)result));
         return result == null ? fallback : (string)result;
     }
     void setSetting(string key, string value) {
@@ -61,11 +57,11 @@ public class PersistedIndexStore : IPersistedIndexStore {
         cmd.Parameters.AddWithValue("@key", key);
         cmd.Parameters.AddWithValue("@value", value);
         cmd.ExecuteNonQuery();
-        Console.WriteLine("SetSetting: " + key + " = " + value);
+        // Console.WriteLine("SetSetting: " + key + " = " + value);
     }
     public SqliteCommand CreateCommand(string? sql = null) {
         var cmd = _connection.CreateCommand();
-        cmd.Transaction = _transaction;
+        if (_transaction != null) cmd.Transaction = _transaction;
         if (sql != null) cmd.CommandText = sql;
         return cmd;
     }
@@ -77,6 +73,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
+
     public long GetTimestamp(string indexId) {
         var key = "Timestamp_" + indexId;
         return long.Parse(getSetting(key, "0"));
@@ -85,17 +82,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         var key = "Timestamp_" + indexId;
         setSetting(key, timestamp.ToString());
     }
-    public Guid LogFileId {
-        get => Guid.Parse(getSetting("LogFileId", Guid.Empty.ToString()));
-        set {
-            setSetting("LogFileId", value.ToString());
-            commit();
-        }
-    }
-    public Guid ModelHash {
-        get => Guid.Parse(getSetting("ModelHash", Guid.Empty.ToString()));
-        private set => setSetting("ModelHash", value.ToString());
-    }
+
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {
         var index = new ValueIndexSqlite<T>(sets, this, key, friendlyName);
         _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_"), index));
@@ -113,75 +100,20 @@ public class PersistedIndexStore : IPersistedIndexStore {
             _ => throw new NotImplementedException()
         };
     }
-    void commit() {
-        _transaction.Commit();
-        _transaction.Dispose();
-        foreach (var i in _wordIndexLucenes.Values) i.Commit();
-        _transaction = _connection.BeginTransaction();
-    }
-    public void FlushAndCommitTimestamp(long timestamp) {
-        if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
-        commit();
-        if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
-        _lastTimestamp = timestamp;
-    }
-    public void ResetAll() {
-        commit();
-        _transaction.Dispose();
-        try {
-            _connection.Close();
-            _connection.Open(); // reopen connection to clear all tables
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name!='" + _settingsTableName + "'";
-            using var reader = cmd.ExecuteReader();
-            List<string> tables = new();
-            while (reader.Read()) tables.Add(reader.GetString(0));
-            reader.Close();
-            foreach (var table in tables) {
-                try {
-                    cmd.CommandText = "DROP TABLE IF EXISTS " + table;
-                    cmd.ExecuteNonQuery();
-                } catch { }
-            }
-            foreach (var i in _idxs.Values) {
-                try {
-                    if (i.Table.StartsWith("P")) {
-                        cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
-                        cmd.ExecuteNonQuery();
-                        cmd.CommandText = "CREATE INDEX " + i.Table + "_value ON " + i.Table + " (value)";
-                        cmd.ExecuteNonQuery();
-                    } else if (i.Table.StartsWith("W")) { // FTS5 Word Index
-                        if (!_useExternalWordIndex) {
-                            cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-                } catch { }
-            }
-            cmd.CommandText = "VACUUM";
-            cmd.ExecuteNonQuery();
-            _connection.Close();
-            _connection.Open();
-            foreach (var i in _wordIndexLucenes) i.Value.Close();
-            if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
-            foreach (var i in _wordIndexLucenes) i.Value.Open();
-        } finally {
-            _transaction = _connection.BeginTransaction();
-            FlushAndCommitTimestamp(0);
+
+    public IWordIndex OpenWordIndex(SetRegister sets, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+        IWordIndex index;
+        if (_idxs.ContainsKey(key)) return _wordIndexLucenes[key];
+        if (_wordIndexFactory != null) {
+            var idx = _wordIndexFactory!.Create(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            _wordIndexLucenes.Add(key, idx);
+            index = idx;
+        } else {
+            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
-    }
-    public void Dispose() {
-        foreach (var i in _wordIndexLucenes) i.Value.Dispose();
-        try { _transaction.Commit(); } catch { }
-        try { _connection.Close(); } catch { }
-        _transaction.Dispose();
-        _connection.Dispose();
-    }
-    public void ReOpen() {
-        _transaction.Dispose();
-        _connection.Close();
-        _connection.Open();
-        _transaction = _connection.BeginTransaction();
+        index.PersistedTimestamp = GetTimestamp(key);
+        _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
+        return index;
     }
     public T CastFromDb<T>(object? value) {
         if (value == null) return default!;
@@ -197,33 +129,88 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (value is DateTimeOffset dto) return dto.ToString("O");
         return value;
     }
-    public IWordIndex OpenWordIndex(SetRegister sets, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        IWordIndex index;
-        if (_idxs.ContainsKey(key)) return _wordIndexLucenes[key];
-        if (_wordIndexFactory != null) {
-            var idx = _wordIndexFactory!.Create(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
-            _wordIndexLucenes.Add(key, idx);
-            index = idx;
-        } else {
-            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
-        }
-        index.PersistedTimestamp = GetTimestamp(key);
-        _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
-        return index;
+
+    public void StartTransaction() {
+        if (_transaction != null) throw new InvalidOperationException("Transaction already started");
+        _transaction = _connection.BeginTransaction();
     }
-    public void OptimizeDisk() {
+    public void CommitTransaction(long timestamp) {
+        if (_transaction == null) throw new InvalidOperationException("Transaction not started");
+        foreach (var i in _idxs.Values) setTimestamp(i.Id, timestamp);
         _transaction.Commit();
-        _transaction.Dispose();
+        foreach (var i in _wordIndexLucenes.Values) i.Commit();
+        foreach (var i in _idxs.Values) i.Index.PersistedTimestamp = timestamp;
+        _transaction.Dispose(); // is this needed?...
+        _transaction = null;
+    }
+
+    public void OptimizeDisk() {
         _connection.Close();
         _connection.Open();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "VACUUM";
         cmd.ExecuteNonQuery();
-        _transaction = _connection.BeginTransaction();
         foreach (var i in _wordIndexLucenes) i.Value.OptimizeAndMerge();
     }
     public long GetTotalDiskSpace() {
         if (!Directory.Exists(_indexPath)) return 0;
-        return Directory.GetFiles(_indexPath, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+        return Directory.GetFiles(_indexPath, "*", SearchOption.AllDirectories).Sum(f => {
+            try {
+                return new FileInfo(f).Length; // sometimes files get deleted between the GetFiles and FileInfo calls
+            } catch {
+                return 0;
+            }
+        });
+    }
+
+    public void ResetAll() {
+        _connection.Close();
+        _connection.Open(); // reopen connection to clear all tables
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table'";
+        using var reader = cmd.ExecuteReader();
+        List<string> tables = new();
+        while (reader.Read()) tables.Add(reader.GetString(0));
+        reader.Close();
+        foreach (var table in tables) {
+            try {
+                cmd.CommandText = "DROP TABLE IF EXISTS " + table;
+                cmd.ExecuteNonQuery();
+            } catch { }
+        }
+        foreach (var i in _idxs.Values) {
+            i.Index.PersistedTimestamp = 0;
+            if (i.Table.StartsWith("P")) {
+                cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "CREATE INDEX " + i.Table + "_value ON " + i.Table + " (value)";
+                cmd.ExecuteNonQuery();
+            } else if (i.Table.StartsWith("W")) { // FTS5 Word Index
+                if (!_useExternalWordIndex) {
+                    cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+        cmd.CommandText = "VACUUM";
+        cmd.ExecuteNonQuery();
+        _connection.Close();
+        _connection.Open();
+        foreach (var i in _wordIndexLucenes) i.Value.Close();
+        if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
+        foreach (var i in _wordIndexLucenes) i.Value.Open();
+    }
+    public void ReOpen() {
+        _transaction?.Dispose();
+        _transaction = null;
+        _connection.Close();
+        _connection.Open();
+    }
+
+    public void Dispose() {
+        foreach (var i in _wordIndexLucenes) i.Value.Dispose();
+        try { _connection.Close(); } catch { }
+        _transaction?.Dispose();
+        _connection.Dispose();
     }
 }
