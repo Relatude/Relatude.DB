@@ -37,22 +37,25 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-    public void SaveStateForMemoryIndexes(long logTimestamp, Action<string, int> progress) {
+    public void WriteNewTimestampDueToRewriteHotswap(long logTimestamp, Guid walFileId) {
+        _definition.GetAllIndexes().ForEach(index => index.WriteNewTimestampDueToRewriteHotswap(logTimestamp, walFileId));
+    }
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId, Action<string, int> progress) {
         var count = _definition.GetAllIndexes().Count();
         var i = 0;
         foreach (var index in _definition.GetAllIndexes()) {
             progress(index.UniqueKey, 100 * i / count);
-            index.SaveStateForMemoryIndexes(logTimestamp);
+            index.SaveStateForMemoryIndexes(logTimestamp, walFileId);
         }        
     }
-    public void ReadStateForMemoryIndexes(Action<string, int> progress) {
+    public void ReadStateForMemoryIndexes(Action<string, int> progress, Guid walFileId) {
         progress("Reading index states", 0);
         //Parallel.ForEach(_definition.GetAllIndexes(), index => index.ReadStateForMemoryIndexes());
         var count = _definition.GetAllIndexes().Count();
         var i = 0;
         foreach (var index in _definition.GetAllIndexes()) {
             progress(index.FriendlyName, 100 * i / count);
-            index.ReadStateForMemoryIndexes();
+            index.ReadStateForMemoryIndexes(walFileId);
         }
     }
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {

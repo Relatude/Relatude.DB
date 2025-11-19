@@ -45,8 +45,9 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public T? MaxValue() { _o.Dequeue(); return _i.MaxValue(); }
     public T? MinValue() { _o.Dequeue(); return _i.MinValue(); }
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.RangeSearch(from, to, fromInclusive, toInclusive); }
-    public void ReadStateForMemoryIndexes() { _o.Dequeue(); _i.ReadStateForMemoryIndexes(); }
-    public void SaveStateForMemoryIndexes(long logTimestamp) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp); }
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { _o.Dequeue(); _i.WriteNewTimestampDueToRewriteHotswap(newTimestamp, walFileId); }
+    public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive); }
     public long PersistedTimestamp { get { _o.Dequeue(); return _i.PersistedTimestamp; } set { _o.Dequeue(); _i.PersistedTimestamp = value; } }

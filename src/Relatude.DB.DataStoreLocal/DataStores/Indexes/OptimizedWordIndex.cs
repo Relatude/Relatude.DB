@@ -21,8 +21,9 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
         return _i.SearchForRankedHitData(value, pageIndex, pageSize, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHits);
     }
     public IEnumerable<string> SuggestSpelling(string query, bool boostCommonWords) { _o.Dequeue(); return _i.SuggestSpelling(query, boostCommonWords); }
-    public void ReadStateForMemoryIndexes() { _o.Dequeue(); _i.ReadStateForMemoryIndexes(); }
-    public void SaveStateForMemoryIndexes(long logTimestamp) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp); }
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { _o.Dequeue(); _i.WriteNewTimestampDueToRewriteHotswap(newTimestamp, walFileId); }
+    public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }
     //public int MaxCount(string value, bool orSearch) { _o.Dequeue(); return _i.MaxCount(value, orSearch); }
     public void ClearCache() { _o.Dequeue(); _i.ClearCache(); }
     public void CompressMemory() { _o.Dequeue(); _i.CompressMemory(); }

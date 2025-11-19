@@ -65,23 +65,36 @@ internal class SemanticIndex : IIndex {
     public int MaxCount(string value) {
         return 10;
     }
-    public void SaveStateForMemoryIndexes(long logTimestamp) {
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        using var stream = _io.OpenAppend(fileName);
+        stream.WriteVerifiedLong(newTimestamp);
+        stream.WriteGuid(walFileId);
+        PersistedTimestamp = newTimestamp;
+    }
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         _io.DeleteIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         newSetState();
         _index.SaveState(stream);
         stream.WriteVerifiedLong(logTimestamp);
+        stream.WriteGuid(walFileId);
         PersistedTimestamp = logTimestamp;
     }
-    public void ReadStateForMemoryIndexes() {
+    public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         newSetState();
         _index.ReadState(stream);
-        PersistedTimestamp = stream.ReadVerifiedLong();
+        Guid walId = Guid.Empty;
+        while (stream.More()) {
+            PersistedTimestamp = stream.ReadVerifiedLong();
+            walId = stream.ReadGuid();
+        }
+        if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
     }
     public void CompressMemory() {
     }

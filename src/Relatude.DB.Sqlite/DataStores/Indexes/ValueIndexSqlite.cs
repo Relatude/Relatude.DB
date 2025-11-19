@@ -47,8 +47,11 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
     public long PersistedTimestamp { get; set; } // only set during state load
-    public void ReadStateForMemoryIndexes() { } // not relevant for sqlite indexes  
-    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for sqlite indexes  
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // will be updated from store instead
+    }
+    public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for sqlite indexes  
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for sqlite indexes  
 
     public IEnumerable<int> Ids {
         get {

@@ -3,13 +3,14 @@ using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes.Trie;
+
 internal class WordIndexTrie : IWordIndex {
     readonly CharArrayTrie _trie;
     long _searchIndexStateId;
     SetRegister _register;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    public WordIndexTrie(SetRegister sets, string uniqueKey,string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
         UniqueKey = uniqueKey;
@@ -48,22 +49,35 @@ internal class WordIndexTrie : IWordIndex {
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public IEnumerable<string> SuggestSpelling(string query, bool boostCommonWords) => _trie.Suggest(query, boostCommonWords);
-    public void SaveStateForMemoryIndexes(long logTimestamp) {
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        using var stream = _io.OpenAppend(fileName);
+        stream.WriteVerifiedLong(newTimestamp);
+        stream.WriteGuid(walFileId);
+        PersistedTimestamp = newTimestamp;
+    }
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         _io.DeleteIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         _trie.WriteState(stream);
         stream.WriteVerifiedLong(logTimestamp);
+        stream.WriteGuid(walFileId);
         PersistedTimestamp = logTimestamp;
     }
-    public void ReadStateForMemoryIndexes() {
+    public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         _trie.ReadState(stream);
+        Guid walId = Guid.Empty;
+        while (stream.More()) {
+            PersistedTimestamp = stream.ReadVerifiedLong();
+            walId = stream.ReadGuid();
+        }
+        if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
         newSetState();
-        PersistedTimestamp = stream.ReadVerifiedLong();
     }
     public void CompressMemory() => _trie.CompressMemory();
     public void Dispose() => _trie.Dispose();

@@ -73,7 +73,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
-
+    public Guid WalFileId => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
+    public void SetWalFileId(Guid walFileId) { setSetting("WALFileId", walFileId.ToString()); }
     public long GetTimestamp(string indexId) {
         var key = "Timestamp_" + indexId;
         return long.Parse(getSetting(key, "0"));
@@ -81,6 +82,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
     private void setTimestamp(string indexId, long timestamp) {
         var key = "Timestamp_" + indexId;
         setSetting(key, timestamp.ToString());
+    }
+    public void UpdateTimestampsDueToHotswap(long timestamp, Guid walFileId) {
+        foreach (var i in _idxs.Values) {
+            setTimestamp(i.Id, timestamp);
+            i.Index.PersistedTimestamp = timestamp;
+            setSetting("WALFileId", walFileId.ToString());
+        }
     }
 
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {

@@ -1,5 +1,4 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -58,7 +57,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void saveIndexesStates(long activityId) {
         UpdateActivity(activityId, "Saving indexes");
-        _index.SaveStateForMemoryIndexes(_wal.LastTimestamp, (txt, prg) => {
+        _index.SaveStateForMemoryIndexes(_wal.LastTimestamp, _wal.FileId, (txt, prg) => {
             UpdateActivity(activityId, "Saving index " + txt, prg);
         });
     }
@@ -77,10 +76,24 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
 
         LogInfo("Reading indexes:");
-        _index.ReadStateForMemoryIndexes((txt, prg) => {
-            LogInfo("   " + txt);
-            UpdateActivity(activityId, "Reading index " + txt, prg / 10);
-        }); // could introduce lazy loading of indexes later....
+        try {
+            _index.ReadStateForMemoryIndexes((txt, prg) => {
+                LogInfo("   " + txt);
+                UpdateActivity(activityId, "Reading index " + txt, prg / 10);
+            }, walFileId); // could introduce lazy loading of indexes later....
+            if (PersistedIndexStore != null) {
+                if (PersistedIndexStore.WalFileId == Guid.Empty) {
+                    PersistedIndexStore.SetWalFileId(walFileId);
+                    LogInfo("   Persisted indexes initialized with log file id.");
+                } else if (PersistedIndexStore.WalFileId != walFileId) {
+                    PersistedIndexStore.ResetAll();
+                    LogInfo("   Persisted indexes reset, log file id different.");
+                }
+            }
+        } catch (Exception err) {
+            var errMsg = "Failed loading memory index states. " + err.Message;
+            throw new StateFileReadException(errMsg, err);
+        }
         if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
@@ -119,7 +132,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
-            
+
         var whereOutSide = _nodes.Snapshot().Where(n => n.segment.AbsolutePosition + n.segment.Length > walFileSize);
         if (whereOutSide.Any()) throw new StateFileReadException("Some node segments point outside log file. ", null);
 
@@ -146,6 +159,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
+        PersistedIndexStore?.StartTransaction();
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
@@ -199,11 +213,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
-        if (PersistedIndexStore != null) {
-            // ensure persisted indexes have updated timestamp
-            PersistedIndexStore.StartTransaction();
-            PersistedIndexStore.CommitTransaction(_wal.LastTimestamp);
-        }
+        PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);        
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {

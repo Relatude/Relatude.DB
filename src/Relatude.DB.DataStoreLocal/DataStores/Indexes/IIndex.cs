@@ -23,9 +23,11 @@ public interface IIndex : IDisposable {
     void RegisterAddDuringStateLoad(int id, object value);
     void RegisterRemoveDuringStateLoad(int id, object value);
 
-    void ReadStateForMemoryIndexes();
-    void SaveStateForMemoryIndexes(long logTimestamp);
+    void ReadStateForMemoryIndexes(Guid walFileId);
+    void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId);
 
     long PersistedTimestamp { get; set; }
+
+    void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId);
 
 }

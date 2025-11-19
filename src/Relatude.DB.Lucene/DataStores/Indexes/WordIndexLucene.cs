@@ -74,8 +74,11 @@ public class WordIndexLucene : IPersistentWordIndex {
     public void CompressMemory() { }
     public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public int GetQueuedTaskCount() => 0;
-    public void ReadStateForMemoryIndexes() { } // not relevant for lucene indexes
-    public void SaveStateForMemoryIndexes(long logTimestamp) { } // not relevant for lucene indexes
+    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // will be updated from store instead
+    }
+    public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for lucene indexes
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for lucene indexes
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
