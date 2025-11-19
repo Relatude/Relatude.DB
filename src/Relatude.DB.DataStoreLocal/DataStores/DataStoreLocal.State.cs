@@ -31,24 +31,35 @@ public sealed partial class DataStoreLocal : IDataStore {
         //File.WriteAllText("C:\\WAF_Temp\\" + g, s);
         //return g;
     }
-    void saveState() {
-        _io.DeleteIfItExists(_fileKeys.StateFileKey);
-        using var stream = _io.OpenAppend(_fileKeys.StateFileKey);
+    void saveMainState(long activityId) {
+        IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
+        UpdateActivity(activityId, "Opening " + _fileKeys.StateFileKey + "...");
+        using var stream = IOIndex.OpenAppend(_fileKeys.StateFileKey);
         stream.WriteVerifiedInt(_stateFileVersion); // fileversion
         stream.WriteVerifiedLong(_wal.LastTimestamp);
         stream.WriteVerifiedLong(_wal.GetPositionAfterLastTransaction());
         stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
         stream.WriteVerifiedLong(_wal.FileSize);
         stream.WriteGuid(_wal.FileId); // must match log file
+        UpdateActivity(activityId, "Saving guids");
         _guids.SaveState(stream);
+        UpdateActivity(activityId, "Saving segments");
         _nodes.SaveState(stream);
+        UpdateActivity(activityId, "Saving native models");
         _nativeModelStore.SaveState(stream);
+        UpdateActivity(activityId, "Saving relations");
         _relations.SaveState(stream);
+        UpdateActivity(activityId, "Saving node type index");
         _definition.NodeTypeIndex.SaveState(stream);
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
         _noPrimitiveActionsSinceLastStateSnaphot = 0;
         _noTransactionsSinceLastStateSnaphot = 0;
-        _index.SaveStateForMemoryIndexes(_wal.LastTimestamp);
+    }
+    void saveIndexesStates(long activityId) {
+        UpdateActivity(activityId, "Saving indexes");
+        _index.SaveStateForMemoryIndexes(_wal.LastTimestamp, (txt, prg) => {
+            UpdateActivity(activityId, "Saving index " + txt, prg);
+        });
     }
     void readState(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
@@ -63,16 +74,19 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
-        LogInfo("Reading indexes...");
-        _index.ReadStateForMemoryIndexes(); // could introduce lazy loading of indexes later....
-        if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
+        LogInfo("Reading indexes:");
+        _index.ReadStateForMemoryIndexes((txt, prg) => {
+            LogInfo(txt);
+            UpdateActivity(activityId, "Reading index " + txt, prg / 10);
+        }); // could introduce lazy loading of indexes later....
+        if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
         } else { // read state, before reading rest from log file
             try {
                 LogInfo("Reading state file");
                 UpdateActivity(activityId, "Reading state file", 0);
-                using var stream = _io.OpenRead(_fileKeys.StateFileKey, 0);
+                using var stream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0);
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
                 if (version != _stateFileVersion) throw new Exception("   State file version mismatch. ");
@@ -104,7 +118,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // figuring out from where to read the log file to reach latest state, building on current read state
 
         long readLogFileFom = stateFilePositionOfLastTransactionSaved;
-        if(readLogFileFom > walFileSize) {
+        if (readLogFileFom > walFileSize) {
             throw new Exception("   Warning: State file position beyond log file size. Cannot use state file. ");
         }
         var oldestPersistedIndexTimestamp = _index.GetOldestPersistedTimestamp();

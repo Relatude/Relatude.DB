@@ -12,4 +12,5 @@ public enum MaintenanceAction {
     PurgeCache = 256, // purges cache
     GarbageCollect = 512, // runs garbage collection
     ResetSecondaryLogFile = 1024, // resets secondary log file
+    ResetStateAndIndexes = 2048, // resets 
 }

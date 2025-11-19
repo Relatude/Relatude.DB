@@ -200,19 +200,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_createPersistedIndexStore != null) {
             PersistedIndexStore = _createPersistedIndexStore();
         }
-        DiskFlushCallback? indexStoreFlushCallback = timestamp => {
-            _lock.EnterWriteLock();
-            try {
-                if (PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(timestamp);
-                if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
-            } finally {
-                _lock.ExitWriteLock();
-            }
+        DiskFlushCallback? walFlushCallback = timestamp => {
+            if (PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(timestamp);
+            if (TaskQueuePersisted != null) TaskQueuePersisted.FlushDisk();
         };
         var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? _fileKeys.WAL_GetSecondaryFileKey() : null;
-        _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, indexStoreFlushCallback, io2, fileKey2);
+        _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, walFlushCallback, io2, fileKey2);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);
@@ -249,7 +244,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 try {
                     LogInfo("Rebuilding index from log");
                     UpdateActivity(activityId, "Rebuilding index from log", 0);
-                    _io.DeleteIfItExists(_fileKeys.StateFileKey);
+                    IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
                     Dispose();
                     initialize();
                     readState(throwOnBadStateFile, currentModelHash, activityId);
@@ -291,6 +286,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return vars;
     }
     void validateStateInfoIfDebug() {
+        return;
 #if DEBUG
         // temporary code, to be deleted later on;
         // testing indexes

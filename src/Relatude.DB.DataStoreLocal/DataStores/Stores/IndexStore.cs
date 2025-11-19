@@ -37,10 +37,23 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-    public void SaveStateForMemoryIndexes(long logTimestamp) => _definition.GetAllIndexes().ForEach(index => index.SaveStateForMemoryIndexes(logTimestamp));
-    public void ReadStateForMemoryIndexes() {
+    public void SaveStateForMemoryIndexes(long logTimestamp, Action<string, int> progress) {
+        var count = _definition.GetAllIndexes().Count();
+        var i = 0;
+        foreach (var index in _definition.GetAllIndexes()) {
+            progress(index.UniqueKey, 100 * i / count);
+            index.SaveStateForMemoryIndexes(logTimestamp);
+        }        
+    }
+    public void ReadStateForMemoryIndexes(Action<string, int> progress) {
+        progress("Reading index states", 0);
         //Parallel.ForEach(_definition.GetAllIndexes(), index => index.ReadStateForMemoryIndexes());
-        _definition.GetAllIndexes().ForEach(index => index.ReadStateForMemoryIndexes());
+        var count = _definition.GetAllIndexes().Count();
+        var i = 0;
+        foreach (var index in _definition.GetAllIndexes()) {
+            progress("   " + index.UniqueKey, 100 * i / count);
+            index.ReadStateForMemoryIndexes();
+        }
     }
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
         if (action is not PrimitiveNodeAction na) return;

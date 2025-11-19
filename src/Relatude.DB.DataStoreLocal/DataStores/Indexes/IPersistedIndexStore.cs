@@ -20,4 +20,5 @@ public interface IPersistedIndexStore : IDisposable {
     long GetTotalDiskSpace();
     void OptimizeDisk();
     void ReOpen();
+    void ResetAll();
 }

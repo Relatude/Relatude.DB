@@ -215,8 +215,9 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog);
             if (deleteOld) db(storeId).MaintenanceAsync(MaintenanceAction.DeleteOldLogs);
         });
-        app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh) => db(storeId).Datastore.SaveIndexStates(forceRefresh));
+        app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh, bool nodeSegmentsOnly) => db(storeId).Datastore.SaveIndexStates(forceRefresh, nodeSegmentsOnly));
         app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));
+        app.MapPost(path("reset-state-and-indexes"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetStateAndIndexes));
         app.MapPost(path("clear-cache"), (HttpContext ctx, Guid storeId) => db(storeId).Datastore.MaintenanceAsync(MaintenanceAction.ClearCache | MaintenanceAction.GarbageCollect));
         app.MapPost(path("info"), async (HttpContext ctx, Guid storeId) => {
             var store = container(storeId).Store;
@@ -278,9 +279,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings");
             var fileKeys = new FileKeyUtility(settings.LocalSettings.FilePrefix);
             var io = server.GetIO(ioId);
-            var dbFile = fileKeys.WAL_GetLatestFileKey(io);
-            var fileStore = fileKeys.FileStore_GetLatestFileKey(io);
-            var indexFile = fileKeys.StateFileKey;
             foreach (var file in fileKeys.GetAllFiles(io)) {
                 if (file.Writers > 0 || file.Readers > 0) continue;
                 io.DeleteIfItExists(file.Key);

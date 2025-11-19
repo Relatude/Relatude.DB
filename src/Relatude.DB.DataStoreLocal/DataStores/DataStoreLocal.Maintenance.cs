@@ -5,6 +5,7 @@ using Relatude.DB.Transactions;
 using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     public long GetNoPrimitiveActionsInLogThatCanBeTruncated() {
         if (_state != DataStoreState.Open) return 0;
@@ -15,7 +16,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    public void DeleteIndexStateFile() => _io.DeleteIfItExists(_fileKeys.StateFileKey);
     internal int FlushToDisk(bool deepFlush, long parentActivityId) {
         FlushToDisk(deepFlush, parentActivityId, out int transactionCount, out _, out _);
         return transactionCount;
@@ -126,7 +126,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Error;
             throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
         }
-        _io.DeleteIfItExists(_fileKeys.StateFileKey);
+        IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
         try {
             _lock.EnterWriteLock();
             UpdateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
@@ -138,11 +138,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                     // reset, since we have a new log file
                 }
                 //if (hotSwapToNewFile) saveState(); // needed to refresh state file with new log file
-                if (hotSwapToNewFile) _io.DeleteIfItExists(_fileKeys.StateFileKey);
+                if (hotSwapToNewFile) IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
             } finally {
                 _lock.ExitWriteLock();
             }
-            if (hotSwapToNewFile) SaveIndexStates(); // needed to refresh state file with new log file
+            if (hotSwapToNewFile) SaveIndexStates(true, true); // needed to refresh state file with new log file
             LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
             _rewriter = null;
         } catch (Exception err) {
@@ -188,17 +188,19 @@ public sealed partial class DataStoreLocal : IDataStore {
         return fileDeleted;
     }
     object _saveStateLock = new();
-    public void SaveIndexStates(bool forceRefresh = false) {
+    public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) {
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
         FlushToDisk(true, activityId); // ensuring all writes are flushed before locking
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
             _lock.EnterReadLock();
+            FlushToDisk(true, activityId); // ensuring all writes are flushed after locking
             try {
                 validateDatabaseState();
-                if (_io.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
+                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
                     var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
-                    saveState();
+                    saveMainState(activityId); // requires WriteLock after flush due to node segments
+                    if (!nodeSegmentsOnly) saveIndexesStates(activityId);
                     LogInfo("Index state write completed in " + sw.ElapsedMilliseconds.To1000N() + " ms.");
                 } else {
                     LogInfo("Index state write skipped as file reflects latest changes. ");
@@ -245,6 +247,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
             if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
+            if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) {
+                IOIndex.DeleteIfItExists(_fileKeys.StateFileKey); 
+                var indexesFiles = FileKeys.Index_GetAll(IOIndex);
+                foreach (var i in indexesFiles) IOIndex.DeleteIfItExists(i);
+                PersistedIndexStore?.ResetAll();
+            }
         } catch (Exception cacheErr) {
             _state = DataStoreState.Error;
             logCriticalError("Maintenance cache error. ", cacheErr);
@@ -312,7 +320,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.RelationCount = _relations.TotalCount();
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
             _sets.AddInfo(info);
-            info.LogStateFileSize = _io.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
+            info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
         } finally {
             _lock.ExitWriteLock();
         }

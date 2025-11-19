@@ -121,8 +121,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         commit();
         _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
     }
-    public void ResetIfNotMatching(Guid logFileId) {
-        if (LogFileId == logFileId) return;
+    public void ResetAll() {
         commit();
         _transaction.Dispose();
         try {
@@ -164,7 +163,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
             foreach (var i in _wordIndexLucenes) i.Value.Open();
         } finally {
             _transaction = _connection.BeginTransaction();
-            LogFileId = logFileId;
             FlushAndCommitTimestamp(0);
         }
     }

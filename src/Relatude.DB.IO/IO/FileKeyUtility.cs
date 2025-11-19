@@ -76,6 +76,9 @@ public class FileKeyUtility {
     public string Index_GetFileKey(string indexId) {
         return indexFilePattern.Replace("*", indexId);
     }
+    public string[] Index_GetAll(IIOProvider io) {
+        return io.Search(indexFilePattern).Order().ToArray();
+    }
 
 
     public string WAL_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));

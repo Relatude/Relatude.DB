@@ -27,7 +27,7 @@ export class API {
                 };
             } else if (bodyType === "arraybuffer") {
                 init = {
-                    credentials: "include",         
+                    credentials: "include",
                     method: 'POST',
                     body: body as ArrayBuffer
                 };
@@ -122,7 +122,7 @@ class MaintenanceAPI {
     deleteAllButDb = (storeId: string) => this.server.execute(this.controller, 'delete-all-but-db', { storeId });
     deleteAllFiles = (storeId: string, ioId: string) => this.server.execute(this.controller, 'delete-all-files', { storeId, ioId });
     downloadFullDb = (storeId: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId });
-    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });    
+    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });
     closeAllOpenStreams(storeId: string, ioId: string) { return this.server.execute(this.controller, 'close-all-open-streams', { storeId, ioId }); }
     isFileKeyLegal = async (fileKey: string | null) => !fileKey ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-key-legal', { fileKey: fileKey! })).isLegal;
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
@@ -163,8 +163,9 @@ class MaintenanceAPI {
     completeUpload = (storeId: string, ioId: string, uploadId: string, fileName: string, overwrite: boolean) => this.server.execute(this.controller, 'complete-upload', { storeId, ioId, uploadId, fileName, overwrite: overwrite ? "true" : "false" });
     copyFile = (storeId: string, fromIoId: string, fromFileName: string, toIoId: string, toIoFileName: string) => this.server.execute(this.controller, 'copy-file', { storeId, fromIoId, fromFileName, toIoId, toIoFileName });
     truncateLog = (storeId: string, deleteOld: boolean) => this.server.execute(this.controller, 'truncate-log', { storeId, deleteOld });
-    saveIndexStates = (storeId: string, forceRefresh: boolean) => this.server.execute(this.controller, 'save-index-states', { storeId, forceRefresh: forceRefresh });
+    saveIndexStates = (storeId: string, forceRefresh: boolean, nodeSegmentsOnly: boolean) => this.server.execute(this.controller, 'save-index-states', { storeId, forceRefresh, nodeSegmentsOnly });
     resetSecondaryLogFile = (storeId: string) => this.server.execute(this.controller, 'reset-secondary-log-file', { storeId });
+    resetStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'reset-state-and-indexes', { storeId });
     clearCache = (storeId: string) => this.server.execute(this.controller, 'clear-cache', { storeId });
     info = (storeId: string) => this.server.queryJson<StoreStatus>(this.controller, 'info', { storeId });
 }
@@ -246,7 +247,7 @@ class LogAPI {
 }
 class DemoAPI {
     constructor(private server: API, private controller: string) { }
-    populate = (storeId: string, count: number, wikipediaData:boolean) => this.server.queryJson<{ countCreated: number, elapsedMs: number }>(this.controller, 'populate', { storeId, count, wikipediaData});
+    populate = (storeId: string, count: number, wikipediaData: boolean) => this.server.queryJson<{ countCreated: number, elapsedMs: number }>(this.controller, 'populate', { storeId, count, wikipediaData });
 }
 class TaskAPI {
     constructor(private server: API, private controller: string) { }

@@ -112,6 +112,7 @@ public class WordIndexLucene : IPersistentWordIndex {
     //    return hitCount;
     //}
     public void Commit() {
+        if (_writer.IsClosed) return;
         _writer.Commit();
     }
     public List<RawSearchHit> SearchForRankedHitData(TermSet value, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, bool orSearch, out int totalHits) {
@@ -128,11 +129,22 @@ public class WordIndexLucene : IPersistentWordIndex {
         var top = maxHitsEvaluated;// pageSize * (pageIndex + 1);
         var hits = searcher.Search(query, top).ScoreDocs;
         List<RawSearchHit> result = [];
+        HashSet<int> seenIds = new();
+        int duplicateCount = 0;
         foreach (var hit in hits.Skip(pageIndex * pageSize).Take(pageSize)) {
             var doc = searcher.Doc(hit.Doc);
-            result.Add(new() { NodeId = int.Parse(doc.Get("id")), Score = hit.Score });
+            var id = int.Parse(doc.Get("id"));
+            if (seenIds.Contains(id)) {
+                duplicateCount++;
+            } else {
+                result.Add(new() { NodeId = id, Score = hit.Score });
+                seenIds.Add(id);
+            }
         }
-        totalHits = hits.Length;
+        if (duplicateCount > 1) { 
+            Console.WriteLine("Warning: Duplicates found in Lucene index search results: " + duplicateCount);
+        }
+        totalHits = hits.Length - duplicateCount;
         return result;
     }
     public void Close() {

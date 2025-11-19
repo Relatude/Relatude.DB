@@ -13,7 +13,6 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
 public interface IDataStore : IDisposable {
-    void DeleteIndexStateFile();
     void LogInfo(string text, string? details = null);
     void LogWarning(string text, string? details = null);
     void LogError(string description, Exception error);
@@ -70,7 +69,7 @@ public interface IDataStore : IDisposable {
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);
     void Maintenance(MaintenanceAction actions);
-    void SaveIndexStates(bool forceRefresh = false);
+    void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false);
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
@@ -112,7 +111,6 @@ public static class IDataStoreExtensions {
         }
         return false;
     }
-
     public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
         if (destination == null) destination = store.IOBackup;
         var fileKey = store.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);

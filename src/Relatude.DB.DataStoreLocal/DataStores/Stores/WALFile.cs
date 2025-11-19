@@ -164,7 +164,7 @@ internal class WALFile : IDisposable {
         _workQueue.DequeAllWork(progress, out transactionCount, out actionCount, out bytesWritten);
         _appendStream.Flush(deepFlush);
         if (_secondaryAppendStream != null) _secondaryAppendStream.Flush(deepFlush);
-        if (_flushCallback != null) _flushCallback(_lastTimestampID);
+        if (_flushCallback != null && transactionCount > 0) _flushCallback(_lastTimestampID);
     }
     static int batchLimit = 1024 * 1024 * 10; // 10MB. Too low, and we get too many calls to io stream, to high and allocate unnecessary memory
     static int deltaLimit = 1024 * 200; // 200K. Too low and we get to many batches, too high and we read a lot of unnecessary data
