@@ -10,7 +10,10 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) Index = new StringArrayIndex(def, Id + nameof(StringArrayIndex), store.IOIndex, store.FileKeys, Id);
+        var defProp = def.Datamodel.Properties[Id];
+        var classDef = def.Datamodel.NodeTypes[defProp.NodeType];
+        var name = classDef.CodeName + "." + CodeName;
+        if (Indexed) Index = new StringArrayIndex(def, Id + nameof(StringArrayIndex), name, store.IOIndex, store.FileKeys, Id);
         if (Index != null) Indexes.Add(Index);
     }
     public override IRangeIndex? ValueIndex => null;

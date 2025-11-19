@@ -9,13 +9,14 @@ internal class WordIndexTrie : IWordIndex {
     SetRegister _register;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    public WordIndexTrie(SetRegister sets, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexTrie(SetRegister sets, string uniqueKey,string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
         UniqueKey = uniqueKey;
         _io = io;
         _fileKeys = fileKey;
         newSetState();
+        FriendlyName = friendlyName;
     }
     public string UniqueKey { get; private set; }
     void newSetState() {
@@ -80,4 +81,5 @@ internal class WordIndexTrie : IWordIndex {
         return hits;
     }
     public long PersistedTimestamp { get; set; }
+    public string FriendlyName { get; }
 }

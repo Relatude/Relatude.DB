@@ -37,7 +37,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly StateIdValueTracker<T> _stateId;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    public ValueIndex(SetRegister register, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
+    public ValueIndex(SetRegister register, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
         _io = io;
@@ -46,6 +46,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         _stateId = new(register);
         _idByValue = new(register);
         UniqueKey = uniqueKey;
+        FriendlyName = friendlyName;
     }
     public string UniqueKey { get; }
 
@@ -251,5 +252,5 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         };
     }
     public long PersistedTimestamp { get; set; }
-    
+    public string FriendlyName { get; }
 }

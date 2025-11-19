@@ -79,10 +79,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
 
-            string? diskFallBackPath = null;
-            if (diskFallBackPath == null && ioDatabase is IOProviderDisk ioDisk) diskFallBackPath = ioDisk.BaseFolder;
-            if (diskFallBackPath == null && ioIndexes is IOProviderDisk ioDisk2) diskFallBackPath = ioDisk2.BaseFolder;
-            if (diskFallBackPath == null) diskFallBackPath = server.DefaultSubDataFolderPath;
+            string? localFallbackPath = null;
+            // fallbackpath used for sqlite and lucene indexes, if used
+            if (localFallbackPath == null && ioIndexes is IOProviderDisk ioDisk2) localFallbackPath = ioDisk2.BaseFolder;
+            if (localFallbackPath == null && ioDatabase is IOProviderDisk ioDisk) localFallbackPath = ioDisk.BaseFolder;
+            if (localFallbackPath == null) localFallbackPath = server.DefaultSubDataFolderPath;
+
             IFileStore[]? fs = null;
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
@@ -94,22 +96,28 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             var ioBackup = server.GetOrNullIO(settings.IoBackup);
             var ioLog = server.GetOrNullIO(settings.IoLog);
-            AIEngine? ai = settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty ?
-                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, diskFallBackPath) : null;
+            AIEngine? ai = null;
+            if (settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty) {
+                if (localFallbackPath == null) {
+                    throw new Exception("The setting PersistedValueIndexFolderPath is required for the AI provider");
+                }
+                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, localFallbackPath);
+            }
             Func<IPersistedIndexStore>? createIndexStore = null;
 
+            List<string> toLog = new();
             if (settings.LocalSettings.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory) {
                 if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Memory) {
                     throw new Exception("The setting PersistedTextIndexEngine must be set to Sqlite or Lucene when PersistedValueIndexEngine is Sqlite.");
                 }
                 createIndexStore = () => {
                     var indexPath = settings.LocalSettings.PersistedValueIndexFolderPath;
-                    if (indexPath == null) {
-                        if (ioDatabase is IOProviderDisk ioDisk) indexPath = ioDisk.BaseFolder;
-                        else indexPath = diskFallBackPath;
-                        //else throw new Exception("The setting PersistedValueIndexFolderPath is required for LocalSettings.PersistedValueIndexFolderPath");
+                    if (string.IsNullOrEmpty(indexPath)) indexPath = localFallbackPath;
+                    if (string.IsNullOrEmpty(indexPath)) {
+                        throw new Exception("The setting PersistedValueIndexFolderPath is required for the persisted index store.");
                     }
                     indexPath = Path.Combine(indexPath, new FileKeyUtility(settings.LocalSettings.FilePrefix).IndexStoreFolderKey);
+                    toLog.Add("Index path: " + indexPath);
                     IPersistentWordIndexFactory? textIndexFactory = null;
                     if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Lucene) {
                         textIndexFactory = LateBindings.CreateLucenePersistentWordIndexFactory(indexPath);
@@ -124,9 +132,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             IQueueStore? queueStore = null;
             if (settings.LocalSettings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
                 var queuePath = settings.LocalSettings.PersistedQueueStoreFolderPath;
-                if (string.IsNullOrEmpty(queuePath)) queuePath = diskFallBackPath;
-                if (string.IsNullOrEmpty(queuePath)) throw new Exception("The setting PersistedQueueStoreFolderPath is required for LocalSettings.PersistedQueueStoreFolderPath");
+                if (string.IsNullOrEmpty(queuePath)) queuePath = localFallbackPath;
+                if (string.IsNullOrEmpty(queuePath)) throw new Exception("The setting PersistedQueueStoreFolderPath is required for the persisted queue store.");
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
+                toLog.Add("Queue path: " + queuePath);
                 queuePath = Path.Combine(queuePath, new FileKeyUtility(settings.LocalSettings.FilePrefix).Queue_GetFileKey("sqlite"));
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
@@ -147,6 +156,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Interlocked.Increment(ref _initializationCounter);
             var runners = server.GetRegisteredTaskRunners(this);
             foreach (var runner in runners) Datastore.RegisterRunner(runner);
+            foreach (var msg in toLog) {
+                Datastore.LogInfo(msg);
+            }
             Store = new NodeStore(Datastore);
             server.RaiseEventStoreInit(this, Store);
             try {

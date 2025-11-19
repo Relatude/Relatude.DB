@@ -12,6 +12,8 @@ public interface IIndex : IDisposable {
 
     string UniqueKey { get; }
 
+    string FriendlyName { get; }
+
     void ClearCache();
     void CompressMemory();
 

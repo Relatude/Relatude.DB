@@ -8,12 +8,13 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
-    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId) {
+    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string friendlyName) {
         _indexId = indexId;
         _store = store;
         _stateId = new(sets);
         _sets = sets;
         _tableName = store.GetTableName(indexId);
+        FriendlyName = friendlyName;
     }
     int _idCount = -1;
     public int IdCount {
@@ -171,5 +172,6 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         throw new NotImplementedException();
     }
+    public string FriendlyName { get; }
 }
 

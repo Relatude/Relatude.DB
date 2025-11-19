@@ -51,7 +51,7 @@ internal class IndexStore : IDisposable {
         var count = _definition.GetAllIndexes().Count();
         var i = 0;
         foreach (var index in _definition.GetAllIndexes()) {
-            progress("   " + index.UniqueKey, 100 * i / count);
+            progress(index.FriendlyName, 100 * i / count);
             index.ReadStateForMemoryIndexes();
         }
     }

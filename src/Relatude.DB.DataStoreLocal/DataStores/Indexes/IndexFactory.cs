@@ -6,6 +6,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.Trie;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using System.Xml.Linq;
 
 namespace Relatude.DB.DataStores.Indexes;
 internal static class IndexFactory {
@@ -20,10 +21,12 @@ internal static class IndexFactory {
             _ => throw new NotSupportedException("IndexType not supported. "),
         };
         IValueIndex<T> index;
+        var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
+        var name = "Semantic " + classDef.CodeName + "." + property.CodeName;
         if (useProvider && store.PersistedIndexStore != null) {
-            index = store.PersistedIndexStore.OpenValueIndex<T>(sets, uniqueKey, property.PropertyType);
+            index = store.PersistedIndexStore.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
         } else {
-            index = new ValueIndex<T>(sets, uniqueKey, store.IOIndex, store.FileKeys, writeValue, readValue);
+            index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, store.FileKeys, writeValue, readValue);
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedValueIndex<T>(index);
@@ -38,10 +41,12 @@ internal static class IndexFactory {
             _ => throw new NotSupportedException("TextIndexType not supported. "),
         };
         IWordIndex index;
+        var classDef = store.Datamodel.NodeTypes[p.Model.NodeType];
+        var name = "Semantic " + classDef.CodeName + "." + p.CodeName;
         if (useProvider && store.PersistedIndexStore != null) {
-            index = store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            index = store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, name, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         } else {
-            index = new WordIndexTrie(sets, uniqueKey, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);

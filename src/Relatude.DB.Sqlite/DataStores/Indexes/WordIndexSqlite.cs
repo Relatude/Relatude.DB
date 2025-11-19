@@ -14,12 +14,13 @@ public class WordIndexSqlite : IWordIndex {
     public int MinWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string friendlyName, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _indexId = indexId;
         _store = store;
         _stateId = new(sets);
         _sets = sets;
         _tableName = store.GetTableName(indexId);
+        FriendlyName = friendlyName;
         MaxWordLength = maxWordLength;
         MinWordLength = minWordLength;
         PrefixSearch = prefixSearch;
@@ -124,4 +125,5 @@ public class WordIndexSqlite : IWordIndex {
         return hits;
     }
     public long PersistedTimestamp { get; set; }
+    public string FriendlyName { get; }
 }

@@ -14,7 +14,7 @@ internal class SemanticIndex : IIndex {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
-    public SemanticIndex(SetRegister sets, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
+    public SemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
         _register = sets;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
@@ -23,6 +23,7 @@ internal class SemanticIndex : IIndex {
         newSetState();
         _io = io;
         _fileKeys = fileKey;
+        FriendlyName = friendlyName;
     }
     public string UniqueKey { get; private set; }
     void newSetState() {
@@ -97,4 +98,5 @@ internal class SemanticIndex : IIndex {
         return sourceText;
     }
     public long PersistedTimestamp { get; set; }
+    public string FriendlyName { get; }
 }

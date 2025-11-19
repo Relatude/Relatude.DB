@@ -21,6 +21,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
     readonly IPersistentWordIndexFactory? _wordIndexFactory;
     readonly string _indexPath;
+    bool _isDirty = false;
+    long _lastTimestamp = -1;
     public PersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
         _useExternalWordIndex = wordIndexFactory != null;
@@ -52,6 +54,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand("SELECT value FROM " + _settingsTableName + " WHERE key = @key");
         cmd.Parameters.AddWithValue("@key", key);
         var result = cmd.ExecuteScalar();
+        Console.WriteLine("GetSetting: " + key + " = " + (result == null ? "null" : (string)result));
         return result == null ? fallback : (string)result;
     }
     void setSetting(string key, string value) {
@@ -59,11 +62,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
         cmd.Parameters.AddWithValue("@key", key);
         cmd.Parameters.AddWithValue("@value", value);
         cmd.ExecuteNonQuery();
+        Console.WriteLine("SetSetting: " + key + " = " + value);
     }
     public SqliteCommand CreateCommand(string? sql = null) {
         var cmd = _connection.CreateCommand();
         cmd.Transaction = _transaction;
         if (sql != null) cmd.CommandText = sql;
+        _isDirty = true;
         return cmd;
     }
     void executeCommand(string sql) {
@@ -93,8 +98,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
         get => Guid.Parse(getSetting("ModelHash", Guid.Empty.ToString()));
         private set => setSetting("ModelHash", value.ToString());
     }
-    public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, PropertyType type) where T : notnull {
-        var index = new ValueIndexSqlite<T>(sets, this, key);
+    public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {
+        var index = new ValueIndexSqlite<T>(sets, this, key, friendlyName);
         _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_"), index));
         index.PersistedTimestamp = GetTimestamp(key);
         return index;
@@ -117,9 +122,13 @@ public class PersistedIndexStore : IPersistedIndexStore {
         _transaction = _connection.BeginTransaction();
     }
     public void FlushAndCommitTimestamp(long timestamp) {
-        _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
-        commit();
-        _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
+        if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => setTimestamp(i.Id, timestamp));
+        if (_isDirty) {
+            commit();
+            _isDirty = false;
+        }
+        if (timestamp > _lastTimestamp) _idxs.Values.ForEach(i => i.Index.PersistedTimestamp = timestamp);
+        _lastTimestamp = timestamp;
     }
     public void ResetAll() {
         commit();
@@ -195,15 +204,15 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (value is DateTimeOffset dto) return dto.ToString("O");
         return value;
     }
-    public IWordIndex OpenWordIndex(SetRegister sets, string key, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public IWordIndex OpenWordIndex(SetRegister sets, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         IWordIndex index;
         if (_idxs.ContainsKey(key)) return _wordIndexLucenes[key];
         if (_wordIndexFactory != null) {
-            var idx = _wordIndexFactory!.Create(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            var idx = _wordIndexFactory!.Create(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
             _wordIndexLucenes.Add(key, idx);
             index = idx;
         } else {
-            index = new WordIndexSqlite(sets, this, key, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
         index.PersistedTimestamp = GetTimestamp(key);
         _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));

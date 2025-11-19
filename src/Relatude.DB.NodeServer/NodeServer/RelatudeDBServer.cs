@@ -32,7 +32,7 @@ public partial class RelatudeDBServer {
 
     // simple startup log to help with debugging startup issues
     readonly Queue<Tuple<DateTime, string>> _serverLog = [];
-    void serverLog(string msg) {
+    public void Log(string msg) {
         lock (_serverLog) {
             while (_serverLog.Count >= 1000) _serverLog.Dequeue();
             _serverLog.Enqueue(new(DateTime.UtcNow, msg));
@@ -134,7 +134,7 @@ public partial class RelatudeDBServer {
             });
             return (int)Math.Ceiling((double)combinedProgress / _containersToAutoOpen.Length);
         } catch (Exception err) {
-            serverLog("Error occurred during progress estimate: " + err.Message);
+            Log("Error occurred during progress estimate: " + err.Message);
             return 0;
         }
     }
@@ -149,7 +149,7 @@ public partial class RelatudeDBServer {
     }
     public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
         _serverLog.Clear();
-        serverLog("Server starting up.");
+        Log("Server starting up.");
         var environmentRoot = app.Environment.ContentRootPath;
         if (string.IsNullOrEmpty(dataFolderPath)) dataFolderPath = string.Empty;
         dataFolderPath = dataFolderPath.EnsureDirectorySeparatorChar();
@@ -162,16 +162,16 @@ public partial class RelatudeDBServer {
         var tempFiles = _tempIO.GetFiles();
         var tempSize = tempFiles.Sum(f => f.Size);
         var tempCount = tempFiles.Length;
-        if (tempCount == 0) serverLog("No temp files found to clean.");
-        else serverLog($"Cleaning temp folder, found {tempCount} file(s) and {tempSize.ToByteString()}.");
+        if (tempCount == 0) Log("No temp files found to clean.");
+        else Log($"Cleaning temp folder, found {tempCount} file(s) and {tempSize.ToByteString()}.");
         foreach (var file in tempFiles) {
             try { TempIO.DeleteIfItExists(file.Key); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
         Stopwatch sw = Stopwatch.StartNew();
-        if (tempCount == 0) serverLog("Loading settings using: " + _settingsLoader.GetType().FullName);
+        if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         _serverSettings = await _settingsLoader.ReadAsync();
-        serverLog("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
+        Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
                 var container = new NodeStoreContainer(containerSettings, this);
@@ -180,14 +180,14 @@ public partial class RelatudeDBServer {
             }
         }
         _containersToAutoOpen = Containers.Values.Where(c => c.Settings.AutoOpen).ToArray();
-        serverLog("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
+        Log("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
         _remaingToAutoOpenCount = _containersToAutoOpen.Length;
         foreach (var container in _containersToAutoOpen) {
             if (container.Settings.WaitUntilOpen) {
-                serverLog("Opening \"" + container.Settings.Name + "\".");
+                Log("Opening \"" + container.Settings.Name + "\".");
                 autoOpenContainer(container, true);
             } else {
-                serverLog("Initiating asynchronous opening of \"" + container.Settings.Name + "\".");
+                Log("Initiating asynchronous opening of \"" + container.Settings.Name + "\".");
                 ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => autoOpenContainer(container, false), container, true);
             }
         }
@@ -201,11 +201,11 @@ public partial class RelatudeDBServer {
             container.StartUpException = null;
             container.StartUpExceptionDateTimeUTC = null;
             container.Open();
-            serverLog("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
+            Log("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
             container.StartUpException = err;
             container.StartUpExceptionDateTimeUTC = DateTime.UtcNow;
-            serverLog("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
+            Log("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
             Console.WriteLine(err.Message); //
             if (throwException) throw;
         } finally {
@@ -250,7 +250,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreOpen?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            serverLog("Error occurred during OnStoreOpen event: " + err.Message);
+            Log("Error occurred during OnStoreOpen event: " + err.Message);
         }
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
@@ -258,7 +258,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreInit?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            serverLog("Error occurred during OnStoreInit event: " + err.Message);
+            Log("Error occurred during OnStoreInit event: " + err.Message);
         }
     }
     internal void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
@@ -266,7 +266,7 @@ public partial class RelatudeDBServer {
         try {
             OnStoreDispose?.Invoke(nodeStoreContainer, store);
         } catch (Exception err) {
-            serverLog("Error occurred during OnStoreDispose event: " + err.Message);
+            Log("Error occurred during OnStoreDispose event: " + err.Message);
         }
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {

@@ -76,7 +76,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
         LogInfo("Reading indexes:");
         _index.ReadStateForMemoryIndexes((txt, prg) => {
-            LogInfo(txt);
+            LogInfo("   " + txt);
             UpdateActivity(activityId, "Reading index " + txt, prg / 10);
         }); // could introduce lazy loading of indexes later....
         if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
@@ -93,7 +93,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 stateFileTimestamp = stream.ReadVerifiedLong();
                 stateFilePositionOfLastTransactionSaved = stream.ReadVerifiedLong();
                 var storedModelHash = stream.ReadGuid();
-                if (storedModelHash != currentModelHash) throw new Exception("Datamodel have changed, checksum does not match.");
+                if (storedModelHash != currentModelHash) {
+                    LogInfo("   Datamodel and settings have changed.");
+                    //throw new Exception("Datamodel have changed, checksum does not match.");
+                }
                 var logFileSize = stream.ReadVerifiedLong();
                 var fileId = stream.ReadGuid();
                 if (fileId != walFileId) throw new Exception("Statefile does not belong to log file. It cannot be used. ");
@@ -129,8 +132,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         int transactionCount = 0;
         int actionCount = 0;
         var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : " the beginning.";
-        var positionInPercentage = readLogFileFom * 100 / (walFileSize + 1);
-        LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom);
+        int positionInPercentage = (int)Math.Round(readLogFileFom * 100d / (walFileSize + 1d));
+        long bytesToRead = walFileSize - readLogFileFom;
+        LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString()+" to read)" );
         UpdateActivity(activityId, "Reading log file", 0);
         sw.Restart();
         var lastProgress = 0D;
@@ -190,7 +194,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
-        if (PersistedIndexStore != null) PersistedIndexStore.FlushAndCommitTimestamp(_wal.LastTimestamp); // ensure persisted indexes have updated timestamp
+        if (PersistedIndexStore != null)
+            PersistedIndexStore.FlushAndCommitTimestamp(_wal.LastTimestamp); // ensure persisted indexes have updated timestamp
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {

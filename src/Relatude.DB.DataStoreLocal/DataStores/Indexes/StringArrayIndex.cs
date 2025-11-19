@@ -10,10 +10,11 @@ public class StringArrayIndex : IIndex {
     readonly SetRegister _sets;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    internal StringArrayIndex(Definition def, string uniqueKey, IIOProvider io, FileKeyUtility fileKey, Guid propertyId) {
+    internal StringArrayIndex(Definition def, string uniqueKey,string freindlyName, IIOProvider io, FileKeyUtility fileKey, Guid propertyId) {
         _nodeIdByValue = new(def.Sets);
         _valueByNodeId = new();
         UniqueKey = uniqueKey;
+        FriendlyName = freindlyName;
         _io = io;
         _fileKeys = fileKey;
         _sets = def.Sets;
@@ -124,4 +125,5 @@ public class StringArrayIndex : IIndex {
     public void Dispose() { }
     public void ClearCache() { }
     public long PersistedTimestamp { get; set; }
+    public string FriendlyName { get; }
 }

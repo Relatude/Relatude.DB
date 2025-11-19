@@ -17,8 +17,8 @@ public class WordIndexLuceneFactory : IPersistentWordIndexFactory {
         _luceneFolderPath = Path.Combine(baseIndexFolderPath, "lucene");
         if (!System.IO.Directory.Exists(_luceneFolderPath)) System.IO.Directory.CreateDirectory(_luceneFolderPath);
     }
-    public IPersistentWordIndex Create(SetRegister sets, IPersistedIndexStore index, string key, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        return new WordIndexLucene(sets, index, key, _luceneFolderPath, minWordLength, maxWordLength, prefixSearch, infixSearch);
+    public IPersistentWordIndex Create(SetRegister sets, IPersistedIndexStore index, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+        return new WordIndexLucene(sets, index, key, friendlyName, _luceneFolderPath, minWordLength, maxWordLength, prefixSearch, infixSearch);
     }
     public void DeleteAllFiles() {
         if (System.IO.Directory.Exists(_luceneFolderPath)) {
@@ -41,7 +41,7 @@ public class WordIndexLucene : IPersistentWordIndex {
     public int MaxWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    public WordIndexLucene(SetRegister sets, IPersistedIndexStore store, string indexId, string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexLucene(SetRegister sets, IPersistedIndexStore store, string indexId, string friendlyName,string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _path = Path.Combine(folderPath, indexId.ToLower().Replace("wordindex", ""));
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _indexId = indexId;
@@ -52,6 +52,7 @@ public class WordIndexLucene : IPersistentWordIndex {
         MaxWordLength = maxWordLength;
         PrefixSearch = prefixSearch;
         InfixSearch = infixSearch;
+        FriendlyName = friendlyName;
         Open();
     }
     public string UniqueKey => _indexId;
@@ -168,5 +169,7 @@ public class WordIndexLucene : IPersistentWordIndex {
         Close();
         Open();
     }
-    public long PersistedTimestamp { get; set; }
+    public long PersistedTimestamp { get; 
+        set; }
+    public string FriendlyName { get; }
 }

@@ -245,6 +245,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     LogInfo("Rebuilding index from log");
                     UpdateActivity(activityId, "Rebuilding index from log", 0);
                     IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
+                    if (PersistedIndexStore != null) PersistedIndexStore.ResetAll();
                     Dispose();
                     initialize();
                     readState(throwOnBadStateFile, currentModelHash, activityId);
