@@ -1,5 +1,5 @@
 export type AppStates = "splash" | "login" | "main";
-export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Unknown";
+export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Disposed" | "Unknown";
 export type StoreTypes = "SimpleStore" | "NodeStore";
 export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
 

@@ -4,18 +4,18 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
-using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Demo;
 using Relatude.DB.IO;
 using Relatude.DB.Logging.Statistics;
 using Relatude.DB.Nodes;
-using Relatude.DB.NodeServer.EventHub;
 using Relatude.DB.NodeServer.Models;
 using Relatude.DB.NodeServer.Settings;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text.Json;
 namespace Relatude.DB.NodeServer;
+
 public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;
     string ApiUrlRoot => server.ApiUrlRoot;
@@ -109,7 +109,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             return Results.File(data, "image/x-icon", "favicon.ico");
         });
     }
-    public class Credentials {
+    class Credentials {
         public string UserName { get; set; } = "";
         public string Password { get; set; } = "";
         public bool Remember { get; set; } = false;
@@ -141,8 +141,14 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("unsubscribe"), server.EventHub.Unsubscribe);
     }
     void mapSettings(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("get-settings"), (Guid storeId) => container(storeId).Settings);
-        app.MapPost(path("set-settings"), (Guid storeId, [FromBody] NodeStoreContainerSettings settings) => {
+        app.MapPost(path("get-settings"), (Guid storeId, bool prettyJson) => {
+            return Results.Json(container(storeId).Settings, prettyJson ? LocalSettingsLoaderFile.PrettyJsonOptions : null);
+        });
+        app.MapPost(path("set-settings"), async (Guid storeId, HttpRequest request) => {
+            using var reader = new StreamReader(request.Body);
+            var body = await reader.ReadToEndAsync();
+            var settings = JsonSerializer.Deserialize<NodeStoreContainerSettings>(body, LocalSettingsLoaderFile.PrettyJsonOptions);
+            if (settings == null) throw new Exception("Invalid settings data. ");
             container(storeId).ApplyNewSettings(settings, true);
             server.UpdateWAFServerSettingsFile();
         });
@@ -151,9 +157,14 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
     }
     void mapMaintenance(WebApplication app, Func<string, string> path) {
+        app.MapPost(path("initialize"), (Guid storeId) => container(storeId).Initialize());
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
+            if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
+        });
+        app.MapPost(path("dispose"), (Guid storeId) => {
+            container(storeId).DisposeAndCloseIfOpen();
             if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
@@ -300,16 +311,16 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             server.Settings.DefaultStoreId = storeId;
             server.UpdateWAFServerSettingsFile();
         });
-        app.MapPost(path("set-master-credentials"), ([FromBody] dynamic settings) => {
-            server.Settings.MasterUserName = settings.MasterUserName;
-            server.Settings.MasterPassword = settings.MasterPassword;
-            server.UpdateWAFServerSettingsFile();
-        });
-        app.MapPost(path("set-name-and-description"), ([FromBody] dynamic settings) => {
-            server.Settings.Name = settings.Name;
-            server.Settings.Description = settings.Description;
-            server.UpdateWAFServerSettingsFile();
-        });
+        //app.MapPost(path("set-master-credentials"), ([FromBody] dynamic settings) => {
+        //    server.Settings.MasterUserName = settings.MasterUserName;
+        //    server.Settings.MasterPassword = settings.MasterPassword;
+        //    server.UpdateWAFServerSettingsFile();
+        //});
+        //app.MapPost(path("set-name-and-description"), ([FromBody] dynamic settings) => {
+        //    server.Settings.Name = settings.Name;
+        //    server.Settings.Description = settings.Description;
+        //    server.UpdateWAFServerSettingsFile();
+        //});
         app.MapPost(path("create-store"), () => {
             var id = Guid.NewGuid();
             var containerSettings = new NodeStoreContainerSettings() { Id = id, Name = "New Store" };
@@ -319,7 +330,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             return containerSettings;
         });
         app.MapPost(path("remove-store"), (Guid storeId) => {
-            container(storeId).CloseIfOpen();
+            container(storeId).DisposeAndCloseIfOpen();
             server.Containers.Remove(storeId);
             server.UpdateWAFServerSettingsFile();
         });

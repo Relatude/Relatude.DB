@@ -20,7 +20,7 @@ export const component = (p: { storeId: string }) => {
     useEffect(() => { updateFiles(); }, [selectedIo]);
     const updateSettings = async () => {
         if (p.storeId) {
-            const store = await app.api.settings.getSettings(p.storeId);
+            const store = await app.api.settings.getSettings(p.storeId, false);
             setStore(store);
             setSelectedIo(store.ioSettings[0]?.id);
         } else {
@@ -32,7 +32,7 @@ export const component = (p: { storeId: string }) => {
         const storeIsLoadedAndIoBelongsToStore = store?.id == p.storeId && store?.ioSettings?.find(io => io.id == selectedIo) != undefined;
         setFiles(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!) : undefined);
         setCanRename(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canRenameFile(p.storeId, selectedIo!) : false);
-        const storeSettings = await app.api.settings.getSettings(p.storeId);
+        const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         if (selectedIo) {
             const dbFile = await app.api.maintenance.getFileKeyOfDb(p.storeId, selectedIo, storeSettings.localSettings.filePrefix);
             setDbFile(dbFile);
@@ -96,7 +96,7 @@ export const component = (p: { storeId: string }) => {
     }
     const deleteSelectedFiles = async () => {
         if (!confirm("Are you sure you want to permanently delete selected files?")) return;
-        const storeSettings = await app.api.settings.getSettings(p.storeId);
+        const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         try {
             for (const file of selectedRows) {
                 if (!confirmInCaseOfDbFile(file)) return;
@@ -109,7 +109,7 @@ export const component = (p: { storeId: string }) => {
     }
     const deleteFile = async (file: string) => {
         if (!confirm("Are you sure you want to permanently delete this file?")) return;
-        const storeSettings = await app.api.settings.getSettings(p.storeId);
+        const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         try {
             if (confirmInCaseOfDbFile(file)) await app.api.maintenance.deleteFile(p.storeId, selectedIo!, file);
         } finally {

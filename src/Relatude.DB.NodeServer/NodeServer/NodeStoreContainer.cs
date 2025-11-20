@@ -36,7 +36,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public Datamodel? Datamodel { get; private set; }
     public DataStoreStatus Status {
         get {
-            if (Datastore == null) return new DataStoreStatus(DataStoreState.Closed, []);
+            if (Datastore == null) return new DataStoreStatus(DataStoreState.Disposed, []);
             return Datastore.GetStatus();
         }
     }
@@ -44,7 +44,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public NodeStoreContainerSettings Settings => settings;
     public void ApplyNewSettings(NodeStoreContainerSettings newSettings, bool reopenIfOpen) {
         var isOpen = IsOpenOrOpening();
-        CloseIfOpen();
+        DisposeAndCloseIfOpen();
         settings = newSettings;
         if (isOpen && reopenIfOpen) Open();
     }
@@ -68,11 +68,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         if (ioLog == null) throw new Exception("IoLog or IoDatabase is required for NodeStoreContainerSettings");
         return ioLog;
     }
-    public void Open() {
+    public void Initialize() {
         try {
             if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
-            CloseIfOpen();
+            DisposeAndCloseIfOpen();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
             var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
@@ -161,6 +161,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             Store = new NodeStore(Datastore);
             server.RaiseEventStoreInit(this, Store);
+        } catch {
+            Interlocked.Increment(ref _hasFailedCounter);
+            throw;
+        }
+    }
+    public void Open() {
+        try {
+            var sw = Stopwatch.StartNew();
+            if (Store == null) Initialize();
+            if (Datastore == null || Store == null) throw new Exception("Datastore is not initialized. ");
             try {
                 Datastore.Open(false, false);
             } catch {
@@ -176,10 +186,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void CloseIfOpen() {
+        if (Datastore != null) {
+            if(Datastore.State != DataStoreState.Open) return;
+            Datastore.Close();
+            server.RaiseEventStoreClose(this, Store!);
+        }
+    }
+    public void DisposeAndCloseIfOpen() {
+        CloseIfOpen();
         Datastore = null;
         if (Store != null) {
             Store.Dispose();
-            server.RaiseEventStoreDispose(this, Store);
             Store = null;
             Datamodel = null;
         }
@@ -233,6 +250,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void Dispose() {
-        CloseIfOpen();
+        DisposeAndCloseIfOpen();
     }
 }

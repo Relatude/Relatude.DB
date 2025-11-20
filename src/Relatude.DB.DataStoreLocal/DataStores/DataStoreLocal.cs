@@ -23,7 +23,7 @@ namespace Relatude.DB.DataStores;
 public delegate byte[][] ReadSegmentsFunc(NodeSegment[] segments, out int noDiskReads);
 public sealed partial class DataStoreLocal : IDataStore {
     readonly SettingsLocal _settings;
-    DataStoreState _state = DataStoreState.Closed;
+    DataStoreState _state;
     internal Definition _definition = default!;
     internal GuidStore _guids = default!;
     internal IndexStore _index = default!;
@@ -82,6 +82,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? indexIO = null
 
         ) {
+        _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
         //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
         if (dbIO == null) dbIO = new IOProviderMemory();
@@ -95,7 +96,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         _createPersistedIndexStore = createPersistedIndexStore;
-        _fileKeys = new FileKeyUtility(_settings.FilePrefix);
+        _fileKeys = new (_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);
         RegisterRunner(new IndexTaskRunner(this));
         RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
@@ -214,6 +215,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         TaskQueuePersisted?.ReOpen();
         logLine___________________________();
         LogInfo("Database intialized");
+        _state = DataStoreState.Closed; // ready to be opened
     }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
         var sw = Stopwatch.StartNew();
@@ -261,7 +263,20 @@ public sealed partial class DataStoreLocal : IDataStore {
             _scheduler.Start();
         }
     }
-
+    public void Close() {
+        _lock.EnterWriteLock();
+        try {
+            if (_state != DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
+            FlushToDisk(true, 0);
+            _state = DataStoreState.Closing;
+            LogInfo("Database closing");
+            _scheduler.Stop();
+            _state = DataStoreState.Closed;
+            LogInfo("Database closed");
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
     Variables getRootVariables() {
         Variables vars = new Variables();
         // Sample static data:
@@ -336,7 +351,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { PersistedIndexStore?.Dispose(); } catch { }
         try { TaskQueue?.Dispose(); } catch { }
         try { TaskQueuePersisted?.Dispose(); } catch { }
-        if (_state == DataStoreState.Open) _state = DataStoreState.Closed; // if in error state, do not change state
+        if (_state == DataStoreState.Open) _state = DataStoreState.Disposed; // if in error state, do not change state
         try { this._io.CloseAllOpenStreams(); } catch { }
         try { this._ioAutoBackup.CloseAllOpenStreams(); } catch { }
         try { this._ioLog.CloseAllOpenStreams(); } catch { }

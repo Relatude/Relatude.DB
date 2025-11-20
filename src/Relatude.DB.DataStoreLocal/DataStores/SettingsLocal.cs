@@ -12,10 +12,10 @@
     public bool DoNotCacheMapperFile { get; set; } = false;
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
+
     public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
     public int ForceDiskFlushAfterActionCountLimit { get; set; } = 10000; // to reduce memory usage, but avoid flushing too often (latency)
     public bool DeepFlushDisk { get; set; } = false;
-
     public bool AutoFlushDiskInBackground { get; set; } = true;
     public double AutoFlushDiskIntervalInSeconds { get; set; } = 1;
     public bool DelayAutoDiskFlushIfBusy { get; set; } = true;

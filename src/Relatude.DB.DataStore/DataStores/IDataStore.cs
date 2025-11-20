@@ -73,6 +73,7 @@ public interface IDataStore : IDisposable {
     StoreStatus GetInfo();
     Task<StoreStatus> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
+    void Close();
 
     void RefreshLock(Guid lockId);
 
@@ -97,7 +98,6 @@ public interface IDataStore : IDisposable {
 
     (int NodeId, string Text)[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
     (int NodeId, string Text)[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
-
 }
 
 public static class IDataStoreExtensions {

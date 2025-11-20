@@ -29,12 +29,16 @@ export const component = () => {
         <>
             <Title>{currentContainer.name}</Title>
             <Group>
-                <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Start</Button>
-                <Button variant="light" disabled={state != "Open" && state != "Error"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Stop</Button>
+                <Button variant="light" disabled={state != "Disposed"} onClick={() => app.api.maintenance.initialize(app.ui.selectedStoreId!)}>Initialize</Button>
+                <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Open</Button>
+                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Close</Button>
+                <Button variant="light" disabled={state != "Closed" && state != "Error"} onClick={() => app.api.maintenance.initialize(app.ui.selectedStoreId!)}>Dispose</Button>
+
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!, true, false)}>Save Index</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
                 <Button variant="light" disabled={state != "Open"} onClick={truncateLog}>Compact</Button>
-                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(app.ui.selectedStoreId!)}>Reset transaction log</Button>
+                <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(app.ui.selectedStoreId!)}>Reset second log</Button>
+                <Button variant="light" disabled={state != "Closed" && state != "Error"} onClick={() => app.api.maintenance.resetStateAndIndexes(app.ui.selectedStoreId!)}>Reset all states</Button>
             </Group>
             <pre>
                 {JSON.stringify(status, null, 2)}

@@ -10,7 +10,7 @@ export const component = (P: { storeId: string }) => {
     const [ioId, setIoId] = useState<string | undefined>();
     useEffect(() => {
         if (container) { // default to db IO for now....
-            app.api.settings.getSettings(container.id).then(settings => setIoId(settings.ioSettings[0]?.id));
+            app.api.settings.getSettings(container.id, false).then(settings => setIoId(settings.ioSettings[0]?.id));
         }
     }, [app.ui.selectedStoreId]);
     return (

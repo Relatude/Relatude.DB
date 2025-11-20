@@ -113,7 +113,7 @@ class AuthAPI {
 }
 class SettingsAPI {
     constructor(private server: API, private controller: string) { }
-    getSettings = (storeId: string) => this.server.queryJson<NodeStoreContainer>(this.controller, 'get-settings', { storeId });
+    getSettings = (storeId: string, prettyJson: boolean) => this.server.queryJson<NodeStoreContainer>(this.controller, 'get-settings', { storeId, prettyJson });
     setSettings = (storeId: string, settings: NodeStoreContainer) => this.server.execute(this.controller, 'set-settings', { storeId }, settings);
     reSaveSettings = (storeId: string) => this.server.execute(this.controller, 're-save-settings', { storeId });
 }
@@ -128,6 +128,8 @@ class MaintenanceAPI {
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
     getSizeTempFiles = () => this.server.queryJson<{ totalSize: number }>(this.controller, 'get-size-temp-files').then(r => r.totalSize);
     cleanTempFiles = () => this.server.execute(this.controller, 'clean-temp-files');
+    initialize = (storeId: string) => this.server.execute(this.controller, 'initialize', { storeId });
+    dispose = (storeId: string) => this.server.execute(this.controller, 'dispose', { storeId });
     open = (storeId: string) => this.server.execute(this.controller, 'open', { storeId });
     close = (storeId: string) => this.server.execute(this.controller, 'close', { storeId });
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));

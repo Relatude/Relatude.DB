@@ -157,7 +157,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
             if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
-            if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) ResetStateAndIndexes();
+            if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) {
+                if (State == DataStoreState.Closed || State == DataStoreState.Error) {
+                    ResetStateAndIndexes();
+                } else {
+                    throw new Exception("ResetStateAndIndexes can only be performed when the database is closed or in error state. ");
+                }
+            }
         } catch (Exception cacheErr) {
             _state = DataStoreState.Error;
             logCriticalError("Maintenance cache error. ", cacheErr);

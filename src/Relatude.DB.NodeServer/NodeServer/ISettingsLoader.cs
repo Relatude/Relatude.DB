@@ -7,19 +7,19 @@ public interface ISettingsLoader {
     Task WriteAsync(RelatudeDBServerSettings settings);
 }
 public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
-    static JsonSerializerOptions? _options = null;
+    public static JsonSerializerOptions? PrettyJsonOptions = null;
     static JsonSerializerOptions getOptions() {
-        if (_options == null) {
-            _options = new JsonSerializerOptions {
+        if (PrettyJsonOptions == null) {
+            PrettyJsonOptions = new JsonSerializerOptions {
                 PropertyNamingPolicy = null,
                 WriteIndented = true,
                 PropertyNameCaseInsensitive = true,
                 ReadCommentHandling = JsonCommentHandling.Skip,
                 //DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             };
-            _options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+            PrettyJsonOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         }
-        return _options;
+        return PrettyJsonOptions;
     }
     public async Task<RelatudeDBServerSettings> ReadAsync() {
         var path = Path.Combine(filePath);

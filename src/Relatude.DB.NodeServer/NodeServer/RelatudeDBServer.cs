@@ -261,7 +261,7 @@ public partial class RelatudeDBServer {
             Log("Error occurred during OnStoreInit event: " + err.Message);
         }
     }
-    internal void RaiseEventStoreDispose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+    internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
         try {
             OnStoreDispose?.Invoke(nodeStoreContainer, store);
