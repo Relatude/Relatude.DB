@@ -4,13 +4,21 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.1.0.53</Version>
+    <Version>0.1.0.54</Version>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="relatude.db.index\**" />
+    <Compile Remove="relatude.db.second\**" />
     <Compile Remove="relatude.db\**" />
+    <Content Remove="relatude.db.index\**" />
+    <Content Remove="relatude.db.second\**" />
     <Content Remove="relatude.db\**" />
+    <EmbeddedResource Remove="relatude.db.index\**" />
+    <EmbeddedResource Remove="relatude.db.second\**" />
     <EmbeddedResource Remove="relatude.db\**" />
+    <None Remove="relatude.db.index\**" />
+    <None Remove="relatude.db.second\**" />
     <None Remove="relatude.db\**" />
   </ItemGroup>
 
