@@ -15,7 +15,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null) {
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
         if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) { // if no flush is specified, and above limit, do a flush
-            var activityId = this.RegisterActvity(DataStoreActivityCategory.Flushing, "Auto flushing due to action count limit");
+            var activityId = this.RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing due to action count limit");
             try {
                 var sw = Stopwatch.StartNew();
                 FlushToDisk(Settings.DeepFlushDisk, activityId, out var t, out var a, out var w);
