@@ -16,7 +16,11 @@ public interface INodeData {
     bool IsComplex { get; }
 
     int ReadAccess { get; }
-    int WriteAccess { get; }
+    int EditViewAccess { get; }
+    int PublishAccess { get; }
+    int CreatedBy { get; }
+    int ChangedBy { get; }
+
     int CollectionId { get; }
     int CultureId { get; }
     int RevisionId { get; }
@@ -79,12 +83,20 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
+    public DateTime PublishedUtc => CreatedUtc;
+
     public int ReadAccess => 0;
-    public int WriteAccess => 0;
+    public int EditViewAccess => 0;
+    public int EditWriteAccess => 0;
+
+    public int PublishAccess => 0;
+    public int CreatedBy => 0;
+    public int ChangedBy => 0;
     public int CollectionId => 0;
     public int CultureId => 0;
     public int RevisionId => 0;
     public bool IsComplex => false;
+
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
 
     public Guid NodeType { get; }
@@ -129,13 +141,16 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
 }
 
 public class NodeDataComplex : INodeData {
-    public NodeDataComplex(Guid guid, int id, Guid typeId, int readAccess, int writeAccess, int cultureId, int collectionId, NodeData[] versions) {
+    public NodeDataComplex(Guid guid, int id, Guid typeId, int readAccess, int editAccess, int publishAccess, int createdBy, int changedBy, int cultureId, int collectionId, NodeData[] versions) {
         _id = id;
         _gid = guid;
         _nodeType = typeId;
         Versions = versions;
         ReadAccess = readAccess;
-        WriteAccess = writeAccess;
+        EditViewAccess = editAccess;
+        PublishAccess = publishAccess;
+        CreatedBy = createdBy;
+        ChangedBy = changedBy;
         CultureId = cultureId;
         CollectionId = collectionId;
     }
@@ -146,13 +161,17 @@ public class NodeDataComplex : INodeData {
     Guid _nodeType;
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
     public int ReadAccess { get; }
-    public int WriteAccess { get; }
+    public int EditViewAccess { get; }
+    public int PublishAccess {  get; }
+    public int CreatedBy { get; }
+    public int ChangedBy { get; }
     public int CultureId { get; }
     public int CollectionId { get; }
     public int RevisionId => throw new NotImplementedException();
     public bool IsComplex => true;
     public NodeData[] Versions { get; }
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public DateTime ChangedUtc => throw new NotImplementedException();
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
 
@@ -198,7 +217,7 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
 
     public Guid NodeType => throw new NotImplementedException();
     public int ReadAccess => throw new NotImplementedException();
-    public int WriteAccess => throw new NotImplementedException();
+    public int EditViewAccess => throw new NotImplementedException();
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
@@ -237,7 +256,7 @@ public class NodeDataOnlyTypeAndUId : INodeData { // readonly node data with pos
     public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
     public int ReadAccess => throw new NotImplementedException();
-    public int WriteAccess => throw new NotImplementedException();
+    public int EditViewAccess => throw new NotImplementedException();
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
@@ -273,7 +292,7 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     public Guid Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
     public int ReadAccess => throw new NotImplementedException();
-    public int WriteAccess => throw new NotImplementedException();
+    public int EditViewAccess => throw new NotImplementedException();
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
@@ -315,7 +334,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public int __Id { get => _node.__Id; set => throwReadOnlyError(); }
     public Guid NodeType => _node.NodeType;
     public int ReadAccess => _node.ReadAccess;
-    public int WriteAccess => _node.WriteAccess;
+    public int EditViewAccess => _node.EditViewAccess;
     public int CultureId => _node.CultureId;
     public int CollectionId => _node.CollectionId;
     public int RevisionId => _node.RevisionId;

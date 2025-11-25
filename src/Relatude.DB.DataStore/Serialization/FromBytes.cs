@@ -23,7 +23,6 @@ namespace Relatude.DB.Serialization {
             if (target == ActionTarget.Node) return nodeAction(datamodel, stream, out nodeSegmentRelativeOffset, out nodeSegmenLength);
             nodeSegmentRelativeOffset = 0; nodeSegmenLength = 0; // not relevant for relations
             if (target == ActionTarget.Relation) return relationAction(stream);
-            if (target == ActionTarget.Collection) return collectionAction(stream);
             throw new NotImplementedException();
         }
         static NodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
@@ -45,21 +44,6 @@ namespace Relatude.DB.Serialization {
             r.Target = (int)stream.ReadUInt();
             r.ChangeUtc = stream.ReadDateTime();
             return r;
-        }
-        static CollectionAction collectionAction(Stream stream) {
-            var operation = (CollectionOperation)stream.ReadOneByte();
-            if (operation == CollectionOperation.Remove) {
-                var collectionId = stream.ReadGuid();
-                return CollectionAction.Remove(collectionId);
-            } else { // Add or Update
-                using var ms = new MemoryStream(stream.ReadByteArray());
-                var cs = StoreCollection.FromStream(ms);
-                if (operation == CollectionOperation.Add) {
-                    return CollectionAction.Add(cs);
-                } else {
-                    return CollectionAction.Update(cs);
-                }
-            }
         }
         // object
         public static object ObjectFromBytes(Datamodel datamodel, Stream stream) {

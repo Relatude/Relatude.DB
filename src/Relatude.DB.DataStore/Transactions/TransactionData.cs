@@ -120,9 +120,6 @@ public class TransactionData {
         }
         return deletedNodes.Values;
     }
-    public void AddCollection(StoreCollection collection) => Add(CollectionAction.Add(collection));
-    public void UpdateCollection(StoreCollection collection) => Add(CollectionAction.Update(collection));
-    public void RemoveCollection(Guid collectionId) => Add(CollectionAction.Remove(collectionId));
 
     public void ChangeType(Guid nodeId, Guid nodeTypeId) => Add(NodeAction.ChangeType(nodeId, nodeTypeId));
     public void ChangeType(int nodeId, Guid nodeTypeId) => Add(NodeAction.ChangeType(nodeId, nodeTypeId));

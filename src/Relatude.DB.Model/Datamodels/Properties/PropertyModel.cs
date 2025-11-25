@@ -62,14 +62,6 @@ public abstract class PropertyModel {
                 break;
             case PropertyType.Relation:
                 break;
-            //case PropertyType.Collection:
-            //    break;
-            //case PropertyType.DataObject:
-            //    break;
-            //case PropertyType.FacetCollection:
-            //    break;
-            //case PropertyType.FacetNumberRange:
-            //    break;
             default:
                 break;
         }

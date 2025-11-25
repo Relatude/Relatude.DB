@@ -104,19 +104,19 @@ public static partial class ToBytes {
         stream.WriteDateTime(action.ChangeUtc);
         // stream.WriteBool(action.EnsuringCausedChange); // not relevant for writing and not serialized
     }
-    static void collectionAction(CollectionAction action, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
-        nodeSegmentRelativeOffset = 0; nodeSegmentLength = 0; // not relevant for collections
-        StreamExtenstions.WriteOneByte(stream, (byte)action.Operation);
-        if (action.Operation != CollectionOperation.Remove) {
-            if (action.CollectionToRemoveId == Guid.Empty) throw new Exception("Internal error. ");
-            stream.WriteGuid(action.CollectionToRemoveId);
-        } else { // Add or Update
-            if (action.Collection == null) throw new Exception("Internal error. ");
-            using var ms = new MemoryStream();
-            action.Collection.AppendStream(ms);
-            stream.WriteByteArray(ms.ToArray());
-        }
-    }
+    //static void collectionAction(CollectionAction action, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
+    //    nodeSegmentRelativeOffset = 0; nodeSegmentLength = 0; // not relevant for collections
+    //    StreamExtenstions.WriteOneByte(stream, (byte)action.Operation);
+    //    if (action.Operation != CollectionOperation.Remove) {
+    //        if (action.CollectionToRemoveId == Guid.Empty) throw new Exception("Internal error. ");
+    //        stream.WriteGuid(action.CollectionToRemoveId);
+    //    } else { // Add or Update
+    //        if (action.Collection == null) throw new Exception("Internal error. ");
+    //        using var ms = new MemoryStream();
+    //        action.Collection.AppendStream(ms);
+    //        stream.WriteByteArray(ms.ToArray());
+    //    }
+    //}
 
     public static void ActionBaseList(List<ActionBase> actions, Datamodel datamodel, MemoryStream ms) {
         ms.WriteInt(actions.Count);
@@ -126,7 +126,7 @@ public static partial class ToBytes {
         StreamExtenstions.WriteOneByte(stream, (byte)action.ActionTarget);
         if (action is NodeAction na) nodeAction(na, def, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
         else if (action is RelationAction ra) relationAction(ra, def, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
-        else if (action is CollectionAction cta) collectionAction(cta, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
+        //else if (action is CollectionAction cta) collectionAction(cta, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
         else throw new NotSupportedException();        
     }
     public static void FacetQueryResultData(FacetQueryResultData fq, Datamodel datamodel, Stream stream) {

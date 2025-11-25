@@ -124,11 +124,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     case PropertyType.Decimal:
                         var decimalValue = DecimalPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeDecimalProperty((DecimalProperty)prop, decimalValue, op);
-
                     case PropertyType.Any:
                     case PropertyType.Relation:
-                    //case PropertyType.Collection:
-                    //case PropertyType.DataObject:
                     default: throw new NotSupportedException();
                 }
             }
