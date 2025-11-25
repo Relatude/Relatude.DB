@@ -55,7 +55,6 @@ internal static class MapperGen {
         if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty)) {
             sb.Append("int uid = ");
             switch (nodeDef.DataTypeOfInternalId) {
-                case DataTypeInternalId.UInt: sb.AppendLine("node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.Int: sb.AppendLine("(int)node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.Long: sb.AppendLine("(int)node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.String: sb.AppendLine("int.Parse(node." + nodeDef.NameOfInternalIdProperty + ");"); break;
@@ -126,7 +125,6 @@ internal static class MapperGen {
             if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty)) {
                 sb.Append("obj." + nodeDef.NameOfInternalIdProperty + " = ");
                 switch (nodeDef.DataTypeOfInternalId) {
-                    case DataTypeInternalId.UInt: sb.AppendLine("nodeData." + nameof(INodeData.__Id) + ";"); break;
                     case DataTypeInternalId.Int: sb.AppendLine("(int)nodeData." + nameof(INodeData.__Id) + ";"); break;
                     case DataTypeInternalId.Long: sb.AppendLine("(long)nodeData." + nameof(INodeData.__Id) + ";"); break;
                     case DataTypeInternalId.String: sb.AppendLine("nodeData." + nameof(INodeData.__Id) + ".ToString();"); break;
@@ -273,7 +271,6 @@ internal static class MapperGen {
         if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty)) {
             sb.Append("id = ");
             switch (nodeDef.DataTypeOfInternalId) {
-                case DataTypeInternalId.UInt: sb.AppendLine("node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.Int: sb.AppendLine("(int)node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.Long: sb.AppendLine("(int)node." + nodeDef.NameOfInternalIdProperty + ";"); break;
                 case DataTypeInternalId.String: sb.AppendLine("int.Parse(node." + nodeDef.NameOfInternalIdProperty + ");"); break;

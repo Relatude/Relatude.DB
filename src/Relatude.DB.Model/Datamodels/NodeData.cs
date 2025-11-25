@@ -1,10 +1,11 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
+
 public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
-    Normal = 2, // Access, Revisions, Cultures
+    Complex = 2, // Access, Revisions, Cultures
 }
 public interface INodeData {
     Guid Id { get; set; }
@@ -12,7 +13,7 @@ public interface INodeData {
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
 
-    bool HasVersions { get; }
+    bool IsComplex { get; }
 
     int ReadAccess { get; }
     int WriteAccess { get; }
@@ -78,12 +79,12 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
-    public int ReadAccess { get; set; }
-    public int WriteAccess { get; set; }
-    public int CollectionId { get; set; }
-    public int CultureId { get; set; }
-    public int RevisionId { get; set; }
-    public bool HasVersions => false;
+    public int ReadAccess => 0;
+    public int WriteAccess => 0;
+    public int CollectionId => 0;
+    public int CultureId => 0;
+    public int RevisionId => 0;
+    public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
 
     public Guid NodeType { get; }
@@ -127,8 +128,8 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
 }
 
-public class NodeDataWithVersions : INodeData {
-    public NodeDataWithVersions(Guid guid, int id, Guid typeId, int readAccess, int writeAccess, int cultureId, int collectionId, NodeData[] versions) {
+public class NodeDataComplex : INodeData {
+    public NodeDataComplex(Guid guid, int id, Guid typeId, int readAccess, int writeAccess, int cultureId, int collectionId, NodeData[] versions) {
         _id = id;
         _gid = guid;
         _nodeType = typeId;
@@ -149,7 +150,7 @@ public class NodeDataWithVersions : INodeData {
     public int CultureId { get; }
     public int CollectionId { get; }
     public int RevisionId => throw new NotImplementedException();
-    public bool HasVersions => true;
+    public bool IsComplex => true;
     public NodeData[] Versions { get; }
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
@@ -169,6 +170,16 @@ public class NodeDataWithVersions : INodeData {
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
+
+    public static NodeDataComplex FromMinimal(INodeData nodeData) {
+        return new NodeDataComplex(
+            nodeData.Id,
+            nodeData.__Id,
+            nodeData.NodeType,
+            0, 0, 0, 0, [(NodeData)nodeData]
+        );
+    }
+
 }
 
 public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
@@ -191,7 +202,7 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
-    public bool HasVersions => false;
+    public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
 
 
@@ -230,7 +241,7 @@ public class NodeDataOnlyTypeAndUId : INodeData { // readonly node data with pos
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
-    public bool HasVersions => false;
+    public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
@@ -266,7 +277,7 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     public int CultureId => throw new NotImplementedException();
     public int CollectionId => throw new NotImplementedException();
     public int RevisionId => throw new NotImplementedException();
-    public bool HasVersions => false;
+    public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
@@ -308,7 +319,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public int CultureId => _node.CultureId;
     public int CollectionId => _node.CollectionId;
     public int RevisionId => _node.RevisionId;
-    public bool HasVersions => false;
+    public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }
     public DateTime ChangedUtc => _node.ChangedUtc;

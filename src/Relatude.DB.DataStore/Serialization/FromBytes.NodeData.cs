@@ -20,7 +20,7 @@ namespace Relatude.DB.Serialization {
             __id = stream.ReadUInt();
             return version switch {
                 NodeDataStorageVersions.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
-                NodeDataStorageVersions.Normal => readVersion_2_Normal(datamodel, stream, guid, (int)__id),
+                NodeDataStorageVersions.Complex => readVersion_2_Complex(datamodel, stream, guid, (int)__id),
                 _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
             };
         }
@@ -100,11 +100,9 @@ namespace Relatude.DB.Serialization {
                 //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
                 createdUtc, changedUtc, values);
         }
-        static NodeData readVersion_2_Normal(Datamodel datamodel, Stream stream, Guid guid, int __id) {
+        static NodeData readVersion_2_Complex(Datamodel datamodel, Stream stream, Guid guid, int __id) {
             var nodeTypeId = stream.ReadGuid();
-
             var all0 = stream.ReadBool();
-
             if (!all0) {
                 var readAccess = stream.ReadInt();
                 var writeAccess = stream.ReadInt();
@@ -143,9 +141,7 @@ namespace Relatude.DB.Serialization {
                     }
                 }
             }
-            return new NodeData(guid, __id, nodeTypeId,
-                //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
-                createdUtc, changedUtc, values);
+            return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values);
         }
         static object toPropertyValue(byte[] bytes, PropertyType propType) {
             return propType switch {

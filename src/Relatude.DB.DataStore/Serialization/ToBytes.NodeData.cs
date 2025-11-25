@@ -1,17 +1,18 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.Query.Data;
-using Relatude.DB.Query.Methods;
-using Relatude.DB.Transactions;
-using System.Text;
 
 namespace Relatude.DB.Serialization;
+
 public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
         var nodeType = datamodel.NodeTypes[nodeData.NodeType];
-        NodeData_Minimal(nodeData, datamodel, stream);
-        //NodeData_Normal(nodeData, datamodel, stream);
+        if (nodeType.AccessControl || nodeType.Cultures || nodeType.Collections || nodeType.Revisions) {
+            NodeData_Complex(nodeData, datamodel, stream);
+        } else {
+            NodeData_Minimal(nodeData, datamodel, stream);
+
+        }
     }
     static void NodeData_Minimal(INodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
@@ -37,10 +38,11 @@ public static partial class ToBytes {
             stream.WriteByteArray(bytes); // data
         }
     }
-    static void NodeData_Normal(INodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Complex(INodeData nodeData, Datamodel datamodel, Stream stream) {
+        if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataStorageVersions.Normal);
+        stream.WriteInt((int)NodeDataStorageVersions.Complex);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
 

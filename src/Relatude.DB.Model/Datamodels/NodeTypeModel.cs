@@ -14,7 +14,6 @@ public enum ModelType {
     Struct,
 }
 public enum DataTypeInternalId {
-    UInt,
     Int,
     Long,
     String,
@@ -37,7 +36,9 @@ public partial class NodeTypeModel { // with default values
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
     public ModelType ModelType { get; set; }
+
     public bool DefaultAdminAccess { get; set; }
+
     public bool AccessControl { get; set; }
     public bool Cultures { get; set; }
     public bool Collections { get; set; }

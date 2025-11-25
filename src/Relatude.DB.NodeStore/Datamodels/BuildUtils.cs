@@ -269,10 +269,6 @@ internal static class BuildUtils {
         if (pInfo.Name == internalIdName) {
             if (valueType == typeof(int)) {
                 c.NameOfInternalIdProperty = pInfo.Name;
-                c.DataTypeOfInternalId = DataTypeInternalId.UInt;
-                return true;
-            } else if (valueType == typeof(int)) {
-                c.NameOfInternalIdProperty = pInfo.Name;
                 c.DataTypeOfInternalId = DataTypeInternalId.Int;
                 return true;
             } else if (valueType == typeof(long)) {
