@@ -4,7 +4,6 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
-
 class MutableIdSet() {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
@@ -32,24 +31,32 @@ internal class NodeTypeStore {
     Guid[] _guidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     Dictionary<int, short> _typeByIds = [];
 
-    Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDecendants = [];
-    Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDecendants = [];
+    Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDescendants = [];
+    Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDescendants = [];
     internal NodeTypeStore(Definition definition, string uniqueKey) {
         _definition = definition;
         UniqueKey = uniqueKey;
     }
     public string UniqueKey { get; private set; }
 
-    public IdSet GetAllNodeIdsForType(Guid typeId, bool includeDescendants) {
-        if (includeDescendants) {
-            if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+    public IdSet GetAllNodeIdsForType(Guid typeId, QueryContext ctx) {
+        if (ctx.ExcludeDecendants) {
+            if (_idsByTypeWithoutDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
         } else {
-            if (_idsByTypeWithoutDecendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+            if (_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+        }
+        return IdSet.Empty;
+    }
+    public IdSet GetAllNodeIdsForTypeNoAccessControl(Guid typeId, bool includeDescendants) {
+        if (includeDescendants) {
+            if (_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
+        } else {
+            if (_idsByTypeWithoutDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
         }
         return IdSet.Empty;
     }
     public int GetCountForTypeForStatusInfo(Guid typeId) {
-        if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) return ids.Count;
+        if (_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.Count;
         return 0;
     }
 
@@ -99,28 +106,28 @@ internal class NodeTypeStore {
         if (_guidByShortTypeId[shortId] == Guid.Empty) throw new Exception("Internal error. Unable to index node with id: " + id + " as the short id: " + shortId + " is already in use.");
         _typeByIds.Add(id, shortId);
         foreach (var typeId in _definition.Datamodel.NodeTypes[nodeTypeId].ThisAndAllInheritedTypes.Keys) {
-            if (!_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) _idsByTypeIncludingDecendants.Add(typeId, ids = new());
+            if (!_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) _idsByTypeIncludingDescendants.Add(typeId, ids = new());
             ids.Index(id);
         }
         {
-            if (!_idsByTypeWithoutDecendants.TryGetValue(nodeTypeId, out var ids)) _idsByTypeWithoutDecendants.Add(nodeTypeId, ids = new());
+            if (!_idsByTypeWithoutDescendants.TryGetValue(nodeTypeId, out var ids)) _idsByTypeWithoutDescendants.Add(nodeTypeId, ids = new());
             ids.Index(id);
         }
     }
     void delete(int id, Guid nodeTypeId) {
         _typeByIds.Remove(id);
         foreach (var typeId in _definition.Datamodel.NodeTypes[nodeTypeId].ThisAndAllInheritedTypes.Keys) {
-            if (_idsByTypeIncludingDecendants.TryGetValue(typeId, out var ids)) {
+            if (_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) {
                 ids.DeIndex(id);
-                if (ids.Count == 0) _idsByTypeIncludingDecendants.Remove(typeId);
+                if (ids.Count == 0) _idsByTypeIncludingDescendants.Remove(typeId);
             } else {
                 throw new Exception("Internal error. Unable to deindex node with id: " + id + " from type: " + typeId + " as it is not indexed.");
             }
         }
         {
-            if (_idsByTypeWithoutDecendants.TryGetValue(nodeTypeId, out var ids)) {
+            if (_idsByTypeWithoutDescendants.TryGetValue(nodeTypeId, out var ids)) {
                 ids.DeIndex(id);
-                if (ids.Count == 0) _idsByTypeWithoutDecendants.Remove(nodeTypeId);
+                if (ids.Count == 0) _idsByTypeWithoutDescendants.Remove(nodeTypeId);
             } else {
                 throw new Exception("Internal error. Unable to deindex node with id: " + id + " from type: " + nodeTypeId + " as it is not indexed.");
             }

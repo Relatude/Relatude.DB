@@ -39,7 +39,7 @@ public static partial class ToBytes {
         }
     }
     static void NodeData_Complex(INodeData nodeData, Datamodel datamodel, Stream stream) {
-        if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
+        //if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
         stream.WriteInt((int)NodeDataStorageVersions.Complex);

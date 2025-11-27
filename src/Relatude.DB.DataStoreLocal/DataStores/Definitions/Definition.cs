@@ -1,12 +1,12 @@
 ﻿using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.Stores;
+using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.Common;
-using Relatude.DB.DataStores.Transactions;
-using Relatude.DB.DataStores.Stores;
 
 namespace Relatude.DB.DataStores.Definitions;
 internal sealed class Definition {
@@ -47,7 +47,8 @@ internal sealed class Definition {
     Dictionary<string, IIndex> _indexes { get; set; }
     NodeTypeStore _nodeTypeIndex;
     public NodeTypeStore NodeTypeIndex => _nodeTypeIndex;
-    public IdSet GetAllIdsForType(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, includeDescendants);
+    public IdSet GetAllIdsForType(Guid typeId, QueryContext ctx) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, ctx);
+    public IdSet GetAllIdsForTypeNoAccessControl(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForTypeNoAccessControl(typeId, includeDescendants);
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
     public bool TryGetTypeOfNode(int id, [MaybeNullWhen(false)] out Guid typeId) => _nodeTypeIndex.TryGetType(id, out typeId);

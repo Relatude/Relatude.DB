@@ -255,8 +255,8 @@ public sealed class NodeStore : IDisposable {
     public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
     public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
 
-    public bool Exists(Guid id) => Datastore.Exists(id, NodeConstants.BaseNodeTypeId);
-    public bool Exists<T>(Guid id) => Datastore.Exists(id, Mapper.GetNodeTypeId(typeof(T)));
+    public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
+    public bool Exists<T>(Guid id) => Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
 
     public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(Mapper.CreateObjectFromNodeData<T>);
     //public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids.Select(id => (int)id)).Select(Mapper.CreateObjectFromNodeData<T>);
@@ -440,7 +440,7 @@ public sealed class NodeStore : IDisposable {
     public Task<byte[]> FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression);
     public Task FileDeleteAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDeleteAsync(Mapper.GetIdGuid(node), expression);
 
-    public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.FileUploadedAndAvailableAsync(nodeId, propertyId);
+    public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(nodeId, propertyId);
     public Task<bool> FileUploadedAndAvailableAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileUploadedAndAvailableAsync(Mapper.GetIdGuid(node), Mapper.GetProperty(expression).Id);
 
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {

@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.AccessControl;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -13,7 +12,7 @@ using Relatude.DB.Query.Parsing.Tokens;
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
-    public Task<INodeData> GetAsync(Guid id) {
+    public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -27,7 +26,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public Task<INodeData> GetAsync(int id) {
+    public Task<INodeData> GetAsync(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -40,10 +39,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids) {
+    public Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids));
     }
-    public INodeData Get(Guid id) {
+    public INodeData Get(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -57,7 +56,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public INodeData Get(int id) {
+    public INodeData Get(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -69,7 +68,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public INodeData Get(IdKey id) {
+    public INodeData Get(IdKey id, QueryContext? ctx = null) {
         if (id.Int == 0) return Get(id.Guid);
         return Get(id.Int);
     }
@@ -109,7 +108,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData) {
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -127,7 +126,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData) {
+    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -140,7 +139,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGetGuid(int id, out Guid guid) {
+    public bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -153,7 +152,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<int> __ids) {
+    public IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -166,7 +165,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<Guid> ids) {
+    public IEnumerable<INodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -180,7 +179,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool Exists(Guid id, Guid nodeTypeId) {
+    public bool ExistsAndIsType(Guid id, Guid nodeTypeId) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -209,7 +208,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from) {
+    public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();

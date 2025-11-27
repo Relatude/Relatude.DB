@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.Query.Expressions;
 namespace Relatude.DB.Query.Data;
+
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
     public IStoreNodeDataCollection FilterAsMuchAsPossibleUsingIndexes(Variables vars, IExpression orgFilter, out IExpression? remainingFilter) {
         if (canBeNative(vars, orgFilter, _nodeType)) {
@@ -180,7 +181,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         }
     }
     public IStoreNodeDataCollection FilterByTypes(Guid[] types, bool includeDescendants) {
-        var newIds = _def.Sets.WhereTypes(_ids, types.Select(t => _def.GetAllIdsForType(t, includeDescendants)).ToArray());
+        var newIds = _def.Sets.WhereTypes(_ids, types.Select(t => _def.GetAllIdsForTypeNoAccessControl(t, includeDescendants)).ToArray());
+        // access control not needed, as we are filtering down ( _ids is already filtered by access control )
         return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches);
     }
 }

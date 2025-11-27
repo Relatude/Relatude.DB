@@ -2,14 +2,15 @@
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions;
+
 internal static class ActionFactory {
     static ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
-    public static PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, out ResultingOperation resultingOperation) {
+    public static PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
         _lastResultingOperation = ResultingOperation.None; // default
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
-            NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks),
+            NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             _ => throw new NotSupportedException(),
         };
@@ -297,13 +298,13 @@ internal static class ActionFactory {
             throw new NotImplementedException();
         }
     }
-    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks) {
+    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
         List<int> uints = [];
         if (a.NodeIds != null) uints.AddRange(a.NodeIds);
         if (a.NodeGuids != null) uints.AddRange(a.NodeGuids.Select(db._guids.GetId));
         if (a.TypeId != null) {
             if (uints.Count > 0) throw new("Cannot update property for multiple nodes and a type. ");
-            uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value, true).Enumerate());
+            uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value, ctx).Enumerate());
         }
         // ignore nodes that does not exist, copy to avoid changing original node in case of error:
         var nodes = db._nodes.Get(uints.Where(db._nodes.Contains).ToArray()).Select(n => n.Copy());

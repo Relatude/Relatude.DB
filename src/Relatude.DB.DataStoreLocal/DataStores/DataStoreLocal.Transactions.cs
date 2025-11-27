@@ -9,10 +9,11 @@ namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
 
-    public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null) {
-        return Task.FromResult(Execute(transaction, flushToDisk));
+    public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
+        return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
-    public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null) {
+    public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
+        ctx ??= _defaultQueryCtx;
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
         if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) { // if no flush is specified, and above limit, do a flush
             var activityId = this.RegisterActvity(DataStoreActivityCategory.Flushing, "Flushing due to action count limit");
@@ -31,17 +32,17 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
-            var result = execute_outer(transaction, true, flush, out var primitiveActionCount);
+            var result = execute_outer(transaction, true, flush, ctx, out var primitiveActionCount);
             if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
             return result;
         } else { // faster path without logging:
-            var result = execute_outer(transaction, true, flush, out _);
+            var result = execute_outer(transaction, true, flush, ctx, out _);
             return result;
         }
     }
 
-    TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, out int primitiveActionCount) {
+    TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, QueryContext ctx, out int primitiveActionCount) {
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk, activityId); // outside write lock to reduce time lock is held
         _lock.EnterWriteLock();
@@ -54,7 +55,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
             PersistedIndexStore?.StartTransaction();
-            execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId);
+            execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId, ctx);
             PersistedIndexStore?.CommitTransaction(transaction.Timestamp);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
             return new(transaction.Timestamp, resultingOperations);
@@ -76,7 +77,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     void execute_inner(TransactionData transaction, bool transformValues, out int primitiveActionCount,
-        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
+        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, QueryContext ctx) {
         HashSet<Guid>? lockExcemptions = null;
         if (transaction.LockExcemptions != null) {
             if (!_nodeWriteLocks.LocksAreActive(transaction.LockExcemptions))
@@ -84,7 +85,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     string.Join(", ", transaction.LockExcemptions) + " are no longer active. ");
             lockExcemptions = new(transaction.LockExcemptions);
         }
-        var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
+        var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId, ctx); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
         if (executed.Count == 0) return; // no actions executed, no need to write to disk
         var executedTransaction = new ExecutedPrimitiveTransaction(executed, transaction.Timestamp);
@@ -104,7 +105,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Interlocked.Read(ref _noPrimitiveActionsSinceStartup);
     }
     List<PrimitiveActionBase> executeActions(TransactionData transaction, HashSet<Guid>? lockExcemptions, bool transformValues,
-        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId) {
+        ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, QueryContext ctx) {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
         try {
@@ -114,7 +115,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
                 UpdateActivityProgress(activityId, 100 * i++ / count);
-                foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, out var resultingOperation)) {
+                foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
                     _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
                     executeAction(primitive); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )

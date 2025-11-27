@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Diagnostics;
-using Relatude.DB.AccessControl;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -43,6 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
     readonly IFileStore _defaultFileStore;
     readonly StoreLogger _logger;
+    QueryContext _defaultQueryCtx;
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
     internal readonly AIEngine? _ai;
@@ -52,7 +52,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
     NativeModelStore _nativeModelStore;
-    // QueryContext _defaultUserCtx;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
 
@@ -84,7 +83,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         ) {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
-        //_defaultUserCtx = null!;// UserContext.Anonymous(1033); // _settings?.DefaultLcid ?? 1033);
+        _defaultQueryCtx = QueryContext.CreateDefault();
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
         _ioIndex = indexIO ?? _io;
@@ -289,7 +288,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         //    return countries;
         //});
         foreach (var type in _definition.NodeTypes.Values) {
-            var callback = (Metrics metrics) => new NodeCollectionData(this, metrics, _definition.GetAllIdsForType(type.Id, true), type, null);
+            var callback = (Metrics metrics, QueryContext ctx) => new NodeCollectionData(this, metrics, _definition.GetAllIdsForType(type.Id, ctx), type, null);
             vars.DeclarerAndSet(type.CodeName, callback);
             if (type.Id == NodeConstants.BaseNodeTypeId) vars.DeclarerAndSet(nameof(Object), callback); // INode == Object
         }
