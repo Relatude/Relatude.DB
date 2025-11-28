@@ -43,7 +43,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         _io = io;
         _fileKeys = fileKey;
         _sets = register;
-        _stateId = new(register);
+        _stateId = new();
         _idByValue = new(register);
         UniqueKey = uniqueKey;
         FriendlyName = friendlyName;
@@ -108,6 +108,8 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
+    public void Add(int id, T value) => add(id, value);
+    public void Remove(int id, T value) => remove(id, value);
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public T? MinValue() {

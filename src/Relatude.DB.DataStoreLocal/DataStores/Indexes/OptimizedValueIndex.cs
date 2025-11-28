@@ -14,6 +14,8 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
 
     public void Add(int id, object value) => _o.Add(id, value);
     public void Remove(int id, object value) => _o.Remove(id, value);
+    public void Add(int id, T value) => _o.Add(id, value);
+    public void Remove(int id, T value) => _o.Remove(id, value);
     public void RegisterAddDuringStateLoad(int id, object value) => _o.RegisterAddDuringStateLoad(id, value);
     public void RegisterRemoveDuringStateLoad(int id, object value) => _o.RegisterRemoveDuringStateLoad(id, value);
 

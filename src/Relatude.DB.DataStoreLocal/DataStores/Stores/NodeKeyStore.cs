@@ -1,10 +1,15 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
+
+//class MetaTree {
+//    Dictionary<Guid
+//}
 
 class MutableIdSet {
     internal MutableIdSet() { 
@@ -36,11 +41,18 @@ internal class NodeKeyStore {
     Dictionary<int, short> _typeByIds = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDescendants = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDescendants = [];
-    Dictionary<int, NodeMeta> _metaByIds = [];
-    Cache<NodeCacheKey, MutableIdSet> _idsByMeta;
 
-    //Dictionary<int, NodeMeta> _nodeMeta = [];
-    //Cache<Guid, MutableIdSet> _idsBy
+    MutableIdSet _allComplexNodes = new();
+    IValueIndex<Guid> _readAccess;
+    IValueIndex<Guid> _editViewAccess;
+    IValueIndex<Guid> _editWriteAccess;
+    IValueIndex<Guid> _publishAccess;
+    IValueIndex<bool> _deleted;
+    IValueIndex<bool> _hidden;
+    IValueIndex<string> _cultureCode;    
+
+    //Dictionary<int, NodeMeta> _metaByIds = [];
+    //Cache<NodeCacheKey, MutableIdSet> _idsByMeta;
 
     internal NodeKeyStore(Definition definition) {
         _definition = definition;

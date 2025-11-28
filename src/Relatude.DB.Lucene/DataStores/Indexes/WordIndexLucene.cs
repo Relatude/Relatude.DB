@@ -44,7 +44,7 @@ public class WordIndexLucene : IPersistentWordIndex {
         _path = Path.Combine(folderPath, indexId.ToLower().Replace("wordindex", ""));
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _indexId = indexId;
-        _stateId = new(sets);
+        _stateId = new();
         _sets = sets;
         MinWordLength = minWordLength;
         MaxWordLength = maxWordLength;

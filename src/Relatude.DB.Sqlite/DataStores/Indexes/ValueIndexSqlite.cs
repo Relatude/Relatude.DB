@@ -11,7 +11,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string friendlyName) {
         _indexId = indexId;
         _store = store;
-        _stateId = new(sets);
+        _stateId = new();
         _sets = sets;
         _tableName = store.GetTableName(indexId);
         FriendlyName = friendlyName;
@@ -44,6 +44,9 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
+    public void Add(int id, T value) => add(id, value);
+    public void Remove(int id, T value) => remove(id, value);
+
     public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
     public long PersistedTimestamp { get; set; } // only set during state load

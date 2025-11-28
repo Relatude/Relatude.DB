@@ -98,10 +98,9 @@ internal class StateIdTracker() {
         _stateId = SetRegister.NewStateId();
     }
 }
-public class StateIdValueTracker<T>(SetRegister register) where T : notnull {
+public class StateIdValueTracker<T>() where T : notnull {
     // state with logic to handle removal and re-addition of same value
     private long _stateId = SetRegister.NewStateId();
-    private readonly SetRegister _register = register;
     public long Current => _stateId;
     T? _lastValueRemoved;
     int _lastIdRemoved;

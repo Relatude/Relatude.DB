@@ -72,6 +72,8 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
     }
     public void CopyTo(int[] array, int arrayIndex) => _items.CopyTo(array, arrayIndex);
     bool ICollection<int>.Remove(int item) => Remove(item);
+
+    // not need for current usage:
     public bool IsProperSubsetOf(IEnumerable<int> other) => throw new NotImplementedException();
     public bool IsProperSupersetOf(IEnumerable<int> other) => throw new NotImplementedException();
     public bool IsSubsetOf(IEnumerable<int> other) => throw new NotImplementedException();

@@ -17,7 +17,7 @@ public class WordIndexSqlite : IWordIndex {
     public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string friendlyName, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         _indexId = indexId;
         _store = store;
-        _stateId = new(sets);
+        _stateId = new();
         _sets = sets;
         _tableName = store.GetTableName(indexId);
         FriendlyName = friendlyName;

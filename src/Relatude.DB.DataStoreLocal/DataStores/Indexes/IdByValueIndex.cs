@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Collections;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
@@ -6,7 +7,7 @@ namespace Relatude.DB.DataStores.Indexes;
 /// This is a special purpose index used by the ValueIndex class.
 /// It indexes ids by value.
 /// The "MutableSet" is a set designed to be used for fast creations of IdSets
-/// Optimized for fats lookups and insertions/removals. 
+/// Optimized for fast lookups and insertions/removals. 
 /// However, it is not so efficient with range queries, as it needs a resort after each insertion/removal.
 /// Optimization is possible using a btree or similar structure ( even though that reduces insertion/removal speed. ).
 /// </summary>

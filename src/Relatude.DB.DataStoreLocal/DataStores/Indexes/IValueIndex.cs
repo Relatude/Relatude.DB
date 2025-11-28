@@ -17,6 +17,10 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     IEnumerable<int> LessThan(T value, bool inclusive);
     T? MaxValue();
     T? MinValue();
+
+    void Add(int id, T value);
+    void Remove(int id, T value);
+
     IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive);
     IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive);
     int CountEqual(IdSet nodeIds, T value);
@@ -26,4 +30,5 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges);
     int MaxCount(IndexOperator op, T value);
     IdSet ReOrder(IdSet unsorted, bool descending);
+
 }
