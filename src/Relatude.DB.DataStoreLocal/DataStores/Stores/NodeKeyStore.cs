@@ -36,6 +36,8 @@ internal class NodeKeyStore {
     Dictionary<int, short> _typeByIds = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDescendants = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDescendants = [];
+    Dictionary<int, NodeMeta> _metaByIds = [];
+    Cache<NodeCacheKey, MutableIdSet> _idsByMeta;
 
     //Dictionary<int, NodeMeta> _nodeMeta = [];
     //Cache<Guid, MutableIdSet> _idsBy
