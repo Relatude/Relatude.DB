@@ -53,7 +53,7 @@ public class NodeMeta {
 /// Represents a high-performance, immutable cache key.
 /// Declared as 'readonly struct' to eliminate defensive copies and GC pressure.
 /// </summary>
-internal readonly struct NodeCacheKey :
+public readonly struct NodeCacheKey :
     IComparable<NodeCacheKey>,
     IEquatable<NodeCacheKey> {
     // Make all fields 'readonly' to ensure immutability, which is enforced by the 'readonly struct' keyword.
@@ -108,6 +108,17 @@ internal readonly struct NodeCacheKey :
         PublishedUtc = publishedUtc;
         RetainedUtc = retainedUtc;
         ReleasedUtc = releasedUtc;
+    }
+
+    public NodeCacheKey(Guid TypeId, QueryContext ctx) { 
+        NodeType = TypeId;
+        IsPublished = !ctx.IncludeUnpublished;
+        IsDeleted = !ctx.IncludeDeleted;
+        ChangedUtc = DateTime.MinValue;
+        CreatedUtc = DateTime.MinValue;
+        PublishedUtc = DateTime.MinValue;
+        RetainedUtc = DateTime.MinValue;
+        ReleasedUtc = DateTime.MinValue;
     }
 
     // --- 1. Equality (IEquatable<T>) ---

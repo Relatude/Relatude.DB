@@ -1,10 +1,14 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
-class MutableIdSet() {
+
+class MutableIdSet {
+    internal MutableIdSet() { 
+    }
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
     HashSet<int> _ids = [];
@@ -25,19 +29,20 @@ class MutableIdSet() {
         return _lastSet ??= new(_ids, _state.Current);
     }
 }
-internal class NodeTypeStore {
+internal class NodeKeyStore {
     Definition _definition;
     Dictionary<Guid, short> _shortTypeIdByGuid = [];
     Guid[] _guidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     Dictionary<int, short> _typeByIds = [];
-
     Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDescendants = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDescendants = [];
-    internal NodeTypeStore(Definition definition, string uniqueKey) {
+
+    //Dictionary<int, NodeMeta> _nodeMeta = [];
+    //Cache<Guid, MutableIdSet> _idsBy
+
+    internal NodeKeyStore(Definition definition) {
         _definition = definition;
-        UniqueKey = uniqueKey;
     }
-    public string UniqueKey { get; private set; }
 
     public IdSet GetAllNodeIdsForType(Guid typeId, QueryContext ctx) {
         if (ctx.ExcludeDecendants) {
@@ -47,6 +52,7 @@ internal class NodeTypeStore {
         }
         return IdSet.Empty;
     }
+    
     public IdSet GetAllNodeIdsForTypeNoAccessControl(Guid typeId, bool includeDescendants) {
         if (includeDescendants) {
             if (_idsByTypeIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
@@ -61,7 +67,7 @@ internal class NodeTypeStore {
     }
 
     public Guid GetType(int id) {
-        if (_typeByIds.TryGetValue(id, out var typeId)) return _guidByShortTypeId[typeId];
+        if (_typeByIds.TryGetValue(id, out var shortId)) return _guidByShortTypeId[shortId];
         throw new Exception("Internal error. Unable to determine type of unknown node with id: " + id);
     }
     public bool TryGetType(int id, out Guid typeId) {

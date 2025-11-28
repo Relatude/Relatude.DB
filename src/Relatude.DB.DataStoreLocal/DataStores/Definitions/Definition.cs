@@ -35,7 +35,7 @@ internal sealed class Definition {
             Relations.Add(c.Id, c);
         }
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
-        _nodeTypeIndex = new(this, nameof(NodeTypeIndex));
+        _nodeTypeIndex = new(this);
     }
     public Datamodel Datamodel { get; }
     public SetRegister Sets { get; }
@@ -45,8 +45,8 @@ internal sealed class Definition {
     internal Dictionary<Guid, Relation> Relations { get; }
     readonly Cache<long, Property[]> _facetPropCache = new(400);
     Dictionary<string, IIndex> _indexes { get; set; }
-    NodeTypeStore _nodeTypeIndex;
-    public NodeTypeStore NodeTypeIndex => _nodeTypeIndex;
+    NodeKeyStore _nodeTypeIndex;
+    public NodeKeyStore NodeTypeIndex => _nodeTypeIndex;
     public IdSet GetAllIdsForType(Guid typeId, QueryContext ctx) => _nodeTypeIndex.GetAllNodeIdsForType(typeId, ctx);
     public IdSet GetAllIdsForTypeNoAccessControl(Guid typeId, bool includeDescendants) => _nodeTypeIndex.GetAllNodeIdsForTypeNoAccessControl(typeId, includeDescendants);
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
