@@ -42,14 +42,14 @@ internal class NodeKeyStore {
     Dictionary<Guid, MutableIdSet> _idsByTypeIncludingDescendants = [];
     Dictionary<Guid, MutableIdSet> _idsByTypeWithoutDescendants = [];
 
-    MutableIdSet _allComplexNodes = new();
-    IValueIndex<Guid> _readAccess;
-    IValueIndex<Guid> _editViewAccess;
-    IValueIndex<Guid> _editWriteAccess;
-    IValueIndex<Guid> _publishAccess;
-    IValueIndex<bool> _deleted;
-    IValueIndex<bool> _hidden;
-    IValueIndex<string> _cultureCode;    
+    //MutableIdSet _allComplexNodes = new();
+    //IValueIndex<Guid> _readAccess;
+    //IValueIndex<Guid> _editViewAccess;
+    //IValueIndex<Guid> _editWriteAccess;
+    //IValueIndex<Guid> _publishAccess;
+    //IValueIndex<bool> _deleted;
+    //IValueIndex<bool> _hidden;
+    //IValueIndex<string> _cultureCode;    
 
     //Dictionary<int, NodeMeta> _metaByIds = [];
     //Cache<NodeCacheKey, MutableIdSet> _idsByMeta;

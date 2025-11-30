@@ -5,7 +5,7 @@ namespace Relatude.DB.Query.Methods;
 public class CountMethod (IExpression subject) : IExpression {
     public object Evaluate(IVariables vars) {
         var values = subject.Evaluate(vars);
-        if (values is not ICollectionBase coll) throw new Exception("Count is only supported on collections. ");
+        if (values is not ICollectionData coll) throw new Exception("Count is only supported on collections. ");
         var pageSize = coll.PageSizeUsed.HasValue && coll.PageSizeUsed.Value > 0 ? coll.PageSizeUsed.Value : coll.TotalCount;
         int count;
         if (coll.TotalCount > 0) { // counts on page

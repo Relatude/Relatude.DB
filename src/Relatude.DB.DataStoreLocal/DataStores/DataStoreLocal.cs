@@ -289,8 +289,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         //});
         foreach (var type in _definition.NodeTypes.Values) {
             var callback = (Metrics metrics, QueryContext ctx) => new NodeCollectionData(this, metrics, _definition.GetAllIdsForType(type.Id, ctx), type, null);
-            vars.DeclarerAndSet(type.CodeName, callback);
-            if (type.Id == NodeConstants.BaseNodeTypeId) vars.DeclarerAndSet(nameof(Object), callback); // INode == Object
+            vars.DeclarerAndSetCallback(type.CodeName, callback);
+            if (type.Id == NodeConstants.BaseNodeTypeId) vars.DeclarerAndSetCallback(nameof(Object), callback); // INode == Object
         }
         return vars;
     }

@@ -5,7 +5,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>0.1.0.55</Version>
+		<Version>0.1.0.56</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Azure.AI.OpenAI" Version="2.0.0" />

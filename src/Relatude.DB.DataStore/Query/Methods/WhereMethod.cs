@@ -8,7 +8,7 @@ public class WhereMethod(IExpression input, LambdaExpression lamda) : IExpressio
             // If the input is a store node data collection, we can try to evaluate expression using sets, and indexes:
             var scope = vars.CreateScope();
             var inputParamaterName = lamda.Parameters.Single();
-            scope.DeclarerAndSet(inputParamaterName, sd);
+            scope.DeclarerAndSetConstant(inputParamaterName, sd);
             evaluatedInput = sd.FilterAsMuchAsPossibleUsingIndexes(scope, lamda.Body, out var remainingFilter);
             if (remainingFilter == null) return evaluatedInput; // if no remaining filter, we are done
             lamda.Body = remainingFilter; // if there is a remaining filter, we will evaluate the remaining filter using the evaluated input

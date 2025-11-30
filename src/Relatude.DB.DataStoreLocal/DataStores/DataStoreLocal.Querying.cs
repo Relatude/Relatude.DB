@@ -10,6 +10,7 @@ using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Parsing.Expressions;
 using Relatude.DB.Query.Parsing.Tokens;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
     public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
@@ -278,14 +279,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    object? query(IExpression expression, string? query, IEnumerable<Parameter> parameters) {
+    object? query(IExpression expression, string? query, IEnumerable<Parameter> parameters, QueryContext? ctx) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
+            ctx ??= _defaultQueryCtx;
             validateDatabaseState();
             _queryActivity.Record();
             var sw = Stopwatch.StartNew();
-            var scope = _variables.CreateRootScope(parameters);
+            var scope = _variables.CreateRootScope(parameters, ctx);
             var result = expression.Evaluate(scope);
             if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
             sw.Stop();
@@ -303,10 +305,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx=null) {
+    public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
-        var result = this.query(expressionTree, query, parameters);
+        var result = this.query(expressionTree, query, parameters, ctx);
         return result;
 
     }
