@@ -2,6 +2,7 @@
 using Benchmark.Base.Models;
 using Benchmark.Site.Tester;
 namespace Benchmark;
+
 internal class TestRunner {
     public static string[] GetTestNames() {
         return [
@@ -15,7 +16,7 @@ internal class TestRunner {
             nameof(ITester.GetUserById),
             nameof(ITester.CountUsersOfAge),
             nameof(ITester.DeleteUsersOfAge),
-            nameof(ITester.UpdateUserAge),
+            //nameof(ITester.UpdateUserAge),
             nameof(ITesterExtensions.UpdateAndGetUsers),
             nameof(ITester.Close)
         ];
@@ -95,14 +96,14 @@ internal class TestRunner {
         }
         status.Complete(count);
 
-        count = 0;
-        status.Start(tester.Name, nameof(tester.UpdateUserAge));
-        while (status.KeepRunning()) {
-            var user = testData.Users[rnd.Next(0, max)];
-            tester.UpdateUserAge(user.Id, rnd.Next(10, 100));
-            count++;
-        }
-        status.Complete(count);
+        //count = 0;
+        //status.Start(tester.Name, nameof(tester.UpdateUserAge));
+        //while (status.KeepRunning()) {
+        //    var user = testData.Users[rnd.Next(0, max)];
+        //    tester.UpdateUserAge(user.Id, user.Age + (rnd.Next(4) - 2));
+        //    count++;
+        //}
+        //status.Complete(count);
 
         count = 0;
         status.Start(tester.Name, nameof(ITesterExtensions.UpdateAndGetUsers));

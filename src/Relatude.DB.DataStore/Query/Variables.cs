@@ -4,7 +4,7 @@ using System.Text;
 namespace Relatude.DB.Query {
     public interface IVariables {
         Variables CreateScope();
-        object Get(string name, QueryContext? ctx = null);
+        object Get(string name);
     }
     public class Variable {
         public object? Value;
@@ -17,18 +17,24 @@ namespace Relatude.DB.Query {
         public int NodesReadFromDisk;
     }
     public class Variables : IVariables {
-        readonly Variables? _parentScope;
-        QueryContext? _ctx;
-        Metrics _metrics = new();
-        public Metrics Metrics => _metrics;
+        public Variables? ParentScope { get; set; }
+        private QueryContext? _context;
+        public QueryContext Context { get => _context ?? throw new Exception("No QueryContext available in this scope. "); set => _context = value; }
+        private Metrics? _metrics;
+        public Metrics Metrics { get => _metrics ?? throw new Exception("No Metrics available in this scope. "); set => _metrics = value; }
         readonly Dictionary<string, Variable> _vars = new();
-        public Variables() { }
-        private Variables(Variables parentScope, QueryContext ctx) {
-            _parentScope = parentScope;
-            _ctx = ctx;
+        private Variables() { }
+        private Variables(Variables parentScope, QueryContext ctx, Metrics metrics) {
+            ParentScope = parentScope;
+            Context = ctx;
+            Metrics = metrics;
         }
-        public Variables CreateRootScope(IEnumerable<Parameter> parameters, QueryContext ctx) {
-            var v = new Variables(this, ctx);
+        public static Variables CreateRootScope() {
+            // Context and Metrics is null at root scope, will be set at subsequent scopes
+            return new Variables();
+        }
+        public Variables CreateQueryBaseScope(IEnumerable<Parameter> parameters, QueryContext ctx) {
+            var v = new Variables(this, ctx, new Metrics());
             foreach (var p in parameters) {
                 if (p.Value is Func<Metrics, QueryContext, object> func) {
                     v.DeclarerAndSetCallback(p.Name, func);
@@ -36,25 +42,19 @@ namespace Relatude.DB.Query {
                     v.DeclarerAndSetConstant(p.Name, p.Value);
                 }
             }
-            v._metrics = new();
             return v;
         }
-        public Variables CreateScope() {
-            if (_ctx == null) throw new Exception("Cannot create child scope without context. ");
-            var v = new Variables(this, _ctx) {
-                _metrics = this._metrics // inherit metrics
-            };
-            return v;
+        public Variables CreateScope() => new(this, Context, Metrics);
+        public object Get(string name) {
+            return get(name, Context, Metrics);
         }
-        public object Get(string name, QueryContext? ctx = null) {
-            ctx ??= _ctx;
-            if (ctx == null) throw new Exception("Cannot get variable without context. ");
+        private object get(string name, QueryContext ctx, Metrics metrics) {
             if (_vars.TryGetValue(name, out var vari)) {
                 if (vari.Value != null) return vari.Value;
-                if (vari.Evaluate != null) return vari.Evaluate(_metrics, ctx);
+                if (vari.Evaluate != null) return vari.Evaluate(metrics, ctx);
                 throw new Exception("Variable \"" + name + "\" is not set. ");
             }
-            if (_parentScope != null) return _parentScope.Get(name, ctx);
+            if (ParentScope != null) return ParentScope.get(name, ctx, metrics);
             if (name == "null") throw new Exception("Variable \"" + name + "\" is null. ");
             throw new Exception("Idenitier \"" + name + "\" is unknown. ");
         }
@@ -75,7 +75,7 @@ namespace Relatude.DB.Query {
         }
         public override string ToString() {
             var sb = new StringBuilder();
-            if (_parentScope != null) sb.AppendLine(_parentScope.ToString());
+            if (ParentScope != null) sb.AppendLine(ParentScope.ToString());
             foreach (var kv in _vars) sb.AppendLine(kv.Key);
             return sb.ToString();
         }

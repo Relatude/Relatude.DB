@@ -277,7 +277,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     Variables getRootVariables() {
-        Variables vars = new Variables();
+        Variables vars = Variables.CreateRootScope();
         // Sample static data:
         //vars.DeclarerAndSet("Culture", () => {
         //    TableData countries;

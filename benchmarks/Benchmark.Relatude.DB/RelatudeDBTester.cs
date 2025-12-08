@@ -7,6 +7,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 
 namespace Benchmark.Relatude.DB;
+
 public enum RelatudeDiskFlushMode {
     NoFlush,
     AutoFlush,
@@ -36,7 +37,12 @@ public class RelatudeDBTester : ITester {
         settings.WriteSystemLogConsole = true;
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
-        settings.SecondaryBackupLog = true;
+        settings.SecondaryBackupLog = false;
+        settings.AutoPurgeCache = false;
+        settings.AutoSaveIndexStates = false;
+        settings.AutoSaveIndexStatesActionCountLowerLimit = 10000000;
+        settings.AutoSaveIndexStatesIntervalInMinutes = 10000;
+        settings.MaxDelayAutoDiskFlushIfBusyInSeconds = int.MaxValue;
         settings.ForceDiskFlushAfterActionCountLimit = int.MaxValue;
         settings.AutoFlushDiskInBackground = _flushMode == RelatudeDiskFlushMode.AutoFlush;
         settings.DeepFlushDisk = _flushMode == RelatudeDiskFlushMode.DiskFlush;
@@ -83,7 +89,7 @@ public class RelatudeDBTester : ITester {
         return _store.Query<TestUser>().Where(u => u.Age == age).Execute().ToArray();
     }
     public void UpdateUserAge(Guid userId, int newAge) {
-        _store.ForceUpdateProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
+        _store.UpdateIfDifferentProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
     }
     public void FlushToDisk() {
         _store.Flush();

@@ -287,7 +287,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _queryActivity.Record();
             var sw = Stopwatch.StartNew();
-            var scope = _variables.CreateRootScope(parameters, ctx);
+            var scope = _variables.CreateQueryBaseScope(parameters, ctx);
             var result = expression.Evaluate(scope);
             if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
             sw.Stop();
