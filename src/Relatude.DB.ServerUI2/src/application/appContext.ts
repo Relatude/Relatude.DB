@@ -2,10 +2,8 @@ import { useContext } from "react";
 import { ReactAppContext } from "../main";
 import { API } from "./api";
 import { Connection } from "../relatude.db/connection";
-
-// import { Connection } from "../relatude.db/connection";
 export const useApp = () => useContext(ReactAppContext);
-export class App {
+export class AppContext {
     public api: API;
     public db: Connection
     public baseUrl: string;
@@ -20,4 +18,4 @@ export class App {
         this.db = new Connection(baseUrl + "data");
     }
 }
-export default App;
+export default AppContext;

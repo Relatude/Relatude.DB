@@ -1,6 +1,6 @@
 import { Button } from '@mantine/core'
-import { useUI } from './ui';
-function Application() {
+import { useUI } from './uiContext';
+function Mains() {
     const ui = useUI();
     return (
         <>
@@ -8,4 +8,4 @@ function Application() {
         </>
     )
 }
-export default Application
+export default Mains
