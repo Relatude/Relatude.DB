@@ -83,7 +83,7 @@ export class API {
 class StatusAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -97,7 +97,7 @@ class StatusAPI {
 class DatamodelAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -110,7 +110,7 @@ class DatamodelAPI {
 class DataAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -122,7 +122,7 @@ class DataAPI {
 class EndpointsAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -130,7 +130,7 @@ class EndpointsAPI {
 class AuthAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -143,7 +143,7 @@ class AuthAPI {
 class SettingsAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -154,7 +154,7 @@ class SettingsAPI {
 class MaintenanceAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -211,13 +211,13 @@ class MaintenanceAPI {
     info = (storeId: string) => this.server.queryJson<StoreStatus>(this.controller, 'info', { storeId });
 }
 class ServerAPI {
-        server: API;
+    server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
-getStoreContainers = () => this.server.queryJson<SimpleStoreContainer[]>(this.controller, 'get-store-containers');
+    getStoreContainers = () => this.server.queryJson<SimpleStoreContainer[]>(this.controller, 'get-store-containers');
     setMasterCredentials = (masterUserName: string, masterPassword: string) => this.server.execute(this.controller, 'set-master-credentials', { masterUserName, masterPassword });
     setNameAndDescription = (name: string, description: string) => this.server.execute(this.controller, 'set-name-and-description', { name, description });
     createStore = () => this.server.queryJson<NodeStoreContainer>(this.controller, 'create-store');
@@ -241,7 +241,7 @@ const fixFileMetaDates = (file: FileMeta) => {
 class LogAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -298,7 +298,7 @@ class LogAPI {
 class DemoAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
@@ -307,7 +307,7 @@ class DemoAPI {
 class TaskAPI {
     server: API;
     controller: string;
-    constructor(server: API, controller: string) { 
+    constructor(server: API, controller: string) {
         this.server = server;
         this.controller = controller;
     }
