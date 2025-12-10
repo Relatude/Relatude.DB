@@ -5,7 +5,7 @@ import { observer } from 'mobx-react-lite';
 import LogoBig from '../../components/logoBig';
 import { useApp } from '../../start/useApp';
 import { IconBrightnessUp, IconMoon } from '@tabler/icons-react';
-import { iconSize, iconStroke } from '../../application/constants';
+import { iconSize, iconStroke } from '../../application/common';
 
 const component = (props: PaperProps) => {
     const form = useForm({
@@ -27,6 +27,7 @@ const component = (props: PaperProps) => {
                     const success = await app.api.auth.login(form.values.username, form.values.password, form.values.remember);
                     if (success) {
                         app.ui.appState = 'main';
+                        await app.ui.start();
                     } else {
                         alert('Invalid username or password');
                     }
