@@ -1,6 +1,6 @@
 import { Combobox, Group, Input, InputBase, useCombobox } from "@mantine/core";
 import React, { useEffect } from "react";
-import { iconSize, iconStroke } from "../application/constants";
+import { iconSize, iconStroke } from "../application/common";
 import { observer } from "mobx-react-lite";
 import { useApp } from "../start/useApp";
 import { IconDatabase } from "@tabler/icons-react";

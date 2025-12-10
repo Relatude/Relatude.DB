@@ -1,18 +1,41 @@
 import { makeAutoObservable } from "mobx";
 import { API } from "./api";
 import { AppStates, StoreStates, SimpleStoreContainer, DataStoreStatus } from "./models";
-import { Poller } from "./poller";
 import { menuData, menuStore } from "../components/mainMenu";
 import { IconBrandStackoverflow, IconChartAreaLine, IconDatabase, IconDeviceFloppy, IconPlug, IconSchema, IconSearch, IconServerCog, IconSettings, IconStack } from '@tabler/icons-react';
 import { QueryBuilderStore } from "../sections/data/queryBuilder";
+import { sleep } from "./common";
 
-// Gloval UI state management for the application
+// Global UI state management for the application
 export class UI {
     constructor(private api: API) {
         makeAutoObservable(this);
         this._darkTheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        new Poller(this.update);
     }
+    start = async () => {
+        let isLoggedIn = false;
+        while (true) {
+            try {
+                isLoggedIn = await this.api.auth.isLoggedIn();
+                break;
+            } catch (e: Error | any) {
+                console.log("Waiting for valid server response", e?.message);
+            }
+            await sleep(500);
+        }
+        if (isLoggedIn) {
+            this.appState = "main";
+            await this.updateMain();
+            this.defaultStoreId = await this.api.server.getDefaultStoreId();
+            if (this.defaultStoreId && this.containers.find(c => c.id === this.defaultStoreId)) {
+                this.selectedStoreId = this.defaultStoreId;
+            } else if (this.containers.length > 0) {
+                this.selectedStoreId = this.containers[0].id;
+            }
+        } else {
+            this.appState = "login";
+        }
+    }    
     private _containers: SimpleStoreContainer[] = []; get containers() { return this._containers; } set containers(value: SimpleStoreContainer[]) { this._containers = value; }
     private _state: StoreStates | null = null; get state() { return this._state; } set state(value: StoreStates | null) { this._state = value; }
     private _darkTheme: boolean = false; get darkTheme() { return this._darkTheme; } set darkTheme(value: boolean) { this._darkTheme = value; }
@@ -106,27 +129,6 @@ export class UI {
         }
         this.menu.items = root;
     };
-    private update = async () => {
-        switch (this.appState) {
-            case "splash": await this.updateSplash(); break;
-            case "login": break;
-            case "main": await this.updateMain(); break;
-        }
-    }
-    private updateSplash = async () => {
-        if (await this.api.auth.isLoggedIn()) {
-            this.appState = "main";
-            await this.updateMain();
-            this.defaultStoreId = await this.api.server.getDefaultStoreId();
-            if (this.defaultStoreId && this.containers.find(c => c.id === this.defaultStoreId)) {
-                this.selectedStoreId = this.defaultStoreId;
-            } else if (this.containers.length > 0) {
-                this.selectedStoreId = this.containers[0].id;
-            }
-        } else {
-            this.appState = "login";
-        }
-    }
     updateMain = async () => {
         this.containers = await this.api.server.getStoreContainers();
         this.defaultStoreId = await this.api.server.getDefaultStoreId();
@@ -136,4 +138,5 @@ export class UI {
         this.updateMenu();
     }
 }
+
 

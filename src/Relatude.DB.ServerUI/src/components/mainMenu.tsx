@@ -2,7 +2,7 @@ import { NavLink } from '@mantine/core';
 import { makeAutoObservable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
-import { iconSize, iconStroke } from '../application/constants';
+import { iconSize, iconStroke } from '../application/common';
 import { useApp } from '../start/useApp';
 export class menuData {
     private _icon: any = null; get icon() { return this._icon; } set icon(value) { this._icon = value; }

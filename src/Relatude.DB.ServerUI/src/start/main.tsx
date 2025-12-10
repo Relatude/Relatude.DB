@@ -4,7 +4,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { IconBrightnessUp, IconMoon } from "@tabler/icons-react";
 import LogoSmall from "../components/logoSmall";
 import { useApp } from "./useApp";
-import { iconSize, iconStroke } from "../application/constants";
+import { iconSize, iconStroke } from "../application/common";
 import { MainMenu } from "../components/mainMenu";
 import Status from "../sections/status/status";
 import { Datamodel } from "../sections/datamodel/datamodel";

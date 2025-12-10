@@ -5,6 +5,7 @@ export const useApp = () => useContext(AppContext);
 export const createApp = () => {
     const baseUrl = window.location.href.indexOf("localhost:1234") > -1 ? 'https://localhost:7054/relatude.db' : window.location.pathname;
     const app = new App(baseUrl);
+    app.ui.start();
     return app;
 };
 
