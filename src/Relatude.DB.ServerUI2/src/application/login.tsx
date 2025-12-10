@@ -1,18 +1,27 @@
 import { Button, Center, Checkbox, Group, Paper, PasswordInput, Stack, TextInput, type PaperProps, } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useEffect } from 'react';
-import LogoBig from '../../components/logoBig';
+import LogoBig from '../components/logoBig';
 import { IconBrightnessUp, IconMoon } from '@tabler/icons-react';
-import { iconSize, iconStroke } from '../../application/constants';
-import { useApp } from '../../application/appContext';
-import { useUI } from '../../application/uiContext';
+import { iconSize, iconStroke } from './constants';
+import { useApp } from './appContext';
+import { useUI } from './uiContext';
 
-export const Login = (props: PaperProps) => {
+export const Login = () => {
     const form = useForm({
         initialValues: { username: '', password: '', remember: false, },
     });
     const app = useApp();
-    const ui = useUI();
+
+    // const darkTheme = useUI(state => state.darkTheme);
+    // const setScreen = useUI(state => state.setScreen);
+    // const toggleTheme = useUI(state => state.toggleTheme);
+
+
+    const darkTheme = true;
+    const setScreen = (s: string) => { }
+    const toggleTheme = () => { }
+
     useEffect(() => { validateHasUsers(); }, []);
     const validateHasUsers = async () => {
         if (await app.api.auth.haveUsers()) return true;
@@ -21,13 +30,13 @@ export const Login = (props: PaperProps) => {
     }
     return (
         <Center h="100vh">
-            <Paper radius="md" p="xl"  {...props} h="400" w="400">
-                <LogoBig animate padding='10px' color={ui.darkTheme ? "#CCC" : "333"} height={'90'} />
+            <Paper radius="md" p="xl" h="400" w="400">
+                <LogoBig animate padding='10px' color={darkTheme ? "#CCC" : "333"} height={'90'} />
                 <form onSubmit={form.onSubmit(async () => {
                     if (!await validateHasUsers()) return;
                     const success = await app.api.auth.login(form.values.username, form.values.password, form.values.remember);
                     if (success) {
-                        ui.screen = 'main';
+                        setScreen("online");
                     } else {
                         alert('Invalid username or password');
                     }
@@ -60,8 +69,8 @@ export const Login = (props: PaperProps) => {
                         />
                     </Stack>
                     <Group justify="right" mt="xl">
-                        <Button variant="subtle" onClick={ui.toggleTheme}>
-                            {ui.darkTheme ?
+                        <Button variant="subtle" onClick={toggleTheme}>
+                            {darkTheme ?
                                 <IconBrightnessUp size={iconSize} stroke={iconStroke} />
                                 :
                                 <IconMoon size={iconSize} stroke={iconStroke} />

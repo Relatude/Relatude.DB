@@ -2,10 +2,12 @@ import "@mantine/core/styles.css";
 import { createContext, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MantineProvider } from '@mantine/core'
-import { AppContext } from './application/appContext';
+import { AppContext, useApp } from './application/appContext';
 import { useUI } from './application/uiContext';
-import { Splash } from './sections/splash/splash';
-import { Login } from "./sections/login/login";
+import { Splash, Disconnected } from './application/splash';
+import { Login } from "./application/login";
+import { App } from "./application/app";
+
 export const ReactAppContext = createContext<AppContext>(null as any);
 
 const createAppContext = () => {
@@ -13,24 +15,38 @@ const createAppContext = () => {
   const app = new AppContext(baseUrl);
   return app;
 }
-
-const Application = () => {
-  const ui = useUI();
-  const screen = ui.screen;
+const ApplicationWrapper = () => {
   return (
     <StrictMode>
       <ReactAppContext.Provider value={createAppContext()}>
-        <MantineProvider forceColorScheme={ui.darkTheme ? "dark" : "light"}>
-          {/* {screen === 'splash' && <Splash />} */}
-          {screen === 'splash' && <Login />}
-           {/* {screen === 'main' && <Main />}  */}
+        <MantineProvider forceColorScheme={"dark"}>
+          <Login />
         </MantineProvider>
+        {/* <Application /> */}
       </ReactAppContext.Provider>
     </StrictMode>
   );
 }
 
+const Application = () => {
+  const ui = useUI();
+  const app = useApp();
+  //app.EnsureInit(ui);
+  const screen = ui.screen;
+  return (
+    <MantineProvider forceColorScheme={ui.darkTheme ? "dark" : "light"}>
+      {screen === 'loading' && <Splash />}
+      {screen === 'login' && <Login />}
+      {screen === 'online' && <App />}
+      {screen === 'disconnected' && <Disconnected />}
+    </MantineProvider>
+  );
+}
+
 const rootElement = document.getElementById('root');
-if(!rootElement) throw new Error("Failed to find the root element");
+if (!rootElement) throw new Error("Failed to find the root element");
 const root = createRoot(rootElement);
-root.render(<Application />);
+
+root.render(
+  <ApplicationWrapper />
+);

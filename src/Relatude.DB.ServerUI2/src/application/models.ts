@@ -1,4 +1,4 @@
-export type AppStates = "splash" | "login" | "main";
+export type AppStates = "loading" | "login" | "online" | "disconnected";
 export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Disposed" | "Unknown";
 export type StoreTypes = "SimpleStore" | "NodeStore";
 export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
@@ -186,7 +186,7 @@ export interface MetricsLogEntry {
     setCacheCount: number;
     setCacheSize: number;
 }
-export interface LogInfo{
+export interface LogInfo {
     key: string;
     name: string;
     enabledLog: boolean;
@@ -197,7 +197,7 @@ export interface LogInfo{
     logFileSize: number;
     statisticsFileSize: number;
 }
-export interface PropertyHitEntry{
+export interface PropertyHitEntry {
     propertyName: string;
     hitCount: number;
 }

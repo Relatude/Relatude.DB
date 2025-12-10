@@ -12,8 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
 
     "zustand": "^5.0.8",
     "@mantine/core": "^7.15.2",
