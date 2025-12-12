@@ -167,7 +167,7 @@ internal sealed class NodeStore {
     int estimateSize(int segmentLength) {
         return segmentLength + INodeData.BaseSize;
     }
-    internal void AddInfo(StoreStatus s) {
+    internal void AddInfo(DataStoreInfo s) {
         lock (_lock) {
             s.NodeCount = _segments.Count;
             s.NodeCacheCount = _cache.Count;

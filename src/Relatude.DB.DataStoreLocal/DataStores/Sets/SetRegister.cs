@@ -10,7 +10,7 @@ public class SetRegister(long maxSize) {
     private readonly SetCache _cache = new(maxSize);
     private readonly AggregateCache _aggregateCache = new(_aggregateCacheSize);
     static long _setStateId = 0;
-    public void AddInfo(StoreStatus s) {
+    public void AddInfo(DataStoreInfo s) {
         s.SetCacheSize = _cache.Size;
         if (_cache.MaxSize > 0) s.SetCacheSizePercentage = 100d * _cache.Size / _cache.MaxSize;
 

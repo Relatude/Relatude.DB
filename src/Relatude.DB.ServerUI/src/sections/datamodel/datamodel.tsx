@@ -69,7 +69,6 @@ export const Datamodel = (P: { storeId: string }) => {
             // console.log("DataStoreStatus event", data, filter);
             setCode(JSON.stringify(data, null, 2));
         });
-
     }
     return (
         <>

@@ -105,7 +105,7 @@ internal sealed class Definition {
             }
         }
     }
-    internal void AddInfo(StoreStatus info) {
+    internal void AddInfo(DataStoreInfo info) {
         info.DatamodelNodeTypeCount = NodeTypes.Count - 1; // -1 due to base type
         info.DatamodelPropertyCount = Properties.Count - 1; // -1 due to textindex
         info.DatamodelRelationCount = Relations.Count;

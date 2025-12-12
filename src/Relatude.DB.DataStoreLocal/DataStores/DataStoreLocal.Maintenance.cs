@@ -177,7 +177,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Maintenance(actions);
         return Task.CompletedTask;
     }
-    public Task<StoreStatus> GetInfoAsync() => Task.FromResult(GetInfo());
+    public Task<DataStoreInfo> GetInfoAsync() => Task.FromResult(GetInfo());
     public long GetLogActionsNotItInStatefile() {
         _lock.EnterReadLock();
         try {
@@ -186,9 +186,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    StoreStatus? _lastStoreStatusWhenOpen;
-    public StoreStatus GetInfo() {
-        var info = new StoreStatus();
+    DataStoreInfo? _lastStoreStatusWhenOpen;
+    public DataStoreInfo GetInfo() {
+        var info = new DataStoreInfo();
         if (_state != DataStoreState.Open) return info;
         if (!_lock.TryEnterWriteLock(5)) {
             if (_lastStoreStatusWhenOpen == null) return info;

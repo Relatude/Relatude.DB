@@ -1,5 +1,4 @@
-import React from "react";
-import { useApp } from "../start/useApp";
+import { useApp } from "../../start/useApp";
 
 const component = (p: { padding?: string, color?: string }) => {
     const app = useApp();

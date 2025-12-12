@@ -26,8 +26,9 @@ public partial class RelatudeDBServer {
         if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
         if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
         EventHub = new ServerEventHub(this);
-        EventHub.RegisterPoller(new ServerStatusEventPoller());
+        EventHub.RegisterPoller(new DataStoreStatesEventPoller());
         EventHub.RegisterPoller(new DataStoreStatusEventPoller());
+        EventHub.RegisterPoller(new DataStoreInfoEventPoller());
     }
 
     // simple startup log to help with debugging startup issues

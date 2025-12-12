@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, StoreStatus, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -169,7 +169,7 @@ class MaintenanceAPI {
     resetSecondaryLogFile = (storeId: string) => this.server.execute(this.controller, 'reset-secondary-log-file', { storeId });
     resetStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'reset-state-and-indexes', { storeId });
     clearCache = (storeId: string) => this.server.execute(this.controller, 'clear-cache', { storeId });
-    info = (storeId: string) => this.server.queryJson<StoreStatus>(this.controller, 'info', { storeId });
+    info = (storeId: string) => this.server.queryJson<DataStoreInfo>(this.controller, 'info', { storeId });
 }
 class ServerAPI {
     constructor(private server: API, private controller: string) { }

@@ -1,41 +1,18 @@
 import { makeAutoObservable } from "mobx";
 import { API } from "./api";
 import { AppStates, StoreStates, SimpleStoreContainer, DataStoreStatus } from "./models";
-import { menuData, menuStore } from "../components/mainMenu";
-import { IconBrandStackoverflow, IconChartAreaLine, IconDatabase, IconDeviceFloppy, IconPlug, IconSchema, IconSearch, IconServerCog, IconSettings, IconStack } from '@tabler/icons-react';
+import { menuStore } from "../sections/main/mainMenu";
 import { QueryBuilderStore } from "../sections/data/queryBuilder";
-import { sleep } from "./common";
+import { App } from "./app";
 
 // Global UI state management for the application
 export class UI {
-    constructor(private api: API) {
+    private app: App;
+    constructor(app: App) {
         makeAutoObservable(this);
+        this.app = app;
         this._darkTheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
-    start = async () => {
-        let isLoggedIn = false;
-        while (true) {
-            try {
-                isLoggedIn = await this.api.auth.isLoggedIn();
-                break;
-            } catch (e: Error | any) {
-                console.log("Waiting for valid server response", e?.message);
-            }
-            await sleep(500);
-        }
-        if (isLoggedIn) {
-            this.appState = "main";
-            await this.updateMain();
-            this.defaultStoreId = await this.api.server.getDefaultStoreId();
-            if (this.defaultStoreId && this.containers.find(c => c.id === this.defaultStoreId)) {
-                this.selectedStoreId = this.defaultStoreId;
-            } else if (this.containers.length > 0) {
-                this.selectedStoreId = this.containers[0].id;
-            }
-        } else {
-            this.appState = "login";
-        }
-    }    
     private _containers: SimpleStoreContainer[] = []; get containers() { return this._containers; } set containers(value: SimpleStoreContainer[]) { this._containers = value; }
     private _state: StoreStates | null = null; get state() { return this._state; } set state(value: StoreStates | null) { this._state = value; }
     private _darkTheme: boolean = false; get darkTheme() { return this._darkTheme; } set darkTheme(value: boolean) { this._darkTheme = value; }
@@ -69,7 +46,7 @@ export class UI {
     addQueryBuilder = (storeId: string, qb: QueryBuilderStore) => {
         if (!this._queryBuilders.has(storeId)) this._queryBuilders.set(storeId, []);
         this._queryBuilders.get(storeId)!.push(qb);
-        this.updateMenu();
+        this.app.updateMenu();
     }
     removeQueryBuilder = (storeId: string, qb: QueryBuilderStore) => {
         const builders = this._queryBuilders.get(storeId)!;
@@ -111,31 +88,6 @@ export class UI {
             }
         }
         return color;
-    }
-    updateMenu = () => {
-        const serverMenu = new menuData(IconServerCog, "Server", "server");
-        const root = [serverMenu];
-        for (let container of this.containers) {
-            const containerMenu = new menuData(IconDatabase, container.name, container.id);
-            containerMenu.color = this.getStoreStateColor(container.id);
-            root.push(containerMenu);
-            containerMenu.add(IconSchema, "Model", "datamodel");
-            containerMenu.add(IconSearch, "Query", "data");
-            containerMenu.add(IconChartAreaLine, "Logs", "logs");
-            containerMenu.add(IconBrandStackoverflow, "Queue", "taskQueue");
-            containerMenu.add(IconDeviceFloppy, "Files", "files");
-            containerMenu.add(IconPlug, "API", "api");
-            containerMenu.add(IconSettings, "Settings", "settings");
-        }
-        this.menu.items = root;
-    };
-    updateMain = async () => {
-        this.containers = await this.api.server.getStoreContainers();
-        this.defaultStoreId = await this.api.server.getDefaultStoreId();
-        const statuses = await this.api.status.statusAll();
-        this.storeStates = new Map<string, DataStoreStatus>();
-        statuses.forEach(s => this.storeStates.set(s.id, s.status));
-        this.updateMenu();
     }
 }
 

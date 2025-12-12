@@ -1,10 +1,10 @@
 import { Combobox, Group, Input, InputBase, useCombobox } from "@mantine/core";
 import React, { useEffect } from "react";
-import { iconSize, iconStroke } from "../application/common";
+import { iconSize, iconStroke } from "../../application/common";
 import { observer } from "mobx-react-lite";
-import { useApp } from "../start/useApp";
+import { useApp } from "../../start/useApp";
 import { IconDatabase } from "@tabler/icons-react";
-import { IoSetting } from "../application/models";
+import { IoSetting } from "../../application/models";
 
 const component = (p: { ioSettings?: IoSetting[], selectedIo?: string, onChange?: (ioId: string) => void }) => {
     const app = useApp();

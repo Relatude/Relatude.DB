@@ -2,7 +2,7 @@
 using Relatude.DB.Serialization;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores;
-public class StoreStatus {
+public class DataStoreInfo {
 
     public Dictionary<string, int> TypeCounts { get; set; } = [];
     public Dictionary<string, int> QueuedTaskStateCounts { get; set; } = [];
@@ -71,7 +71,7 @@ public class StoreStatus {
     public long DiskSpacePersistedIndexes { get; set; }
     public long ProcessWorkingMemory { get; set; }
 
-    public static StoreStatus DeSerialize(Stream stream) {
+    public static DataStoreInfo DeSerialize(Stream stream) {
         var json = stream.ReadString();
         return FromJson.StoreInfo(json);
     }

@@ -1,9 +1,9 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.NodeServer.EventHub;
 namespace Relatude.DB.NodeServer.EventTriggers;
-public class ServerStatusEventPoller : IEventPoller {
+public class DataStoreStatesEventPoller : IEventPoller {
     Dictionary<Guid, DataStoreState> _last = [];
-    public string EventName => "ServerStatus";
+    public string EventName => "DataStoreStates";
     public EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, bool onlyOnChange, out int msNextCollect) {
         msNextCollect = 1000;
         var current = server.Containers.ToDictionary(c => c.Key, c => c.Value.Store != null ? c.Value.Store.State : DataStoreState.Closed);

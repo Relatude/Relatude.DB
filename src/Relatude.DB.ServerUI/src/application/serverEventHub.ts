@@ -52,8 +52,9 @@ export class ServerEventHub {
         this._eventListeners.push(new EventListener<T>(eventName, eventFilter, onEvent));
         await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
     }
-    removeEventListener = async <T>(eventName: string, onEvent: (data: T) => void) => {
-        this._eventListeners = this._eventListeners.filter(l => l.Subscription.eventName != eventName || l.onEvent != onEvent);
+    removeEventListener = async <T>(eventName: string, eventFilter: string | undefined) => {
+        const isMatch = (l: EventListener<T>) => l.Subscription.eventName == eventName && (eventFilter === undefined || l.Subscription.filter == eventFilter);
+        this._eventListeners = this._eventListeners.filter(l => !isMatch(l));
         await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
     }
     disconnect = () => {

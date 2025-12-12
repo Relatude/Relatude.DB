@@ -21,8 +21,8 @@ namespace Relatude.DB.Serialization {
         public static T Generic<T>(object o) {
             throw new NotImplementedException();
         }
-        internal static StoreStatus StoreInfo(string json) {
-            var result = JsonSerializer.Deserialize<StoreStatus>(json);
+        internal static DataStoreInfo StoreInfo(string json) {
+            var result = JsonSerializer.Deserialize<DataStoreInfo>(json);
             if(result == null) throw new Exception("Failed to deserialize StoreStatus. ");
             return result;
         }

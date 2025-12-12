@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
 import { Table, Button, Group, Menu, MenuItem, Divider, ActionIcon, Checkbox } from '@mantine/core';
 import { useApp } from '../../start/useApp';
-import IoSelector from '../../components/ioSelector';
+import IoSelector from './ioSelector';
 import { FileMeta, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
 import { IconDots } from '@tabler/icons-react';

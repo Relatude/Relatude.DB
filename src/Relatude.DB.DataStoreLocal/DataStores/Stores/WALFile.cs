@@ -255,7 +255,7 @@ internal class WALFile : IDisposable {
     internal int GetQueueActionCount() {
         return _workQueue.GetQueueActionCount();
     }
-    internal void AddInfo(StoreStatus s) {
+    internal void AddInfo(DataStoreInfo s) {
         s.LogWritesQueuedTransactions = _workQueue.EstimateTransactionCount;
         s.LogWritesQueuedActions = _workQueue.GetQueueActionCount();
         s.LogFileKey = FileKey;

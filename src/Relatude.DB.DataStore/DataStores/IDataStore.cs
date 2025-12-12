@@ -74,8 +74,8 @@ public interface IDataStore : IDisposable {
     Task MaintenanceAsync(MaintenanceAction actions);
     void Maintenance(MaintenanceAction actions);
     void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false);
-    StoreStatus GetInfo();
-    Task<StoreStatus> GetInfoAsync();
+    DataStoreInfo GetInfo();
+    Task<DataStoreInfo> GetInfoAsync();
     void Open(bool ThrowOnBadLogFile = false, bool ignoreStateFileLoadExceptions = true);
     void Close();
 

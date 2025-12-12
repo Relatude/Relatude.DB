@@ -2,7 +2,7 @@ import { Button, Center, Checkbox, Group, Paper, PaperProps, PasswordInput, Stac
 import { useForm } from '@mantine/form';
 import React, { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
-import LogoBig from '../../components/logoBig';
+import LogoBig from './logoBig';
 import { useApp } from '../../start/useApp';
 import { IconBrightnessUp, IconMoon } from '@tabler/icons-react';
 import { iconSize, iconStroke } from '../../application/common';
@@ -26,8 +26,7 @@ const component = (props: PaperProps) => {
                     if (!await validateHasUsers()) return;
                     const success = await app.api.auth.login(form.values.username, form.values.password, form.values.remember);
                     if (success) {
-                        app.ui.appState = 'main';
-                        await app.ui.start();
+                        await app.connectToSSEAndShowMainUI();
                     } else {
                         alert('Invalid username or password');
                     }

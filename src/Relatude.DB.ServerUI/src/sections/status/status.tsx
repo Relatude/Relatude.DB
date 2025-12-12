@@ -3,7 +3,7 @@ import { observer } from 'mobx-react';
 import { Box, Button, Group, Text, Title } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import { Poller } from '../../application/poller';
-
+import { DataStoreStatus, DataStoreInfo } from '../../application/models';
 
 export const component = () => {
     const app = useApp();
@@ -11,12 +11,26 @@ export const component = () => {
     const status = app.ui.getStoreStatus(app.ui.selectedStoreId);
     const [currentInfo, setInfo] = useState<string>();
     let currentContainer = app.ui.containers.find(c => c.id === app.ui.selectedStoreId);
+    // // useEffect(() => {
+    // //     const poller = new Poller(async () => {
+    //          if (app.ui.selectedStoreId) setInfo(JSON.stringify(await app.api.maintenance.info(app.ui.selectedStoreId), null, 2));
+    // //     });
+    // //     return () => { poller.dispose(); }
+    // // }, []);
     useEffect(() => {
-        const poller = new Poller(async () => {
-            if (app.ui.selectedStoreId) setInfo(JSON.stringify(await app.api.maintenance.info(app.ui.selectedStoreId), null, 2));
+        app.serverEvents.addEventListener<DataStoreStatus>("DataStoreStatus", app.ui.selectedStoreId, (data, filter) => {
+            console.log("DataStoreStatus event", data, filter);
         });
-        return () => { poller.dispose(); }
-    }, []);
+        app.serverEvents.addEventListener<DataStoreInfo>("DataStoreInfo", app.ui.selectedStoreId, (data, filter) => {
+            console.log("DataStoreInfo event", data, filter);
+        });
+        return () => {
+            app.serverEvents.removeEventListener<DataStoreStatus>("DataStoreStatus", app.ui.selectedStoreId);
+            app.serverEvents.removeEventListener<DataStoreInfo>("DataStoreInfo", app.ui.selectedStoreId);
+        }
+    }, [app.ui.selectedStoreId]);
+
+
     const truncateLog = () => {
         if (!storeId) return;
         const deleteOld = window.confirm("Do you want to delete old log entries? (OK = Yes, Cancel = No)");

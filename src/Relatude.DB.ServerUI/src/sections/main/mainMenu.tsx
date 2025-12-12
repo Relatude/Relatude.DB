@@ -2,8 +2,8 @@ import { NavLink } from '@mantine/core';
 import { makeAutoObservable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
-import { iconSize, iconStroke } from '../application/common';
-import { useApp } from '../start/useApp';
+import { iconSize, iconStroke } from '../../application/common';
+import { useApp } from '../../start/useApp';
 export class menuData {
     private _icon: any = null; get icon() { return this._icon; } set icon(value) { this._icon = value; }
     private _label: string = ""; get label() { return this._label; } set label(value) { this._label = value; }
@@ -27,7 +27,7 @@ export class menuStore {
     private _path: string[] = []; get path() { return this._path; }
     clearPath() {
         this._path.length = 0;
-    }    
+    }
     setSelected(key: string, level: number) {
         this._path.length = level;
         this._path[level] = key;
