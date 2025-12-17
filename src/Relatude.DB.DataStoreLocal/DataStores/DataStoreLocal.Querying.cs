@@ -73,6 +73,21 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (id.Int == 0) return Get(id.Guid);
         return Get(id.Int);
     }
+    public bool TryGetNodeType(Guid id, out Guid nodeTypeId) {
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            if (_guids.TryGetId(id, out var uid)) {
+                nodeTypeId = _definition.GetTypeOfNode(uid);
+                return true;
+            }
+            nodeTypeId = Guid.Empty;
+            return false;
+        } finally {
+            _lock.ExitReadLock();
+        }
+
+    }
     public Guid GetNodeType(Guid id) {
         _lock.EnterReadLock();
         try {
@@ -175,6 +190,19 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
             _queryActivity.Record();
             return result;
+        } finally {
+            DeRegisterActivity(activityId);
+            _lock.ExitReadLock();
+        }
+    }
+    public bool Exists(Guid id) {
+        _lock.EnterReadLock();
+        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+        try {
+            validateDatabaseState();
+            _queryActivity.Record();
+            if (!_guids.TryGetId(id, out var uid)) return false;
+            return _nodes.Contains(uid);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();

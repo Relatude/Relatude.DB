@@ -10,6 +10,8 @@ public interface IIOProvider {
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
     void CloseAllOpenStreams();
+    bool CanHaveSubFolders{ get; }
+    Task<FolderMeta[]> GetSubFolders(bool recursive);
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {

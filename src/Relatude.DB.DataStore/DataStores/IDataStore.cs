@@ -8,6 +8,7 @@ using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
+
 public interface IDataStore : IDisposable {
 
     void LogInfo(string text, string? details = null);
@@ -58,11 +59,13 @@ public interface IDataStore : IDisposable {
     Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
 
+    bool TryGetNodeType(Guid id, out Guid nodeTypeId);
     Guid GetNodeType(Guid id);
     Guid GetNodeType(int id);
     Guid GetNodeType(IdKey id);
     Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids);
 
+    bool Exists(Guid id);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId);
     bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource);
     INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);

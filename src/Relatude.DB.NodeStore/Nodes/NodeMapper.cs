@@ -2,6 +2,7 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Expressions;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -14,6 +15,7 @@ namespace Relatude.DB.Nodes;
 public class NodeMapper {
     readonly Dictionary<Guid, IValueMapper> _nodeValueMapperByTypeId;
     readonly Dictionary<Type, KeyValuePair<IValueMapper, Guid>> _mapperByType;
+    readonly Dictionary<Guid, Type> _typeByNodeTypeId;
     readonly NodeStore _store;
     public NodeMapper(Dictionary<Guid, Type> typesById, NodeStore store) {
         _nodeValueMapperByTypeId = typesById.ToDictionary(kv => kv.Key, kv => {
@@ -21,6 +23,7 @@ public class NodeMapper {
             if (m == null) throw new NullReferenceException("Unable to create mapper for: " + kv.Value);
             return (IValueMapper)m;
         });
+        _typeByNodeTypeId = typesById.ToDictionary(kv => kv.Key, kv => kv.Value);
         _store = store;
         _mapperByType = new();
     }
@@ -50,6 +53,8 @@ public class NodeMapper {
         getNodeValueMapper(nodeType, out var typeId);
         return typeId;
     }
+    public Type GetNodeType(Guid nodeTypeId) => _typeByNodeTypeId[nodeTypeId];
+    public bool TryGetNodeType(Guid nodeTypeId, [MaybeNullWhen(false)] out Type type) => _typeByNodeTypeId.TryGetValue(nodeTypeId, out type);
     public PropertyModel GetProperty<T>(string propertyName) {
         return _store.Datastore.Datamodel.NodeTypes[GetNodeTypeId(typeof(T))].AllPropertiesByName[propertyName];
     }

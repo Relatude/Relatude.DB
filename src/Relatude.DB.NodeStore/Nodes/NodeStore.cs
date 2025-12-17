@@ -255,6 +255,16 @@ public sealed class NodeStore : IDisposable {
     public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
     public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
 
+    public Type GetNodeType(Guid nodeId) => Mapper.GetNodeType(Datastore.GetNodeType(nodeId));
+    public bool TryGetNodeType(Guid nodeId, [MaybeNullWhen(false)] out Type type) {
+        if (Datastore.TryGetNodeType(nodeId, out var typeId)
+         && Mapper.TryGetNodeType(typeId, out var t)) {
+            type = t;
+            return true;
+        }
+        type = null;
+        return false;
+    }
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
     public bool Exists<T>(Guid id) => Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
 
@@ -262,6 +272,7 @@ public sealed class NodeStore : IDisposable {
     //public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids.Select(id => (int)id)).Select(Mapper.CreateObjectFromNodeData<T>);
     public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(Mapper.CreateObjectFromNodeData<T>);
 
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out object node) => TryGet<object>(id, out node);
     public bool TryGet<T>(Guid id, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGet(id, out var nodeData)) {
             node = Mapper.CreateObjectFromNodeData<T>(nodeData);

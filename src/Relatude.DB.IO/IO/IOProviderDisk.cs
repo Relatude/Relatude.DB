@@ -1,4 +1,5 @@
 ﻿namespace Relatude.DB.IO;
+
 public class IOProviderDisk : IIOProvider {
     readonly bool _readOnly;
     readonly object _lock = new();
@@ -127,6 +128,24 @@ public class IOProviderDisk : IIOProvider {
                 stream.Dispose();
             }
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+        }
+    }
+    public bool CanHaveSubFolders => true;
+    public Task<FolderMeta[]> GetSubFolders(bool recursive) {
+        var subfolders = new DirectoryInfo(BaseFolder).GetDirectories().Select(FolderMeta.FromDirInfo).ToArray();
+        foreach (var subfolder in subfolders) {
+            subfolder.Files = new DirectoryInfo(Path.Combine(BaseFolder, subfolder.Name)).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
+            if (recursive) addAllSubFolders(subfolder, BaseFolder);
+        }
+        return Task.FromResult(subfolders);
+    }
+    void addAllSubFolders(FolderMeta folder, string basePath) {
+        var dirPath = Path.Combine(basePath, folder.Name);
+        var subdirs = new DirectoryInfo(dirPath).GetDirectories().Select(FolderMeta.FromDirInfo).ToArray();
+        folder.SubFolders = subdirs;
+        foreach (var subdir in subdirs) {
+            subdir.Files = new DirectoryInfo(Path.Combine(dirPath, subdir.Name)).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
+            addAllSubFolders(subdir, dirPath);
         }
     }
 }

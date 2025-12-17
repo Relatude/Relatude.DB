@@ -132,13 +132,13 @@ export const component = () => {
                     ))}
                 </Panel>
                 <Panel title="Queries per second" span={3}>
-                    <SimplePlot logKey="query" />
+                    <SimplePlot logKey="query" color="green.3" />
                 </Panel>
                 <Panel title="Transactions per second" span={3}>
-                    <SimplePlot logKey="transaction" />
+                    <SimplePlot logKey="transaction" color="blue.3" />
                 </Panel>
                 <Panel title="Actions per second" span={3}>
-                    <SimplePlot logKey="action" />
+                    <SimplePlot logKey="action" color="red.3" />
                 </Panel>
             </Grid>
         </>

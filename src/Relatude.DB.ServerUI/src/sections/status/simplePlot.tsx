@@ -1,34 +1,24 @@
 import { useEffect, useState } from "react";
 import { AnalysisEntry } from "../../application/models";
 import { useApp } from "../../start/useApp";
-import { LineChart } from "@mantine/charts";
+import { AreaChart } from "@mantine/charts";
+import { Checkbox, MantineColor, Slider, Switch } from "@mantine/core";
+import { set } from "mobx";
 type LogKeyTypes = "query" | "transaction" | "action";
-export const SimplePlot = (P: { logKey: LogKeyTypes }) => {
+export const SimplePlot = (P: { logKey: LogKeyTypes, color: MantineColor }) => {
     const app = useApp();
     const log = app.api.log;
     const storeId = app.ui.selectedStoreId;
-    const [originalEnabledStatus, setOriginalEnabledStatus] = useState<boolean>();
     const [plotData, setPlotData] = useState<AnalysisEntry[]>();
+    const [enabled, setEnabled] = useState<boolean>();
+    if (!storeId) return <></>;
     useEffect(() => {
-        if (!app.ui.selectedStoreId) return;
-        storeEnabledStatusBeforeShowing();
-        var interval = window.setInterval(updateQueryPlot, 1000);
+        log.isStatisticsEnabled(storeId, P.logKey).then(setEnabled);
+        const interval = window.setInterval(updateQueryPlot, 1000);
         return () => {
-            resetEnabledStatusToOriginalValue();
             window.clearInterval(interval);
         }
-    }, [app.ui.selectedStoreId]);
-    if (!storeId) return <></>;
-    const storeEnabledStatusBeforeShowing = async () => {
-        const wasEnabled = await log.isStatisticsEnabled(storeId, P.logKey);
-        setOriginalEnabledStatus(wasEnabled);
-        if (!wasEnabled) await log.enableStatistics(storeId, P.logKey, true);
-        console.log("Original enabled status for log", P.logKey, "is", wasEnabled);
-    }
-    const resetEnabledStatusToOriginalValue = async () => {
-        console.log("Restored enabled status for log", P.logKey, "to", originalEnabledStatus);
-        await log.enableStatistics(storeId, P.logKey, originalEnabledStatus!);
-    }
+    }, [enabled]);
     const updateQueryPlot = async () => {
         let nowMs = Date.now();
         nowMs = nowMs - (nowMs % 1000); // round to nearest second:
@@ -44,12 +34,17 @@ export const SimplePlot = (P: { logKey: LogKeyTypes }) => {
         setPlotData(data);
     }
     if (plotData === undefined) return <></>;
+    const toggleEnabled = async () => {
+        await log.enableStatistics(storeId, P.logKey, !enabled);
+        setEnabled(!enabled);
+    }
     return <>
-        <LineChart
+        <Switch disabled={enabled === undefined} checked={enabled} onChange={toggleEnabled} />
+        <AreaChart
             h={300}
             data={plotData || []}
             dataKey="from"
-            series={[{ name: 'value', color: 'green.3', },]}
+            series={[{ name: 'value', color: P.color, },]}
             curveType="linear"
             withDots={false}
             withXAxis={false}

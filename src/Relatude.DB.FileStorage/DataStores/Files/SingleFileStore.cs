@@ -3,7 +3,9 @@ using Relatude.DB.Common;
 using System.Text;
 using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Files;
+
 public class SingleFileStore : IDisposable, IFileStore {
+    object _fileLock = new();
     IAppendStream? _file;
     readonly IIOProvider _ioProvider;
     readonly string _fileKey;
@@ -17,8 +19,10 @@ public class SingleFileStore : IDisposable, IFileStore {
     }
     IAppendStream file {
         get {
-            if (_file == null) _file = _ioProvider.OpenAppend(_fileKey);
-            return _file;
+            lock (_fileLock) {
+                if (_file == null) _file = _ioProvider.OpenAppend(_fileKey);
+                return _file;
+            }
         }
     }
     public Guid Id { get; }
@@ -54,13 +58,13 @@ public class SingleFileStore : IDisposable, IFileStore {
         long pos = meta.Offset;
         long length;
         Guid id;
-        lock (file) id = file.GetGuid(ref pos);
+        lock (_fileLock) id = file.GetGuid(ref pos);
         if (id != meta.Id) throw new Exception("File corruption, id mismatch. ");
-        lock (file) length = file.GetVerifiedLong(ref pos);
+        lock (_fileLock) length = file.GetVerifiedLong(ref pos);
         if (length != meta.Length) throw new Exception("File corruption, length mismatch. ");
         long bytesLeft = length;
         var fileName = "";
-        lock (file) fileName = file.GetString(ref pos); // allow filename to be different from original filename, renaming is allowed
+        lock (_fileLock) fileName = file.GetString(ref pos); // allow filename to be different from original filename, renaming is allowed
         var remaining = length + byteLengthOfMD5Checksum + _fileEndMarker.Length;
         if (pos + remaining > file.Length) throw new Exception("File corruption, file too short. ");
         var count = (int)Math.Min(1024 * 1024, length); // 1MB
@@ -69,7 +73,7 @@ public class SingleFileStore : IDisposable, IFileStore {
         while (bytesLeft > 0) {
             count = (int)Math.Min(buffer.Length, bytesLeft);
             if (count < buffer.Length) buffer = new byte[count]; // new buffer for last read, needs to be exact size
-            lock (file) file.Get(pos, count, buffer);
+            lock (_fileLock) file.Get(pos, count, buffer);
             await recieveAsync(buffer);
             var chk = MD5.HashData(buffer);
             calculatedChecksum = combineHash(calculatedChecksum, chk);
@@ -77,9 +81,9 @@ public class SingleFileStore : IDisposable, IFileStore {
             bytesLeft -= count;
         }
         byte[] storedChecksum;
-        lock (file) storedChecksum = file.GetByteArray(ref pos);
+        lock (_fileLock) storedChecksum = file.GetByteArray(ref pos);
         byte[] marker;
-        lock (file) marker = file.GetByteArray(ref pos);
+        lock (_fileLock) marker = file.GetByteArray(ref pos);
         if (!marker.SequenceEqual(_fileEndMarker)) throw new Exception("File corruption, end marker mismatch. ");
         if (!calculatedChecksum.SequenceEqual(storedChecksum)) throw new Exception("File corruption, internal checksum mismatch. ");
         if (!meta.Checksum.SequenceEqual(calculatedChecksum)) throw new Exception("File corruption, meta checksum mismatch. ");
@@ -108,11 +112,11 @@ public class SingleFileStore : IDisposable, IFileStore {
             long pos = meta.Offset;
             long length;
             Guid id;
-            lock (file) id = file.GetGuid(ref pos);
+            lock (_fileLock) id = file.GetGuid(ref pos);
             if (id != meta.Id) return false;
-            lock (file) length = file.GetVerifiedLong(ref pos);
+            lock (_fileLock) length = file.GetVerifiedLong(ref pos);
             if (length != meta.Length) return false;
-            lock (file) file.GetString(ref pos);
+            lock (_fileLock) file.GetString(ref pos);
             var remaining = length + byteLengthOfMD5Checksum + _fileEndMarker.Length;
             if (pos + remaining > file.Length) return false; // file not long enough
             return true; // seems to be a valid file
@@ -165,7 +169,7 @@ public class SingleFileStore : IDisposable, IFileStore {
             var buffer = new byte[1024 * 1024];
             while (pos < file.Length) {
                 var toRead = (int)Math.Min(buffer.Length, file.Length - pos);
-                lock (file) file.Get(pos, toRead, buffer);
+                lock (_fileLock) file.Get(pos, toRead, buffer);
                 await outStream.WriteAsync(buffer, 0, toRead);
                 pos += toRead;
             }
@@ -178,8 +182,9 @@ public class SingleFileStore : IDisposable, IFileStore {
         return Task.CompletedTask;
     }
     public long GetSize() {
-        lock (file) {
-            return file.Length;
+        lock (_fileLock) {
+            if (_file == null) return _ioProvider.GetFileSizeOrZeroIfUnknown(_fileKey);
+            return _file.Length;
         }
     }
     public void Dispose() {
