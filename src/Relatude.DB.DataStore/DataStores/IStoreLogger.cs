@@ -18,16 +18,21 @@ public class TraceEntry(DateTime timestamp, SystemLogEntryType type, string text
     public string? Details { get; } = details;
 }
 public class StoreMetrics {
-    public int QueryCount { get; set; }
-    public int TransactionCount { get; set; }
+    public long MemUsage { get; set; }
+    public double CpuUsage { get; set; }
+    public long QueryCount { get; set; }
+    public long ActionCount { get; set; }
+    public long TransactionCount { get; set; }
     public int NodeCount { get; set; }
     public int RelationCount { get; set; }
     public int NodeCacheCount { get; set; }
-    public int NodeCacheSize { get; set; }
+    public long NodeCacheSize { get; set; }
     public int SetCacheCount { get; set; }
-    public int SetCacheSize { get; set; }
-    public int TaskQueueCount { get; set; }
-    public int TaskPersistedQueueCount { get; set; }
+    public long SetCacheSize { get; set; }
+    public int TasksExecuted { get; set; }
+    public int TasksPersistedExecuted { get; set; }
+    public int TasksQueued { get; set; }
+    public int TasksPersistedQueued { get; set; }
 }
 public interface IStoreLogger {
     bool LoggingActions { get; }
@@ -71,4 +76,5 @@ public interface IStoreLogger {
     void RecordTaskBatch(Guid id, BatchTaskResult batchResult);
     void RecordTransaction(long transactionId, TimeSpan duration, int actionCount, int primitiveActionCount, bool diskFlush);
     void SaveStatsAndDeleteExpiredData();
+    long GetTotalFileSize();
 }

@@ -4,7 +4,7 @@ import { Connection } from "../relatude.db/connection";
 import { sleep } from "./common";
 import { menuData } from "../sections/main/mainMenu";
 import { IconBrandStackoverflow, IconChartAreaLine, IconDatabase, IconDeviceFloppy, IconPlug, IconSchema, IconSearch, IconServerCog, IconSettings } from "@tabler/icons-react";
-import { DataStoreStatus } from "./models";
+import { DataStoreStatus, StoreStates } from "./models";
 import { EventData, ServerEventHub } from "./serverEventHub";
 export class App {
     public api: API;
@@ -84,13 +84,13 @@ export class App {
         }
         ui.menu.items = root;
     };
-    private onDataStoreStates = async (status: any) => {
+    private onDataStoreStates = async (statuses: { key: string, value: StoreStates }[]) => {
         const ui = this.ui;
         ui.containers = await this.api.server.getStoreContainers();
-        ui.defaultStoreId = await this.api.server.getDefaultStoreId();
-        const statuses = await this.api.status.statusAll();
-        ui.storeStates = new Map<string, DataStoreStatus>();
-        statuses.forEach(s => ui.storeStates.set(s.id, s.status));
+        ui.defaultStoreId = await this.api.server.getDefaultStoreId();        
+        ui.storeStates = new Map<string, StoreStates>();
+        //alert(JSON.stringify(statuses));
+        statuses.forEach(s => ui.storeStates.set(s.key, s.value));
         this.updateMenu();
     }
 

@@ -7,7 +7,7 @@ public class DataStoreInfoEventPoller : IEventPoller {
     public string EventName => "DataStoreInfo";
     public EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, bool onlyOnChange, out int msNextCollect) {
         List<EventDataFactory> events = [];
-        msNextCollect = 2000;
+        msNextCollect = 1000;
         foreach (var filter in filters) {
             if (Guid.TryParse(filter, out Guid containerId)) {
                 if (server.Containers.TryGetValue(containerId, out var container)) {

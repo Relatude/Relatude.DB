@@ -1,8 +1,11 @@
-﻿using System.Text;
-using Relatude.DB.DataStores.SimpleTracer;
+﻿using Relatude.DB.DataStores.SimpleTracer;
 using Relatude.DB.IO;
+using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using System.Diagnostics;
+using System.Text;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     SimpleSystemLogTracer _tracer = new();
     public void LogInfo(string text, string? details = null) => Log(SystemLogEntryType.Info, text, details);
@@ -11,7 +14,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void Log(SystemLogEntryType type, string text, string? details = null) {
         try {
             if (_settings.WriteSystemLogConsole) {
-                lock (_consoleColorLock) { 
+                lock (_consoleColorLock) {
                     var originalColor = Console.ForegroundColor;
                     Console.ForegroundColor = ConsoleColor.DarkCyan;
                     Console.Write("relatude.db ");
@@ -83,5 +86,30 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public TraceEntry[] GetSystemTrace(int skip, int take) => _tracer.GetEntries(skip, take);
+
+    CpuMonitor _cpuMonitorMetrics = new();
+    public StoreMetrics DequeMetrics() {
+        var metrics = new StoreMetrics() {
+            MemUsage = Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024,
+            CpuUsage = _cpuMonitorMetrics.DequeCpuUsage(),
+            QueryCount = _noQueriesSinceLastMetric,
+            ActionCount = _noActionsSinceLastMetric,
+            TransactionCount = _noTransactionsSinceLastMetric,
+            NodeCount = _nodes.Count,
+            RelationCount = _relations.TotalCount(),
+            NodeCacheCount = _nodes.CacheCount,
+            NodeCacheSize = _nodes.CacheSize,
+            SetCacheCount = _sets.CacheCount,
+            SetCacheSize = _sets.CacheSize,
+            TasksExecuted = TaskQueue.TaskExecutedSinceLastMetric(),
+            TasksPersistedExecuted = TaskQueue.TaskExecutedSinceLastMetric(),
+            TasksQueued = TaskQueuePersisted.TaskQueuedSinceLastMetric(),
+            TasksPersistedQueued = TaskQueuePersisted.TaskQueuedSinceLastMetric(),
+        };
+        _noQueriesSinceLastMetric = 0;
+        _noActionsSinceLastMetric = 0;
+        _noTransactionsSinceLastMetric = 0;
+        return metrics;
+    }
 }
 

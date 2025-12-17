@@ -13,6 +13,6 @@ public class DataStoreStatesEventPoller : IEventPoller {
         }
         msNextCollect = 1000;
         _last = current;
-        return [new(current)];
+        return [new(current.ToArray())];
     }
 }

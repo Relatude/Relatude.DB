@@ -94,10 +94,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         //if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);
         _noPrimitiveActionsSinceLastStateSnaphot += primitiveActionCount;
         _noPrimitiveActionsSinceClearCache += primitiveActionCount;
-        Interlocked.Add(ref _noPrimitiveActionsSinceStartup, primitiveActionCount);
         _noPrimitiveActionsSinceStartup += primitiveActionCount;
+        _noActionsSinceLastMetric += primitiveActionCount;
         _noTransactionsSinceLastStateSnaphot++;
         _noTransactionsSinceClearCache++;
+        _noTransactionsSinceLastMetric++;
         _noPrimitiveActionsInLogThatCanBeTruncated += executed.Count(a => a.Operation == PrimitiveOperation.Remove);
 
     }

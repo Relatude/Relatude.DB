@@ -83,15 +83,12 @@ internal class ServerEventHub {
         }
     }
     public void Disconnect(Guid connectionId) => _directory.Disconnect(connectionId);
-    public void SetSubscriptions(Guid connectionId, EventSubscription[] subscriptions) {
-        _directory.SetSubscriptions(connectionId, subscriptions);
-        PollNow(connectionId); // immediate poll for quick update, if any
-    }
-    public void Subscribe(Guid connectionId, string name, string? filter) {
-        _directory.Subscribe(connectionId, name, filter);
+    public Guid Subscribe(Guid connectionId, string name, string? filter = null) {
+        var subId = _directory.Subscribe(connectionId, name, filter);
         PollNow(connectionId, name); // immediate poll for quick update, if any
+        return subId;
     }
-    public void Unsubscribe(Guid connectionId, string? name, string? filter) => _directory.Unsubscribe(connectionId, name, filter);
+    public void Unsubscribe(Guid connectionId, Guid subId) => _directory.Unsubscribe(connectionId, subId);
     public void PollNow(Guid connectionId, string? eventName = null) {
         foreach (var poller in _pollers.All()) {
             if (eventName != null && poller.EventName != eventName) continue;
@@ -112,7 +109,7 @@ internal class ServerEventHub {
         await response.Body.FlushAsync(cancellation);
     }
     string buildEvent(object? dataObject, string? eventName = null, string? id = null, int? retryMs = null) {
-        var json = JsonSerializer.Serialize(dataObject, RelatudeDBJsonOptions.Default);
+        var json = JsonSerializer.Serialize(dataObject, RelatudeDBJsonOptions.SSE);
         var sb = new StringBuilder(json.Length + 64);
         if (retryMs is int r) sb.Append("retry: ").Append(r).Append('\n');
         if (!string.IsNullOrEmpty(id)) sb.Append("id: ").Append(id).Append('\n');

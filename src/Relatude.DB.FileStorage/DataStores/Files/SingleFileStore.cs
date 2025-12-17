@@ -177,6 +177,11 @@ public class SingleFileStore : IDisposable, IFileStore {
         // no action. File is never deleted from store, just left unused
         return Task.CompletedTask;
     }
+    public long GetSize() {
+        lock (file) {
+            return file.Length;
+        }
+    }
     public void Dispose() {
         _file?.Dispose();
         _asyncLock.Dispose();

@@ -2,9 +2,8 @@ export type AppStates = "splash" | "login" | "main" | "disconnected";
 export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Disposed" | "Unknown";
 export type StoreTypes = "SimpleStore" | "NodeStore";
 export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
-
-
-
+export type LogIntervalTypes = "Second" | "Minute" | "Hour" | "Day" | "Week" | "Month";
+export interface AnalysisEntry { from: string, to:string, value: number, hasData: boolean }
 export interface FileMeta {
     key: string
     size: number
@@ -75,29 +74,62 @@ export interface DatamodelSource {
 }
 export interface DataStoreStatus {
     state: StoreStates;
+    activityTree: DataStoreActivityBranch[];
+}
+export interface DataStoreActivityBranch {
     activity: DataStoreActivity;
+    children?: DataStoreActivityBranch[];
 }
 export interface DataStoreActivity {
+    id: number;
+    isRoot: boolean;
+    parentId: number
     category: DataStoreActivityCategory;
     description?: string;
-    progress?: number;
+    percentageProgress?: number;
 }
+
+export interface TaskStatusCounts {
+    Pending: number;
+    Running: number;
+    Completed: number;
+    Failed: number;
+    Cancelled: number;
+    Waiting: number;
+    AbortedOnStartup: number;
+}
+   
 export interface DataStoreInfo {
-
-    typeCounts: Record<string, number>;
-    queuedTaskStateCounts: Record<string, number>;
-
-    initiatedUtc?: Date;
+    typeCounts: { [key: string]: number };
+    queuedTaskStateCounts: TaskStatusCounts;
+    queuedTaskStateCountsPersisted: TaskStatusCounts;
+    queuedBatchesStateCounts: TaskStatusCounts;
+    queuedBatchesStateCountsPersisted: TaskStatusCounts;
+    latestTraces : SystemTraceEntry[];
+    created: Date;
+    isFresh: boolean;
+    ageMs: number;
     uptimeMs: number;
-    logFirstStateUtc?: Date;
-    logLastChange?: Date;
+    startUpMs: number;
+    initiatedUtc: Date;
+    logFirstStateUtc: Date | null;
+    logLastChange: Date | null;
     logTruncatableActions: number;
     logActionsNotItInStatefile: number;
     logTransactionsNotItInStatefile: number;
-    logWritesQueued: number;
-    logFileKey?: string;
+    logWritesQueuedTransactions: number;
+    logWritesQueuedActions: number;
+    logFileKey: string | null;
     logFileSize: number;
     logStateFileSize: number;
+
+    totalFileSize: number;
+    fileStoreSize: number;
+    loggingFileSize: number;
+    backupFileSize: number;
+    secondaryLogFileSize: number;
+    indexFileSize: number;
+
     countActionsSinceClearCache: number;
     countTransactionsSinceClearCache: number;
     countQueriesSinceClearCache: number;
@@ -106,21 +138,32 @@ export interface DataStoreInfo {
     datamodelNodeTypeCount: number;
     datamodelRelationCount: number;
     datamodelIndexCount: number;
+    relationCount: number;
     nodeCount: number;
     nodeCacheCount: number;
-    nodeCacheCountOfUnsaved: number;
     nodeCacheSize: number;
+    nodeCacheCountOfUnsaved: number;
     nodeCacheSizePercentage: number;
     nodeCacheHits: number;
     nodeCacheMisses: number;
-    nodeCacheReduces: number;
-    setCacheCounters: number;
+    nodeCacheOverflows: number;
+    aggregateCacheCount: number;
+    aggregateCacheHits: number;
+    aggregateCacheMisses: number;
+    aggregateCacheOverflows: number;
     setCacheCount: number;
     setCacheSize: number;
-    setCacheSizePercentage: number;
     setCacheHits: number;
     setCacheMisses: number;
-    setCacheReduces: number;
+    setCacheSizePercentage: number;
+    setCacheOverflows: number;
+    queuedTasksPending: number;
+    queuedTasksPendingPersisted: number;
+    queuedBatchesPending: number;
+    queuedBatchesPendingPersisted: number;
+    processWorkingMemory: number;
+    cpuUsagePercentage : number;
+    cpuUsagePercentageLastMinute : number;
 }
 export interface ServerLogEntry {
     timestamp: Date;

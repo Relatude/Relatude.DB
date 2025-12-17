@@ -299,6 +299,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, sw.Elapsed, resultCount, scope.Metrics);
             Interlocked.Increment(ref _noQueriesSinceClearCache);
+            Interlocked.Increment(ref _noQueriesSinceLastMetric);
             return result;
         } finally {
             DeRegisterActivity(activityId);

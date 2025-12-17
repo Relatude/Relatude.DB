@@ -6,7 +6,7 @@ public class ServerSideConnectionDirectory {
     class ServerSideConnection(EventContext context) {
         public Guid ConnectionId { get; } = Guid.NewGuid();
         public EventContext Context { get; } = context;
-        public List<EventSubscription> Subscriptions { get; } = [];
+        public Dictionary<Guid, EventSubscription> SubscriptionsById { get; } = [];
         public LinkedList<ServerEventData> EventQueue { get; } = [];
     }
     readonly Dictionary<Guid, ServerSideConnection> _serverSideConnection = [];
@@ -14,7 +14,7 @@ public class ServerSideConnectionDirectory {
         // room for optimization....
         lock (_serverSideConnection) {
             foreach (var connection in _serverSideConnection.Values) {
-                foreach (var subscription in connection.Subscriptions) {
+                foreach (var subscription in connection.SubscriptionsById.Values) {
                     if (subscription.EventName == eventName) {
                         if (subscription.Filter == null || subscription.Filter == factory.Filter) {
                             var payload = factory.GetPayload(connection.Context);
@@ -34,7 +34,7 @@ public class ServerSideConnectionDirectory {
         // room for optimization....
         lock (_serverSideConnection) {
             foreach (var connection in _serverSideConnection.Values) {
-                if (connection.Subscriptions.Any(s => s.EventName == eventName)) return true;
+                if (connection.SubscriptionsById.Values.Any(s => s.EventName == eventName)) return true;
             }
             return false;
         }
@@ -44,7 +44,7 @@ public class ServerSideConnectionDirectory {
         lock (_serverSideConnection) {
             if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
                 var filters = new HashSet<string?>();
-                foreach (var subscription in connection.Subscriptions) {
+                foreach (var subscription in connection.SubscriptionsById.Values) {
                     if (subscription.EventName == eventName) {
                         filters.Add(subscription.Filter);
                     }
@@ -59,7 +59,7 @@ public class ServerSideConnectionDirectory {
         lock (_serverSideConnection) {
             var filters = new HashSet<string?>();
             foreach (var connection in _serverSideConnection.Values) {
-                foreach (var subscription in connection.Subscriptions) {
+                foreach (var subscription in connection.SubscriptionsById.Values) {
                     if (subscription.EventName == eventName) {
                         filters.Add(subscription.Filter);
                     }
@@ -97,22 +97,20 @@ public class ServerSideConnectionDirectory {
             return _serverSideConnection.Count;
         }
     }
-    public void Subscribe(Guid connectionId, string name, string? filter) {
+    public Guid Subscribe(Guid connectionId, string name, string? filter) {
         lock (_serverSideConnection) {
             if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
-                connection.Subscriptions.Add(new EventSubscription(name, filter));
+                var subId = Guid.NewGuid();
+                connection.SubscriptionsById.Add(subId, new EventSubscription(name, filter));
+                return subId;
             }
         }
+        return Guid.Empty;
     }
-    public void Unsubscribe(Guid connectionId, string? name, string? filter) {
+    public void Unsubscribe(Guid connectionId, Guid subId) {
         lock (_serverSideConnection) {
             if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
-                if (name == null) {
-                    connection.Subscriptions.Clear();
-                } else if (filter == null)
-                    connection.Subscriptions.RemoveAll(s => s.EventName == name);
-                else
-                    connection.Subscriptions.RemoveAll(s => s.EventName == name && s.Filter == filter);
+                connection.SubscriptionsById.Remove(subId);
             }
         }
     }
@@ -135,14 +133,6 @@ public class ServerSideConnectionDirectory {
                     connection.EventQueue.Remove(node);
                 }
                 node = next;
-            }
-        }
-    }
-    internal void SetSubscriptions(Guid connectionId, EventSubscription[] subscriptions) {
-        lock (_serverSideConnection) {
-            if (_serverSideConnection.TryGetValue(connectionId, out var connection)) {
-                connection.Subscriptions.Clear();
-                connection.Subscriptions.AddRange(subscriptions);
             }
         }
     }

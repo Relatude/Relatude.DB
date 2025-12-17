@@ -87,6 +87,7 @@ public interface IDataStore : IDisposable {
     void ReleaseLock(Guid lockId);
     FileKeyUtility FileKeys { get; }
     IIOProvider IO { get; }
+    IIOProvider IOIndex { get; }
     IIOProvider IOBackup { get; }
     void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null);
     void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null);

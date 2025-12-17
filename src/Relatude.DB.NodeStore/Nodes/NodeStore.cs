@@ -55,17 +55,17 @@ public sealed class NodeStore : IDisposable {
         ulong codeHash = 0;
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
         var fileKey = datastore.FileKeys.MapperDll_GetFileKey(codeHash);
-        foreach (var f in datastore.FileKeys.MapperDll_GetAllFileKeys(datastore.IO)) {
-            if (f != fileKey) datastore.IO.DeleteIfItExists(f);
+        foreach (var f in datastore.FileKeys.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
+            if (f != fileKey) datastore.IOIndex.DeleteIfItExists(f);
         }
         byte[] dll;
-        if (datastore.IO.DoesNotExistsOrIsEmpty(fileKey)) {
+        if (datastore.IOIndex.DoesNotExistsOrIsEmpty(fileKey)) {
             Stopwatch sw2 = Stopwatch.StartNew();
             dll = Compiler.BuildDll(code, datastore.Datamodel);
             datastore.LogInfo("Recompiled mapper DLL in " + sw2.ElapsedMilliseconds.To1000N() + "ms.");
-            datastore.IO.WriteAllBytes(fileKey, dll);
+            datastore.IOIndex.WriteAllBytes(fileKey, dll);
         } else {
-            dll = datastore.IO.ReadAllBytes(fileKey);
+            dll = datastore.IOIndex.ReadAllBytes(fileKey);
             datastore.LogInfo("Loading mapper DLL from disk. ");
         }
         var types = Compiler.LoadDll(dll);

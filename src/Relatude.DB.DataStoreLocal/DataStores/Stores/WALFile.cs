@@ -262,6 +262,9 @@ internal class WALFile : IDisposable {
         try {
             s.LogFileSize = _appendStream?.Length ?? 0;
         } catch { } // file may be closed....
+        try {
+            s.SecondaryLogFileSize = _secondaryAppendStream?.Length ?? 0;
+        } catch { } // file may be closed....
     }
     internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);

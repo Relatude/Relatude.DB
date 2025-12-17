@@ -180,6 +180,7 @@ internal sealed class NodeStore {
         }
     }
     internal long CacheSize { get { lock (_lock) { return _cache.Size; } } }
+    internal int CacheCount { get { lock (_lock) { return _cache.Count; } } }
     internal int Count { get { lock (_lock) { return _segments.Count; } } }
     internal void HalfCacheSize() { lock (_lock) _cache.HalfSize(); }
 }

@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -78,12 +78,12 @@ export class API {
 }
 class StatusAPI {
     constructor(private server: API, private controller: string) { }
-    stateAll = () => this.server.queryJson<{ id: string, state: StoreStates }[]>(this.controller, 'state-all');
-    statusAll = () => this.server.queryJson<{ id: string, status: DataStoreStatus }[]>(this.controller, 'status-all');
     connect = () => new EventSource(this.server.baseUrl + this.controller + "/connect", { withCredentials: true });
-    setSubscriptions = (connectionId: string, subscriptions: EventSubscription[]) => this.server.execute(this.controller, 'set-subscriptions', { connectionId }, subscriptions);
-    subscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'subscribe', { connectionId, name, filter });
-    unsubscribe = (connectionId: string, name: string, filter?: string) => this.server.execute(this.controller, 'unsubscribe', { connectionId, name, filter });
+    subscribe = (connectionId: string, name: string, filter?: string) => {
+        const payload = filter ? { connectionId, name, filter } : { connectionId, name };
+        return this.server.queryJson<string>(this.controller, 'subscribe', payload);
+    }
+    unsubscribe = (connectionId: string, subId: string) => this.server.execute(this.controller, 'unsubscribe', { connectionId, subId });
 }
 class DatamodelAPI {
     constructor(private server: API, private controller: string) { }
@@ -226,15 +226,15 @@ class LogAPI {
     isRecordingPropertyHits = (storeId: string) => this.server.queryJson<boolean>(this.controller, 'is-recording-property-hits', { storeId });
 
     analyzePropertyHits = (storeId: string) => this.server.queryJson<PropertyHitEntry[]>(this.controller, 'analyze-property-hits', { storeId });
-    analyzeSystemLogCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeSystemLogCountByType = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeQueryCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeQueryDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeTransactionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeTransactionDuration = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeTransactionAction = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeActionCount = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
-    analyzeActionOperations = (storeId: string, intervalType: string, from: Date, to: Date) => this.server.queryJson<{ key: string, count: number }[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeSystemLogCount = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-system-log-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeSystemLogCountByType = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-system-log-count-by-type', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeQueryCount = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-query-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeQueryDuration = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-query-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionCount = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-transaction-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionDuration = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-transaction-duration', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeTransactionAction = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-transaction-action', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeActionCount = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-action-count', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
+    analyzeActionOperations = (storeId: string, intervalType: LogIntervalTypes, from: Date, to: Date) => this.server.queryJson<AnalysisEntry[]>(this.controller, 'analyze-action-operations', { storeId, intervalType, from: from.toISOString(), to: to.toISOString() });
     private fixTimeStamp = async <T>(entries: Promise<LogEntry<T>[]>) => {
         const result = await entries;
         result.forEach(e => {

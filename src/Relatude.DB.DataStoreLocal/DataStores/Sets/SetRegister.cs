@@ -4,6 +4,7 @@ using Relatude.DB.Query.Expressions;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 namespace Relatude.DB.DataStores.Sets;
+
 public class SetRegister(long maxSize) {
     bool _disabled = maxSize == 0;
     static int _aggregateCacheSize = 10000;
@@ -439,4 +440,5 @@ public class SetRegister(long maxSize) {
         _aggregateCache.HalfSize();
     }
     internal long CacheSize => _cache.Size + _aggregateCache.Size;
+    internal int CacheCount => _cache.Count + _aggregateCache.Count;
 }

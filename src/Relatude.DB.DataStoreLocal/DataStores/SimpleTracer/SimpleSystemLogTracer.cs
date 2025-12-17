@@ -3,17 +3,17 @@
 /// Simple in-memory tracer for system log entries. Thread-safe.
 /// </summary>
 internal class SimpleSystemLogTracer {
-    int maxEntries = 1000;
-    Queue<TraceEntry> entries = [];
+    readonly int maxEntries = 1000;
+    readonly Queue<TraceEntry> _entries = [];
     public void Trace(SystemLogEntryType type, string text, string? details = null) {
-        lock (entries) {
-            entries.Enqueue(new TraceEntry(DateTime.UtcNow, type, text, details));
-            while (entries.Count > maxEntries) entries.Dequeue();
+        lock (_entries) {
+            _entries.Enqueue(new TraceEntry(DateTime.UtcNow, type, text, details));
+            while (_entries.Count > maxEntries) _entries.Dequeue();
         }
     }
     public TraceEntry[] GetEntries(int skip, int take) {
-        lock (entries) {
-            return entries.Reverse().Skip(skip).Take(take).ToArray();
+        lock (_entries) {
+            return [.. _entries.Reverse().Skip(skip).Take(take)];
         }
     }
 }

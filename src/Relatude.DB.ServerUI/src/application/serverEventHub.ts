@@ -31,7 +31,7 @@ export class ServerEventHub {
     private _connectionId: string | null = null;
     private _onReceivedConnectionId: ((id: string) => void) | null = null;
     private _onErrorReceivingConnectionId: ((error: any) => void) | null = null;
-    private _eventListeners: EventListener<any>[] = [];
+    private _eventListenersBySubId: Map<string, EventListener<any>> = new Map();
     connect = () => {
         if (this._eventSource) this.disconnect();
         this._eventSource = this.api.status.connect();
@@ -48,20 +48,23 @@ export class ServerEventHub {
             this._onErrorReceivingConnectionId = reject;
         });
     }
-    addEventListener = async <T>(eventName: string, eventFilter: string | undefined, onEvent: (data: T, filter?: string | undefined) => void) => {
-        this._eventListeners.push(new EventListener<T>(eventName, eventFilter, onEvent));
-        await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
+
+    addEventListener = async <T>(eventName: string, eventFilter: string | undefined, onEvent: (data: T, filter?: string) => void) => {
+        var subId = await this.api.status.subscribe(this._connectionId!, eventName, eventFilter);
+        this._eventListenersBySubId.set(subId, new EventListener<T>(eventName, eventFilter, onEvent));
+        // console.log("Subscribed to event", eventName, eventFilter, subId);
+        return subId;
     }
-    removeEventListener = async <T>(eventName: string, eventFilter: string | undefined) => {
-        const isMatch = (l: EventListener<T>) => l.Subscription.eventName == eventName && (eventFilter === undefined || l.Subscription.filter == eventFilter);
-        this._eventListeners = this._eventListeners.filter(l => !isMatch(l));
-        await this.api.status.setSubscriptions(this._connectionId!, this._eventListeners.map(l => l.Subscription));
+    removeEventListener = async <T>(subId: string) => {
+        this._eventListenersBySubId.delete(subId);
+        await this.api.status.unsubscribe(this._connectionId!, subId);
+        // console.log("Unsubscribed from event", subId);
     }
     disconnect = () => {
         this._connectionId == null;
         this._onReceivedConnectionId = null;
         this._onErrorReceivingConnectionId = null;
-        this._eventListeners = [];
+        this._eventListenersBySubId.clear();
         if (this._eventSource) {
             try {
                 this._eventSource.close();
@@ -73,6 +76,7 @@ export class ServerEventHub {
     }
     private toEventData = <T>(message: MessageEvent): EventData<T> => JSON.parse(message.data) as EventData<T>;
     private onFirstMessage = (event: MessageEvent) => { // first message contains connection id
+        // console.log("Received first message (connection id)", event.data);
         try {
             if (!this._onReceivedConnectionId) throw new Error("No handler for connection id");
             var eventData = this.toEventData<string>(event);
@@ -86,8 +90,9 @@ export class ServerEventHub {
     private onEventMessage = (event: MessageEvent) => {
         try {
             const eventData = this.toEventData(event);
+            // console.log("Received event: ", eventData.eventName);
             if (this.onAnyEvent) this.onAnyEvent(eventData);
-            const listeners = this._eventListeners.filter(l =>
+            const listeners = Array.from(this._eventListenersBySubId.values()).filter(l =>
                 l.Subscription.eventName == eventData.eventName
                 && (l.Subscription.filter == eventData.filter || !l.Subscription.filter)
             );

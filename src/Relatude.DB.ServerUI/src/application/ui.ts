@@ -18,7 +18,7 @@ export class UI {
     private _darkTheme: boolean = false; get darkTheme() { return this._darkTheme; } set darkTheme(value: boolean) { this._darkTheme = value; }
     private _appState: AppStates = "splash"; get appState() { return this._appState; } set appState(value: AppStates) { this._appState = value; }
     private _defaultStoreId: string | null = null; get defaultStoreId() { return this._defaultStoreId; } set defaultStoreId(value: string | null) { this._defaultStoreId = value; }
-    private _storeStates: Map<string, DataStoreStatus> = new Map<string, DataStoreStatus>(); set storeStates(value: Map<string, DataStoreStatus>) { this._storeStates = value; } get storeStates() { return this._storeStates; }
+    private _storeStates: Map<string, StoreStates> = new Map<string, StoreStates>(); set storeStates(value: Map<string, StoreStates>) { this._storeStates = value; } get storeStates() { return this._storeStates; }
     get selectedStoreId() { return this.containers.find(c => this.menu.path.includes(c.id))?.id; }
     set selectedStoreId(value: string | undefined) {
         if (!value) {
@@ -61,15 +61,15 @@ export class UI {
     }
     getCurrentStore = () => this.containers.find(c => c.id === this.selectedStoreId);
     isIoUsedForCurrentDatabase = (ioId: string) => this.getCurrentStore()?.ioDatabase === ioId;
-    isCurrentStoreOpen = () => this.getStoreStatus(this.selectedStoreId)?.state === "Open";
-    isStoreOpen = (storeId?: string) => storeId ? false : this.getStoreStatus(storeId)?.state === "Open";
-    getStoreStatus = (storeId: string | undefined): DataStoreStatus => storeId ? this._storeStates.get(storeId)! : { state: "Unknown", activity: { category: "None" } };
-    getStoreStateCurrentStore = () => this.getStoreStatus(this.selectedStoreId);
+    isCurrentStoreOpen = () => this.getStoreState(this.selectedStoreId) === "Open";
+    isStoreOpen = (storeId?: string) => storeId ? false : this.getStoreState(storeId) === "Open";
+    getStoreState = (storeId: string | undefined): StoreStates => storeId ? this._storeStates.get(storeId)! : "Unknown";
+    getStoreStateCurrentStore = () => this.getStoreState(this.selectedStoreId);
     getStoreStateColor = (storeId: string) => {
-        const status = this.getStoreStatus(storeId);
+        const state = this.getStoreState(storeId);
         let color: string;
         if (this.darkTheme) {
-            switch (status.state) {
+            switch (state) {
                 case "Closed": color = "gray"; break;
                 case "Open": color = "lightgreen"; break;
                 case "Opening": color = "lightyellow"; break;
@@ -78,7 +78,7 @@ export class UI {
                 default: color = "black"; break;
             }
         } else {
-            switch (status.state) {
+            switch (state) {
                 case "Closed": color = "lightgray"; break;
                 case "Open": color = "green"; break;
                 case "Opening": color = "yellow"; break;

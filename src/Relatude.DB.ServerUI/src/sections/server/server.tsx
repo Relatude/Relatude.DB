@@ -17,17 +17,14 @@ export const component = () => {
   }, []);
   const createStore = async () => {
     const storeId = await app.api.server.createStore();
-    app.ui.updateMain();
   };
   const removeStore = async (storeId: string) => {
     if (!window.confirm("Are you sure you want to delete this store?")) return;
     await app.api.server.removeStore(storeId);
     app.ui.storeStates.delete(storeId);
-    await app.ui.updateMain();
   }
   const setDefaultStore = async (storeId: string) => {
     await app.api.server.setDefaultStoreId(storeId);
-    await app.ui.updateMain();
   }
   return (
     <>

@@ -10,6 +10,8 @@ public class DataStoreInfo {
     public Dictionary<string, int> QueuedBatchesStateCounts { get; set; } = [];
     public Dictionary<string, int> QueuedBatchesStateCountsPersisted { get; set; } = [];
 
+    public TraceEntry[] LatestTraces { get; set; } = [];
+
     public DateTime Created { get; } = DateTime.UtcNow;
     public bool IsFresh { get; set; }
     public int AgeMs => (int)Math.Round((DateTime.UtcNow - Created).TotalMilliseconds);
@@ -28,6 +30,13 @@ public class DataStoreInfo {
     public string? LogFileKey { get; set; }
     public long LogFileSize { get; set; }
     public long LogStateFileSize { get; set; }
+
+    public long TotalFileSize { get; set; }
+    public long FileStoreSize { get; set; }
+    public long LoggingFileSize { get; set; }
+    public long BackupFileSize { get; set; }
+    public long SecondaryLogFileSize { get; set; }
+    public long IndexFileSize{ get; set; }
 
     public long CountActionsSinceClearCache { get; set; }
     public long CountTransactionsSinceClearCache { get; set; }
@@ -68,8 +77,9 @@ public class DataStoreInfo {
     public int QueuedBatchesPending { get; set; }
     public int QueuedBatchesPendingPersisted { get; set; }
 
-    public long DiskSpacePersistedIndexes { get; set; }
     public long ProcessWorkingMemory { get; set; }
+    public double CpuUsagePercentage { get; set; }
+    public double CpuUsagePercentageLastMinute { get; set; }
 
     public static DataStoreInfo DeSerialize(Stream stream) {
         var json = stream.ReadString();

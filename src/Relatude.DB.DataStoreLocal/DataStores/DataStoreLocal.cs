@@ -64,6 +64,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _noTransactionsSinceClearCache;
     long _noNodeGetsSinceClearCache;
 
+    long _noActionsSinceLastMetric;
+    long _noTransactionsSinceLastMetric;
+    long _noQueriesSinceLastMetric;
+
     long _noQueriesSinceClearCache;
     Dictionary<string, ITaskRunner> _taskRunners = [];
 

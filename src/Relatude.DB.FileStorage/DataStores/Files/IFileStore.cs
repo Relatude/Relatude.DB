@@ -10,4 +10,5 @@ public interface IFileStore : IDisposable {
     Task<bool> ContainsFileAsync(FileValue fileValue);
     Task DeleteAsync(FileValue value);
     Task ExtractCopy(Stream outStream);
+    long GetSize();
 }

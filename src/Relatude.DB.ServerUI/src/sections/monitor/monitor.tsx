@@ -4,9 +4,7 @@ import { Button, Group, Space, Stack, Switch, Table, Tabs, Title } from '@mantin
 import { useApp } from '../../start/useApp';
 import { Poller } from '../../application/poller';
 import { SystemLogEntry, ActionLogEntry, LogEntry, QueryLogEntry, TransactionLogEntry, TaskBatchLogEntry, MetricsLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry } from '../../application/models';
-import { set } from 'mobx';
 import { formatBytesString } from '../../utils/formatting';
-import { useStore } from '../../application/test';
 export const component = (P: { storeId: string }) => {
     const app = useApp();
 
@@ -28,28 +26,26 @@ export const component = (P: { storeId: string }) => {
 
     const [isNotOpen, setIsNotOpen] = useState(false);
 
-    const sss = useStore();
-
     let currentContainer = app.ui.containers.find(c => c.id === P.storeId);
     const allLogKeys = ["system", "query", "transaction", "action", "task", "taskbatch", "metrics"];
     useEffect(() => {
         const poller = new Poller(async () => {
+            const skip = 0;
+            const take = 1000;
             if (!P.storeId) return;
             if (app.ui.activeLogKey == "settings") {
                 app.api.log.getLogInfos(P.storeId).then(setLogInfos);
+            } else if (app.ui.activeLogKey == "trace") {
+                setSystemTrace(await app.api.log.getSystemTrace(P.storeId, skip, take)); 
             } else if (app.ui.activeLogKey == "propertyHits") {
-
-                app.api.log.analyzePropertyHits(P.storeId).then(setPropertyHits);
-
+                setIsRecordingPropertyHits(await app.api.log.isRecordingPropertyHits(P.storeId));
+                setPropertyHits(await app.api.log.analyzePropertyHits(P.storeId));
             } else {
-                app.api.log.isLogEnabled(P.storeId, app.ui.activeLogKey).then(setEnabledLog);
-                app.api.log.isStatisticsEnabled(P.storeId, app.ui.activeLogKey).then(setEnabledStatistics);
+                setEnabledLog(await app.api.log.isLogEnabled(P.storeId, app.ui.activeLogKey));
+                setEnabledStatistics(await app.api.log.isStatisticsEnabled(P.storeId, app.ui.activeLogKey));
                 const to = new Date(); // now
                 const from = new Date(to.getTime() - 60 * 60 * 1000); // 1 hour ago
-                const skip = 0;
-                const take = 1000;
                 switch (app.ui.activeLogKey) {
-                    case "trace": setSystemTrace(await app.api.log.getSystemTrace(P.storeId, skip, take)); break;
                     case "system": setSystemLog(await app.api.log.extractSystemLog(P.storeId, from, to, skip, take, true)); break;
                     case "query": setQueryLog(await app.api.log.extractQueryLog(P.storeId, from, to, skip, take, true)); break;
                     case "transaction": setTransactionLog(await app.api.log.extractTransactionLog(P.storeId, from, to, skip, take, true)); break;
@@ -65,8 +61,8 @@ export const component = (P: { storeId: string }) => {
         return () => { poller.dispose(); }
     }, [app.ui.activeLogKey, P.storeId]);
     useEffect(() => {
-        setIsNotOpen(app.ui.storeStates.get(P.storeId)?.state != "Open")
-    }, [app.ui.storeStates.get(P.storeId)?.state])
+        setIsNotOpen(app.ui.storeStates.get(P.storeId) != "Open")
+    }, [app.ui.storeStates.get(P.storeId)])
     if (!P.storeId) return;
     if (!currentContainer) return;
     const setCurrentEnabledLog = async (enable: boolean) => {
@@ -126,7 +122,7 @@ export const component = (P: { storeId: string }) => {
             : <></>}
     </>
     const logToolbar = <>
-        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits" && app.ui.activeLogKey != "trace") ?         
+        {(app.ui.activeLogKey != "settings" && app.ui.activeLogKey != "propertyHits" && app.ui.activeLogKey != "trace") ?
             <Group>
                 <Switch disabled={isNotOpen} checked={enableStatistics === true} onChange={(e) => setCurrentEnabledStatistics(e.currentTarget.checked)} label="Statistics" />
                 <Switch disabled={isNotOpen} checked={enableLog === true} onChange={(e) => setCurrentEnabledLog(e.currentTarget.checked)} label="Log" />

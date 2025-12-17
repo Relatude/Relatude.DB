@@ -134,9 +134,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
 
     // PRIVATE API, requires authentication (controlled by path in middleware):
     void mapStatus(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("status-all"), () => server.Containers.Values.Select(c => new { c.Settings.Id, c.Status }));
         app.MapGet(path("connect"), server.EventHub.Connect);
-        app.MapPost(path("set-subscriptions"), server.EventHub.SetSubscriptions);
         app.MapPost(path("subscribe"), server.EventHub.Subscribe);
         app.MapPost(path("unsubscribe"), server.EventHub.Unsubscribe);
     }

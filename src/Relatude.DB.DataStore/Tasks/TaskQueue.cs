@@ -57,12 +57,6 @@ public class TaskQueue : IDisposable {
             return _queue.TaskCountsPerState();
         }
     }
-    public IBatch? Dequeue() {
-        lock (_lock) {
-            emptyBuffer();
-            return _queue.DequeueAndSetRunning(_runners);
-        }
-    }
     public void Enqueue(TaskData task, string? jobId = null) {
         Enqueue(task, jobId, BatchState.Pending);
     }
@@ -81,6 +75,7 @@ public class TaskQueue : IDisposable {
             } else {
                 _batchBufferByTypeAndJobId.Add(batchKey, runner.CreateBatchWithOneTask(task, state, jobId));
             }
+            _taskQueuedSinceLastMetric++;
         }
     }
     public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort, long parentActivityId) {
@@ -95,7 +90,11 @@ public class TaskQueue : IDisposable {
             if (totalMs.ElapsedMilliseconds >= maxDurationMs) break;
             var startTime = DateTime.UtcNow;
             var sw = Stopwatch.StartNew();
-            var nextBatch = Dequeue();
+            IBatch? nextBatch;
+            lock (_lock) {
+                emptyBuffer();
+                nextBatch = _queue.DequeueAndSetRunning(_runners);
+            }
             if (nextBatch == null) break; // no more tasks to process
             taskNo += nextBatch.TaskCount;
             TaskLogger? taskLogging = null;
@@ -119,11 +118,13 @@ public class TaskQueue : IDisposable {
                     }
                 }
                 result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount);
+                _taskExecutedSinceLastMetric += nextBatch.TaskCount;
             } catch (Exception err) {
                 lock (_lock) {
                     _queue.Set(nextBatch.Meta.BatchId, err);
                 }
                 result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount, err);
+                _taskFailedSinceLastMetric += nextBatch.TaskCount;
             } finally {
                 if (childActivityId > -1) _store.DeRegisterActivity(childActivityId);
             }
@@ -232,6 +233,31 @@ public class TaskQueue : IDisposable {
             //Stopwatch sw = Stopwatch.StartNew();
             _queue.FlushDiskIfNeeded();
             //Console.WriteLine("Flushed disk in " + sw.Elapsed.TotalMilliseconds.ToString("0.00ms"));
+        }
+    }
+
+    int _taskExecutedSinceLastMetric;
+    public int TaskExecutedSinceLastMetric() {
+        lock (_lock) {
+            var count = _taskExecutedSinceLastMetric;
+            _taskExecutedSinceLastMetric = 0;
+            return count;
+        }
+    }
+    int _taskQueuedSinceLastMetric;
+    public int TaskQueuedSinceLastMetric() {
+        lock (_lock) {
+            var count = _taskQueuedSinceLastMetric;
+            _taskQueuedSinceLastMetric = 0;
+            return count;
+        }
+    }
+    int _taskFailedSinceLastMetric;
+    public int TaskFailedSinceLastMetric() {
+        lock (_lock) {
+            var count = _taskFailedSinceLastMetric;
+            _taskFailedSinceLastMetric = 0;
+            return count;
         }
     }
 }

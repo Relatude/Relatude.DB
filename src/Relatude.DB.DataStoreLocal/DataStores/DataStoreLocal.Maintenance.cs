@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
+using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using System;
 using System.Diagnostics;
@@ -187,6 +188,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     DataStoreInfo? _lastStoreStatusWhenOpen;
+
+    CpuMonitor _cpuMonitorInfo = new();
     public DataStoreInfo GetInfo() {
         var info = new DataStoreInfo();
         if (_state != DataStoreState.Open) return info;
@@ -216,25 +219,34 @@ public sealed partial class DataStoreLocal : IDataStore {
                 info.TypeCounts.Add(t.Model.FullName, _definition.GetCountForTypeForStatusInfo(t.Id));
             }
 
-            info.QueuedTasksPending = TaskQueue.CountTasks(Tasks.BatchState.Pending);
+            info.QueuedTasksPending = TaskQueue.CountTasks(BatchState.Pending);
             info.QueuedTaskStateCounts = TaskQueue.TaskCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
             info.QueuedTasksPendingPersisted = TaskQueuePersisted?.CountTasks(Tasks.BatchState.Pending) ?? 0;
             info.QueuedTaskStateCountsPersisted = TaskQueuePersisted?.TaskCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value) ?? [];
 
-            info.QueuedBatchesPending = TaskQueue.CountBatch(Tasks.BatchState.Pending);
+            info.QueuedBatchesPending = TaskQueue.CountBatch(BatchState.Pending);
             info.QueuedBatchesStateCounts = TaskQueue.BatchCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
             info.QueuedBatchesPendingPersisted = TaskQueuePersisted?.CountBatch(Tasks.BatchState.Pending) ?? 0;
             info.QueuedBatchesStateCountsPersisted = TaskQueuePersisted?.BatchCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value) ?? [];
 
-            info.DiskSpacePersistedIndexes = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L;
             info.ProcessWorkingMemory = Process.GetCurrentProcess().WorkingSet64;
-
+            info.CpuUsagePercentage = _cpuMonitorInfo.DequeCpuUsage() * 100.0;
+            info.CpuUsagePercentageLastMinute = _cpuMonitorInfo.Estimate(TimeSpan.FromMinutes(1)) * 100.0;
             _definition.AddInfo(info);
             _nodes.AddInfo(info);
             info.RelationCount = _relations.TotalCount();
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
+
+            try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
+            try { info.FileStoreSize = _fileStores.Select(kv => kv.Value.GetSize()).Sum(); } catch { }
+            try { info.BackupFileSize = FileKeys.FileStore_GetAllBackUpFileKeys(_ioAutoBackup).Select(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
+            try { info.IndexFileSize = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
+            info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
+
+
             _sets.AddInfo(info);
             info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
+            info.LatestTraces = GetSystemTrace(0, 20);
         } finally {
             _lock.ExitWriteLock();
         }
