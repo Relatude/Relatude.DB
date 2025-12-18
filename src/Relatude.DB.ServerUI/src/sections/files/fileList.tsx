@@ -5,8 +5,9 @@ import { useApp } from '../../start/useApp';
 import IoSelector from './ioSelector';
 import { FileMeta, FolderMeta, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
-import { IconDots } from '@tabler/icons-react';
+import { IconDots, IconFile, IconFolder } from '@tabler/icons-react';
 import { formatBytesString, formatDateToString } from '../../utils/formatting';
+import { iconSize, iconStroke } from '../../application/common';
 
 export const component = (p: { storeId: string }) => {
     const app = useApp();
@@ -33,9 +34,9 @@ export const component = (p: { storeId: string }) => {
         const storeIsLoadedAndIoBelongsToStore = store?.id == p.storeId && store?.ioSettings?.find(io => io.id == selectedIo) != undefined;
         setFiles(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!) : undefined);
         setCanRename(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canRenameFile(p.storeId, selectedIo!) : false);
-        const canHaveSubfolders  = storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canHaveSubFolders(p.storeId, selectedIo!) : false;
+        const canHaveSubfolders = storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canHaveSubFolders(p.storeId, selectedIo!) : false;
         const folders = canHaveSubfolders ? await app.api.maintenance.getSubFolders(p.storeId, selectedIo!, "") : undefined;
-        setFolders(folders);        
+        setFolders(folders);
         const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         if (selectedIo) {
             const dbFile = await app.api.maintenance.getFileKeyOfDb(p.storeId, selectedIo, storeSettings.localSettings.filePrefix);
@@ -201,6 +202,7 @@ export const component = (p: { storeId: string }) => {
                             onChange={(e) => setSelectedRows(e.currentTarget.checked ? [...selectedRows, file.key] : selectedRows.filter((k) => k !== file.key))}
                         /></Table.Td>
                         <Table.Td >
+                            {/* {<IconFile size={iconSize} stroke={iconStroke} style={{ verticalAlign: 'middle', marginRight: 5 }} />} */}
                             {file.key == dbFile ? <b title="Current database file" style={{ color: "" }}>{file.key}</b> : file.key}
                         </Table.Td>
                         <Table.Td>{formatBytesString(file.size)}</Table.Td>
@@ -212,14 +214,46 @@ export const component = (p: { storeId: string }) => {
                             <Group gap={"sm"}>
                                 <Menu width={200} >
                                     <Menu.Target>
-                                        <ActionIcon variant="transparent" ><IconDots></IconDots></ActionIcon>
+                                        <ActionIcon variant="transparent"><IconDots></IconDots></ActionIcon>
                                     </Menu.Target>
                                     <Menu.Dropdown>
-                                        <Menu.Item onClick={() => downloadFile(domainName + "." + file.key)} disabled={file.writers > 0}  >Download</Menu.Item>
+                                        <Menu.Item onClick={() => downloadFile(domainName + "." + file.key)} disabled={file.writers > 0}>Download</Menu.Item>
                                         {canRename && <Menu.Item onClick={() => renameFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Rename</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => deleteFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Delete</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => copyFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Copy</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => useFileAsNewDB(file.key)} disabled={file.writers > 0 || file.readers > 0} >Copy and use as new DB</Menu.Item>}
+                                    </Menu.Dropdown>
+                                </Menu>
+                            </Group>
+
+                        </Table.Td>
+                    </Table.Tr>
+                ))}
+                {folders?.map((folder) => (
+                    <Table.Tr key={folder.name}
+                        bg={selectedRows.includes(folder.name) ? 'var(--mantine-color-blue-light)' : undefined}
+                    >
+                        <Table.Td><Checkbox
+                            checked={selectedRows.includes(folder.name)}
+                            onChange={(e) => setSelectedRows(e.currentTarget.checked ? [...selectedRows, folder.name] : selectedRows.filter((k) => k !== folder.name))}
+                        /></Table.Td>
+                        <Table.Td >
+                            <IconFolder size={iconSize} stroke={iconStroke} style={{ verticalAlign: 'middle', marginRight: 5 }} />
+                            {folder.name}
+                        </Table.Td>
+                        <Table.Td>{formatBytesString(getRecursiveSize(folder))}</Table.Td>
+                        <Table.Td>{ }</Table.Td>
+                        <Table.Td>[Folder]{ }</Table.Td>
+                        <Table.Td>{formatDateToString(folder.lastModifiedUtc)}</Table.Td>
+                        <Table.Td>{formatDateToString(folder.creationTimeUtc)}</Table.Td>
+                        <Table.Td>
+                            <Group gap={"sm"}>
+                                <Menu width={200} >
+                                    <Menu.Target>
+                                        <ActionIcon variant="transparent" ><IconDots></IconDots></ActionIcon>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        {canRename && <Menu.Item onClick={() => deleteFile(folder.name)} disabled={false}>Delete</Menu.Item>}
                                     </Menu.Dropdown>
                                 </Menu>
                             </Group>
@@ -240,6 +274,12 @@ export const component = (p: { storeId: string }) => {
             </Table.Tbody>
         </Table>
     </>)
+}
+const getRecursiveSize = (folder: FolderMeta): number => {
+    let total = 0;
+    total += folder.files.reduce((acc, file) => acc + file.size, 0);
+    total += folder.subFolders.reduce((acc, subFolder) => acc + getRecursiveSize(subFolder), 0);
+    return total;
 }
 
 const Files = observer(component);

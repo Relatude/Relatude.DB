@@ -132,18 +132,17 @@ public class IOProviderDisk : IIOProvider {
     }
     public bool CanHaveSubFolders => true;
     public Task<FolderMeta[]> GetSubFolders() {
-        return Task.FromResult(Array.Empty<FolderMeta>());
-        //var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
-        //addAllSubFolders(baseFolderMeta, parentFolder);
-        //return Task.FromResult(baseFolderMeta.SubFolders ?? Array.Empty<FolderMeta>());
+        var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
+        var dirInfo = new DirectoryInfo(BaseFolder);
+        addAllSubFolders(dirInfo, baseFolderMeta, "");
+        return Task.FromResult(baseFolderMeta.SubFolders);
     }
-    //void addAllSubFolders(DirectoryInfo parentFolder, FolderMeta folder, string basePath) {
-    //    var dirPath = Path.Combine(basePath, folder.Name);
-    //    var subdirs = new DirectoryInfo(dirPath).GetDirectories().Select(f => FolderMeta.FromDirInfo(f, basePath)).ToArray();
-    //    folder.SubFolders = subdirs;
-    //    foreach (var subdir in subdirs) {
-    //        subdir.Files = new DirectoryInfo(Path.Combine(dirPath, subdir.Name)).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
-    //        addAllSubFolders(subdir, dirPath);
-    //    }
-    //}
+    void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath) {
+        folder.Files = [.. dirInfo.GetFiles().Select(FileMeta.FromFileInfo)];
+        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, Path.Combine(relativeParentPath, d.Name)))];
+        foreach (var subFolder in folder.SubFolders) {
+            var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
+            addAllSubFolders(subDirInfo, subFolder, Path.Combine(relativeParentPath, subFolder.Name));
+        }
+    }
 }

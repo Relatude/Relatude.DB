@@ -134,7 +134,7 @@ class MaintenanceAPI {
     close = (storeId: string) => this.server.execute(this.controller, 'close', { storeId });
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));
     canHaveSubFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-sub-folders', { storeId, ioId }).then(r => r.canHave);
-    getSubFolders = (storeId: string, ioId: string, path: string) => this.server.queryJson<FolderMeta[]>(this.controller, 'get-sub-folders', { storeId, ioId, path });
+    getSubFolders = (storeId: string, ioId: string, path: string) => fixFileFolderListMetaDates(this.server.queryJson<FolderMeta[]>(this.controller, 'get-sub-folders', { storeId, ioId, path }));
     getStoreFiles = (storeId: string, ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-store-files', { storeId, ioId }));
     canRenameFile = (storeId: string, ioId: string) => this.server.queryJson<{ canRename: boolean }>(this.controller, 'can-rename-file', { storeId, ioId }).then(r => r.canRename);
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });
@@ -195,6 +195,12 @@ const fixFileMetaDates = (file: FileMeta) => {
     file.creationTimeUtc = new Date(file.creationTimeUtc);
     file.lastModifiedUtc = new Date(file.lastModifiedUtc);
     return file;
+}
+const fixFileFolderListMetaDates = (folders: Promise<FolderMeta[]>) => folders.then(fs => fs.map(fixFolderMetaDates));
+const fixFolderMetaDates = (folder: FolderMeta) => {
+    folder.creationTimeUtc = new Date(folder.creationTimeUtc);
+    folder.lastModifiedUtc = new Date(folder.lastModifiedUtc);
+    return folder;
 }
 class LogAPI {
     constructor(private server: API, private controller: string) { }
