@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -133,6 +133,8 @@ class MaintenanceAPI {
     open = (storeId: string) => this.server.execute(this.controller, 'open', { storeId });
     close = (storeId: string) => this.server.execute(this.controller, 'close', { storeId });
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));
+    canHaveSubFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-sub-folders', { storeId, ioId }).then(r => r.canHave);
+    getSubFolders = (storeId: string, ioId: string, path: string) => this.server.queryJson<FolderMeta[]>(this.controller, 'get-sub-folders', { storeId, ioId, path });
     getStoreFiles = (storeId: string, ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-store-files', { storeId, ioId }));
     canRenameFile = (storeId: string, ioId: string) => this.server.queryJson<{ canRename: boolean }>(this.controller, 'can-rename-file', { storeId, ioId }).then(r => r.canRename);
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });

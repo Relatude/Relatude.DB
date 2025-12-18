@@ -13,6 +13,17 @@ export interface FileMeta {
     writers: number
     description: string
 }
+export interface FolderMeta {
+    subFolders: FolderMeta[]
+    files: FileMeta[]
+    name: string
+    size: number
+    creationTimeUtc: Date
+    lastModifiedUtc: Date
+    readers: number
+    writers: number
+    description: string
+}
 export interface SimpleStoreContainer {
     id: string
     name: string

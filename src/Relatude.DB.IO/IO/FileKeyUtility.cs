@@ -162,6 +162,7 @@ public class FileKeyUtility {
     #region STATIC helpers:
 
     static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
+
     public static string FileTypeDescription(string fileKey) {
         ValidateFileKeyString(fileKey);
         if (fileKey.MatchesWildcard(_anyPrefix.walFilePattern)) return "Database";
@@ -179,6 +180,15 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.indexFilePattern)) return "Index";
         return "-";
     }
+
+    internal static string FolderTypeDescription(string relpath) {
+        return relpath switch {
+            var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Index Store",
+            _ => "-",
+        };
+    }
+
+
     static HashSet<char> _legalFileKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789()-–_. ".ToHashSet();
     public static bool IsFileKeyValid(string fileKey) {
         if (string.IsNullOrEmpty(fileKey)) return false;
@@ -217,6 +227,7 @@ public class FileKeyUtility {
     static void ValidateFilePrefixString(string prefix) {
         if (!IsFilePrefixValid(prefix, out var reason)) throw new ArgumentException("Invalid file prefix. " + reason);
     }
+
     #endregion
 
 }

@@ -1,11 +1,12 @@
 ﻿using Relatude.DB.IO;
 
 public class FolderMeta {
-    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo) {
+    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) {
         return new() {
             Name = dirInfo.Name,
             CreationTimeUtc = dirInfo.CreationTimeUtc,
             LastModifiedUtc = dirInfo.LastWriteTimeUtc,
+            Description= FileKeyUtility.FolderTypeDescription(relpath),
         };
     }
     public FolderMeta[] SubFolders { get; set; } = [];
@@ -14,11 +15,9 @@ public class FolderMeta {
     public long Size { get; set; }
     public DateTime CreationTimeUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedUtc { get; set; } = DateTime.UtcNow;
-    public int Readers { get; set; }
-    public int Writers { get; set; }
-    public string Description => FileKeyUtility.FileTypeDescription(Name);
+    public string Description { get; set; } 
     public override string ToString() {
-        return $"{Name} ({Description}), {Size} bytes, Created: {CreationTimeUtc:u}, Modified: {LastModifiedUtc:u}, Readers: {Readers}, Writers: {Writers}";
+        return $"{Name} ({Description}), {Size} bytes, Created: {CreationTimeUtc:u}, Modified: {LastModifiedUtc:u}";
     }
 }
 

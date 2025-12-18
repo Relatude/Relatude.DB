@@ -167,6 +167,8 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
+        app.MapPost(path("can-have-sub-folders"), (Guid storeId, Guid ioId) => new { CanHave = server.GetIO(ioId).CanHaveSubFolders });
+        app.MapPost(path("get-sub-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetSubFolders());
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });

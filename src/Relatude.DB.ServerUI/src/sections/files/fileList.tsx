@@ -3,7 +3,7 @@ import { observer } from 'mobx-react';
 import { Table, Button, Group, Menu, MenuItem, Divider, ActionIcon, Checkbox } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import IoSelector from './ioSelector';
-import { FileMeta, NodeStoreContainer } from '../../application/models';
+import { FileMeta, FolderMeta, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
 import { IconDots } from '@tabler/icons-react';
 import { formatBytesString, formatDateToString } from '../../utils/formatting';
@@ -12,6 +12,7 @@ export const component = (p: { storeId: string }) => {
     const app = useApp();
     const [store, setStore] = useState<NodeStoreContainer>();
     const [files, setFiles] = useState<FileMeta[]>();
+    const [folders, setFolders] = useState<FolderMeta[]>();
     const [canRename, setCanRename] = useState<boolean>(false);
     const [selectedIo, setSelectedIo] = useState<string>();
     const [dbFile, setDbFile] = useState<string>("");
@@ -32,6 +33,9 @@ export const component = (p: { storeId: string }) => {
         const storeIsLoadedAndIoBelongsToStore = store?.id == p.storeId && store?.ioSettings?.find(io => io.id == selectedIo) != undefined;
         setFiles(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!) : undefined);
         setCanRename(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canRenameFile(p.storeId, selectedIo!) : false);
+        const canHaveSubfolders  = storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canHaveSubFolders(p.storeId, selectedIo!) : false;
+        const folders = canHaveSubfolders ? await app.api.maintenance.getSubFolders(p.storeId, selectedIo!, "") : undefined;
+        setFolders(folders);        
         const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         if (selectedIo) {
             const dbFile = await app.api.maintenance.getFileKeyOfDb(p.storeId, selectedIo, storeSettings.localSettings.filePrefix);
