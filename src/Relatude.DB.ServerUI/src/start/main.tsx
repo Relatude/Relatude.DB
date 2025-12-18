@@ -14,7 +14,8 @@ import { Settings } from "../sections/settings/settings";
 import Server from "../sections/server/server";
 import { API } from "../sections/api/api";
 import { ErrorDialog } from "../components/errorDialog";
-import Logs from "../sections/logs/logs";
+import Logging from "../sections/logging/logging";
+
 
 const component = () => {
   const app = useApp();
@@ -78,7 +79,7 @@ const component = () => {
           {app.ui.menu.selected === "data" && <Data storeId={storeId} />}
           {app.ui.menu.selected === "api" && <API storeId={storeId} />}
           {app.ui.menu.selected === "files" && <Files storeId={storeId} />}
-          {app.ui.menu.selected === "logs" && <Logs storeId={storeId} />}
+          {app.ui.menu.selected === "logs" && <Logging storeId={storeId} />}
           {app.ui.menu.selected === "settings" && <Settings storeId={storeId} />}
         </>)}
       </AppShell.Main>
