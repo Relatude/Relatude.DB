@@ -52,23 +52,31 @@ public sealed partial class DataStoreLocal : IDataStore {
         UpdateActivity(activityId, "Saving node type index");
         _definition.NodeTypeIndex.SaveState(stream);
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
-        _noPrimitiveActionsSinceLastStateSnaphot = 0;
-        _noTransactionsSinceLastStateSnaphot = 0;
+        _noPrimitiveActionsSinceLastStateSnapshot = 0;
+        _noTransactionsSinceLastStateSnapshot = 0;
     }
     void saveIndexesStates(long activityId) {
         UpdateActivity(activityId, "Saving indexes");
         _index.SaveStateForMemoryIndexes(_wal.LastTimestamp, _wal.FileId, (txt, prg) => {
-            UpdateActivity(activityId, "Saving index " + txt, prg);
+            UpdateActivity(activityId, txt, prg);
         });
     }
-    void readState(bool throwOnErrors, Guid currentModelHash, long activityId) {
+    void readState(bool throwOnErrors, Guid currentModelHash, long parentActivityId) {
+        var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Opening, "Reading state");
+        try {
+            readStateSub(throwOnErrors, currentModelHash, activityId);
+        } finally {
+            DeRegisterActivity(activityId);
+        }
+    }
+    void readStateSub(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
 
         long stateFileTimestamp;
         long stateFilePositionOfLastTransactionSaved = 0;
-        _noPrimitiveActionsSinceLastStateSnaphot = 0;
-        _noTransactionsSinceLastStateSnaphot = 0;
+        _noPrimitiveActionsSinceLastStateSnapshot = 0;
+        _noTransactionsSinceLastStateSnapshot = 0;
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
         var sw = Stopwatch.StartNew();
         var walFileSize = _wal.FileSize; // while it is open...
@@ -168,8 +176,6 @@ public sealed partial class DataStoreLocal : IDataStore {
                 actionCountInTransaction = 0;
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
-                // "stateSstores" are: _guids, _nodes, _relations, _nativeModelStore, _definition.NodeTypeIndex,
-                // but not _index which may need all actions to build correctly
                 foreach (var a in transaction.ExecutedActions) {
                     actionCount++;
                     actionCountInTransaction++;
@@ -203,17 +209,17 @@ public sealed partial class DataStoreLocal : IDataStore {
                             _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                         } else throw new NotImplementedException();
                         _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logCriticalError);
-                        _noPrimitiveActionsSinceLastStateSnaphot++;
+                        _noPrimitiveActionsSinceLastStateSnapshot++;
                         if (a.Operation == PrimitiveOperation.Remove) _noPrimitiveActionsInLogThatCanBeTruncated++;
                     }
                 }
                 if (isTransactionRelevantForStateStores) {
-                    _noTransactionsSinceLastStateSnaphot++;
+                    _noTransactionsSinceLastStateSnapshot++;
                 }
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
-        PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);        
+        PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {

@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
+using System.Data.Common;
 namespace Relatude.DB.DataStores.Indexes;
 
 public class PersistedIndexStore : IPersistedIndexStore {
@@ -29,7 +30,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
         var dbFileName = "index.db";
         var dbPath = Path.Combine(sqlLiteFolder, dbFileName);
-        _cnnStr = "Data Source=" + dbPath;
+        _cnnStr = "Data Source=" + dbPath;// + ";Pooling=False;";
         _connection = new SqliteConnection(_cnnStr);
         _connection.Open();
         var cmd = _connection.CreateCommand();
@@ -217,8 +218,11 @@ public class PersistedIndexStore : IPersistedIndexStore {
 
     public void Dispose() {
         foreach (var i in _wordIndexLucenes) i.Value.Dispose();
-        try { _connection.Close(); } catch { }
+        try {
+            if (_connection.State != System.Data.ConnectionState.Closed) _connection.Close();
+        } catch { }
         _transaction?.Dispose();
         _connection.Dispose();
+        SqliteConnection.ClearAllPools();
     }
 }

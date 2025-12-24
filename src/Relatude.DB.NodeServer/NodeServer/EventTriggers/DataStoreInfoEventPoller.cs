@@ -1,5 +1,7 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.EventHub;
+using System.Diagnostics;
 
 namespace Relatude.DB.NodeServer.EventTriggers;
 
@@ -11,8 +13,13 @@ public class DataStoreInfoEventPoller : IEventPoller {
         foreach (var filter in filters) {
             if (Guid.TryParse(filter, out Guid containerId)) {
                 if (server.Containers.TryGetValue(containerId, out var container)) {
-                    if (container.IsOpenOrOpening() && container.Datastore != null) {
-                        var info = container.Datastore.GetInfo();
+                    if (container.IsOpenOrOpening() && container.Store?.Datastore != null) {
+                        var info = container.Store!.Datastore.GetInfo();
+                        events.Add(new(info, filter));
+                    } else {
+                        var info = new DataStoreInfo() {
+                            ProcessWorkingMemory = Process.GetCurrentProcess().WorkingSet64
+                        };
                         events.Add(new(info, filter));
                     }
                 }

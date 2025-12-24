@@ -33,7 +33,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     NodeStore db(Guid storeId) {
         return container(storeId).Store ?? throw new Exception("Store not initialized. ");
     }
-    bool isDbInitialized(Guid storeId) => container(storeId).Store != null;
     public void MapSimpleAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
@@ -155,20 +154,22 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
     }
     void mapMaintenance(WebApplication app, Func<string, string> path) {
-        app.MapPost(path("initialize"), (Guid storeId) => container(storeId).Initialize());
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
             if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
         });
-        app.MapPost(path("dispose"), (Guid storeId) => {
-            container(storeId).DisposeAndCloseIfOpen();
-            if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
+        app.MapPost(path("cancel-opening"), (Guid storeId) => {
+            try {
+                container(storeId).CloseIfOpen();
+                if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
+            } catch { }
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
-        app.MapPost(path("can-have-sub-folders"), (Guid storeId, Guid ioId) => new { CanHave = server.GetIO(ioId).CanHaveSubFolders });
-        app.MapPost(path("get-sub-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetSubFolders());
+        app.MapPost(path("can-have-folders"), (Guid storeId, Guid ioId) => new { CanHave = server.GetIO(ioId).CanHaveFolders });
+        app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync());
+        app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(folderName));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });
@@ -229,6 +230,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh, bool nodeSegmentsOnly) => db(storeId).Datastore.SaveIndexStates(forceRefresh, nodeSegmentsOnly));
         app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));
         app.MapPost(path("reset-state-and-indexes"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetStateAndIndexes));
+        app.MapPost(path("delete-state-and-indexes"), (HttpContext ctx, Guid storeId) => container(storeId).DeleteAllStateAndIndexFiles());
         app.MapPost(path("clear-cache"), (HttpContext ctx, Guid storeId) => db(storeId).Datastore.MaintenanceAsync(MaintenanceAction.ClearCache | MaintenanceAction.GarbageCollect));
         app.MapPost(path("info"), async (HttpContext ctx, Guid storeId) => {
             var store = container(storeId).Store;
@@ -302,7 +304,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
                 c.Settings.Id,
                 c.Settings.Name,
                 c.Settings.Description,
-                c.Status,
+                Status = c.GetStatusAndActivity(),
                 c.Settings.IoDatabase,
             });
         });
@@ -330,7 +332,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             return containerSettings;
         });
         app.MapPost(path("remove-store"), (Guid storeId) => {
-            container(storeId).DisposeAndCloseIfOpen();
+            container(storeId).Dispose();
             server.Containers.Remove(storeId);
             server.UpdateWAFServerSettingsFile();
         });

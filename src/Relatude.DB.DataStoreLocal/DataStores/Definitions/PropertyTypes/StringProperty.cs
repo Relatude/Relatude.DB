@@ -10,6 +10,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Transactions;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
+
 internal class StringProperty : Property, IPropertyContainsValue {
     SetRegister _sets;
     public StringProperty(StringPropertyModel pm, Definition def) : base(pm, def) {
@@ -149,23 +150,24 @@ internal class StringProperty : Property, IPropertyContainsValue {
     internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, out int totalHits) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
+        if (ratioSemantic > 1) ratioSemantic = 1;
+        else if (ratioSemantic < 0) ratioSemantic = 0;
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
         var useWords = ratioSemantic < 0.99 && IndexedByWords;
-        
+
         //if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
         if (useSemantic && semanticIndex == null) useSemantic = false;
 
         //if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
         if (useWords && WordIndex == null) useWords = false;
 
-        if(!useSemantic && !useWords) {
+        if (!useSemantic && !useWords) {
             totalHits = 0;
             return [];
         }
 
         IEnumerable<RawSearchHit> wordHits;
         IEnumerable<RawSearchHit> semanticHits;
-
 
         int top;
         if (useSemantic && useWords) top = maxHitsEvaluated;
@@ -199,37 +201,21 @@ internal class StringProperty : Property, IPropertyContainsValue {
             return semanticHits.Skip(pageIndex * pageSize).Take(pageSize);
         }
 
-        // combined search, every second hit from semantic and word hits, removing duplicates
-        // if semantic ratio is higher than 0.5, start with semantic hit, otherwise start with word hit:
-
-        Dictionary<int, RawSearchHit> semanticHitsById;
-        Dictionary<int, RawSearchHit> wordHitsById;
-        if (ratioSemantic >= 0.5) { // exclude duplicates from word hits if ratioSemantic is higher than 0.5
-            semanticHitsById = semanticHits.ToDictionary(h => h.NodeId, h => h);
-            wordHitsById = wordHits.Where(h => !semanticHitsById.ContainsKey(h.NodeId)).ToDictionary(h => h.NodeId, h => h);
-        } else { // exclude duplicates from semantic hits if ratioSemantic is lower than or equal to 0.5
-            wordHitsById = wordHits.ToDictionary(h => h.NodeId, h => h);
-            semanticHitsById = semanticHits.Where(h => !wordHitsById.ContainsKey(h.NodeId)).ToDictionary(h => h.NodeId, h => h);
+        // Reciprocal Rank Fusion (RRF), score = 1 / (rank + k), where k is a constant
+        const float k = 60; // constant to dampen the effect of lower ranked results, 60 is a commonly used value
+        var ratio = (float)ratioSemantic;
+        var wordHitsRanked = wordHits.Select((h, rank) => new RawSearchHit { NodeId = h.NodeId, Score = (1f / (rank + 1f + k)) });
+        var semanticHitsRanked = semanticHits.Select((h, rank) => new RawSearchHit { NodeId = h.NodeId, Score = (1f / (rank + 1f + k)) });
+        var combined = semanticHitsRanked.ToDictionary(h => h.NodeId, h => h.Score * ratio); // weighted score by semantic ratio
+        foreach (var hit in wordHitsRanked) {
+            var score = hit.Score * (1f - ratio); // weighted score by (1 - semantic ratio)
+            if (combined.TryGetValue(hit.NodeId, out var s2)) score += s2;
+            combined[hit.NodeId] = score;
         }
-
-        var combinedHits = new List<RawSearchHit>();
-        var semanticEnumerator = semanticHitsById.Values.GetEnumerator();
-        var wordEnumerator = wordHitsById.Values.GetEnumerator();
-        bool hasSemantic = semanticEnumerator.MoveNext();
-        bool hasWord = wordEnumerator.MoveNext();
-        bool takeSemanticNext = ratioSemantic >= 0.5;
-        while (combinedHits.Count < top && (hasSemantic || hasWord)) {
-            if (takeSemanticNext && hasSemantic) {
-                combinedHits.Add(semanticEnumerator.Current);
-                hasSemantic = semanticEnumerator.MoveNext();
-            } else if (!takeSemanticNext && hasWord) {
-                combinedHits.Add(wordEnumerator.Current);
-                hasWord = wordEnumerator.MoveNext();
-            }
-            takeSemanticNext = !takeSemanticNext;
-        }
-        totalHits = semanticHitsById.Count + wordHitsById.Count;
-        return combinedHits.Skip(pageIndex * pageSize).Take(pageSize);
+        totalHits = combined.Count;
+        return combined.OrderByDescending(kv => kv.Value)
+            .Select(kv => new RawSearchHit { NodeId = kv.Key, Score = kv.Value })
+            .Skip(pageIndex * pageSize).Take(pageSize);
 
     }
     internal TextSample GetTextSample(TermSet search, string sourceText, int maxLength) {

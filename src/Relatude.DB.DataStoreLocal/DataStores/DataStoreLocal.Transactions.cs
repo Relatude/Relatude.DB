@@ -92,11 +92,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.QueDiskWrites(executedTransaction);
         _rewriter?.RegisterNewTransactionWhileRewriting(executedTransaction);
         //if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);
-        _noPrimitiveActionsSinceLastStateSnaphot += primitiveActionCount;
+        _noPrimitiveActionsSinceLastStateSnapshot += primitiveActionCount;
         _noPrimitiveActionsSinceClearCache += primitiveActionCount;
         _noPrimitiveActionsSinceStartup += primitiveActionCount;
         _noActionsSinceLastMetric += primitiveActionCount;
-        _noTransactionsSinceLastStateSnaphot++;
+        _noTransactionsSinceLastStateSnapshot++;
         _noTransactionsSinceClearCache++;
         _noTransactionsSinceLastMetric++;
         _noPrimitiveActionsInLogThatCanBeTruncated += executed.Count(a => a.Operation == PrimitiveOperation.Remove);

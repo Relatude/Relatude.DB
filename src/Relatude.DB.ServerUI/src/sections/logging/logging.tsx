@@ -360,28 +360,42 @@ export const component = (P: { storeId: string }) => {
                     <Table.Thead>
                         <Table.Tr>
                             <Table.Th>Metric</Table.Th>
+                            <Table.Th>Memory</Table.Th>
+                            <Table.Th>CPU Usage</Table.Th>
                             <Table.Th>Query Count</Table.Th>
                             <Table.Th>Transaction Count</Table.Th>
+                            <Table.Th>Action Count</Table.Th>
                             <Table.Th>Node Count</Table.Th>
                             <Table.Th>Relation Count</Table.Th>
                             <Table.Th>Node Cache Count</Table.Th>
                             <Table.Th>Node Cache Size</Table.Th>
                             <Table.Th>Set Cache Count</Table.Th>
                             <Table.Th>Set Cache Size</Table.Th>
+                            <Table.Th>Tasks Executed</Table.Th>
+                            <Table.Th>Tasks Queued</Table.Th>
+                            <Table.Th>Persisted Tasks Executed</Table.Th>
+                            <Table.Th>Persisted Tasks Queued</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
                         {metricsLog?.map((entry, index) => (
                             <Table.Tr key={index}>
                                 <Table.Td>{entry.timestamp.toLocaleTimeString()}</Table.Td>
+                                <Table.Td>{entry.values.memUsageMb}</Table.Td>
+                                <Table.Td>{entry.values.cpuUsagePercentage}</Table.Td>
                                 <Table.Td>{entry.values.queryCount}</Table.Td>
                                 <Table.Td>{entry.values.transactionCount}</Table.Td>
+                                <Table.Td>{entry.values.actionCount}</Table.Td>
                                 <Table.Td>{entry.values.nodeCount}</Table.Td>
                                 <Table.Td>{entry.values.relationCount}</Table.Td>
                                 <Table.Td>{entry.values.nodeCacheCount}</Table.Td>
-                                <Table.Td>{entry.values.nodeCacheSize}</Table.Td>
+                                <Table.Td>{entry.values.nodeCacheSizeMb}</Table.Td>
                                 <Table.Td>{entry.values.setCacheCount}</Table.Td>
-                                <Table.Td>{entry.values.setCacheSize}</Table.Td>
+                                <Table.Td>{entry.values.setCacheSizeMb}</Table.Td>
+                                <Table.Td>{entry.values.taskExecutedCount}</Table.Td>
+                                <Table.Td>{entry.values.taskQueueCount}</Table.Td>
+                                <Table.Td>{entry.values.taskPersistedExecutedCount}</Table.Td>
+                                <Table.Td>{entry.values.taskPersistedQueueCount}</Table.Td>
                             </Table.Tr>
                         ))}
                     </Table.Tbody>

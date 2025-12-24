@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
 import { Button, Card, Group, Text, Grid } from '@mantine/core';
 import { useApp } from '../../start/useApp';
-import { DataStoreStatus, DataStoreInfo, AnalysisEntry } from '../../application/models';
-import { formatBytes, formatNumber, formatTimeSpan } from '../../application/common';
-import { LineChart } from '@mantine/charts';
+import { DataStoreStatus, DataStoreInfo, DataStoreActivityBranch, SystemTraceEntry } from '../../application/models';
+import { formatBytes, formatNumber, formatTimeOfDay, formatTimeSpan } from '../../application/common';
 import { SimplePlot } from './simplePlot';
+import { Activity } from './activity';
 
 const Panel = (P: { title?: string, span?: number, children?: React.ReactNode }) => {
     return (
@@ -24,6 +24,7 @@ export const component = () => {
     const storeId = app.ui.selectedStoreId;
     const [currentStatus, setCurrentStatus] = useState<DataStoreStatus>();
     const [currentInfo, setCurrentInfo] = useState<DataStoreInfo>();
+    const [currentTrace, setCurrentTrace] = useState<SystemTraceEntry[]>([]);
     let currentContainer = app.ui.containers.find(c => c.id === app.ui.selectedStoreId);
     useEffect(() => {
         if (!app.ui.selectedStoreId) return;
@@ -35,9 +36,17 @@ export const component = () => {
         app.serverEvents.addEventListener<DataStoreInfo>("DataStoreInfo", app.ui.selectedStoreId, (info) => {
             setCurrentInfo(info);
         }).then(subId => { subIdInfo = subId; });
+        let subIdTrace: string;
+        app.serverEvents.addEventListener<SystemTraceEntry[]>("DataStoreTrace", app.ui.selectedStoreId, (trace) => {
+            for (let entry of trace) {
+                entry.timestamp = new Date(entry.timestamp);
+            }
+            setCurrentTrace(trace);
+        }).then(subId => { subIdTrace = subId; });
         return () => {
             app.serverEvents.removeEventListener<DataStoreStatus>(subIdStatus);
             app.serverEvents.removeEventListener<DataStoreInfo>(subIdInfo);
+            app.serverEvents.removeEventListener<SystemTraceEntry[]>(subIdTrace);
         }
     }, [app.ui.selectedStoreId]);
     const truncateLog = () => {
@@ -49,42 +58,88 @@ export const component = () => {
     if (!currentContainer) return;
     if (!currentInfo) return;
     const state = app.ui.getStoreState(app.ui.selectedStoreId);
+    const showActivity = (activity: DataStoreActivityBranch, level: number = 0) => {
+        return <>
+            {activity.activity.description} <br />
+            {activity.children && activity.children.map(child =>
+                <span style={{ marginLeft: level * 20 }}>{showActivity(child, level + 1)}</span>
+            )}
+        </>;
+    }
+    const taskCount = currentInfo.queuedTasksPending;
+    const taskCountPersisted = currentInfo.queuedTasksPendingPersisted;
     return (
         <>
             <Grid mt="md">
                 <Panel>
                     <Group>
-                        <Button variant="light" disabled={state != "Disposed"} onClick={() => app.api.maintenance.initialize(app.ui.selectedStoreId!)}>Initialize</Button>
                         <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Open</Button>
+                        <Button variant="light" disabled={state != "Opening"} onClick={() => app.api.maintenance.cancelOpening(app.ui.selectedStoreId!)}>Cancel</Button>
                         <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Close</Button>
-                        <Button variant="light" disabled={state != "Closed" && state != "Error"} onClick={() => app.api.maintenance.initialize(app.ui.selectedStoreId!)}>Dispose</Button>
 
-                        <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!, true, false)}>Save Index</Button>
-                        <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
-                        <Button variant="light" disabled={state != "Open"} onClick={truncateLog}>Compact</Button>
+                        <Button variant="light" disabled={state != "Open" || (currentInfo?.logActionsNotItInStatefile == 0)} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!, true, false)}>Save state</Button>
+                        <Button variant="light" disabled={state != "Open" || ((currentInfo.setCacheCount + currentInfo.nodeCacheCount) == 0)} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
+                        <Button variant="light" disabled={state != "Open" || (currentInfo?.logTruncatableActions == 0)} onClick={truncateLog}>Truncate</Button>
                         <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(app.ui.selectedStoreId!)}>Reset second log</Button>
-                        <Button variant="light" disabled={state != "Closed" && state != "Error"} onClick={() => app.api.maintenance.resetStateAndIndexes(app.ui.selectedStoreId!)}>Reset all states</Button>
+                        <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetStateAndIndexes(app.ui.selectedStoreId!)}>Reset all states</Button>
+                        <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.deleteStateAndIndexes(app.ui.selectedStoreId!)}>Delete all states</Button>
                     </Group>
                 </Panel>
                 <Panel title="Info" span={3}>
-                    <div>State: {state}</div>
-                    <div>Uptime: {formatTimeSpan(currentInfo.uptimeMs)}</div>
-                    <div>Memory: {formatBytes(currentInfo.processWorkingMemory)}</div>
-                    <div>CPU: {currentInfo.cpuUsagePercentage.toFixed(1)}%</div>
-                    <div>CPU (1 min avg): {currentInfo.cpuUsagePercentageLastMinute.toFixed(1)}%</div>
-                    <div>Startup: {formatTimeSpan(currentInfo.startUpMs)}</div>
+                    <div style={{ height: '250px', overflowY: 'auto' }}>
+                        <div>State: {state}</div>
+                        <div>Uptime: {formatTimeSpan(currentInfo.uptimeMs)}</div>
+                        <div>Memory: {formatBytes(currentInfo.processWorkingMemory)}</div>
+                        <div style={{ color: taskCount > 0 ? 'orange' : '' }}>Transient tasks: {formatNumber(taskCount)}</div>
+                        <div style={{ color: taskCountPersisted > 0 ? 'orange' : '' }}>Persisted tasks: {formatNumber(taskCountPersisted)}</div>
+                        <div>CPU: {currentInfo.cpuUsagePercentage.toFixed(1)}%</div>
+                        <div>CPU (1 min avg): {currentInfo.cpuUsagePercentageLastMinute.toFixed(1)}%</div>
+                        <div>Startup: {formatTimeSpan(currentInfo.startUpMs)}</div>
+                    </div>
                 </Panel>
-                <Panel title="Activity" span={3}>
-                    {currentStatus?.activityTree && (
-                        <pre style={{ maxHeight: '400px', overflow: 'auto' }}>
-                            {currentStatus.activityTree.map(line => line.activity.description + "\n")}
-
-                        </pre>
-                    )}
+                <Panel title="Activity" span={9}>
+                    <div style={{ height: '250px', overflowY: 'auto' }}>
+                        <Activity level={0} activities={currentStatus?.activityTree} />
+                    </div>
                 </Panel>
-                <Panel title="Trace" span={3}>
-                    <pre style={{ maxHeight: '400px', overflow: 'auto' }}>
-                        {currentInfo.latestTraces?.map(trace => `${trace.timestamp.toLocaleString()} [${trace.type}] ${trace.text}\n`)}
+                <Panel title="Storage" span={3}>
+                    <div style={{ height: '278px', overflowY: 'auto' }}>
+                        {formatBytes(currentInfo.totalFileSize)} total file size<br />
+                        {formatBytes(currentInfo.logFileSize)} bytes in main log file<br />
+                        {formatBytes(currentInfo.secondaryLogFileSize)} bytes in secondary log<br />
+                        {formatBytes(currentInfo.logStateFileSize)} bytes in state log file<br />
+                        {formatBytes(currentInfo.indexFileSize)} bytes in indexes<br />
+                        {formatBytes(currentInfo.fileStoreSize)} bytes in filestore<br />
+                        {formatBytes(currentInfo.backupFileSize)} bytes in backups<br />
+                        {formatBytes(currentInfo.loggingFileSize)} bytes in logging<br />
+                        <span style={{ color: currentInfo.logActionsNotItInStatefile > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(currentInfo.logActionsNotItInStatefile)} actions not in state file<br />
+                            {/* {formatNumber(currentInfo.logTransactionsNotItInStatefile)} transactions not in state file<br /> */}
+                        </span>
+                        <span style={{ color: currentInfo.logTruncatableActions > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(currentInfo.logTruncatableActions)} truncatable actions<br />
+                        </span>
+                        <span style={{ color: currentInfo.logWritesQueuedActions > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(currentInfo.logWritesQueuedActions)} unflushed actions<br />
+                            {/* {formatNumber(currentInfo.logWritesQueuedTransactions)} queued transaction writes<br /> */}
+                        </span>
+                    </div>
+                </Panel>
+                <Panel title="Trace" span={6}>
+                    <pre style={{ maxHeight: '250px', overflow: 'auto', backgroundColor: '#222', padding: '10px', fontSize: '14px' }}>
+                        {currentTrace?.map(trace =>
+                            <>
+                                {formatTimeOfDay(trace.timestamp)}&nbsp;
+                                <span key={trace.timestamp.toISOString()} style={(() => {
+                                    let color = "lightgray";
+                                    if (trace.type === "Error") color = 'red';
+                                    else if (trace.type === "Warning") color = 'orange';
+                                    else if (trace.type === "Info") color = 'lightblue';
+                                    return { color };
+                                })()}>[{trace.type}]
+                                </span>&nbsp;{`${trace.text}\n`}
+                            </>
+                        )}
                     </pre>
                 </Panel>
                 <Panel title="Cache" span={3}>
@@ -108,28 +163,6 @@ export const component = () => {
                         <div key={type}>{type}: {count}</div>
                     ))}
 
-                </Panel>
-                <Panel title="Storage" span={3}>
-                    {formatBytes(currentInfo.totalFileSize)} total file size<br />
-                    {formatBytes(currentInfo.logFileSize)} bytes in main log file<br />
-                    {formatBytes(currentInfo.logStateFileSize)} bytes in state log file<br />
-                    {formatBytes(currentInfo.indexFileSize)} bytes in indexes<br />
-                    {formatBytes(currentInfo.fileStoreSize)} bytes in filestore<br />
-                    {formatBytes(currentInfo.backupFileSize)} bytes in backups<br />
-                    {formatBytes(currentInfo.loggingFileSize)} bytes in logging<br />
-                    {formatBytes(currentInfo.secondaryLogFileSize)} bytes in secondary log<br />
-                    {formatNumber(currentInfo.logActionsNotItInStatefile)} actions not in state file<br />
-                    {formatNumber(currentInfo.logTransactionsNotItInStatefile)} transactions not in state file<br />
-                    {formatNumber(currentInfo.logWritesQueuedActions)} queued action writes<br />
-                    {formatNumber(currentInfo.logWritesQueuedTransactions)} queued transaction writes<br />
-                </Panel>
-                <Panel title="Qued tasks" span={3}>
-                    {Object.entries(currentInfo.queuedTaskStateCounts).map(([state, count]) => (
-                        <div key={state}>{state}: {count}</div>
-                    ))}
-                    {Object.entries(currentInfo.queuedTaskStateCountsPersisted).map(([state, count]) => (
-                        <div key={state}>{state}: {count}</div>
-                    ))}
                 </Panel>
                 <Panel title="Queries per second" span={3}>
                     <SimplePlot logKey="query" color="green.3" />

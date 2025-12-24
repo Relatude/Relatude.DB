@@ -86,11 +86,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public TraceEntry[] GetSystemTrace(int skip, int take) => _tracer.GetEntries(skip, take);
-
+    public DateTime GetLatestSystemTraceTimestamp() => _tracer.GetLatest();
     CpuMonitor _cpuMonitorMetrics = new();
     public StoreMetrics DequeMetrics() {
         var metrics = new StoreMetrics() {
-            MemUsage = Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024,
+            MemUsage = Process.GetCurrentProcess().WorkingSet64,
             CpuUsage = _cpuMonitorMetrics.DequeCpuUsage(),
             QueryCount = _noQueriesSinceLastMetric,
             ActionCount = _noActionsSinceLastMetric,
@@ -102,8 +102,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             SetCacheCount = _sets.CacheCount,
             SetCacheSize = _sets.CacheSize,
             TasksExecuted = TaskQueue.TaskExecutedSinceLastMetric(),
-            TasksPersistedExecuted = TaskQueue.TaskExecutedSinceLastMetric(),
-            TasksQueued = TaskQueuePersisted.TaskQueuedSinceLastMetric(),
+            TasksPersistedExecuted = TaskQueuePersisted.TaskExecutedSinceLastMetric(),
+            TasksQueued = TaskQueue.TaskQueuedSinceLastMetric(),
             TasksPersistedQueued = TaskQueuePersisted.TaskQueuedSinceLastMetric(),
         };
         _noQueriesSinceLastMetric = 0;

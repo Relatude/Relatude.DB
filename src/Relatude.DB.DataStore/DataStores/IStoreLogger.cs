@@ -70,7 +70,7 @@ public interface IStoreLogger {
     void RecordAction(long transactionId, string operation, string details);
     void RecordPropertyHit(Guid propertyId);
     void RecordQuery(string query, TimeSpan duration, int resultCount, Metrics metrics);
-    void RecordStoreMetrics(StoreMetrics storeMetrics);
+    void RecordMetrics(StoreMetrics storeMetrics);
     void RecordSystem(SystemLogEntryType type, string text, string? details = null);
     void RecordTask(string taskTypeName, bool success, Guid batchId, string taskId, string details);
     void RecordTaskBatch(Guid id, BatchTaskResult batchResult);

@@ -125,7 +125,6 @@ namespace Relatude.DB.Common {
         }
         public void ClearAll_NotSize0() {
             lock (_lock) {
-                _overflows++;
                 var toRemove = _cache.Where(kv => kv.Value.Size > 0).ToArray();
                 foreach (var kv in toRemove) _cache.Remove(kv.Key);
                 _misses = 0;

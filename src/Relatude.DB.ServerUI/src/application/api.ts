@@ -128,13 +128,12 @@ class MaintenanceAPI {
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
     getSizeTempFiles = () => this.server.queryJson<{ totalSize: number }>(this.controller, 'get-size-temp-files').then(r => r.totalSize);
     cleanTempFiles = () => this.server.execute(this.controller, 'clean-temp-files');
-    initialize = (storeId: string) => this.server.execute(this.controller, 'initialize', { storeId });
-    dispose = (storeId: string) => this.server.execute(this.controller, 'dispose', { storeId });
     open = (storeId: string) => this.server.execute(this.controller, 'open', { storeId });
+    cancelOpening = (storeId: string) => this.server.execute(this.controller, 'cancel-opening', { storeId });
     close = (storeId: string) => this.server.execute(this.controller, 'close', { storeId });
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));
-    canHaveSubFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-sub-folders', { storeId, ioId }).then(r => r.canHave);
-    getSubFolders = (storeId: string, ioId: string, path: string) => fixFileFolderListMetaDates(this.server.queryJson<FolderMeta[]>(this.controller, 'get-sub-folders', { storeId, ioId, path }));
+    canHaveFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-folders', { storeId, ioId }).then(r => r.canHave);
+    getFolders = (storeId: string, ioId: string, path: string) => fixFileFolderListMetaDates(this.server.queryJson<FolderMeta[]>(this.controller, 'get-folders', { storeId, ioId, path }));
     getStoreFiles = (storeId: string, ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-store-files', { storeId, ioId }));
     canRenameFile = (storeId: string, ioId: string) => this.server.queryJson<{ canRename: boolean }>(this.controller, 'can-rename-file', { storeId, ioId }).then(r => r.canRename);
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });
@@ -161,6 +160,7 @@ class MaintenanceAPI {
         this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });
+    deleteFolder = (storeId: string, ioId: string, folderName: string) => this.server.execute(this.controller, 'delete-folder', { storeId, ioId, folderName });
     initiateUpload = async (storeId: string) => (await this.server.queryJson<{ value: string }>(this.controller, 'initiate-upload', { storeId })).value;
     uploadPart = (uploadId: string, data: ArrayBuffer) => this.server.upload(this.controller, 'upload-part', { uploadId }, data);
     cancelUpload = (uploadId: string) => this.server.execute(this.controller, 'cancel-upload', { uploadId });
@@ -170,6 +170,7 @@ class MaintenanceAPI {
     saveIndexStates = (storeId: string, forceRefresh: boolean, nodeSegmentsOnly: boolean) => this.server.execute(this.controller, 'save-index-states', { storeId, forceRefresh, nodeSegmentsOnly });
     resetSecondaryLogFile = (storeId: string) => this.server.execute(this.controller, 'reset-secondary-log-file', { storeId });
     resetStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'reset-state-and-indexes', { storeId });
+    deleteStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'delete-state-and-indexes', { storeId });
     clearCache = (storeId: string) => this.server.execute(this.controller, 'clear-cache', { storeId });
     info = (storeId: string) => this.server.queryJson<DataStoreInfo>(this.controller, 'info', { storeId });
 }

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { AnalysisEntry } from "../../application/models";
 import { useApp } from "../../start/useApp";
 import { AreaChart } from "@mantine/charts";
-import { Checkbox, MantineColor, Slider, Switch } from "@mantine/core";
-import { set } from "mobx";
+import { MantineColor, Switch } from "@mantine/core";
 type LogKeyTypes = "query" | "transaction" | "action";
 export const SimplePlot = (P: { logKey: LogKeyTypes, color: MantineColor }) => {
     const app = useApp();

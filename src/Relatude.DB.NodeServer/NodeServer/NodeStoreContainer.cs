@@ -1,16 +1,16 @@
-﻿using System.Diagnostics;
-using System.Reflection;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Files;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
-using Relatude.DB.Tasks;
-using Relatude.DB.DataStores.Files;
-
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.Tasks;
+using System.Diagnostics;
+using System.Reflection;
+using static System.Formats.Asn1.AsnWriter;
 
 namespace Relatude.DB.NodeServer;
 /// <summary>
@@ -20,7 +20,6 @@ namespace Relatude.DB.NodeServer;
 /// <param name="server"></param>
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
-    internal IDataStore? Datastore { get; set; }
     internal object _lock = new object();
     internal IStoreLogger? _logger;
     public NodeStore? Store { get; private set; }
@@ -34,17 +33,15 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
 
     public Datamodel? Datamodel { get; private set; }
-    public DataStoreStatus Status {
-        get {
-            if (Datastore == null) return new DataStoreStatus(DataStoreState.Disposed, []);
-            return Datastore.GetStatus();
-        }
+    public DataStoreStatus GetStatusAndActivity() {
+        if (Store == null) return new DataStoreStatus(DataStoreState.Disposed, []);
+        return Store.Datastore.GetStatus();
     }
     public bool IsOpenOrOpening() => Store != null && (Store.State == DataStoreState.Open || Store.State == DataStoreState.Opening);
     public NodeStoreContainerSettings Settings => settings;
     public void ApplyNewSettings(NodeStoreContainerSettings newSettings, bool reopenIfOpen) {
         var isOpen = IsOpenOrOpening();
-        DisposeAndCloseIfOpen();
+        Dispose();
         settings = newSettings;
         if (isOpen && reopenIfOpen) Open();
     }
@@ -55,6 +52,27 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public Exception? StartUpException = null;
     public DateTime? StartUpExceptionDateTimeUTC = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
+
+    public void DeleteAllStateAndIndexFiles() {
+        var settingsLocal = settings.LocalSettings;
+        if (settingsLocal == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
+        var fileKeyUtil = new FileKeyUtility(settingsLocal.FilePrefix);
+        var ioProvidersToClean = new List<IIOProvider>();
+        if (settings.IoDatabase != null) {
+            var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
+            if (ioDatabase != null) ioProvidersToClean.Add(ioDatabase);
+        }
+        if (settings.IoIndexes != null) {
+            var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
+            if (ioIndexes != null) ioProvidersToClean.Add(ioIndexes);
+        }
+        foreach (var io in ioProvidersToClean) {
+            if (io.CanHaveFolders) io.DeleteFolderIfItExists(fileKeyUtil.IndexStoreFolderKey);
+            io.DeleteIfItExists(fileKeyUtil.StateFileKey);
+            fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteIfItExists);
+            fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteIfItExists);
+        }
+    }
 
     private FileKeyUtility getLoggerFileKeys() {
         if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
@@ -72,7 +90,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         try {
             if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
-            DisposeAndCloseIfOpen();
+            Dispose();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
             var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
@@ -101,7 +119,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (localFallbackPath == null) {
                     throw new Exception("The setting PersistedValueIndexFolderPath is required for the AI provider");
                 }
-                server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, localFallbackPath);
+                ai = server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, localFallbackPath);
             }
             Func<IPersistedIndexStore>? createIndexStore = null;
 
@@ -140,7 +158,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             var sw = Stopwatch.StartNew();
-            Datastore = new DataStoreLocal(
+            var datastore = new DataStoreLocal(
                     Datamodel,
                     settings.LocalSettings,
                     ioDatabase,
@@ -155,11 +173,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     );
             Interlocked.Increment(ref _initializationCounter);
             var runners = server.GetRegisteredTaskRunners(this);
-            foreach (var runner in runners) Datastore.RegisterRunner(runner);
+            foreach (var runner in runners) datastore.RegisterRunner(runner);
             foreach (var msg in toLog) {
-                Datastore.LogInfo(msg);
+                datastore.LogInfo(msg);
             }
-            Store = new NodeStore(Datastore);
+            Store = new NodeStore(datastore);
             server.RaiseEventStoreInit(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
@@ -170,15 +188,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         try {
             var sw = Stopwatch.StartNew();
             if (Store == null) Initialize();
-            if (Datastore == null || Store == null) throw new Exception("Datastore is not initialized. ");
+            if (Store == null) throw new Exception("Datastore is not initialized. ");
             try {
-                Datastore.Open(false, false);
+                Store.Datastore.Open(false, false);
             } catch {
-                Datastore.Dispose();
-                Datastore = null;
+                Dispose();
                 throw;
             }
-            Datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
+            Store!.Datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
@@ -186,19 +203,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void CloseIfOpen() {
-        if (Datastore != null) {
-            if(Datastore.State != DataStoreState.Open) return;
-            Datastore.Close();
-            server.RaiseEventStoreClose(this, Store!);
-        }
-    }
-    public void DisposeAndCloseIfOpen() {
-        CloseIfOpen();
-        Datastore = null;
         if (Store != null) {
-            Store.Dispose();
-            Store = null;
-            Datamodel = null;
+            Dispose();
+            server.RaiseEventStoreClose(this, Store!);
         }
     }
     Datamodel loadDatamodel() {
@@ -250,6 +257,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void Dispose() {
-        DisposeAndCloseIfOpen();
+        if (Store != null) {
+            Store.Dispose();
+            Store = null;
+            Datamodel = null;
+        }
     }
 }

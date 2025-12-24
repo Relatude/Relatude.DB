@@ -1,13 +1,16 @@
 ﻿using Microsoft.Data.Sqlite;
+using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.AI;
+
 public class SqlLiteEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     SqliteConnection _cn = default!;
     string? _localFilePath;
     bool _open = false;
     string _tableName = "CachedEmbeddings";
+    Cache<ulong, float[]> _memCache = new(1000);
     void openIfClosed() {
         lock (_lock) {
             if (_cn != null) return;
@@ -19,7 +22,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             pragma.CommandText = "PRAGMA journal_mode=WAL";
             pragma.ExecuteNonQuery();
             using var command = _cn.CreateCommand();
-            command.CommandText = "CREATE TABLE IF NOT EXISTS "+ _tableName + " (Hash TEXT PRIMARY KEY, Embedding BLOB)";
+            command.CommandText = "CREATE TABLE IF NOT EXISTS " + _tableName + " (Hash TEXT PRIMARY KEY, Embedding BLOB)";
             command.ExecuteNonQuery();
             _open = true;
         }
@@ -31,10 +34,11 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO "+ _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
+            cmd.CommandText = "INSERT OR REPLACE INTO " + _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
             cmd.Parameters.AddWithValue("@Hash", hash.ToString());
             cmd.Parameters.AddWithValue("@Embedding", toBytes(embedding));
             cmd.ExecuteNonQuery();
+            _memCache.Set(hash, embedding, 1);
         }
 
     }
@@ -44,12 +48,15 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
             using var transaction = _cn.BeginTransaction();
             foreach (var value in values) {
                 using var cmd = _cn.CreateCommand();
-                cmd.CommandText = "INSERT OR REPLACE INTO "+ _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
+                cmd.CommandText = "INSERT OR REPLACE INTO " + _tableName + " (Hash, Embedding) VALUES (@Hash, @Embedding)";
                 cmd.Parameters.AddWithValue("@Hash", value.Item1.ToString());
                 cmd.Parameters.AddWithValue("@Embedding", toBytes(value.Item2));
                 cmd.ExecuteNonQuery();
             }
             transaction.Commit();
+            foreach (var value in values) {
+                _memCache.Set(value.Item1, value.Item2, 1);
+            }
         }
     }
     byte[] toBytes(float[] embedding) {
@@ -70,13 +77,16 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
     }
     public bool TryGet(ulong hash, [MaybeNullWhen(false)] out float[] embedding) {
         lock (_lock) {
+            
+            if (_memCache.TryGet(hash, out embedding)) return true;
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "SELECT Embedding FROM "+ _tableName + " WHERE Hash = @Hash";
+            cmd.CommandText = "SELECT Embedding FROM " + _tableName + " WHERE Hash = @Hash";
             cmd.Parameters.AddWithValue("@Hash", hash.ToString());
             using var reader = cmd.ExecuteReader();
             if (reader.Read()) {
                 embedding = toFloats(reader.GetFieldValue<byte[]>(0));
+                _memCache.Set(hash, embedding, 1);
                 return true;
             }
         }
@@ -85,14 +95,16 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
     }
     public void ClearAll() {
         lock (_lock) {
+            _memCache.ClearAll_NotSize0();
             openIfClosed();
             using var cmd = _cn.CreateCommand();
-            cmd.CommandText = "DELETE FROM "+ _tableName + "";
+            cmd.CommandText = "DELETE FROM " + _tableName + "";
             cmd.ExecuteNonQuery();
         }
     }
     public void Dispose() {
         if (_open) _cn.Close();
+        _memCache.ClearAll_NotSize0();
         _open = false;
         if (_cn == null) return;
         _cn.Dispose();

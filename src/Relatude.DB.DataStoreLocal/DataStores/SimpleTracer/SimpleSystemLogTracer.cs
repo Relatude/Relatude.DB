@@ -11,6 +11,12 @@ internal class SimpleSystemLogTracer {
             while (_entries.Count > maxEntries) _entries.Dequeue();
         }
     }
+    public DateTime GetLatest() {
+        lock (_entries) {
+            if (_entries.Count == 0) return DateTime.MinValue;
+            return _entries.Last().Timestamp;
+        }
+    }
     public TraceEntry[] GetEntries(int skip, int take) {
         lock (_entries) {
             return [.. _entries.Reverse().Skip(skip).Take(take)];

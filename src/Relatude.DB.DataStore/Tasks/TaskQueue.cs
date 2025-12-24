@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using System.Diagnostics;
+using System.Text;
 
 namespace Relatude.DB.Tasks;
 
@@ -106,9 +107,15 @@ public class TaskQueue : IDisposable {
             BatchTaskResult result;
             try {
                 if (!_runners.TryGetValue(nextBatch.Meta.TaskTypeId, out var runner)) throw new Exception("No runner for: " + nextBatch.Meta.TaskTypeId);
-                var tasksLeft = CountTasks(BatchState.Pending);
-                var progress = tasksLeft + taskNo > 0 ? (100 * taskNo / (tasksLeft + taskNo)) : 100;
-                childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, $"Running task {taskNo} of {tasksLeft + taskNo}. ", progress);
+                var stringOfTypes = nextBatch.GenericTasks.GroupBy(task => task.TaskTypeId).Select(g => new { Name = g.Key, Count = g.Count() });
+                StringBuilder sb = new();
+                foreach (var batch in stringOfTypes) {
+                    var index = batch.Name.LastIndexOf(".");
+                    var name = index > -1 ? batch.Name.Substring(index + 1).Decamelize() : batch.Name;
+                    if (sb.Length > 0) sb.Append(", ");
+                    sb.Append(name + " - " + batch.Count + "");
+                }
+                childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, sb.ToString());
                 await runner.ExecuteAsyncGeneric(nextBatch, taskLogging);
                 lock (_lock) {
                     if (runner.DeleteOnSuccess) {

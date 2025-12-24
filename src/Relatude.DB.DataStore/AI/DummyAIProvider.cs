@@ -3,6 +3,7 @@ using System.Diagnostics;
 
 namespace Relatude.DB.AI;
 public class DummyAIProvider : IAIProvider {
+    bool _withDelay = false;
     public Task<string> GetCompletionAsync(string prompt, string? modelKey = null) {
         return Task.FromResult($"Dummy completion for prompt: {prompt}");
     }
@@ -11,7 +12,7 @@ public class DummyAIProvider : IAIProvider {
         var result = new float[paragraphs.Length][];
         for (int i = 0; i < paragraphs.Length; i++) {
             result[i] = createRandomVector(paragraphs[i]);
-            await Task.Delay(rnd.Next(2)); // simulate some async delay
+            if (_withDelay) await Task.Delay(rnd.Next(2)); // simulate some async delay
         }
         return result;
     }

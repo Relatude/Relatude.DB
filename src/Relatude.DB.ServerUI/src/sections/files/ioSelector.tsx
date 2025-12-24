@@ -1,9 +1,8 @@
 import { Combobox, Group, Input, InputBase, useCombobox } from "@mantine/core";
-import React, { useEffect } from "react";
 import { iconSize, iconStroke } from "../../application/common";
 import { observer } from "mobx-react-lite";
 import { useApp } from "../../start/useApp";
-import { IconDatabase } from "@tabler/icons-react";
+import { IconDeviceFloppy } from "@tabler/icons-react";
 import { IoSetting } from "../../application/models";
 
 const component = (p: { ioSettings?: IoSetting[], selectedIo?: string, onChange?: (ioId: string) => void }) => {
@@ -24,7 +23,7 @@ const component = (p: { ioSettings?: IoSetting[], selectedIo?: string, onChange?
                 >
                     {selectedIoSetting ?
                         <Group>
-                            <IconDatabase size={iconSize} stroke={iconStroke} />
+                            <IconDeviceFloppy size={iconSize} stroke={iconStroke} />
                             {selectedIoSetting.name}
                         </Group>
                         : <Input.Placeholder>{p.ioSettings && p.ioSettings.length > 0 ? "Pick IO provider" : "No IO provider"}</Input.Placeholder>}
@@ -35,7 +34,7 @@ const component = (p: { ioSettings?: IoSetting[], selectedIo?: string, onChange?
                     {p.ioSettings?.map((store) => (
                         <Combobox.Option key={store.id} value={store.id} onClick={() => { p.onChange?.(store.id); storeCombobox.closeDropdown() }}>
                             <Group>
-                                <IconDatabase size={iconSize} stroke={iconStroke} />
+                                <IconDeviceFloppy size={iconSize} stroke={iconStroke} />
                                 {store.name}
                             </Group>
                         </Combobox.Option>

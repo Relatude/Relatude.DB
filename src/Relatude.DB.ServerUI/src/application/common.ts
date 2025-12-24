@@ -5,7 +5,8 @@ export function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export function formatNumber(num: number): string {
+export function formatNumber(num: number|undefined): string {
+    if(num === undefined) return "0";
     return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 export function formatBytes(bytes: number): string {
@@ -30,4 +31,11 @@ export function formatTimeSpan(ms: number): string {
     if(seconds > 0 && days == 0) timestring += seconds + " second" + s(seconds);
     if(ms<3000) timestring = milliseconds + " ms";
     return timestring;
+}
+// HH:mm:ss
+export function formatTimeOfDay(date: Date): string {
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
 }

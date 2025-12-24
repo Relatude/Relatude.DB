@@ -23,7 +23,8 @@
 
     public bool AutoSaveIndexStates { get; set; } = true;
     public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 120;
-    public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 100000;
+    public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 50000;
+    public int AutoSaveIndexStatesActionCountUpperLimit { get; set; } = 200000;
 
     public bool AutoBackUp { get; set; } = false;
     public int NoHourlyBackUps { get; set; } = 10;

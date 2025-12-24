@@ -56,11 +56,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
 
     long _noPrimitiveActionsSinceStartup;
-    long _noPrimitiveActionsSinceLastStateSnaphot;
+    long _noPrimitiveActionsSinceLastStateSnapshot;
+
     long _noPrimitiveActionsInLogThatCanBeTruncated;
     long _noPrimitiveActionsSinceClearCache;
 
-    long _noTransactionsSinceLastStateSnaphot;
+    long _noTransactionsSinceLastStateSnapshot;
     long _noTransactionsSinceClearCache;
     long _noNodeGetsSinceClearCache;
 
@@ -244,7 +245,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 try {
                     LogInfo("Rebuilding index from log");
                     UpdateActivity(activityId, "Rebuilding index from log", 0);
-                    ResetStateAndIndexes();
+                    resetStateAndIndexes();
                     Dispose();
                     initialize();
                     readState(throwOnBadStateFile, currentModelHash, activityId);
@@ -342,10 +343,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void Dispose() {
+        try { _scheduler.Stop(); } catch { }
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
         try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
-        try { _scheduler.Stop(); } catch { }
         try { if (_state == DataStoreState.Open) FlushToDisk(true, 0); } catch { }
         try { _index?.Dispose(); } catch { }
         try { _wal?.Dispose(); } catch { }

@@ -3,12 +3,14 @@ using Relatude.DB.Common;
 using Relatude.DB.Tasks;
 
 namespace Relatude.DB.DataStores.Scheduling;
+
 internal class Scheduler(DataStoreLocal _db) {
     SettingsLocal _s => _db.Settings;
     Timer? _autoFlushTimer; // timer for auto flushing disk
     Timer? _taskDequeueTimer; // timer only for dequeuing index tasks
-    Timer? _taskDequeuePersistedTimer; // timer only for dequeuing index tasks
+    Timer? _taskDequeuePersistedTimer; // timer only for dequeuing persisted index tasks
     Timer? _backgroundTaskTimer;  // general background grouping a number of background tasks ( auto state file save, backup, cache purge etc )
+    Timer? _metricRecorder;
 
     OnlyOneThreadRunning _autoFlushTaskRunningFlag = new(); // flag to ensure only one thread is running auto flush at a time
     OnlyOneThreadRunning _dequeIndexTaskRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
@@ -25,6 +27,7 @@ internal class Scheduler(DataStoreLocal _db) {
     int defaultAutoFlushPulseIntervalMs = 1000; // default interval for auto flushing disk, if no setting is provided
     int taskQueuePulseIntervalMs = 1000; // default interval for checking for new tasks and the time allowed for building a batch of tasks
     int backgroundTasksPulseIntervalMs = 60000; // backup if due and delete old, cache purge, save log stats, flush logs etc. run every minute, not needed to run too often
+    int metricRecorderPulseIntervalMs = 1000; // record metrics every second
     TimeSpan _intervalOfDeletingExpiredTasks = TimeSpan.FromMinutes(5); // interval for running delete expired tasks, default is 5 minutes
 
     //Timer _test = new Timer(_ => {
@@ -66,20 +69,27 @@ internal class Scheduler(DataStoreLocal _db) {
             _backgroundTaskTimer = new Timer(backgroundTaskPulse, null, startupDelayMs + timerStartupDelta * 3, backgroundTasksPulseIntervalMs);
         }
 
+        if (metricRecorderPulseIntervalMs > 0) {
+            _metricRecorder = new Timer(recordMetrics, null, startupDelayMs + timerStartupDelta * 4, metricRecorderPulseIntervalMs);
+        }
+
     }
     public void Stop() {
         _autoFlushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _backgroundTaskTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _metricRecorder?.Change(Timeout.Infinite, Timeout.Infinite);
         _autoFlushTimer?.Dispose();
         _backgroundTaskTimer?.Dispose();
         _taskDequeueTimer?.Dispose();
         _taskDequeuePersistedTimer?.Dispose();
+        _metricRecorder?.Dispose();
         _autoFlushTimer = null;
         _backgroundTaskTimer = null;
         _taskDequeueTimer = null;
         _taskDequeuePersistedTimer = null;
+        _metricRecorder = null;
     }
     DateTime _lastDeleteExpiredTasks = DateTime.MinValue;
     DateTime _lastDeleteExpiredPersistedTasks = DateTime.MinValue;
@@ -266,12 +276,15 @@ internal class Scheduler(DataStoreLocal _db) {
                 // _db.Log("Auto save index states not due yet, unsaved action count below lower limit. ");
                 return;
             }
-            var belowTimeLimit = (now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes;
-            if (belowTimeLimit) {
-                // _db.Log("Auto save index states not due yet, based on time interval. ");
-                return;
-            } else {
-                _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
+            var aboveUpperLimit = noActionsNotInStateFile > _s.AutoSaveIndexStatesActionCountUpperLimit;
+            if (aboveUpperLimit == false) { // not above upper limit, base on time only:
+                var belowTimeLimit = (now - _lastSaveIndexStates).TotalMinutes < _s.AutoSaveIndexStatesIntervalInMinutes;
+                if (belowTimeLimit) {
+                    // _db.Log("Auto save index states not due yet, based on time interval. ");
+                    return;
+                } else {
+                    _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
+                }
             }
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto save index states started");
@@ -437,4 +450,17 @@ internal class Scheduler(DataStoreLocal _db) {
             _db.IO.DeleteIfItExists(f);
         }
     }
+
+    void recordMetrics(object? state) {
+        try {
+            if (_db.State != DataStoreState.Open) return;
+            var metrics = _db.DequeMetrics();
+            if (metrics != null) {
+                _db.Logger.RecordMetrics(metrics);
+            }
+        } catch (Exception err) {
+            _db.LogError("Recording metrics failed: ", err);
+        }
+    }
+
 }

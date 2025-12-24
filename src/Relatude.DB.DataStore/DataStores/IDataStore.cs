@@ -16,6 +16,7 @@ public interface IDataStore : IDisposable {
     void LogError(string description, Exception error);
     void Log(SystemLogEntryType type, string text, string? details = null);
     TraceEntry[] GetSystemTrace(int skip, int take);
+    DateTime GetLatestSystemTraceTimestamp();
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();

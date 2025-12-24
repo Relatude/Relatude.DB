@@ -44,7 +44,7 @@ internal class IndexStore : IDisposable {
         var count = _definition.GetAllIndexes().Count();
         var i = 0;
         foreach (var index in _definition.GetAllIndexes()) {
-            progress(index.UniqueKey, 100 * i / count);
+            progress("Saving index " + ++i + " of " + count, 100 * i / count);
             index.SaveStateForMemoryIndexes(logTimestamp, walFileId);
         }        
     }

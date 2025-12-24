@@ -184,7 +184,9 @@ public class StoreLogger : IDisposable, IStoreLogger {
                         { "setCacheCount", new() { Name = "Set cache count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "setCacheSizeMb", new() { Name = "Set cache size Mb", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "taskQueueCount", new() { Name = "Task queue count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
+                        { "taskExecutedCount", new() { Name = "Executed task count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } }, 
                         { "taskPersistedQueueCount", new() { Name = "Persisted task queue count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
+                        { "taskPersistedExecutedCount", new() { Name = "Persisted executed task count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                     },
             },
         ];
@@ -210,7 +212,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _logStore = new LogStore(_io, getSettings(), fileKeys);
     }
     void reloadLogsWithNewSettings() {
-        _logStore?.Dispose();        
+        _logStore?.Dispose();
         _logStore = new LogStore(_io, getSettings(), _fileKeys);
     }
 
@@ -277,11 +279,11 @@ public class StoreLogger : IDisposable, IStoreLogger {
 
         _logStore?.Record(_taskbatchLogKey, entry);
     }
-    public void RecordStoreMetrics(StoreMetrics metrics) {
+    public void RecordMetrics(StoreMetrics metrics) {
         if (!LoggingMetrics) return;
         LogEntry entry = new();
         entry.Values.Add("cpuUsagePercentage", (int)(metrics.CpuUsage * 100));
-        entry.Values.Add("memUsageMb", (int)(metrics.MemUsage / 1024 * 1024));
+        entry.Values.Add("memUsageMb", (int)((double)metrics.MemUsage / (1024d * 1024d)));
         entry.Values.Add("queryCount", unchecked((int)metrics.QueryCount));
         entry.Values.Add("actionCount", unchecked((int)metrics.ActionCount));
         entry.Values.Add("transactionCount", unchecked((int)metrics.TransactionCount));
@@ -293,6 +295,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
         entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 * 1024));
         entry.Values.Add("taskQueueCount", metrics.TasksQueued);
         entry.Values.Add("taskPersistedQueueCount", metrics.TasksPersistedQueued);
+        entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);
+        entry.Values.Add("taskPersistedExecutedCount", metrics.TasksPersistedExecuted);
         _logStore?.Record(_metricsLogKey, entry);
     }
 

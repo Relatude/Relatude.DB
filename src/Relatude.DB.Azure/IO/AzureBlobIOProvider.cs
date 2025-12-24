@@ -160,8 +160,11 @@ public class AzureBlobIOProvider : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public bool CanHaveSubFolders => false;
-    public Task<FolderMeta[]> GetSubFolders() {
+    public bool CanHaveFolders => false;
+    public Task<FolderMeta[]> GetFoldersAsync() {
+        throw new NotSupportedException("AzureBlobIOProvider does not support subfolders. ");
+    }
+    public void DeleteFolderIfItExists(string folderName) {
         throw new NotSupportedException("AzureBlobIOProvider does not support subfolders. ");
     }
 }

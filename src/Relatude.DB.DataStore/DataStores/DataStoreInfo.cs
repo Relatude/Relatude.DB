@@ -10,8 +10,6 @@ public class DataStoreInfo {
     public Dictionary<string, int> QueuedBatchesStateCounts { get; set; } = [];
     public Dictionary<string, int> QueuedBatchesStateCountsPersisted { get; set; } = [];
 
-    public TraceEntry[] LatestTraces { get; set; } = [];
-
     public DateTime Created { get; } = DateTime.UtcNow;
     public bool IsFresh { get; set; }
     public int AgeMs => (int)Math.Round((DateTime.UtcNow - Created).TotalMilliseconds);

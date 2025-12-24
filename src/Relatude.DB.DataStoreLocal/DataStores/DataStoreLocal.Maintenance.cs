@@ -101,7 +101,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock
             try {
                 validateDatabaseState();
-                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnaphot > 0 || forceRefresh) {
+                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || forceRefresh) {
                     var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
                     saveMainState(activityId); // requires WriteLock after flush due to node segments
@@ -119,10 +119,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
     }
-    void ResetStateAndIndexes() {
+    void resetStateAndIndexes() {
+        var stateFileExisted = IOIndex.ExistsAndIsNotEmpty(_fileKeys.StateFileKey);
         IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
         var indexesFiles = FileKeys.Index_GetAll(IOIndex);
         foreach (var i in indexesFiles) IOIndex.DeleteIfItExists(i);
+        if (stateFileExisted) {
+            _noPrimitiveActionsSinceLastStateSnapshot = Settings.AutoSaveIndexStatesActionCountUpperLimit + 1;
+        }
         PersistedIndexStore?.ResetAll();
     }
     public void Maintenance(MaintenanceAction a) {
@@ -159,8 +163,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
             if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) {
-                if (State == DataStoreState.Closed || State == DataStoreState.Error) {
-                    ResetStateAndIndexes();
+                if (State == DataStoreState.Closed || State == DataStoreState.Open || State == DataStoreState.Error) {
+                    resetStateAndIndexes();
                 } else {
                     throw new Exception("ResetStateAndIndexes can only be performed when the database is closed or in error state. ");
                 }
@@ -182,13 +186,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     public long GetLogActionsNotItInStatefile() {
         _lock.EnterReadLock();
         try {
-            return _noPrimitiveActionsSinceLastStateSnaphot;
+            return _noPrimitiveActionsSinceLastStateSnapshot;
         } finally {
             _lock.ExitReadLock();
         }
     }
     DataStoreInfo? _lastStoreStatusWhenOpen;
-
     CpuMonitor _cpuMonitorInfo = new();
     public DataStoreInfo GetInfo() {
         var info = new DataStoreInfo();
@@ -205,8 +208,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.LogLastChange = new DateTime(_wal.LastTimestamp, DateTimeKind.Utc);
             info.StartUpMs = _startUpTimeMs;
             info.LogTruncatableActions = _noPrimitiveActionsInLogThatCanBeTruncated;
-            info.LogActionsNotItInStatefile = _noPrimitiveActionsSinceLastStateSnaphot;
-            info.LogTransactionsNotItInStatefile = _noTransactionsSinceLastStateSnaphot;
+            info.LogActionsNotItInStatefile = _noPrimitiveActionsSinceLastStateSnapshot;
+            info.LogTransactionsNotItInStatefile = _noTransactionsSinceLastStateSnapshot;
             info.CountActionsSinceClearCache = _noPrimitiveActionsSinceClearCache;
             info.CountTransactionsSinceClearCache = _noTransactionsSinceClearCache;
             info.CountQueriesSinceClearCache = _noQueriesSinceClearCache;
@@ -246,7 +249,6 @@ public sealed partial class DataStoreLocal : IDataStore {
 
             _sets.AddInfo(info);
             info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
-            info.LatestTraces = GetSystemTrace(0, 20);
         } finally {
             _lock.ExitWriteLock();
         }

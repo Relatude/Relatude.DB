@@ -130,8 +130,8 @@ public class IOProviderDisk : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public bool CanHaveSubFolders => true;
-    public Task<FolderMeta[]> GetSubFolders() {
+    public bool CanHaveFolders => true;
+    public Task<FolderMeta[]> GetFoldersAsync() {
         var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
         var dirInfo = new DirectoryInfo(BaseFolder);
         addAllSubFolders(dirInfo, baseFolderMeta, "");
@@ -143,6 +143,27 @@ public class IOProviderDisk : IIOProvider {
         foreach (var subFolder in folder.SubFolders) {
             var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
             addAllSubFolders(subDirInfo, subFolder, Path.Combine(relativeParentPath, subFolder.Name));
+        }
+    }
+    public void DeleteFolderIfItExists(string folderKey) {
+        lock (_lock) {
+            var folderPath = Path.Combine(BaseFolder, folderKey);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            //if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);
+            deleteFoldersAndFiles(folderPath);
+        }
+    }
+    void deleteFoldersAndFiles(string path) {
+        if (Directory.Exists(path)) {
+            var dirInfo = new DirectoryInfo(path);
+            foreach (var subDir in dirInfo.GetDirectories()) {
+                deleteFoldersAndFiles(subDir.FullName);
+            }
+            foreach (var file in dirInfo.GetFiles()) {
+                file.Delete();
+            }
+            Directory.Delete(path);
         }
     }
 }

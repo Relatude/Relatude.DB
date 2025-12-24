@@ -29,6 +29,7 @@ public partial class RelatudeDBServer {
         EventHub.RegisterPoller(new DataStoreStatesEventPoller());
         EventHub.RegisterPoller(new DataStoreStatusEventPoller());
         EventHub.RegisterPoller(new DataStoreInfoEventPoller());
+        EventHub.RegisterPoller(new DataStoreTraceEventPoller());
     }
 
     // simple startup log to help with debugging startup issues
@@ -110,7 +111,7 @@ public partial class RelatudeDBServer {
                 Thread.Sleep(100);
             }
         }
-        var datastore = container.Datastore;
+        var datastore = container.Store?.Datastore;
         if (datastore == null) throw new Exception("Store not initialized. ");
         if (datastore.State != DataStoreState.Opening && container.Store != null) return container.Store;
         //sw.Restart();
@@ -124,9 +125,9 @@ public partial class RelatudeDBServer {
     public int GetStartingProgressEstimate() {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
-                if (c.Datastore == null) return 0;
-                if (c.Datastore.State != DataStoreState.Opening) return 100;
-                var status = c.Datastore.GetStatus();
+                if (c.Store?.Datastore == null) return 0;
+                if (c.Store?.Datastore.State != DataStoreState.Opening) return 100;
+                var status = c.Store.Datastore.GetStatus();
                 var activity = status.ActivityTree.FirstOrDefault(a => a.Activity.Category == DataStoreActivityCategory.Opening)?.Activity;
                 if (activity == null) return 100;
                 var progress = activity.PercentageProgress;

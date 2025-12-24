@@ -63,7 +63,7 @@ public class StoreStreamDiscWrite : IAppendStream {
     public long Length {
         get {
             lock (_lock) {
-                if (!_stream.CanRead) throw new ObjectDisposedException("Stream is closed");
+                if (!_stream.CanRead) return new FileInfo(_stream.Name).Length;
                 return _stream.Length;
             }
         }
