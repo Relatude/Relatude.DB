@@ -15,7 +15,7 @@ public class FolderMeta {
     public long Size { get; set; }
     public DateTime CreationTimeUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedUtc { get; set; } = DateTime.UtcNow;
-    public string Description { get; set; } 
+    public string? Description { get; set; } 
     public override string ToString() {
         return $"{Name} ({Description}), {Size} bytes, Created: {CreationTimeUtc:u}, Modified: {LastModifiedUtc:u}";
     }

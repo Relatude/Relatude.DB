@@ -31,7 +31,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             TaskQueuePersisted?.FlushDisk();
         } catch (Exception err) {
             _state = DataStoreState.Error;
-            throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
             DeRegisterActivity(activityId);
         }
@@ -47,8 +47,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             _wal.Copy(newLogFileKey, destinationIO);
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Failed to copy log file. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Failed to copy log file. ", err);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
@@ -64,8 +63,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             PersistedIndexStore?.OptimizeDisk();
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Failed truncate indexes. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Failed to truncate indexes. ", err);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
@@ -111,8 +109,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     LogInfo("Index state write skipped as file reflects latest changes. ");
                 }
             } catch (Exception err) {
-                _state = DataStoreState.Error;
-                throw new Exception("Failed to save index states. ", err);
+                throw createCriticalErrorAndSetDbToErrorState("Failed to save index states. ", err);
             } finally {
                 _lock.ExitWriteLock();
                 DeRegisterActivity(activityId);
@@ -170,9 +167,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
             }
         } catch (Exception cacheErr) {
-            _state = DataStoreState.Error;
-            logCriticalError("Maintenance cache error. ", cacheErr);
-            throw new Exception("Maintenance cache error. ", cacheErr);
+            throw createCriticalErrorAndSetDbToErrorState("Maintenance cache error. ", cacheErr);
         } finally {
             _lock.ExitWriteLock();
         }

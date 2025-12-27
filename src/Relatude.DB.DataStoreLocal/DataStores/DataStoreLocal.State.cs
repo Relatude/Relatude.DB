@@ -171,7 +171,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
-            while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logCriticalError, out sizeOfCurrentTransaction)) {
+            while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
                 actionCountInTransaction = 0;
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
@@ -198,17 +198,17 @@ public sealed partial class DataStoreLocal : IDataStore {
                         lastBytesRead = readBytes;
                     }
                     if (isTransactionRelevantForIndexes) {
-                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logCriticalError);
+                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logError);
                     }
                     if (isTransactionRelevantForStateStores) {
                         _guids.RegisterAction(a);
                         if (a is PrimitiveNodeAction na) {
                             _nodes.RegisterAction_NotThreadsafe(na);
-                            _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logCriticalError);
+                            _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                         } else if (a is PrimitiveRelationAction ra) {
                             _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                         } else throw new NotImplementedException();
-                        _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logCriticalError);
+                        _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
                         _noPrimitiveActionsSinceLastStateSnapshot++;
                         if (a.Operation == PrimitiveOperation.Remove) _noPrimitiveActionsInLogThatCanBeTruncated++;
                     }

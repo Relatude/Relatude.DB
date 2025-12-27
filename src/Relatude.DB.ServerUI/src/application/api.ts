@@ -121,8 +121,8 @@ class MaintenanceAPI {
     constructor(private server: API, private controller: string) { }
     deleteAllButDb = (storeId: string) => this.server.execute(this.controller, 'delete-all-but-db', { storeId });
     deleteAllFiles = (storeId: string, ioId: string) => this.server.execute(this.controller, 'delete-all-files', { storeId, ioId });
-    downloadFullDb = (storeId: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId });
-    downloadTruncatedDb = (storeId: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId });
+    downloadFullDb = (storeId: string, namePrefix: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId, namePrefix });
+    downloadTruncatedDb = (storeId: string, namePrefix: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId, namePrefix });
     closeAllOpenStreams(storeId: string, ioId: string) { return this.server.execute(this.controller, 'close-all-open-streams', { storeId, ioId }); }
     isFileKeyLegal = async (fileKey: string | null) => !fileKey ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-key-legal', { fileKey: fileKey! })).isLegal;
     isFilePrefixLegal = async (filePrefix: string | null) => !filePrefix ? false : (await this.server.queryJson<{ isLegal: boolean }>(this.controller, 'is-file-prefix-legal', { filePrefix: filePrefix! })).isLegal;
@@ -142,21 +142,14 @@ class MaintenanceAPI {
     getFileKeyOfDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db', { storeId, ioId });
     getFileKeyOfNextDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db-next', { storeId, ioId });
     validateDownloadFileRead = async (storeId: string, ioId: string, fileName: string) => {
-        const macthes = await this.getStoreFiles(storeId, ioId).then(files => files.filter(f => f.key === fileName));
-        if (macthes.length === 0) throw new Error("File not found");
+        const allFiles = await this.getStoreFiles(storeId, ioId);
+        const macthes = allFiles.filter(f => f.key === fileName);
+        if (macthes.length === 0) throw new Error("File not found.");
         if (macthes.length > 1) throw new Error("Multiple files found with the same name");
         if (macthes[0].writers > 0) throw new Error("File is locked");
     }
     downloadFile = async (storeId: string, ioId: string, fileName: string) => {
-        try {
-            await this.validateDownloadFileRead(storeId, ioId, fileName);
-        } catch (error: any) {
-            if (await this.server.retry(error.message)) {
-                await this.downloadFile(storeId, ioId, fileName);
-            } else {
-                throw error;
-            }
-        }
+        await this.validateDownloadFileRead(storeId, ioId, fileName);
         this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });

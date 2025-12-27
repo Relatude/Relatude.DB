@@ -4,6 +4,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
@@ -11,6 +12,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void LogInfo(string text, string? details = null) => Log(SystemLogEntryType.Info, text, details);
     public void LogWarning(string text, string? details = null) => Log(SystemLogEntryType.Warning, text, details);
     static object _consoleColorLock = new();
+    static object _criticalLogLock = new();
     public void Log(SystemLogEntryType type, string text, string? details = null) {
         try {
             if (_settings.WriteSystemLogConsole) {
@@ -52,30 +54,67 @@ public sealed partial class DataStoreLocal : IDataStore {
         buildErrorLog(sb, error);
         Log(SystemLogEntryType.Error, description, sb.ToString());
     }
-    void logCriticalTransactionError(string description, Exception error, TransactionData transaction) {
+    Exception createCriticalErrorAndSetDbToErrorState(string description, Exception error, TransactionData? transaction = null) {
+        try {
+            logError(description, error, transaction, true);
+        } catch { }
+        _state = Common.DataStoreState.Error;
+        return new Exception("Critical error occurred. " + description, error);
+    }
+    void logError(string description, Exception error) {
+        logError(description, error, null, false);
+    }
+    void logError(string description, Exception error, TransactionData? transaction = null, bool isCritical = false) {
         var sb = new StringBuilder();
-        buildErrorLog(sb, error);
-        sb.AppendLine("--- Callstack:");
-        var callstack = new System.Diagnostics.StackTrace();
-        sb.AppendLine(callstack.ToString());
-        sb.AppendLine("--- Transaction:");
-        var n = 0;
-        foreach (var action in transaction.Actions) {
-            sb.AppendLine(action.ToString());
-            if (++n > 100) {
-                sb.AppendLine("... and " + (transaction.Actions.Count - n) + " other actions");
-                break;
+        try {
+            buildErrorLog(sb, error);
+            sb.AppendLine("--- Callstack:");
+            var callstack = new System.Diagnostics.StackTrace();
+            sb.AppendLine(callstack.ToString());
+            if (transaction != null) {
+                sb.AppendLine("--- Transaction:");
+                var n = 0;
+                foreach (var action in transaction.Actions) {
+                    sb.AppendLine(action.ToString());
+                    if (++n > 100) {
+                        sb.AppendLine("... and " + (transaction.Actions.Count - n) + " other actions");
+                        break;
+                    }
+                }
             }
+        } catch { }
+        if (isCritical) {
+            try {
+                writeCriticalSystemErrorTextFile(description, sb.ToString());
+            } catch { }
         }
         Log(SystemLogEntryType.Error, description, sb.ToString());
     }
-    void logCriticalError(string description, Exception error) {
+    void writeCriticalSystemErrorTextFile(string description, string? details = null) {
         var sb = new StringBuilder();
-        buildErrorLog(sb, error);
-        sb.AppendLine("--- Callstack:");
-        var callstack = new System.Diagnostics.StackTrace();
-        sb.AppendLine(callstack.ToString());
-        Log(SystemLogEntryType.Error, description, sb.ToString());
+        sb.AppendLine();
+        sb.AppendLine();
+        sb.AppendLine("#######START CRITICAL ERROR LOG########");
+        sb.AppendLine();
+        sb.AppendLine(DateTime.UtcNow.ToString("o") + " ");
+        sb.AppendLine(description);
+        if (details != null) sb.AppendLine(details);
+        try {
+            var metrics = DequeMetrics();
+            sb.AppendLine();
+            sb.AppendLine("Metrics: ");
+            sb.AppendLine(JsonSerializer.Serialize(metrics));
+        } catch { }
+        sb.AppendLine();
+        sb.AppendLine("#######END CRITICAL ERROR LOG########");
+        sb.AppendLine();
+        sb.AppendLine();
+        lock (_criticalLogLock) {
+            var fileKey = _fileKeys.CriticalErrorLogFileKey;
+            var io = _ioLog;
+            using var stream = io.OpenAppend(fileKey);
+            stream.WriteUTF8StringNoLengthPrefix(sb.ToString());
+        }
     }
     void buildErrorLog(StringBuilder sb, Exception error) {
         sb.AppendLine(error.GetType().FullName + ": " + error.Message);
@@ -85,6 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             buildErrorLog(sb, error.InnerException);
         }
     }
+
     public TraceEntry[] GetSystemTrace(int skip, int take) => _tracer.GetEntries(skip, take);
     public DateTime GetLatestSystemTraceTimestamp() => _tracer.GetLatest();
     CpuMonitor _cpuMonitorMetrics = new();
@@ -111,5 +151,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceLastMetric = 0;
         return metrics;
     }
+
 }
 

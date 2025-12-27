@@ -239,8 +239,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } catch (StateFileReadException e) {
             LogInfo("Indexfile out of sync: " + e.Message);
             if (throwOnBadStateFile) {
-                _state = DataStoreState.Error;
-                throw;
+               throw createCriticalErrorAndSetDbToErrorState("Opening error. ", e);
             } else { // delete state file and reload
                 try {
                     LogInfo("Rebuilding index from log");
@@ -253,9 +252,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _startUpTimeMs = sw.ElapsedMilliseconds;
                     LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
                 } catch (Exception reloadError) {
-                    LogInfo("Reopen failed. " + reloadError.Message);
-                    _state = DataStoreState.Error;
-                    throw;
+                    throw createCriticalErrorAndSetDbToErrorState("Reopen failed. ", reloadError);
                 }
             }
         } finally {

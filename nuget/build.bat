@@ -49,6 +49,9 @@ echo Detected version: %version%
 :: Prompt the user for the version number
 set /p tag=Enter subversion tag (ie: -alpha): 
 
+:: If the user pressed enter (tag is empty), set it to -alpha
+if "%tag%"=="" set "tag=-alpha"
+
 :: Build the solution
 dotnet build ..\Relatude.DB.sln --configuration Release
 

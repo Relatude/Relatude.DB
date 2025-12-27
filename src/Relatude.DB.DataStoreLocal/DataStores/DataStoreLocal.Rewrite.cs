@@ -72,8 +72,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, _relations.Snapshot(), threadSafeReadSegments, updateNodeDataPositionInLogFile);
             UpdateActivity(activityId, "Starting rewrite of log file", 10);
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Error starting log rewrite. " , err);
         } finally {
             _lock.ExitWriteLock();
         }
@@ -81,8 +80,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             // no block, allowing simulatenous writes or reads while log is being rewritten
             _rewriter.Step1_RewriteLog_NoLockRequired((string desc, int prg) => UpdateActivity(activityId, desc, prg)); // (10%-80%)
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Error during log rewrite. ", err);
         }
         IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
         try {
@@ -105,8 +103,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
             _rewriter = null;
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Error finalizing log rewrite. ", err);
         }
     }
 }

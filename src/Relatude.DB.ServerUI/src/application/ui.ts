@@ -14,7 +14,7 @@ export class UI {
         this._darkTheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
     private _containers: SimpleStoreContainer[] = []; get containers() { return this._containers; } set containers(value: SimpleStoreContainer[]) { this._containers = value; }
-    private _state: StoreStates | null = null; get state() { return this._state; } set state(value: StoreStates | null) { this._state = value; }
+    // private _state: StoreStates | null = null; get state() { return this._state; } set state(value: StoreStates | null) { this._state = value; }
     private _darkTheme: boolean = false; get darkTheme() { return this._darkTheme; } set darkTheme(value: boolean) { this._darkTheme = value; }
     private _appState: AppStates = "splash"; get appState() { return this._appState; } set appState(value: AppStates) { this._appState = value; }
     private _defaultStoreId: string | null = null; get defaultStoreId() { return this._defaultStoreId; } set defaultStoreId(value: string | null) { this._defaultStoreId = value; }

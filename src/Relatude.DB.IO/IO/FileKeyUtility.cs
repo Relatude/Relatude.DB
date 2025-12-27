@@ -43,6 +43,8 @@ public class FileKeyUtility {
     string loggerBinaryExt => ".bin";
     string loggerTextExt => ".txt";
     string loggerBkUpExt => ".bkup";
+     
+    string criticalErrorLogFilePattern => _prefix + "critical.error.txt";
 
     string queueFileKey => _prefix + "queue";
     string queueFileKeyPattern => _prefix + "queue.*";
@@ -63,6 +65,8 @@ public class FileKeyUtility {
     public string StateFileKey => stateFilePattern;
     public string AiCacheFileKey => aiCacheFilePattern;
     public string IndexStoreFolderKey => indexStoreFolderPattern;
+
+    public string CriticalErrorLogFileKey => criticalErrorLogFilePattern;
 
     public string[] GetAllFileKeys(IIOProvider io) => [.. io.Search(_prefix + "*").Order()];
     public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.SearchMeta(_prefix + "*")];

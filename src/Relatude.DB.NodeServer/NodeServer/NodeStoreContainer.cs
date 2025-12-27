@@ -37,6 +37,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         if (Store == null) return new DataStoreStatus(DataStoreState.Disposed, []);
         return Store.Datastore.GetStatus();
     }
+    public bool IsOpen() => Store != null && Store.State == DataStoreState.Open;
     public bool IsOpenOrOpening() => Store != null && (Store.State == DataStoreState.Open || Store.State == DataStoreState.Opening);
     public NodeStoreContainerSettings Settings => settings;
     public void ApplyNewSettings(NodeStoreContainerSettings newSettings, bool reopenIfOpen) {

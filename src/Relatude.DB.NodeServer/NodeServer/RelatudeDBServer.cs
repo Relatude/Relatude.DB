@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Hosting.Server;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.EventHub;
@@ -93,6 +94,7 @@ public partial class RelatudeDBServer {
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
+    public bool DefaultStoreIsOpen() => _defaultContainer != null && _defaultContainer.IsOpen();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
     public NodeStore Default => GetDefaultStoreAndWaitIfOpening();
     public NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 60 * 15) {
@@ -104,23 +106,15 @@ public partial class RelatudeDBServer {
         var sw = Stopwatch.StartNew();
         if (container.Settings.AutoOpen) { // if auto open is enabled, we have to wait for first initialization, otherwise .datastore will be null
             while (true) {
-                if (container.StartUpException != null)
-                    throw new Exception("Unable to open database.", container.StartUpException);
-                if (container.HasInitialized) break;
+                if (container.StartUpException != null)                    throw new Exception("Unable to open database.", container.StartUpException);
                 if (sw.Elapsed.TotalSeconds > timeoutSec) throw new Exception("Timeout waiting for store to start initializing.");
+                if(container.IsOpen()) return container.Store!;
                 Thread.Sleep(100);
             }
         }
-        var datastore = container.Store?.Datastore;
-        if (datastore == null) throw new Exception("Store not initialized. ");
-        if (datastore.State != DataStoreState.Opening && container.Store != null) return container.Store;
-        //sw.Restart();
-        while (true) {
-            if (container.StartUpException != null) throw new Exception("Unable to autostart database.", container.StartUpException);
-            if (datastore.State != DataStoreState.Opening && container.Store != null) return container.Store;
-            if (sw.Elapsed.TotalSeconds > timeoutSec) throw new Exception("Timeout waiting for store to open.");
-            Thread.Sleep(100);
-        }
+        var store = container.Store;
+        if (store == null) throw new Exception("Store not initialized. ");
+        return store;
     }
     public int GetStartingProgressEstimate() {
         try {
@@ -128,7 +122,7 @@ public partial class RelatudeDBServer {
                 if (c.Store?.Datastore == null) return 0;
                 if (c.Store?.Datastore.State != DataStoreState.Opening) return 100;
                 var status = c.Store.Datastore.GetStatus();
-                var activity = status.ActivityTree.FirstOrDefault(a => a.Activity.Category == DataStoreActivityCategory.Opening)?.Activity;
+                var activity = status.ActivityTree.FirstOrDefault(a => a.Activity.Category == DataStoreActivityCategory.Opening)?.Children.FirstOrDefault()?.Activity;
                 if (activity == null) return 100;
                 var progress = activity.PercentageProgress;
                 if (!progress.HasValue) return 0;

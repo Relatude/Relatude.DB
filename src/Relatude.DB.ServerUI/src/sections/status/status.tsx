@@ -23,7 +23,7 @@ export const component = () => {
     const app = useApp();
     const storeId = app.ui.selectedStoreId;
     const [currentStatus, setCurrentStatus] = useState<DataStoreStatus>();
-    const [currentInfo, setCurrentInfo] = useState<DataStoreInfo>();
+    const [info, setCurrentInfo] = useState<DataStoreInfo>();
     const [currentTrace, setCurrentTrace] = useState<SystemTraceEntry[]>([]);
     let currentContainer = app.ui.containers.find(c => c.id === app.ui.selectedStoreId);
     useEffect(() => {
@@ -56,7 +56,7 @@ export const component = () => {
     }
     if (!storeId) return;
     if (!currentContainer) return;
-    if (!currentInfo) return;
+    if (!info) return;
     const state = app.ui.getStoreState(app.ui.selectedStoreId);
     const showActivity = (activity: DataStoreActivityBranch, level: number = 0) => {
         return <>
@@ -66,20 +66,20 @@ export const component = () => {
             )}
         </>;
     }
-    const taskCount = currentInfo.queuedTasksPending;
-    const taskCountPersisted = currentInfo.queuedTasksPendingPersisted;
+    const taskCount = info.queuedTasksPending;
+    const taskCountPersisted = info.queuedTasksPendingPersisted;
     return (
         <>
             <Grid mt="md">
                 <Panel>
                     <Group>
-                        <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Open</Button>
+                        <Button variant="light" disabled={state != "Closed" } onClick={() => app.api.maintenance.open(app.ui.selectedStoreId!)}>Open</Button>
                         <Button variant="light" disabled={state != "Opening"} onClick={() => app.api.maintenance.cancelOpening(app.ui.selectedStoreId!)}>Cancel</Button>
-                        <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Close</Button>
+                        <Button variant="light" disabled={state != "Open" && state != "Error"} onClick={() => app.api.maintenance.close(app.ui.selectedStoreId!)}>Close</Button>
 
-                        <Button variant="light" disabled={state != "Open" || (currentInfo?.logActionsNotItInStatefile == 0)} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!, true, false)}>Save state</Button>
-                        <Button variant="light" disabled={state != "Open" || ((currentInfo.setCacheCount + currentInfo.nodeCacheCount) == 0)} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
-                        <Button variant="light" disabled={state != "Open" || (currentInfo?.logTruncatableActions == 0)} onClick={truncateLog}>Truncate</Button>
+                        <Button variant="light" disabled={state != "Open" || (info.logActionsNotItInStatefile == 0)} onClick={() => app.api.maintenance.saveIndexStates(app.ui.selectedStoreId!, true, false)}>Save state</Button>
+                        <Button variant="light" disabled={state != "Open" || ((info.setCacheCount + info.nodeCacheCount) == 0)} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
+                        <Button variant="light" disabled={state != "Open" || (info.logTruncatableActions == 0)} onClick={truncateLog}>Truncate</Button>
                         <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(app.ui.selectedStoreId!)}>Reset second log</Button>
                         <Button variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.resetStateAndIndexes(app.ui.selectedStoreId!)}>Reset all states</Button>
                         <Button variant="light" disabled={state != "Closed"} onClick={() => app.api.maintenance.deleteStateAndIndexes(app.ui.selectedStoreId!)}>Delete all states</Button>
@@ -88,13 +88,13 @@ export const component = () => {
                 <Panel title="Info" span={3}>
                     <div style={{ height: '250px', overflowY: 'auto' }}>
                         <div>State: {state}</div>
-                        <div>Uptime: {formatTimeSpan(currentInfo.uptimeMs)}</div>
-                        <div>Memory: {formatBytes(currentInfo.processWorkingMemory)}</div>
+                        <div>Uptime: {formatTimeSpan(info.uptimeMs)}</div>
+                        <div>Memory: {formatBytes(info.processWorkingMemory)}</div>
                         <div style={{ color: taskCount > 0 ? 'orange' : '' }}>Transient tasks: {formatNumber(taskCount)}</div>
                         <div style={{ color: taskCountPersisted > 0 ? 'orange' : '' }}>Persisted tasks: {formatNumber(taskCountPersisted)}</div>
-                        <div>CPU: {currentInfo.cpuUsagePercentage.toFixed(1)}%</div>
-                        <div>CPU (1 min avg): {currentInfo.cpuUsagePercentageLastMinute.toFixed(1)}%</div>
-                        <div>Startup: {formatTimeSpan(currentInfo.startUpMs)}</div>
+                        <div>CPU: {info.cpuUsagePercentage.toFixed(1)}%</div>
+                        <div>CPU (1 min avg): {info.cpuUsagePercentageLastMinute.toFixed(1)}%</div>
+                        <div>Startup: {formatTimeSpan(info.startUpMs)}</div>
                     </div>
                 </Panel>
                 <Panel title="Activity" span={9}>
@@ -104,23 +104,23 @@ export const component = () => {
                 </Panel>
                 <Panel title="Storage" span={3}>
                     <div style={{ height: '278px', overflowY: 'auto' }}>
-                        {formatBytes(currentInfo.totalFileSize)} total file size<br />
-                        {formatBytes(currentInfo.logFileSize)} bytes in main log file<br />
-                        {formatBytes(currentInfo.secondaryLogFileSize)} bytes in secondary log<br />
-                        {formatBytes(currentInfo.logStateFileSize)} bytes in state log file<br />
-                        {formatBytes(currentInfo.indexFileSize)} bytes in indexes<br />
-                        {formatBytes(currentInfo.fileStoreSize)} bytes in filestore<br />
-                        {formatBytes(currentInfo.backupFileSize)} bytes in backups<br />
-                        {formatBytes(currentInfo.loggingFileSize)} bytes in logging<br />
-                        <span style={{ color: currentInfo.logActionsNotItInStatefile > 0 ? 'orange' : 'inherit' }}>
-                            {formatNumber(currentInfo.logActionsNotItInStatefile)} actions not in state file<br />
+                        {formatBytes(info.totalFileSize)} total file size<br />
+                        {formatBytes(info.logFileSize)} bytes in main log file<br />
+                        {formatBytes(info.secondaryLogFileSize)} bytes in secondary log<br />
+                        {formatBytes(info.logStateFileSize)} bytes in state log file<br />
+                        {formatBytes(info.indexFileSize)} bytes in indexes<br />
+                        {formatBytes(info.fileStoreSize)} bytes in filestore<br />
+                        {formatBytes(info.backupFileSize)} bytes in backups<br />
+                        {formatBytes(info.loggingFileSize)} bytes in logging<br />
+                        <span style={{ color: info.logActionsNotItInStatefile > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(info.logActionsNotItInStatefile)} actions not in state file<br />
                             {/* {formatNumber(currentInfo.logTransactionsNotItInStatefile)} transactions not in state file<br /> */}
                         </span>
-                        <span style={{ color: currentInfo.logTruncatableActions > 0 ? 'orange' : 'inherit' }}>
-                            {formatNumber(currentInfo.logTruncatableActions)} truncatable actions<br />
+                        <span style={{ color: info.logTruncatableActions > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(info.logTruncatableActions)} truncatable actions<br />
                         </span>
-                        <span style={{ color: currentInfo.logWritesQueuedActions > 0 ? 'orange' : 'inherit' }}>
-                            {formatNumber(currentInfo.logWritesQueuedActions)} unflushed actions<br />
+                        <span style={{ color: info.logWritesQueuedActions > 0 ? 'orange' : 'inherit' }}>
+                            {formatNumber(info.logWritesQueuedActions)} unflushed actions<br />
                             {/* {formatNumber(currentInfo.logWritesQueuedTransactions)} queued transaction writes<br /> */}
                         </span>
                     </div>
@@ -143,23 +143,23 @@ export const component = () => {
                     </pre>
                 </Panel>
                 <Panel title="Cache" span={3}>
-                    {formatBytes(currentInfo.setCacheSize)} set cache size<br />
-                    {currentInfo.setCacheSizePercentage.toFixed(1)}% set cache used<br />
-                    {formatNumber(currentInfo.setCacheCount)} sets cached<br />
-                    {formatNumber(currentInfo.setCacheHits)} set cache hits<br />
-                    {formatNumber(currentInfo.setCacheMisses)} set cache misses<br />
-                    {formatNumber(currentInfo.setCacheOverflows)} set cache overflows<br />
+                    {formatBytes(info.setCacheSize)} set cache size<br />
+                    {info.setCacheSizePercentage.toFixed(1)}% set cache used<br />
+                    {formatNumber(info.setCacheCount)} sets cached<br />
+                    {formatNumber(info.setCacheHits)} set cache hits<br />
+                    {formatNumber(info.setCacheMisses)} set cache misses<br />
+                    {formatNumber(info.setCacheOverflows)} set cache overflows<br />
                     <br />
-                    {formatBytes(currentInfo.nodeCacheSize)} node cache size<br />
-                    {currentInfo.nodeCacheSizePercentage.toFixed(1)}% node cache used<br />
-                    {formatNumber(currentInfo.nodeCacheCount)} nodes cached<br />
-                    {formatNumber(currentInfo.nodeCacheHits)} node cache hits<br />
-                    {formatNumber(currentInfo.nodeCacheMisses)} node cache misses<br />
-                    {formatNumber(currentInfo.nodeCacheOverflows)} node cache overflows<br />
+                    {formatBytes(info.nodeCacheSize)} node cache size<br />
+                    {info.nodeCacheSizePercentage.toFixed(1)}% node cache used<br />
+                    {formatNumber(info.nodeCacheCount)} nodes cached<br />
+                    {formatNumber(info.nodeCacheHits)} node cache hits<br />
+                    {formatNumber(info.nodeCacheMisses)} node cache misses<br />
+                    {formatNumber(info.nodeCacheOverflows)} node cache overflows<br />
                     <Button mt="sm" variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
                 </Panel>
                 <Panel title="Content" span={3}>
-                    {Object.entries(currentInfo.typeCounts).map(([type, count]) => (
+                    {Object.entries(info.typeCounts).map(([type, count]) => (
                         <div key={type}>{type}: {count}</div>
                     ))}
 

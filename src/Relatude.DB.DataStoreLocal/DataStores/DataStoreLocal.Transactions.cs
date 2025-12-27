@@ -13,6 +13,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
+        validateDatabaseState();
         ctx ??= _defaultQueryCtx;
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
         if (!flush && _wal.GetQueueActionCount() >= Settings.ForceDiskFlushAfterActionCountLimit) { // if no flush is specified, and above limit, do a flush
@@ -64,9 +65,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             LogError("Transaction Error. ", err);
             throw;
         } catch (Exception err) {
-            _state = DataStoreState.Error;
-            logCriticalTransactionError("Critical Transaction Error. ", err, transaction);
-            throw new Exception("Critical error. Database left in unknown state. Restart required. ", err);
+            throw createCriticalErrorAndSetDbToErrorState("Critical Transaction Error. ", err, transaction);
         } finally {
             _lock.ExitWriteLock();
             try {

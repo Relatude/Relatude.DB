@@ -13,6 +13,7 @@ using Relatude.DB.NodeServer.Settings;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Runtime;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer;
 
@@ -174,8 +175,16 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });
         app.MapPost(path("is-file-prefix-legal"), (string filePrefix) => new { IsLegal = FileKeyUtility.IsFilePrefixValid(filePrefix, out _) });
-        app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId)));
-        app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings.LocalSettings!.FilePrefix).WAL_NextFileKey(server.GetIO(ioId)));
+        app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => {
+            var settings = container(storeId).Settings;
+            if (settings.IoDatabase != ioId) return string.Empty;
+            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId));
+        });
+        app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => {
+            var settings = container(storeId).Settings;
+            if (settings.IoDatabase != ioId) return string.Empty;
+            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_NextFileKey(server.GetIO(ioId));
+        });
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
             var ioStream = server.GetIO(ioId).OpenRead(fileName, 0);
@@ -239,7 +248,10 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
         app.MapPost(path("clean-temp-files"), () => server.TempIO.GetFiles().ForEach(file => { try { server.TempIO.DeleteIfItExists(file.Key); } catch { } }));
         app.MapPost(path("get-size-temp-files"), () => new { TotalSize = server.TempIO.GetFiles().Sum(file => file.Size) });
-        app.MapGet(path("download-truncated-db"), (Guid storeId) => {
+        app.MapGet(path("download-truncated-db"), (Guid storeId, string namePrefix) => {
+            namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
+            if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
+            if (namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
             var fileKey = Guid.NewGuid().ToString();
             db(storeId).Datastore.RewriteStore(false, fileKey, server.TempIO);
             var ioStream = server.TempIO.OpenRead(fileKey, 0);
@@ -248,9 +260,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
             //var fileName = datastore.FileKeys.Log_NextFileKey(datastore.IO);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName);
+            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
         });
-        app.MapGet(path("download-full-db"), (Guid storeId) => {
+        app.MapGet(path("download-full-db"), (Guid storeId, string namePrefix) => {
+            namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
+            if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
+            if(namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
             var fileKey = Guid.NewGuid().ToString();
             var datastore = container(storeId).Store!.Datastore;
             datastore.CopyStore(fileKey, server.TempIO);
@@ -260,7 +275,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
             //var fileName = datastore.FileKeys.Log_NextFileKey(datastore.IO);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName);
+            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
         });
         app.MapPost(path("copy-file"), (Guid storeId, Guid fromIoId, string fromFileName, Guid toIoId, string toIoFileName) => {
             ensurePrefix(storeId, ref fromFileName);
