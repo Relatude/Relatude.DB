@@ -34,7 +34,7 @@ public class RelatudeDBTester : ITester {
         dm.Add<TestCompany>();
         dm.Add<TestDocument>();
         var settings = new SettingsLocal();
-        settings.WriteSystemLogConsole = true;
+        settings.WriteSystemLogConsole = false;
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
         settings.SecondaryBackupLog = false;

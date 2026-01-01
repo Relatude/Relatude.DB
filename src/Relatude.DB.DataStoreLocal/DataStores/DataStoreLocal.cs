@@ -349,7 +349,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { _scheduler.Stop(); } catch { }
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
-        try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
         try { if (_state == DataStoreState.Open) FlushToDisk(true, 0); } catch { }
         try { _index?.Dispose(); } catch { }
         try { _wal?.Dispose(); } catch { }
@@ -363,5 +362,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { this._ioAutoBackup.CloseAllOpenStreams(); } catch { }
         try { this._ioLog.CloseAllOpenStreams(); } catch { }
         try { this._ioLog2.CloseAllOpenStreams(); } catch { }
+        try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
     }
 }
