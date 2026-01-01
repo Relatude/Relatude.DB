@@ -127,7 +127,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         PersistedIndexStore?.ResetAll();
     }
     public void Maintenance(MaintenanceAction a) {
-        if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) RewriteStore(true, _fileKeys.WAL_NextFileKey(_io));
+        if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) {
+            var task = new RewriteTask() {
+                HotSwapToNewFile = true,
+                DeleteOldDbFilesAfterHotSwap = a.HasFlag(MaintenanceAction.DeleteOldLogs),
+                NewLogFileKey = _fileKeys.WAL_NextFileKey(_io),
+                IO = _io,
+                Truncate = true,
+            };
+            EnqueueTask(task);
+        }
         if (a.HasFlag(MaintenanceAction.TruncateIndexes)) TruncateIndexes();
         if (a.HasFlag(MaintenanceAction.DeleteOldLogs)) DeleteOldLogs();
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();
@@ -217,6 +226,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 info.TypeCounts.Add(t.Model.FullName, _definition.GetCountForTypeForStatusInfo(t.Id));
             }
 
+            info.QueuedTaskEstimatedMsUntilEmpty = (long?)TaskQueue.EstimateDurationUntilEmpty()?.TotalMilliseconds ?? 0;
+            info.QueuedTaskEstimatedMsUntilEmptyPersisted = (long?)TaskQueuePersisted?.EstimateDurationUntilEmpty()?.TotalMilliseconds ?? 0;
+
             info.QueuedTasksPending = TaskQueue.CountTasks(BatchState.Pending);
             info.QueuedTaskStateCounts = TaskQueue.TaskCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value);
             info.QueuedTasksPendingPersisted = TaskQueuePersisted?.CountTasks(Tasks.BatchState.Pending) ?? 0;
@@ -241,6 +253,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             try { info.IndexFileSize = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
             info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 
+            lock (_isRewritingOrCopyingLock) {
+                info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey : null;
+            }
 
             _sets.AddInfo(info);
             info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);

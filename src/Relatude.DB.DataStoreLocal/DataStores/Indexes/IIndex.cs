@@ -29,5 +29,4 @@ public interface IIndex : IDisposable {
     long PersistedTimestamp { get; set; }
 
     void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId);
-
 }

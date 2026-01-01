@@ -40,6 +40,14 @@ namespace Relatude.DB.IO {
             _writeBuffer = new MemoryStream();
             _length = _appendBlobClient.GetProperties().Value.ContentLength;
         }
+        long _bytesRead;
+        long _bytesWritten;
+        public long GetBytesWritten() => _bytesWritten;
+        public long GetBytesRead() => _bytesRead;
+        public void ResetByteCounter() {
+            _bytesRead = 0;
+            _bytesWritten = 0;
+        }
         long _length = 0;
         public long Length {
             get {
@@ -55,6 +63,7 @@ namespace Relatude.DB.IO {
                 _checkSum.EvaluateChecksumIfRecording(data);
                 _writeBuffer.Write(data, 0, data.Length);
                 _length += data.Length;
+                _bytesWritten += data.Length;
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
@@ -87,6 +96,8 @@ namespace Relatude.DB.IO {
             lock (_lock) {
 
                 if (count > _length - position) throw new Exception("Read beyond end of file");
+
+                _bytesRead += count;
 
                 // Try using write buffer
                 var writeBufferOffset = _length - _writeBuffer.Length;

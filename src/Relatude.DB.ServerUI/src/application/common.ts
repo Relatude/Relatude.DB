@@ -32,6 +32,18 @@ export function formatTimeSpan(ms: number): string {
     if(ms<3000) timestring = milliseconds + " ms";
     return timestring;
 }
+export function formatTimeSpanShort(ms: number): string {
+     // HH:mm:ss
+    ms = Math.floor(ms);
+    const seconds = Math.floor((ms / 1000) % 60);
+    const minutes = Math.floor((ms / (1000 * 60)) % 60);
+    const hours = Math.floor((ms / (1000 * 60 * 60)));
+    const hh = hours.toString().padStart(2, '0');
+    const mm = minutes.toString().padStart(2, '0');
+    const ss = seconds.toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+
+}
 // HH:mm:ss
 export function formatTimeOfDay(date: Date): string {
     const hours = date.getHours().toString().padStart(2, '0');

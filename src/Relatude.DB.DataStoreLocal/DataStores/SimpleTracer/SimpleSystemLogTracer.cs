@@ -4,11 +4,13 @@
 /// </summary>
 internal class SimpleSystemLogTracer {
     readonly int maxEntries = 1000;
-    readonly Queue<TraceEntry> _entries = [];
-    public void Trace(SystemLogEntryType type, string text, string? details = null) {
+    readonly LinkedList<TraceEntry> _entries = [];
+    public void Trace(SystemLogEntryType type, string text, string? details = null, bool replace = false) {
         lock (_entries) {
-            _entries.Enqueue(new TraceEntry(DateTime.UtcNow, type, text, details));
-            while (_entries.Count > maxEntries) _entries.Dequeue();
+            var entry = new TraceEntry(DateTime.UtcNow, type, text, details);
+            if (replace && _entries.Count > 0) _entries.RemoveLast();
+            _entries.AddLast(entry);
+            while (_entries.Count > maxEntries) _entries.RemoveFirst();
         }
     }
     public DateTime GetLatest() {

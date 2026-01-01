@@ -120,7 +120,7 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     public void LogOut(HttpContext context) {
         context.Response.Cookies.Delete(settings.TokenCookieName, getTokenCookieOptions(null));
     }
-
+    
     // Authorization middleware
     public Task AuthorizationMiddleware(HttpContext context, Func<Task> next) {
         if (requireAuthentication(context) && !authenticationIsValid(context)) {
@@ -129,23 +129,45 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         }
         return next();
     }
+    public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
+        if (!server.AnyRemaingToAutoOpenIncludingFailed) {
+            await next();
+            return;
+        }
+        if (RequestIsUnderUrl(ctx, ServerAPIMapper.GlobalPublicStatusUrl)) {
+            // respond with status info directly, making sure other middlewares are not involved
+            var result = ServerAPIMapper.StatusResponse(server);
+            await ctx.Response.WriteAsJsonAsync(result);
+            return;
+        }
+        if (RequestIsUnderUrl(ctx, server.ApiUrlRoot)) {
+            // allow access to API urls, DB admin works as usual
+            await next();
+            return;
+        }
+        // any other request during startup will respond with startup progress page ( typically the root / )
+        ctx.Response.StatusCode = 503; // Service Unavailable
+        ctx.Response.ContentType = "text/html";
+        ctx.Response.Headers.RetryAfter = "10"; // suggest retry after 5 seconds
+        var html = ServerAPIMapper.GetResource("ClientStart.start.html");
+        html = html.Replace("GLOBALSTATUSURL", ServerAPIMapper.GlobalPublicStatusUrl);
+        await ctx.Response.WriteAsync(html);
+    }
+
     bool requireAuthentication(HttpContext context) {
-        if (requestIsUnderUrl(context, server.ApiUrlRoot)) {
-            if (requestIsUnderUrl(context, server.ApiUrlPublic)) {
-                //Console.WriteLine("Public, url: " + context.Request.Path.Value);
+        if (RequestIsUnderUrl(context, server.ApiUrlRoot)) {
+            if (RequestIsUnderUrl(context, server.ApiUrlPublic)) {
                 return false; // except for the login page:
-            } else if (requestIsOnUrl(context, server.ApiUrlRoot)) {
-                //Console.WriteLine("Root , url: " + context.Request.Path.Value);
+            } else if (RequestIsOnUrl(context, server.ApiUrlRoot)) {
                 return false; // root, no authentication required ( index html, css, js )
             } else {
-                //Console.WriteLine("Authorizing!!!, url: " + context.Request.Path.Value);
                 return true;
             }
         }
         //Console.WriteLine("Not relevant , url: " + context.Request.Path.Value);
         return false; // no authentication required for other URLs
-    }
-    static bool requestIsOnUrl(HttpContext context, string rootPath) {
+    }    
+    public static bool RequestIsOnUrl(HttpContext context, string rootPath) {
         var path = context.Request.Path.Value;
         if (path == null) return false;
         if (path.StartsWith('/')) path = path[1..];
@@ -153,7 +175,7 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         if (rootPath.StartsWith('/')) rootPath = rootPath[1..];
         return string.Compare(path, rootPath, true) == 0;
     }
-    static bool requestIsUnderUrl(HttpContext context, string rootPath) {
+    public static bool RequestIsUnderUrl(HttpContext context, string rootPath) {
         var path = context.Request.Path.Value;
         if (path == null) return false;
         var rootPaths = rootPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -166,5 +188,6 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         }
         return true;
     }
+
 }
 

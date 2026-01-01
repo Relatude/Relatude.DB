@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { Table, Button, Group, Tabs, } from "@mantine/core";
+import { Table, Button, Group, Tabs, Card } from "@mantine/core";
 import { useApp } from "../../start/useApp";
 import { ServerLogEntry } from "../../application/models";
 import { Poller } from "../../application/poller";
+import { formatTimeSpan } from "../../application/common";
 
 export const component = () => {
   const app = useApp();
+  const [uptimeInMs, setUptimeInMs] = useState<number>(0);
 
   const [serverLog, setServerLog] = useState<ServerLogEntry[]>();
   useEffect(() => {
     const poller = new Poller(async () => {
       setServerLog(await app.api.server.getServerLog());
+      const uptime =  await app.api.status.uptimeInMs();
+      setUptimeInMs(uptime);
     });
     return () => { poller.dispose(); }
   }, []);
@@ -28,6 +32,11 @@ export const component = () => {
   }
   return (
     <>
+      <Card withBorder>
+          <Group>
+            <div>Server Uptime: {formatTimeSpan(uptimeInMs)}</div>              
+          </Group>
+      </Card>
       <Tabs defaultValue="databases">
         <Tabs.List>
           <Tabs.Tab value="databases" >Databases</Tabs.Tab>

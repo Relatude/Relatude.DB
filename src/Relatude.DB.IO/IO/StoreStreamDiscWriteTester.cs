@@ -22,6 +22,14 @@ public class StoreStreamDiscWriteTester : IAppendStream {
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
         _stream = getStream(_filePath);
     }
+    long _bytesRead;
+    long _bytesWritten;
+    public long GetBytesWritten() => _bytesWritten;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() {
+        _bytesRead = 0;
+        _bytesWritten = 0;
+    }
 
     const int numberOfRetries = 5;
     FileStream getStream(string filePath) {
@@ -46,6 +54,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
 #endif
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
+            _bytesWritten += data.Length;
             if (!_unflushed) _unflushed = true;
 #if DEBUG
         } finally {
@@ -100,6 +109,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _stream.Position = position;
             _stream.Read(buffer, 0, count);
             _stream.Position = position1;
+            _bytesRead += count;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();

@@ -8,7 +8,7 @@ export const Activity = (P: { level: number, activities?: DataStoreActivityBranc
     return <>
         {P.activities?.map((status, index) => (
             <>
-                <Group key={index} style={{ marginLeft: (P.level > 0 ? 40 : 0), marginTop: P.level > 0 ? -10 : 30, width: '100%' }} >
+                <Group key={status.activity.id} style={{ marginLeft: (P.level > 0 ? 40 : 0), marginTop: P.level > 0 ? -10 : 30, width: '100%' }} >
                     {P.level == 0 ? <IconActivityHeartbeat size={iconSize} stroke={iconStroke} /> : null}
                     <>
                         <Text size={P.level == 0 ? "md" : "sm"}>{(status.activity.description ? status.activity.description : status.activity.category)}</Text>

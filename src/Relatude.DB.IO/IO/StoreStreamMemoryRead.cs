@@ -14,6 +14,9 @@ public class StoreStreamMemoryRead : IReadStream {
         _position = position;
         _onDispose = onDispose;
     }
+    long _bytesRead;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey { get; }
     public long Position { get => _position;  set => _position = value; }
     public bool More() => _position < _bytes.Length;

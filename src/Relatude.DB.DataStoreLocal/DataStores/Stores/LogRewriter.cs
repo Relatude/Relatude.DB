@@ -1,5 +1,5 @@
-﻿using Relatude.DB.DataStores.Definitions;
-using Relatude.DB.DataStores.Indexes;
+﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Relations;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -38,6 +38,7 @@ internal class LogRewriter {
     readonly Definition _definition;
     readonly IIOProvider _destIO;
     public readonly string FileKey;
+    public bool _cancelled = false;
     List<ExecutedPrimitiveTransaction> _newTransactionsWhileRewriting;
     (int nodeId, NodeSegment segment)[] _snapshot;
     public Dictionary<int, NodeSegment> _newSegements;
@@ -71,6 +72,13 @@ internal class LogRewriter {
         }, null, null); // no ValueIndex store, or secondary log store
         _newTransactionsWhileRewriting = new();
     }
+    public void Cancel(FileKeyUtility fileKeys) {
+        _cancelled = true;
+        _newWAL.Dispose();
+        _destIO.DeleteIfItExists(FileKey);
+        DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey);        
+        CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO, fileKeys);
+    }
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
         lock (_newTransactionsWhileRewriting) _newTransactionsWhileRewriting.Add(t);
     }
@@ -82,7 +90,8 @@ internal class LogRewriter {
         var i = 0;
         foreach (var chunk in chunks) {
             i++;
-            reportProgress("Rewriting node " + i * chunkSize + " of " + _snapshot.Length, 10 + (70 * i / chunks.Length));
+            if(_cancelled)  throw new OperationCanceledException("Log rewrite cancelled. ");
+            reportProgress("Writing node " + (i * chunkSize).To1000N() + " of " + _snapshot.Length.To1000N(), 10 + (70 * i / chunks.Length));
             var segmentBytes = _threadSafeReadSegments(chunk.Select(c => c.segment).ToArray(), out _);
             var actions = new List<PrimitiveActionBase>(segmentBytes.Length);
             foreach (var bytes in segmentBytes) {
@@ -97,7 +106,8 @@ internal class LogRewriter {
         i = 0;
         foreach (var r in _relations) {
             i++;
-            reportProgress("Rewriting relation " + i + " of " + _relations.Length, 80 + (10 * i / _relations.Length));
+            if(_cancelled)  throw new OperationCanceledException("Log rewrite cancelled. ");
+            reportProgress("Writing relation " + i + " of " + _relations.Length, 80 + (10 * i / _relations.Length));
             var actions = new List<PrimitiveActionBase>(r.relations.Count());
             foreach (var rel in r.relations) {
                 var action = new PrimitiveRelationAction(PrimitiveOperation.Add, r.relId, rel.Source, rel.Target, rel.DateTimeUtc);
@@ -118,18 +128,24 @@ internal class LogRewriter {
         if (_finalizing) throw new Exception("Finalizing already started. ");
         _finalizing = true;
 
-        foreach (var t in _newTransactionsWhileRewriting) _newWAL.QueDiskWrites(t); // final transactions, added while last step was running
+        foreach (var t in _newTransactionsWhileRewriting) {
+            if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
+            _newWAL.QueDiskWrites(t); // final transactions, added while last step was running
+        }
         _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true); // flush all writes to disk, so that the new file is ready to be used
         _newWAL.Dispose(); // dispose new store, so that it can be used by the db
         if (swapToNewFile) {
+            if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
             // if swapping to new file, all node segments must be registered, so that the new file is used
             oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp); // replace old log file with new, and allow db to continue
             foreach (var node in _newSegements) {
+                if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
                 _registerNodeSegment(node.Key, node.Value); // ensuring that the new segments are registered in segment cache ( NodeStore )
             }
         }
     }
     internal void SetTimestamp(long timestamp) {
+        if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
         _newWAL.StoreTimestamp(timestamp);
     }
 }

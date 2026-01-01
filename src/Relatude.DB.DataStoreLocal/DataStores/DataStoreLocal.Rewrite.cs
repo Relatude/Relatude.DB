@@ -2,7 +2,6 @@
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
-using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 
@@ -23,10 +22,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
             _isRewritingOrCopying = true;
         }
-        var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Starting rewrite of log file", 0);
+        var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Rewriting to " + newLogFileKey, 0);
+        var subActivityId = RegisterChildActvity(activityId, DataStoreActivityCategory.Rewriting);
         try {
-            rewriteStore(activityId, hotSwapToNewFile, newLogFileKey, destinationIO);
+            rewriteStore(subActivityId, hotSwapToNewFile, newLogFileKey, destinationIO);
         } finally {
+            DeRegisterActivity(subActivityId);
             DeRegisterActivity(activityId);
             lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
         }
@@ -80,7 +81,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             // no block, allowing simulatenous writes or reads while log is being rewritten
             _rewriter.Step1_RewriteLog_NoLockRequired((string desc, int prg) => UpdateActivity(activityId, desc, prg)); // (10%-80%)
         } catch (Exception err) {
-            throw createCriticalErrorAndSetDbToErrorState("Error during log rewrite. ", err);
+            logError("Error during log rewrite. ", err, null, false);
+            throw new Exception("Error during log rewrite. ", err);
         }
         IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
         try {
@@ -104,6 +106,23 @@ public sealed partial class DataStoreLocal : IDataStore {
             _rewriter = null;
         } catch (Exception err) {
             throw createCriticalErrorAndSetDbToErrorState("Error finalizing log rewrite. ", err);
+        }
+    }
+    public string? CancelRunningRewriteIfAny() {
+        lock (_isRewritingOrCopyingLock) {
+            if (!_isRewritingOrCopying) return null; // cannot cancel if not in progress
+        }
+        _lock.EnterWriteLock();
+        try {
+            if (_rewriter != null) {
+                var fileKey = _rewriter.FileKey;
+                _rewriter.Cancel(FileKeys);
+                _rewriter = null;
+                return fileKey;
+            }
+            return null;
+        } finally {
+            _lock.ExitWriteLock();
         }
     }
 }

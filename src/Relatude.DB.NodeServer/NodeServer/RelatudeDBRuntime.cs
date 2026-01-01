@@ -15,5 +15,11 @@ public static class RelatudeDBRuntime {
 }
 public class RelatudeDBContext() {
     public RelatudeDBServer Server => RelatudeDBRuntime.Server;
-    public NodeStore Database => Server.Default;
+    public NodeStore Database {
+        get {
+            var store = Server.DefaultContainer?.Store;
+            if (store == null) throw new InvalidOperationException("Database store is not configured or not ready. ");
+            return store;
+        }
+    }
 }

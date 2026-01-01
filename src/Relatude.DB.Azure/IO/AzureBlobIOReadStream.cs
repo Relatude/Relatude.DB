@@ -14,6 +14,11 @@ public class AzureBlobIOReadStream : IReadStream {
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
+    long _bytesRead;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() {
+        _bytesRead = 0;
+    }
     public AzureBlobIOReadStream(BlobContainerClient container, string fileKey, long position, bool lockBlob, Action disposeCallback) {
         FileKey = fileKey;
         _disposeCallback = disposeCallback;
@@ -56,6 +61,7 @@ public class AzureBlobIOReadStream : IReadStream {
         }
         Position += length;
         _checksum.EvaluateChecksumIfRecording(result);
+        _bytesRead += length;
         return result;
     }
     public void Skip(long length) {

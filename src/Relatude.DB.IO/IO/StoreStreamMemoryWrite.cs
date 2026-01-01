@@ -14,11 +14,20 @@ public class StoreStreamMemoryWrite : IAppendStream {
         _onDispose = onDispose;
         FileKey = name;
     }
+    long _bytesRead;
+    long _bytesWritten;
+    public long GetBytesWritten() => _bytesWritten;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() {
+        _bytesRead = 0;
+        _bytesWritten = 0;
+    }
     public void Append(byte[] data) {
         lock (_lock) {
             if (_isDisposed) throw new ObjectDisposedException("Stream is disposed. ");
             _ms.Write(data, 0, data.Length);
             _checkSum.EvaluateChecksumIfRecording(data);
+            _bytesWritten += data.Length;
         }
     }
     public void Flush(bool deepFlush) { }
@@ -40,6 +49,7 @@ public class StoreStreamMemoryWrite : IAppendStream {
             _ms.Position = position;
             _ms.Read(buffer, 0, count);
             _ms.Position = position1;
+            _bytesRead += count;
         }
     }
     public void RecordChecksum() {

@@ -19,6 +19,7 @@ public class TaskQueue : IDisposable {
     bool _isShuttingdown = false;
     bool _hasShutdown = false;
     bool _isExecuting = false;
+    RunningZeroEstimator runningZeroEstimator = new(10, TimeSpan.FromMinutes(10));
     void emptyBuffer() {
         if (_batchBufferByTypeAndJobId.Count > 0) { // move all batches to the queues
             foreach (var kvp in _batchBufferByTypeAndJobId) {
@@ -52,6 +53,12 @@ public class TaskQueue : IDisposable {
             return _queue.BatchCountsPerState();
         }
     }
+    public int Count(BatchState[] states) {
+        lock (_lock) {
+            emptyBuffer();
+            return states.Sum(_queue.CountTasks);
+        }
+    }
     public KeyValuePair<BatchState, int>[] TaskCountsPerState() {
         lock (_lock) {
             emptyBuffer();
@@ -76,9 +83,9 @@ public class TaskQueue : IDisposable {
             } else {
                 _batchBufferByTypeAndJobId.Add(batchKey, runner.CreateBatchWithOneTask(task, state, jobId));
             }
-            _taskQueuedSinceLastMetric++;
         }
     }
+    DateTime _lastReportedCount = DateTime.MinValue;
     public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort, long parentActivityId) {
         var results = new List<BatchTaskResult>();
         if (_isShuttingdown) return [];
@@ -86,6 +93,10 @@ public class TaskQueue : IDisposable {
         var totalMs = Stopwatch.StartNew();
         var taskNo = 0;
         while (!_isShuttingdown) {
+            if(_lastReportedCount < DateTime.UtcNow.AddSeconds(-1)) {
+                runningZeroEstimator.ReportValue(_queue.CountTasks(BatchState.Pending));
+                _lastReportedCount = DateTime.UtcNow;
+            }
             long childActivityId = -1;
             if (abort()) break; // allow external abort
             if (totalMs.ElapsedMilliseconds >= maxDurationMs) break;
@@ -96,7 +107,10 @@ public class TaskQueue : IDisposable {
                 emptyBuffer();
                 nextBatch = _queue.DequeueAndSetRunning(_runners);
             }
-            if (nextBatch == null) break; // no more tasks to process
+            if (nextBatch == null) {
+                runningZeroEstimator.ReportValue(0);
+                break; // no more tasks to process
+            }
             taskNo += nextBatch.TaskCount;
             TaskLogger? taskLogging = null;
             if (_store.Logger.LoggingTask) {
@@ -125,13 +139,11 @@ public class TaskQueue : IDisposable {
                     }
                 }
                 result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount);
-                _taskExecutedSinceLastMetric += nextBatch.TaskCount;
             } catch (Exception err) {
                 lock (_lock) {
                     _queue.Set(nextBatch.Meta.BatchId, err);
                 }
                 result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount, err);
-                _taskFailedSinceLastMetric += nextBatch.TaskCount;
             } finally {
                 if (childActivityId > -1) _store.DeRegisterActivity(childActivityId);
             }
@@ -173,7 +185,7 @@ public class TaskQueue : IDisposable {
             int deletedCount = 0;
             foreach (var runner in _runners.Values) {
                 foreach (var state in Enum.GetValues<BatchState>()) {
-                    var maxAge = runner.GetMaximumAgeInPersistedQueuePerState(state);
+                    var maxAge = runner.GetMaximumAgeInQueuePerState(state);
                     if (maxAge == TimeSpan.MaxValue) continue; // no expiration for this state
                     if (maxAge <= TimeSpan.Zero) maxAge = TimeSpan.Zero;
                     var cutoff = DateTime.UtcNow.SafeSubtract(maxAge);
@@ -234,7 +246,6 @@ public class TaskQueue : IDisposable {
         }
         return _hasShutdown;
     }
-
     public void FlushDisk() {
         lock (_lock) {
             //Stopwatch sw = Stopwatch.StartNew();
@@ -242,29 +253,9 @@ public class TaskQueue : IDisposable {
             //Console.WriteLine("Flushed disk in " + sw.Elapsed.TotalMilliseconds.ToString("0.00ms"));
         }
     }
-
-    int _taskExecutedSinceLastMetric;
-    public int TaskExecutedSinceLastMetric() {
-        lock (_lock) {
-            var count = _taskExecutedSinceLastMetric;
-            _taskExecutedSinceLastMetric = 0;
-            return count;
-        }
-    }
-    int _taskQueuedSinceLastMetric;
-    public int TaskQueuedSinceLastMetric() {
-        lock (_lock) {
-            var count = _taskQueuedSinceLastMetric;
-            _taskQueuedSinceLastMetric = 0;
-            return count;
-        }
-    }
-    int _taskFailedSinceLastMetric;
-    public int TaskFailedSinceLastMetric() {
-        lock (_lock) {
-            var count = _taskFailedSinceLastMetric;
-            _taskFailedSinceLastMetric = 0;
-            return count;
-        }
+    public TimeSpan? EstimateDurationUntilEmpty() {
+        if (runningZeroEstimator.TryEstimateDurationUntilZero(out var duration)) 
+            return duration;
+        return null;
     }
 }

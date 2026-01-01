@@ -9,15 +9,16 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     SimpleSystemLogTracer _tracer = new();
-    public void LogInfo(string text, string? details = null) => Log(SystemLogEntryType.Info, text, details);
+    public void LogInfo(string text, string? details = null, bool replace = false) => Log(SystemLogEntryType.Info, text, details, replace);
     public void LogWarning(string text, string? details = null) => Log(SystemLogEntryType.Warning, text, details);
     static object _consoleColorLock = new();
     static object _criticalLogLock = new();
-    public void Log(SystemLogEntryType type, string text, string? details = null) {
+    public void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false) {
         try {
             if (_settings.WriteSystemLogConsole) {
                 lock (_consoleColorLock) {
                     var originalColor = Console.ForegroundColor;
+                    if (replace && Console.CursorTop > 0) Console.SetCursorPosition(0, Console.CursorTop - 1);
                     Console.ForegroundColor = ConsoleColor.DarkCyan;
                     Console.Write("relatude.db ");
                     var color = type switch {
@@ -36,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } catch { }
         try {
-            _tracer.Trace(type, text, details);
+            _tracer.Trace(type, text, details, replace);
         } catch { }
         try {
             if (Logger.LoggingSystem) {
@@ -141,10 +142,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             NodeCacheSize = _nodes.CacheSize,
             SetCacheCount = _sets.CacheCount,
             SetCacheSize = _sets.CacheSize,
-            TasksExecuted = TaskQueue.TaskExecutedSinceLastMetric(),
-            TasksPersistedExecuted = TaskQueuePersisted.TaskExecutedSinceLastMetric(),
-            TasksQueued = TaskQueue.TaskQueuedSinceLastMetric(),
-            TasksPersistedQueued = TaskQueuePersisted.TaskQueuedSinceLastMetric(),
+            TasksQueued = TaskQueue.Count([BatchState.Pending, BatchState.Running]),
+            TasksPersistedQueued = TaskQueuePersisted.Count([BatchState.Pending, BatchState.Running]),
         };
         _noQueriesSinceLastMetric = 0;
         _noActionsSinceLastMetric = 0;

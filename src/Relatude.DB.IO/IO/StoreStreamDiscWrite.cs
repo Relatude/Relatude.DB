@@ -22,6 +22,14 @@ public class StoreStreamDiscWrite : IAppendStream {
         _stream = getStream(_filePath);
         _lastLength = _stream.Length;
     }
+    long _bytesRead;
+    long _bytesWritten;
+    public long GetBytesWritten() => _bytesWritten;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() {
+        _bytesRead = 0;
+        _bytesWritten = 0;
+    }
     const int numberOfRetries = 5;
     FileStream getStream(string filePath) {
         Exception? lastException = null;
@@ -43,6 +51,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         lock (_lock) {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
+            _bytesWritten += data.Length;
             if (!_unflushed) _unflushed = true;
         }
     }
@@ -77,6 +86,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _stream.Position = position;
             _stream.Read(buffer, 0, count);
             _stream.Position = position1;
+            _bytesRead += count;
         }
     }
     public void RecordChecksum() {
@@ -89,7 +99,6 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.WriteChecksum(this);
         }
     }
-
     bool _hasDisposed;
     public void Dispose() {
         try {

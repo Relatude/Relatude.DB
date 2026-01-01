@@ -21,6 +21,9 @@
     public bool DelayAutoDiskFlushIfBusy { get; set; } = true;
     public double MaxDelayAutoDiskFlushIfBusyInSeconds { get; set; } = 15;
 
+    public int BusyThresholdActivitiesLast10Sec { get; set; } = 100;
+    public int BusyThresholdQueriesLast10Sec { get; set; } = 1000;
+
     public bool AutoSaveIndexStates { get; set; } = true;
     public double AutoSaveIndexStatesIntervalInMinutes { get; set; } = 120;
     public int AutoSaveIndexStatesActionCountLowerLimit { get; set; } = 50000;

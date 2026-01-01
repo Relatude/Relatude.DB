@@ -55,7 +55,7 @@
         let errors = 0;
         async function updateProgress() {
             try {
-                const response = await fetch('/relatude.db-public-status', { method: "POST" });
+                const response = await fetch('/GLOBALSTATUSURL', { method: "POST" }); 
                 const status = await response.json();
                 if (status.responseCheck != "Valid") throw new Error("Invalid response from server");
                 if (status.starting) {

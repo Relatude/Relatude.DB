@@ -12,5 +12,8 @@ public interface IAppendStream : IStream{
     /// <param name="count">Bytes to read to buffer</param>
     /// <param name="buffer">Buffer to copy data to. Must be equal or bigger than count</param>
     /// <returns></returns>
-    void Get(long position, int count, byte[] buffer);    
+    void Get(long position, int count, byte[] buffer);
+    void ResetByteCounter();
+    long GetBytesRead();
+    long GetBytesWritten();
 }

@@ -22,6 +22,7 @@ namespace Relatude.DB.NodeServer;
 /// class, ensure that the server is properly initialized by calling <see cref="StartAsync"/>. Attempting to access
 /// certain properties or methods before initialization may result in exceptions. </para></remarks>
 public partial class RelatudeDBServer {
+    DateTime _initialized = DateTime.UtcNow;
     public RelatudeDBServer(string? urlPath) {
         if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
         if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
@@ -32,7 +33,7 @@ public partial class RelatudeDBServer {
         EventHub.RegisterPoller(new DataStoreInfoEventPoller());
         EventHub.RegisterPoller(new DataStoreTraceEventPoller());
     }
-
+    public TimeSpan UpTime => DateTime.UtcNow - _initialized;
     // simple startup log to help with debugging startup issues
     readonly Queue<Tuple<DateTime, string>> _serverLog = [];
     public void Log(string msg) {
@@ -96,51 +97,18 @@ public partial class RelatudeDBServer {
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public bool DefaultStoreIsOpen() => _defaultContainer != null && _defaultContainer.IsOpen();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
-    public NodeStore Default => GetDefaultStoreAndWaitIfOpening();
-    public NodeStore GetDefaultStoreAndWaitIfOpening(int timeoutSec = 60 * 15) {
-        if (_defaultContainer == null) throw new Exception("No default store container found or initialized. ");
-        return GetStoreAndWaitIfOpening(_defaultContainer.Settings.Id, timeoutSec);
-    }
-    public NodeStore GetStoreAndWaitIfOpening(Guid storeId, int timeoutSec = 60 * 15) {
-        if (!Containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
-        var sw = Stopwatch.StartNew();
-        if (container.Settings.AutoOpen) { // if auto open is enabled, we have to wait for first initialization, otherwise .datastore will be null
-            while (true) {
-                if (container.StartUpException != null)                    throw new Exception("Unable to open database.", container.StartUpException);
-                if (sw.Elapsed.TotalSeconds > timeoutSec) throw new Exception("Timeout waiting for store to start initializing.");
-                if(container.IsOpen()) return container.Store!;
-                Thread.Sleep(100);
-            }
-        }
-        var store = container.Store;
-        if (store == null) throw new Exception("Store not initialized. ");
-        return store;
-    }
     public int GetStartingProgressEstimate() {
         try {
             var combinedProgress = _containersToAutoOpen.Sum(c => {
                 if (c.Store?.Datastore == null) return 0;
                 if (c.Store?.Datastore.State != DataStoreState.Opening) return 100;
-                var status = c.Store.Datastore.GetStatus();
-                var activity = status.ActivityTree.FirstOrDefault(a => a.Activity.Category == DataStoreActivityCategory.Opening)?.Children.FirstOrDefault()?.Activity;
-                if (activity == null) return 100;
-                var progress = activity.PercentageProgress;
-                if (!progress.HasValue) return 0;
-                return progress.Value;
+                var status = c.Store.Datastore.GetStartupProgressEstimate();
+                return status;
             });
             return (int)Math.Ceiling((double)combinedProgress / _containersToAutoOpen.Length);
         } catch (Exception err) {
             Log("Error occurred during progress estimate: " + err.Message);
             return 0;
-        }
-    }
-    public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
-        if (AnyRemaingToAutoOpen && ctx.Request.Path == "/") {
-            ctx.Response.ContentType = "text/html";
-            var html = ServerAPIMapper.GetResource("ClientStart.start.html");
-            await ctx.Response.WriteAsync(html);
-        } else {
-            await next();
         }
     }
     public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
@@ -190,7 +158,7 @@ public partial class RelatudeDBServer {
         _authentication = new(this);
     }
     int _remaingToAutoOpenCount = 0;
-    public bool AnyRemaingToAutoOpen => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
+    public bool AnyRemaingToAutoOpenIncludingFailed => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
     void autoOpenContainer(NodeStoreContainer container, bool throwException) {
         try {
             var sw = Stopwatch.StartNew();
@@ -243,27 +211,38 @@ public partial class RelatudeDBServer {
     }
     internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        try {
-            OnStoreOpen?.Invoke(nodeStoreContainer, store);
-        } catch (Exception err) {
-            Log("Error occurred during OnStoreOpen event: " + err.Message);
-        }
+        if (OnStoreOpen == null) return;
+        ThreadPool.QueueUserWorkItem((_) => {
+            try {
+                if (nodeStoreContainer == null) return;
+                OnStoreOpen?.Invoke(nodeStoreContainer, store);
+            } catch (Exception err) {
+                Log("Error occurred during OnStoreOpen event: " + err.Message);
+            }
+        });
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        try {
-            OnStoreInit?.Invoke(nodeStoreContainer, store);
-        } catch (Exception err) {
-            Log("Error occurred during OnStoreInit event: " + err.Message);
-        }
+        if (OnStoreOpen == null) return;
+        ThreadPool.QueueUserWorkItem((_) => {
+            try {
+                if (nodeStoreContainer == null) return;
+                OnStoreInit?.Invoke(nodeStoreContainer, store);
+            } catch (Exception err) {
+                Log("Error occurred during OnStoreInit event: " + err.Message);
+            }
+        });
     }
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (nodeStoreContainer == null) return;
-        try {
-            OnStoreDispose?.Invoke(nodeStoreContainer, store);
-        } catch (Exception err) {
-            Log("Error occurred during OnStoreDispose event: " + err.Message);
-        }
+        if (OnStoreOpen == null) return;
+        ThreadPool.QueueUserWorkItem((_) => {
+            try {
+                if (nodeStoreContainer == null) return;
+                OnStoreDispose?.Invoke(nodeStoreContainer, store);
+            } catch (Exception err) {
+                Log("Error occurred during OnStoreDispose event: " + err.Message);
+            }
+        });
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
         lock (_ios) {
@@ -306,7 +285,7 @@ public partial class RelatudeDBServer {
         }
     }
     public IIOProvider? GetOrNullIO(Guid? id) {
-        if(id == null) return null;
+        if (id == null) return null;
         return GetIO(id.Value);
     }
     public IIOProvider GetIO(Guid id) {

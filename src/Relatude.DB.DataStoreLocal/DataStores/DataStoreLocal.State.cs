@@ -82,26 +82,35 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
-
-        LogInfo("Reading indexes:");
+        LogInfo("Reading indexes:"); // progress 0-50%
         try {
             _index.ReadStateForMemoryIndexes((txt, prg) => {
-                LogInfo("   " + txt);
-                UpdateActivity(activityId, "Reading index " + txt, prg / 10);
+                LogInfo(" - " + txt);
+                UpdateActivity(activityId, "Reading index " + txt, prg / 2);
+                setStartupProgressEstimate(1 + prg / 2);
             }, walFileId); // could introduce lazy loading of indexes later....
             if (PersistedIndexStore != null) {
                 if (PersistedIndexStore.WalFileId == Guid.Empty) {
                     PersistedIndexStore.SetWalFileId(walFileId);
-                    LogInfo("   Persisted indexes initialized with log file id.");
+                    LogInfo(" - Persisted indexes initialized with log file id.");
                 } else if (PersistedIndexStore.WalFileId != walFileId) {
                     PersistedIndexStore.ResetAll();
-                    LogInfo("   Persisted indexes reset, log file id different.");
+                    LogInfo(" - Persisted indexes reset, log file id different.");
                 }
             }
         } catch (Exception err) {
             var errMsg = "Failed loading memory index states. " + err.Message;
-            throw new StateFileReadException(errMsg, err);
+            if (err.CausedByOutOfMemory()) {
+                // do not try to continue if out of memory, as it will delete state file 
+                // throwing this will abort loading process ( as the open method will rethrow it, and not try again after deleting state file )
+                throw new Exception(errMsg, err);
+            } else {
+                // try to continue with loading from log file
+                // throwing IndexReadException will cause a delete of all state files and a new try of reload in the open method
+                throw new StateFileReadException(errMsg, err);
+            }
         }
+        // reading statefile progress 50-55%
         if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
@@ -109,6 +118,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             try {
                 LogInfo("Reading state file");
                 UpdateActivity(activityId, "Reading state file", 0);
+                setStartupProgressEstimate(50);
                 using var stream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0);
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
@@ -126,12 +136,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
+                setStartupProgressEstimate(52);
                 UpdateActivity(activityId, "Reading native models", 8); // 8%-10%
+                setStartupProgressEstimate(53);
                 _nativeModelStore.ReadState(stream);
+                setStartupProgressEstimate(54);
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
+                setStartupProgressEstimate(55);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
@@ -162,7 +176,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         long bytesToRead = walFileSize - readLogFileFom;
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString() + " to read)");
         UpdateActivity(activityId, "Reading log file", 0);
-        sw.Restart();
         var lastProgress = 0D;
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
@@ -171,6 +184,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
+            LogInfo(""); // to enable progress log on new line
+            sw.Restart();
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
                 actionCountInTransaction = 0;
@@ -192,9 +207,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                         var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
                         lastProgress = (int)sw.ElapsedMilliseconds;
                         var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
-                        LogInfo(desc);
+                        LogInfo(desc, null, true);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
                         UpdateActivity(activityId, desc.Trim(), progressBar);
+                        setStartupProgressEstimate(progressBar / 2 + 50);
                         lastBytesRead = readBytes;
                     }
                     if (isTransactionRelevantForIndexes) {

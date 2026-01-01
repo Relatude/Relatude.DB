@@ -5,10 +5,6 @@ namespace Relatude.DB.DataStores;
 public class DataStoreInfo {
 
     public Dictionary<string, int> TypeCounts { get; set; } = [];
-    public Dictionary<string, int> QueuedTaskStateCounts { get; set; } = [];
-    public Dictionary<string, int> QueuedTaskStateCountsPersisted { get; set; } = [];
-    public Dictionary<string, int> QueuedBatchesStateCounts { get; set; } = [];
-    public Dictionary<string, int> QueuedBatchesStateCountsPersisted { get; set; } = [];
 
     public DateTime Created { get; } = DateTime.UtcNow;
     public bool IsFresh { get; set; }
@@ -28,7 +24,6 @@ public class DataStoreInfo {
     public string? LogFileKey { get; set; }
     public long LogFileSize { get; set; }
     public long LogStateFileSize { get; set; }
-
     public long TotalFileSize { get; set; }
     public long FileStoreSize { get; set; }
     public long LoggingFileSize { get; set; }
@@ -40,6 +35,8 @@ public class DataStoreInfo {
     public long CountTransactionsSinceClearCache { get; set; }
     public long CountQueriesSinceClearCache { get; set; }
     public long CountNodeGetsSinceClearCache { get; set; }
+
+    public string? RunningRewriteFile { get; set; }
 
     public long DatamodelPropertyCount { get; set; }
     public long DatamodelNodeTypeCount { get; set; }
@@ -71,9 +68,14 @@ public class DataStoreInfo {
 
     public int QueuedTasksPending { get; set; }
     public int QueuedTasksPendingPersisted { get; set; }
-
     public int QueuedBatchesPending { get; set; }
     public int QueuedBatchesPendingPersisted { get; set; }
+    public Dictionary<string, int> QueuedTaskStateCounts { get; set; } = [];
+    public Dictionary<string, int> QueuedTaskStateCountsPersisted { get; set; } = [];
+    public Dictionary<string, int> QueuedBatchesStateCounts { get; set; } = [];
+    public Dictionary<string, int> QueuedBatchesStateCountsPersisted { get; set; } = [];
+    public long QueuedTaskEstimatedMsUntilEmpty { get; set; }
+    public long QueuedTaskEstimatedMsUntilEmptyPersisted { get; set; }
 
     public long ProcessWorkingMemory { get; set; }
     public double CpuUsagePercentage { get; set; }

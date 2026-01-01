@@ -4,6 +4,13 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.Tasks;
 // Not threadsafe, handled by outer TaskQueue
+// Uses an append-only file to persist batches to disk
+// On startup, reads the file and reconstructs the in-memory state
+// File format:
+// [Marker][StateFlag][BatchMetaLength][BatchMeta][BatchDataLength][BatchData]...
+// StateFlag: 10 = deleted, 20 = not deleted
+// Marker: fixed Guid to identify start of a batch record
+
 public class DefaultQueueStore : IQueueStore {
     IIOProvider? _io;
     readonly bool _persistToDisk;

@@ -11,15 +11,16 @@ namespace Relatude.DB.DataStores;
 
 public interface IDataStore : IDisposable {
 
-    void LogInfo(string text, string? details = null);
+    void LogInfo(string text, string? details = null, bool replace = false);
     void LogWarning(string text, string? details = null);
     void LogError(string description, Exception error);
-    void Log(SystemLogEntryType type, string text, string? details = null);
+    void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false);
     TraceEntry[] GetSystemTrace(int skip, int take);
     DateTime GetLatestSystemTraceTimestamp();
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
+    int GetStartupProgressEstimate();
 
     long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
     long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
@@ -94,7 +95,9 @@ public interface IDataStore : IDisposable {
     IIOProvider IOIndex { get; }
     IIOProvider IOBackup { get; }
     void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null);
+    string? CancelRunningRewriteIfAny();
     void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null);
+    int DeleteOldLogs();
     void SetTimestamp(long timestamp);
     long Timestamp { get; }
     void Rollback(long timestamp);
@@ -118,11 +121,14 @@ public static class IDataStoreExtensions {
     public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
         if (destination == null) destination = store.IOBackup;
         var fileKey = store.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
-        if (truncate) {
-            store.RewriteStore(false, fileKey, destination);
-        } else {
-            store.CopyStore(fileKey, destination);
-        }
+        var task = new RewriteTask() {
+            HotSwapToNewFile = false,
+            DeleteOldDbFilesAfterHotSwap = false,
+            NewLogFileKey = fileKey,
+            IO = destination,
+            Truncate = truncate,
+        };
+        store.EnqueueTask(task, "Backup");
     }
     public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool? flushToDisk = null) {
         var transaction = new TransactionData();

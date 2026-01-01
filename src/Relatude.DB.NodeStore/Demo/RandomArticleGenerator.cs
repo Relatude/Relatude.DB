@@ -9,9 +9,10 @@ public class RandomArticleGenerator(int seed = 0) : IArticleGenerator {
         };
     }
     public void Move(int count) {
-        for (int i = 0; i < count; i++) {
-            _ = One();
-        }
+        _textGenerator.NewSeed(count);
+        //for (int i = 0; i < count; i++) {
+        //    _ = One();
+        //}
     }
     public DemoArticle[] Many(int count) {
         DemoArticle[] articles = new DemoArticle[count];

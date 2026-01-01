@@ -46,7 +46,7 @@ internal class IndexStore : IDisposable {
         foreach (var index in _definition.GetAllIndexes()) {
             progress("Saving index " + ++i + " of " + count, 100 * i / count);
             index.SaveStateForMemoryIndexes(logTimestamp, walFileId);
-        }        
+        }
     }
     public void ReadStateForMemoryIndexes(Action<string, int> progress, Guid walFileId) {
         progress("Reading index states", 0);

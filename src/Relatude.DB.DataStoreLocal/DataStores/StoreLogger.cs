@@ -15,7 +15,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
     static string _taskLogKey = "task";
     static string _taskbatchLogKey = "taskbatch";
     static string _metricsLogKey = "metrics";
-    static string _ioLogKey = "io";
 
     readonly IIOProvider _io;
     LogStore _logStore;
@@ -36,8 +35,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
     bool _enableTaskBatchLogStatistics = false;
     bool _enableMetricsLog = false;
     bool _enableMetricsLogStatistics = false;
-    bool _enableIoLog = false;
-    bool _enableIoLogStatistics = false;
 
     LogSettings[]? _settings;
     LogSettings[] getSettings() {
@@ -187,28 +184,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
                         { "setCacheCount", new() { Name = "Set cache count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "setCacheSizeMb", new() { Name = "Set cache size Mb", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "taskQueueCount", new() { Name = "Task queue count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
-                        { "taskExecutedCount", new() { Name = "Executed task count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
                         { "taskPersistedQueueCount", new() { Name = "Persisted task queue count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
-                        { "taskPersistedExecutedCount", new() { Name = "Persisted executed task count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.AvgMinMax)] } },
-                    },
-            },
-            new() {
-                Name = "IO",
-                Key = _ioLogKey,
-                FileInterval = FileInterval.Day,
-                EnableLog = _enableIoLog,
-                EnableStatistics = _enableIoLogStatistics,
-                EnableLogTextFormat = false,
-                ResolutionRowStats = 4,
-                FirstDayOfWeek = DayOfWeek.Monday,
-                MaxAgeOfLogFilesInDays = 10,
-                MaxTotalSizeOfLogFilesInMb = 100,
-                Compressed = false,
-                Properties = {
-                        { "writtenKb", new() { Name = "Writtes Kb", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
-                        { "readKb", new() { Name = "Reads Kb", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
-                        { "writtenKbDisk", new() { Name = "Read count", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.Sum)] } },
-                        { "readKbDisk", new() { Name = "Disk Writes", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
                     },
             },
         ];
@@ -317,8 +293,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
         entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 * 1024));
         entry.Values.Add("taskQueueCount", metrics.TasksQueued);
         entry.Values.Add("taskPersistedQueueCount", metrics.TasksPersistedQueued);
-        entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);
-        entry.Values.Add("taskPersistedExecutedCount", metrics.TasksPersistedExecuted);
+        //entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);
+        //entry.Values.Add("taskPersistedExecutedCount", metrics.TasksPersistedExecuted);
         _logStore?.Record(_metricsLogKey, entry);
     }
     

@@ -33,11 +33,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
+    
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
     readonly IIOProvider _ioLog;
     readonly IIOProvider _ioLog2;
     readonly IIOProvider _ioAutoBackup;
+
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
     readonly IFileStore _defaultFileStore;
@@ -89,12 +91,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
         _defaultQueryCtx = QueryContext.CreateDefault();
+
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
         _ioIndex = indexIO ?? _io;
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
+
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
@@ -104,10 +108,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         _logger = new(_ioLog, _fileKeys, dm);
         RegisterRunner(new IndexTaskRunner(this));
         RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
+        RegisterRunner(new RewriteTaskRunner(this));
         TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
         if (queueStore == null) {
             if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.BuiltIn) {
-                queueStore = new DefaultQueueStore(_taskRunners, _io, _fileKeys.Queue_GetFileKey("bin"));
+                queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, _fileKeys.Queue_GetFileKey("bin"));
             } else if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Memory) {
                 queueStore = new DefaultQueueStore(_taskRunners);
             } else {
@@ -227,6 +232,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         LogInfo("Database opening");
         var activityId = RegisterActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
+        setStartupProgressEstimate(1);
         var currentModelHash = getCheckSumForStateFileAndIndexes();
         try {
             if (_state != DataStoreState.Closed) throw new Exception("Store cannot be opened as current state is " + _state);

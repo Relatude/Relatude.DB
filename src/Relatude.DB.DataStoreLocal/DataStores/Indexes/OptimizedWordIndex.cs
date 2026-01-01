@@ -28,6 +28,6 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
     public void ClearCache() { _o.Dequeue(); _i.ClearCache(); }
     public void CompressMemory() { _o.Dequeue(); _i.CompressMemory(); }
     public long PersistedTimestamp { get { _o.Dequeue(); return _i.PersistedTimestamp; } set { _o.Dequeue(); _i.PersistedTimestamp = value; } }
-    public string FriendlyName => "Optimized " + _i.FriendlyName;
+    public string FriendlyName => _i.FriendlyName;
     public void Dispose() { _o.Dequeue(); _i.Dispose(); }
 }

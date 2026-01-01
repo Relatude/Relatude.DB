@@ -84,6 +84,7 @@ class StatusAPI {
         return this.server.queryJson<string>(this.controller, 'subscribe', payload);
     }
     unsubscribe = (connectionId: string, subId: string) => this.server.execute(this.controller, 'unsubscribe', { connectionId, subId });
+    uptimeInMs = () => this.server.queryJson<number>(this.controller, 'uptime-in-ms');
 }
 class DatamodelAPI {
     constructor(private server: API, private controller: string) { }
@@ -139,6 +140,7 @@ class MaintenanceAPI {
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });
     fileExist = (storeId: string, ioId: string, fileName: string) => this.server.queryJson<boolean>(this.controller, 'file-exist', { storeId, ioId, fileName });
     backUpNow = (storeId: string, ioId: string, truncate: boolean, keepForever: boolean) => this.server.execute(this.controller, 'backup-now', { storeId, ioId: ioId, truncate: truncate ? "true" : "false", keepForever: keepForever ? "true" : "false" });
+    cancelRewriteIfAny = (storeId: string) => this.server.queryJson<{ fileKey?: string }>(this.controller, 'cancel-rewrite-if-any', { storeId });
     getFileKeyOfDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db', { storeId, ioId });
     getFileKeyOfNextDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db-next', { storeId, ioId });
     validateDownloadFileRead = async (storeId: string, ioId: string, fileName: string) => {

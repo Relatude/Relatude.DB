@@ -18,7 +18,7 @@ public static class AddUse {
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
         var server = new RelatudeDBServer(urlPath);
         await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsIO);
-        app.Use(server.StartupProgressBarMiddleware); // middleware to show opening progress page
+        app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
         server.MapSimpleAPI(app);
         RelatudeDBRuntime.Initialize(server);

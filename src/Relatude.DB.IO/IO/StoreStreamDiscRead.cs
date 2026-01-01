@@ -13,6 +13,9 @@ public class StoreStreamDiscRead : IReadStream {
         _stream = getStream(_filePath);
         _stream.Position = position;
     }
+    long _bytesRead;
+    public long GetBytesRead() => _bytesRead;
+    public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
     const int numberOfRetries = 5;
     static FileStream getStream(string filePath) {
@@ -36,6 +39,7 @@ public class StoreStreamDiscRead : IReadStream {
         var block = new byte[length];
         if (_stream.Read(block, 0, length) != length) throw new Exception("Read error");
         _checkSum.EvaluateChecksumIfRecording(block);
+        _bytesRead += length;
         return block;
     }
     public long Length => _stream.Length;

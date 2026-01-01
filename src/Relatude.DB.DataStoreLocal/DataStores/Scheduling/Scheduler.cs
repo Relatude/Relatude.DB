@@ -1,5 +1,7 @@
 ﻿using System.Diagnostics;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
+using Relatude.DB.Logging;
 using Relatude.DB.Tasks;
 
 namespace Relatude.DB.DataStores.Scheduling;
@@ -165,7 +167,8 @@ internal class Scheduler(DataStoreLocal _db) {
             var failed = result.Count(r => r.Error != null);
             var taskTotalCount = result.Sum(r => r.TaskCount);
             var taskFailedCount = result.Where(r => r.Error != null).Sum(r => r.TaskCount);
-            db.LogInfo("TaskQueue: " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
+            var logType=failed>0?SystemLogEntryType.Error:SystemLogEntryType.Info;
+            db.Log(logType, "TaskQueue: " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
                 (failed > 0 ? (taskFailedCount + " tasks in " + failed + " batches failed! ") : ""));
             foreach (var r in result) if (r.Error != null) db.LogError(r.TaskTypeName + " failed", r.Error!);
         } catch (Exception err) {
@@ -235,9 +238,9 @@ internal class Scheduler(DataStoreLocal _db) {
             if (_db.State != DataStoreState.Open) return;
             if (_s.AutoBackUp) runAutoBackup();
             if (_db.State != DataStoreState.Open) return;
-            if (_s.AutoTruncate) runAutoTruncateIfDue();
+            if (_s.AutoTruncate) runAutoTruncateIfDueAndNotTooBusy();
             if (_db.State != DataStoreState.Open) return;
-            if (_s.AutoSaveIndexStates) runAutoSaveIndexStatesIfDue();
+            if (_s.AutoSaveIndexStates) runAutoSaveIndexStatesIfDueAndNotTooBusy();
             if (_db.State != DataStoreState.Open) return;
             if (_s.AutoPurgeCache) runAutoPurgeCache();
             if (_db.State != DataStoreState.Open) return;
@@ -247,6 +250,11 @@ internal class Scheduler(DataStoreLocal _db) {
         } finally {
             _backgroundTaskRunningFlag.Reset();
         }
+    }
+    bool isTooBusy() {
+        if (_db._transactionActionActivity.EstimateLast10Seconds() > _s.BusyThresholdActivitiesLast10Sec) return true;
+        if (_db._queryActivity.EstimateLast10Seconds() > _s.BusyThresholdQueriesLast10Sec) return true;
+        return false;
     }
     DateTime _lastQueryLogFlush = DateTime.UtcNow;
     DateTime _lastQueryLogMaintenance = DateTime.UtcNow;
@@ -264,12 +272,11 @@ internal class Scheduler(DataStoreLocal _db) {
             _db.LogError("Query log flush failed: ", err);
         }
     }
-    void runAutoSaveIndexStatesIfDue() {
+    void runAutoSaveIndexStatesIfDueAndNotTooBusy() {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoSaveIndexStates) return;
-            if (_db._transactionActionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay            
-            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay            
+            if (isTooBusy()) return;
             var noActionsNotInStateFile = _db.GetLogActionsNotItInStatefile();
             var belowLowerLimit = noActionsNotInStateFile < _s.AutoSaveIndexStatesActionCountLowerLimit;
             if (belowLowerLimit) {
@@ -295,12 +302,11 @@ internal class Scheduler(DataStoreLocal _db) {
         }
         _lastSaveIndexStates = DateTime.UtcNow;
     }
-    void runAutoTruncateIfDue() {
+    void runAutoTruncateIfDueAndNotTooBusy() {
         var now = DateTime.UtcNow;
         try {
             if (!_s.AutoTruncate) return;
-            if (_db._transactionActionActivity.EstimateLast10Seconds() > 1000) return; // too busy, delay
-            if (_db._queryActivity.EstimateLast10Seconds() > 10000) return; // too busy, delay      
+            if (isTooBusy()) return;
             var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
             var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
             if (belowLowerLimit) {
@@ -375,13 +381,16 @@ internal class Scheduler(DataStoreLocal _db) {
         if (filesInCurrentHour.Count() == 0) {
             var sw = Stopwatch.StartNew();
             var fileKey = _db.FileKeys.WAL_GetFileKeyForBackup(now, false);
-            _db.Log(SystemLogEntryType.Backup, "Backup started: " + fileKey);
-            if (_s.TruncateBackups) {
-                _db.RewriteStore(false, fileKey, _db.IOBackup);
-            } else {
-                _db.CopyStore(fileKey, _db.IOBackup);
-            }
-            _db.Log(SystemLogEntryType.Backup, "Backup completed: " + fileKey + " in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            //_db.RewriteStore(false, fileKey, _db.IOBackup);
+            var task = new RewriteTask() {
+                HotSwapToNewFile = false,
+                DeleteOldDbFilesAfterHotSwap = false,
+                NewLogFileKey = fileKey,
+                IO = _db.IOBackup,
+                Truncate = _s.TruncateBackups,
+                IsBackup = true
+            };
+            _db.EnqueueTask(task);
         }
     }
     void deleteOlderBackupsIfDue() {

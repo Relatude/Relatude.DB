@@ -64,6 +64,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     }
     static ulong getHash(string name) => GetResource(name).XXH64Hash();
     static ulong uiHash = getHash("ClientUI.index.5246294a.css") ^ getHash("ClientUI.index.30b17246.js");
+    public static string GlobalPublicStatusUrl = "relatude.db-public-status";
 
     // PUBLIC API and with no authentication (controlled by urlpath in middleware):
     void mapRoot(WebApplication app, Func<string, string> path) {
@@ -97,17 +98,25 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
             return GetResource("ClientUI.index.30b17246.js");
         });
-        app.MapPost("relatude.db-public-status", () => {
-            return new {
-                Starting = server.AnyRemaingToAutoOpen,
-                ProgressEstimate = server.GetStartingProgressEstimate(),
-                ResponseCheck = "Valid",
-            };
+        app.MapPost(GlobalPublicStatusUrl, () => {
+            return StatusResponse(server);
         });
         app.MapGet(path("favicon.ico"), (HttpContext ctx) => {
             var data = getBinaryResource("ClientUI.Images.favicon.ico");
             return Results.File(data, "image/x-icon", "favicon.ico");
         });
+    }
+    public static SimpleStatus StatusResponse(RelatudeDBServer server) {
+        return new SimpleStatus {
+            Starting = server.AnyRemaingToAutoOpenIncludingFailed,
+            ProgressEstimate = server.GetStartingProgressEstimate(),
+            ResponseCheck = "Valid",
+        };
+    }
+    public class SimpleStatus {
+        public bool Starting { get; set; } = false;
+        public int ProgressEstimate { get; set; } = 0;
+        public string ResponseCheck { get; set; } = "";
     }
     class Credentials {
         public string UserName { get; set; } = "";
@@ -137,6 +146,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapGet(path("connect"), server.EventHub.Connect);
         app.MapPost(path("subscribe"), server.EventHub.Subscribe);
         app.MapPost(path("unsubscribe"), server.EventHub.Unsubscribe);
+        app.MapPost(path("uptime-in-ms"), () => server.UpTime.TotalMilliseconds);
     }
     void mapSettings(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-settings"), (Guid storeId, bool prettyJson) => {
@@ -172,7 +182,16 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync());
         app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(folderName));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
-        app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId)));
+        app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => {
+            if (ioId == Guid.Empty) { 
+                var settings = container(storeId).Settings;
+                if (settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty) ioId = settings.IoBackup.Value;
+                else ioId = settings.IoDatabase ?? throw new Exception("No IoBackup or IoDatabase defined in settings. ");
+            }
+            db(storeId).Datastore.BackUpNow(truncate, keepForever, server.GetIO(ioId));
+        });
+        app.MapPost(path("cancel-rewrite-if-any"), (Guid storeId) => new { FileKey = db(storeId).Datastore.CancelRunningRewriteIfAny() });
+
         app.MapPost(path("is-file-key-legal"), (string fileKey) => new { IsLegal = FileKeyUtility.IsFileKeyValid(fileKey) });
         app.MapPost(path("is-file-prefix-legal"), (string filePrefix) => new { IsLegal = FileKeyUtility.IsFilePrefixValid(filePrefix, out _) });
         app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => {
@@ -233,8 +252,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             server.TempIO.DeleteIfItExists(uploadId.ToString());
         });
         app.MapPost(path("truncate-log"), (HttpContext ctx, Guid storeId, bool deleteOld) => {
-            db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog);
-            if (deleteOld) db(storeId).MaintenanceAsync(MaintenanceAction.DeleteOldLogs);
+            db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog | MaintenanceAction.DeleteOldLogs);
         });
         app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh, bool nodeSegmentsOnly) => db(storeId).Datastore.SaveIndexStates(forceRefresh, nodeSegmentsOnly));
         app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));
@@ -265,7 +283,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapGet(path("download-full-db"), (Guid storeId, string namePrefix) => {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
             if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
-            if(namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
+            if (namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
             var fileKey = Guid.NewGuid().ToString();
             var datastore = container(storeId).Store!.Datastore;
             datastore.CopyStore(fileKey, server.TempIO);

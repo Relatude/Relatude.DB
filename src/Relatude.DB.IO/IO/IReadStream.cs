@@ -9,6 +9,8 @@ public interface IReadStream : IStream {
     long Position { get; set; }
     void RecordChecksum();
     void ValidateChecksum();
+    void ResetByteCounter();
+    long GetBytesRead();
 }
 public static class IReadStreamExtensions {
     /// <summary>

@@ -29,8 +29,6 @@ public class StoreMetrics {
     public long NodeCacheSize { get; set; }
     public int SetCacheCount { get; set; }
     public long SetCacheSize { get; set; }
-    public int TasksExecuted { get; set; }
-    public int TasksPersistedExecuted { get; set; }
     public int TasksQueued { get; set; }
     public int TasksPersistedQueued { get; set; }
 }

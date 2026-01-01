@@ -13,7 +13,7 @@ public interface ITaskRunner {
     IBatch GetBatchFromMetaAndData(BatchMeta batch, byte[] taskData);
     int MaxTaskCountPerBatch { get; }
     bool RestartIfAbortedDuringShutdown { get; }
-    TimeSpan GetMaximumAgeInPersistedQueuePerState(BatchState state);
+    TimeSpan GetMaximumAgeInQueuePerState(BatchState state);
     bool DeleteOnSuccess { get; }
     bool PersistToDisk { get; }
 }
@@ -21,13 +21,13 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string TaskTypeId { get; } = typeof(TTask).FullName ?? throw new InvalidOperationException("Task type must have a valid FullName.");
     public abstract BatchTaskPriority Priority { get; }
     public virtual bool RestartIfAbortedDuringShutdown { get; set; } = true;
-    public abstract TimeSpan GetMaximumAgeInPersistedQueue();
+    public abstract TimeSpan GetMaximumAgeInQueueAfterExecution();
     public abstract bool PersistToDisk { get; }
-    public TimeSpan GetMaximumAgeInPersistedQueuePerState(BatchState state) {
+    public virtual TimeSpan GetMaximumAgeInQueuePerState(BatchState state) {
         return state switch {
-            BatchState.Completed => GetMaximumAgeInPersistedQueue(),
-            BatchState.Failed => GetMaximumAgeInPersistedQueue(),
-            BatchState.Cancelled => GetMaximumAgeInPersistedQueue(),
+            BatchState.Completed => GetMaximumAgeInQueueAfterExecution(),
+            BatchState.Failed => GetMaximumAgeInQueueAfterExecution(),
+            BatchState.Cancelled => GetMaximumAgeInQueueAfterExecution(),
             BatchState.Pending => TimeSpan.MaxValue,
             BatchState.Running => TimeSpan.MaxValue,
             BatchState.Waiting => TimeSpan.MaxValue,

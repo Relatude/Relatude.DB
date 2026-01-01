@@ -195,6 +195,7 @@ export const component = (p: { storeId: string }) => {
     const domainName = location.hostname;
     return (<>
         <IoSelector ioSettings={store?.ioSettings} selectedIo={selectedIo} onChange={(id) => setSelectedIo(id)} />
+        {selectedIo && <Button variant="light" onClick={updateFilesAndFolders}>Refresh</Button>}
         {selectedIo && <Upload text="Upload file" storeId={p.storeId} ioId={selectedIo} onComplete={onCompleteUpload} onError={onFileError} onCancel={updateFilesAndFolders} multiple />}
         {selectedIOIsDatabase && <Upload text="Upload database"
             title="Uploaded file will be renamed correctly and opened. Existing database will remain in the filesystem. "
@@ -205,9 +206,9 @@ export const component = (p: { storeId: string }) => {
         {(selectedIOIsDatabase && app.ui.getStoreState(p.storeId) == "Open") && <Button variant="light" onClick={() => app.api.maintenance.downloadFullDb(p.storeId, domainName)}
             title='A copy of the current database file with transaction history. This will temporarily block execution. '
         >Download with history</Button>}
-        {/* {selectedIOIsDatabase && <Button variant="outline" onClick={() => app.api.maintenance.closeAllOpenStreams(p.storeId, selectedIo!)}
-            title='Force close all open read and write streams to files in this IO. '
-        >Force close all</Button>} */}
+        {(app.ui.getStoreState(p.storeId) == "Open") && <Button variant="light" onClick={() => app.api.maintenance.backUpNow(p.storeId, selectedIo!, true, true)}
+            title='Create a backup of the current database to this IO. '
+        >Backup database</Button>}
         {(selectedIo && selectedRows.length > 0) && <Button variant="light" color='red' onClick={deleteSelectedFilesAndFolders}
             title={'Permanently delete ' + getSelectionText()}
         >Delete {getSelectionText()}</Button>}

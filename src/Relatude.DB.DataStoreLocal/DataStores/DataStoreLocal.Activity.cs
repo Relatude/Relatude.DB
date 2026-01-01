@@ -2,7 +2,18 @@
 namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     long _activityIdCounter = 0; // used to generate unique activity IDs
-    Dictionary<long, DataStoreActivity> _currentActiveties = [];
+    readonly Dictionary<long, DataStoreActivity> _currentActiveties = [];
+    int _startUpProgress;
+    public int GetStartupProgressEstimate() {
+        lock (_currentActiveties) {
+            return _startUpProgress;
+        }
+    }
+    void setStartupProgressEstimate(int value) {
+        lock (_currentActiveties) {
+            _startUpProgress = value;   
+        }
+    }
     public DataStoreStatus GetStatus() {
         DataStoreActivity[] activities;
         lock (_currentActiveties) {

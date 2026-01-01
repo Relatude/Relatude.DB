@@ -31,6 +31,9 @@ public class TextGenerator {
         }
         Vocabulary = [.. words];
     }
+    public void NewSeed(int seed) {
+        _random = new Random(seed);
+    }
     string randomWord() {
         var distribution = 2d;
         var max = (int)Math.Pow((double)MaxWordLength - 1, 1d / distribution);

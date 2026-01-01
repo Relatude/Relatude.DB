@@ -3,7 +3,7 @@ export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | 
 export type StoreTypes = "SimpleStore" | "NodeStore";
 export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
 export type LogIntervalTypes = "Second" | "Minute" | "Hour" | "Day" | "Week" | "Month";
-export interface AnalysisEntry { from: string, to:string, value: number, hasData: boolean }
+export interface AnalysisEntry { from: string, to: string, value: number, hasData: boolean }
 export interface FileMeta {
     key: string
     size: number
@@ -109,13 +109,11 @@ export interface TaskStatusCounts {
     Waiting: number;
     AbortedOnStartup: number;
 }
-   
+
 export interface DataStoreInfo {
     typeCounts: { [key: string]: number };
-    queuedTaskStateCounts: TaskStatusCounts;
-    queuedTaskStateCountsPersisted: TaskStatusCounts;
-    queuedBatchesStateCounts: TaskStatusCounts;
-    queuedBatchesStateCountsPersisted: TaskStatusCounts;
+
+
     created: Date;
     isFresh: boolean;
     ageMs: number;
@@ -139,6 +137,7 @@ export interface DataStoreInfo {
     backupFileSize: number;
     secondaryLogFileSize: number;
     indexFileSize: number;
+    runningRewriteFile: string | null;
 
     countActionsSinceClearCache: number;
     countTransactionsSinceClearCache: number;
@@ -170,10 +169,16 @@ export interface DataStoreInfo {
     queuedTasksPending: number;
     queuedTasksPendingPersisted: number;
     queuedBatchesPending: number;
+    queuedTaskEstimatedMsUntilEmpty: number;
+    queuedTaskEstimatedMsUntilEmptyPersisted: number;
     queuedBatchesPendingPersisted: number;
+    queuedTaskStateCounts: TaskStatusCounts;
+    queuedTaskStateCountsPersisted: TaskStatusCounts;
+    queuedBatchesStateCounts: TaskStatusCounts;
+    queuedBatchesStateCountsPersisted: TaskStatusCounts;
     processWorkingMemory: number;
-    cpuUsagePercentage : number;
-    cpuUsagePercentageLastMinute : number;
+    cpuUsagePercentage: number;
+    cpuUsagePercentageLastMinute: number;
 }
 export interface ServerLogEntry {
     timestamp: Date;
@@ -233,21 +238,21 @@ export interface TaskBatchLogEntry {
 }
 
 
-        // entry.Values.Add("memUsageMb", (int)(metrics.MemUsage / 1024 * 1024));
-        // entry.Values.Add("cpuUsagePercentage", (int)(metrics.CpuUsage * 100));
-        // entry.Values.Add("queryCount", unchecked((int)metrics.QueryCount));
-        // entry.Values.Add("actionCount", unchecked((int)metrics.ActionCount));
-        // entry.Values.Add("transactionCount", unchecked((int)metrics.TransactionCount));
-        // entry.Values.Add("nodeCount", metrics.NodeCount);
-        // entry.Values.Add("relationCount", metrics.RelationCount);
-        // entry.Values.Add("nodeCacheCount", metrics.NodeCacheCount);
-        // entry.Values.Add("nodeCacheSizeMb", (int)(metrics.NodeCacheSize / 1024 / 1024));
-        // entry.Values.Add("setCacheCount", metrics.SetCacheCount);
-        // entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 * 1024));
-        // entry.Values.Add("taskQueueCount", metrics.TasksQueued);
-        // entry.Values.Add("taskPersistedQueueCount", metrics.TasksPersistedQueued);
-        // entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);
-        // entry.Values.Add("taskPersistedExecutedCount", metrics.TasksPersistedExecuted);
+// entry.Values.Add("memUsageMb", (int)(metrics.MemUsage / 1024 * 1024));
+// entry.Values.Add("cpuUsagePercentage", (int)(metrics.CpuUsage * 100));
+// entry.Values.Add("queryCount", unchecked((int)metrics.QueryCount));
+// entry.Values.Add("actionCount", unchecked((int)metrics.ActionCount));
+// entry.Values.Add("transactionCount", unchecked((int)metrics.TransactionCount));
+// entry.Values.Add("nodeCount", metrics.NodeCount);
+// entry.Values.Add("relationCount", metrics.RelationCount);
+// entry.Values.Add("nodeCacheCount", metrics.NodeCacheCount);
+// entry.Values.Add("nodeCacheSizeMb", (int)(metrics.NodeCacheSize / 1024 / 1024));
+// entry.Values.Add("setCacheCount", metrics.SetCacheCount);
+// entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 * 1024));
+// entry.Values.Add("taskQueueCount", metrics.TasksQueued);
+// entry.Values.Add("taskPersistedQueueCount", metrics.TasksPersistedQueued);
+// entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);
+// entry.Values.Add("taskPersistedExecutedCount", metrics.TasksPersistedExecuted);
 
 export interface MetricsLogEntry {
     memUsageMb: number;
@@ -256,15 +261,13 @@ export interface MetricsLogEntry {
     actionCount: number;
     transactionCount: number;
     nodeCount: number;
-    relationCount: number; 
+    relationCount: number;
     nodeCacheCount: number;
     nodeCacheSizeMb: number;
     setCacheCount: number;
     setCacheSizeMb: number;
     taskQueueCount: number;
     taskPersistedQueueCount: number;
-    taskExecutedCount: number;
-    taskPersistedExecutedCount: number;     
 }
 export interface LogInfo {
     key: string;

@@ -371,9 +371,7 @@ export const component = (P: { storeId: string }) => {
                             <Table.Th>Node Cache Size</Table.Th>
                             <Table.Th>Set Cache Count</Table.Th>
                             <Table.Th>Set Cache Size</Table.Th>
-                            <Table.Th>Tasks Executed</Table.Th>
                             <Table.Th>Tasks Queued</Table.Th>
-                            <Table.Th>Persisted Tasks Executed</Table.Th>
                             <Table.Th>Persisted Tasks Queued</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
@@ -392,9 +390,7 @@ export const component = (P: { storeId: string }) => {
                                 <Table.Td>{entry.values.nodeCacheSizeMb}</Table.Td>
                                 <Table.Td>{entry.values.setCacheCount}</Table.Td>
                                 <Table.Td>{entry.values.setCacheSizeMb}</Table.Td>
-                                <Table.Td>{entry.values.taskExecutedCount}</Table.Td>
                                 <Table.Td>{entry.values.taskQueueCount}</Table.Td>
-                                <Table.Td>{entry.values.taskPersistedExecutedCount}</Table.Td>
                                 <Table.Td>{entry.values.taskPersistedQueueCount}</Table.Td>
                             </Table.Tr>
                         ))}

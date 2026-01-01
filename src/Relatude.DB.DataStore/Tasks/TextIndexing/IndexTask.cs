@@ -8,7 +8,7 @@ public class IndexTask(int nodeId, bool textIndex, bool vectorIndex) : TaskData 
     public bool VectorIndex { get; } = vectorIndex;
 }
 public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
-    public override BatchTaskPriority Priority => BatchTaskPriority.Medium;
+    public override BatchTaskPriority Priority => BatchTaskPriority.Low;
     public override int MaxTaskCountPerBatch => 100;
     public override bool PersistToDisk => true; //Random.Shared.Next(0, 100) < 50;
     public override Task ExecuteAsync(Batch<IndexTask> batch, TaskLogger? taskLogger) {
@@ -38,7 +38,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
         return Task.CompletedTask;
     }
     public override bool DeleteOnSuccess => true;
-    public override TimeSpan GetMaximumAgeInPersistedQueue() => TimeSpan.FromHours(1);
+    public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(1);
     public override bool RestartIfAbortedDuringShutdown { get; set; } = true;
     public override IndexTask TaskFromBytes(byte[] bytes) {
         using var ms = new MemoryStream(bytes);
