@@ -15,7 +15,7 @@ internal static class IncludeUtil {
             var nodes = new NodeDataWithRelations[_ids.Count];
             var i = 0;
             foreach (var id in _ids.Enumerate()) {
-                nodes[i++] = new(new NodeDataOnlyTypeAndUId(id, _db._definition.GetTypeOfNode(id)));
+                nodes[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
             }
             foreach (var branch in _includeBranches) branch.Reset();
             foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, _db, ref metrics.NodeCount);
@@ -67,7 +67,7 @@ internal static class IncludeUtil {
         var i = 0;
         foreach (var id in ids) {
             idsToGet.Add(id);
-            tos[i++] = new(new NodeDataOnlyTypeAndUId(id, _db._definition.GetTypeOfNode(id)));
+            tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
         }
         if (relProp.IsMany) {
             from.Relations.AddManyRelation(propId, tos);

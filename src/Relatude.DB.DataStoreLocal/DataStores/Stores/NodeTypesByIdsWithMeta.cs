@@ -1,8 +1,34 @@
-﻿
-
-
-
-
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Sets;
+using Relatude.DB.IO;
+internal class NodeTypesByIdsWithMeta {
+    readonly Definition _definition;
+    public NodeTypesByIdsWithMeta(Definition definition) {
+        _definition = definition;
+    }
+    internal void Insert(NodeDataComplex node, NodeTypeModel nodeType) {
+        throw new NotImplementedException();
+    }
+    internal void Delete(NodeDataComplex node, NodeTypeModel nodeType) {
+        throw new NotImplementedException();
+    }
+    internal IdSet GetAllNodeIdsForType(NodeTypeModel typeDef, QueryContext ctx) {
+        throw new NotImplementedException();
+    }
+    internal IdSet GetAllNodeIdsForTypeNoAccessControl(NodeTypeModel typeDef, bool excludeDecendants) {
+        throw new NotImplementedException();
+    }
+    internal bool TryGetType(int id, out Guid typeId) {
+        throw new NotImplementedException();
+    }
+    internal void SaveState(IAppendStream stream) {
+        // throw new NotImplementedException();
+    }
+    internal void ReadState(IReadStream stream) {
+        // throw new NotImplementedException();
+    }
+}
 //// QueryContext + typeId (-> userId -> groups ->) MetaKey[]
 //// NodeMeta -> MetaKey
 

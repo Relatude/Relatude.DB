@@ -37,7 +37,18 @@ namespace Relatude.DB.Datamodels {
             if (i == 0) return string.Empty;
             return string.Join(" ", parts, 0, i);
         }
-
+        bool? _isComplex;
+        public bool IsComplex() {
+            if (_isComplex == null) _isComplex = AccessControl || Cultures || Collections || Revisions;
+            return _isComplex.Value;
+        }
+        bool? _thisOrDescendingTypesAreComplex;
+        public bool ThisOrDescendingTypesAreComplex() {
+            if(_thisOrDescendingTypesAreComplex == null) {
+                _thisOrDescendingTypesAreComplex = ThisAndDescendingTypes.Values.Any(t => t.IsComplex());
+            }
+            return _thisOrDescendingTypesAreComplex.Value;
+        }
         public override string ToString() {
             return (string.IsNullOrEmpty(Namespace) ? string.Empty : Namespace + ".") + CodeName;
         }

@@ -13,6 +13,14 @@ public class ActivityBranch(DataStoreActivity activity, ActivityBranch[] childre
         throw new NotImplementedException();
     }
 }
+public class DataStoreOpeningStatus { 
+    public DataStoreOpeningStatus(int progressPercentage, int timeRemainingMs) {
+        ProgressPercentage = progressPercentage;
+        TimeRemainingMs = timeRemainingMs;
+    }
+    public int ProgressPercentage { get; } 
+    public int TimeRemainingMs { get; }
+}
 public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activities) {
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public DataStoreState State { get; } = state;

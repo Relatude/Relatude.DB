@@ -97,18 +97,14 @@ public partial class RelatudeDBServer {
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
     public bool DefaultStoreIsOpen() => _defaultContainer != null && _defaultContainer.IsOpen();
     public NodeStoreContainer? DefaultContainer => _defaultContainer;
-    public int GetStartingProgressEstimate() {
+    public DataStoreOpeningStatus GetOpeningStatus() {
         try {
-            var combinedProgress = _containersToAutoOpen.Sum(c => {
-                if (c.Store?.Datastore == null) return 0;
-                if (c.Store?.Datastore.State != DataStoreState.Opening) return 100;
-                var status = c.Store.Datastore.GetStartupProgressEstimate();
-                return status;
-            });
-            return (int)Math.Ceiling((double)combinedProgress / _containersToAutoOpen.Length);
+            if (_defaultContainer?.Store == null) return new DataStoreOpeningStatus(0, 0);
+            if (_defaultContainer.Store.Datastore.State != DataStoreState.Opening) return new DataStoreOpeningStatus(100, 0);
+            return _defaultContainer.Store.Datastore.GetOpeningStatus();
         } catch (Exception err) {
             Log("Error occurred during progress estimate: " + err.Message);
-            return 0;
+            return new DataStoreOpeningStatus(0, 0);
         }
     }
     public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {

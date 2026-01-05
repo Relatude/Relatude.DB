@@ -7,7 +7,7 @@ namespace Relatude.DB.Serialization;
 public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
         var nodeType = datamodel.NodeTypes[nodeData.NodeType];
-        if (nodeType.AccessControl || nodeType.Cultures || nodeType.Collections || nodeType.Revisions) {
+        if (nodeType.IsComplex()) {
             NodeData_Complex(nodeData, datamodel, stream);
         } else {
             NodeData_Minimal(nodeData, datamodel, stream);

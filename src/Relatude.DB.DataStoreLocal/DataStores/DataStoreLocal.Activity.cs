@@ -1,19 +1,12 @@
 ﻿using Relatude.DB.Common;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     long _activityIdCounter = 0; // used to generate unique activity IDs
     readonly Dictionary<long, DataStoreActivity> _currentActiveties = [];
-    int _startUpProgress;
-    public int GetStartupProgressEstimate() {
-        lock (_currentActiveties) {
-            return _startUpProgress;
-        }
-    }
-    void setStartupProgressEstimate(int value) {
-        lock (_currentActiveties) {
-            _startUpProgress = value;   
-        }
-    }
+    DataStoreOpeningStatus _simpleStatus = new(0, 0);
+    public DataStoreOpeningStatus GetOpeningStatus() => _simpleStatus;
+    void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) => _simpleStatus = new(progressInPercentage, remainingMs);
     public DataStoreStatus GetStatus() {
         DataStoreActivity[] activities;
         lock (_currentActiveties) {
@@ -22,8 +15,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return new(State, activities);
     }
-    public long RegisterActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) { 
-        if(parentId== 0) {
+    public long RegisterActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
+        if (parentId == 0) {
             return RegisterActvity(category, description, percentageProgress);
         } else {
             return RegisterChildActvity(parentId, category, description, percentageProgress);

@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } catch { }
         try {
-            _tracer.Trace(type, text, details, replace);
+            if (!string.IsNullOrWhiteSpace(text)) _tracer.Trace(type, text, details, replace);
         } catch { }
         try {
             if (Logger.LoggingSystem) {

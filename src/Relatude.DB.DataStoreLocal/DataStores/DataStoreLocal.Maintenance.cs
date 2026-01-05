@@ -249,9 +249,10 @@ public sealed partial class DataStoreLocal : IDataStore {
 
             try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
             try { info.FileStoreSize = _fileStores.Select(kv => kv.Value.GetSize()).Sum(); } catch { }
-            try { info.BackupFileSize = FileKeys.FileStore_GetAllBackUpFileKeys(_ioAutoBackup).Select(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
+            try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Select(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
             try { info.IndexFileSize = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
-            info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
+            try { info.TotalFileSize = AllIOs.SelectMany(io => io.GetFiles()).Sum(f => f.Size); } catch { }
+            // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 
             lock (_isRewritingOrCopyingLock) {
                 info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey : null;

@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
-
 public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
@@ -51,7 +50,24 @@ public interface INodeData {
     public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
 
 }
-
+public class NodeComplexMeta {
+    public NodeComplexMeta(int readAccess, int editViewAccess, int publishAccess, int createdBy, int changedBy, int cultureId, int collectionId) {
+        ReadAccess = readAccess;
+        EditViewAccess = editViewAccess;
+        PublishAccess = publishAccess;
+        CreatedBy = createdBy;
+        ChangedBy = changedBy;
+        CultureId = cultureId;
+        CollectionId = collectionId;
+    }
+    public int ReadAccess { get; }
+    public int EditViewAccess { get; }
+    public int PublishAccess { get; }
+    public int CreatedBy { get; }
+    public int ChangedBy { get; }
+    public int CultureId { get; }
+    public int CollectionId { get; }
+}
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
@@ -148,7 +164,6 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
 }
-
 public class NodeDataComplex : INodeData {
     public NodeDataComplex(Guid guid, int id, Guid typeId, int readAccess, int editAccess, int publishAccess, int createdBy, int changedBy, int cultureId, int collectionId, NodeData[] versions) {
         _id = id;
@@ -204,7 +219,6 @@ public class NodeDataComplex : INodeData {
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
 
 }
-
 public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyId(Guid gid) => _gid = gid;
     public NodeDataOnlyId(int id) => _id = id;
@@ -258,8 +272,8 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
 }
-public class NodeDataOnlyTypeAndUId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
-    public NodeDataOnlyTypeAndUId(int id, Guid typeId) {
+public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+    public NodeDataOnlyTypeAndId(int id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
     }
@@ -304,8 +318,8 @@ public class NodeDataOnlyTypeAndUId : INodeData { // readonly node data with pos
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
 }
-public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
-    public NodeDataOnlyTypeAndId(Guid id, Guid typeId) {
+public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+    public NodeDataOnlyTypeAndGuid(Guid id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
     }
@@ -397,7 +411,6 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
 }
-
 public static class INodeDataExtensions {
     public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
         if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
@@ -414,7 +427,6 @@ public static class INodeDataExtensions {
         return fallback;
     }
 }
-
 public interface IRelations {
     void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation);
     void AddOneRelation(Guid propertyId, NodeDataWithRelations oneRelation);

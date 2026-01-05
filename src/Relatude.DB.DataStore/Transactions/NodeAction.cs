@@ -29,8 +29,8 @@ public class NodeAction : ActionBase {
     public static NodeAction ForceUpdate(INodeData node) => new(NodeOperation.ForceUpdate, node);
     public static NodeAction Upsert(INodeData node) => new(NodeOperation.Upsert, node);
     public static NodeAction ForceUpsert(INodeData node) => new(NodeOperation.ForceUpsert, node);
-    public static NodeAction ChangeType(int id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndUId(id, typeId));
-    public static NodeAction ChangeType(Guid id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndId(id, typeId));
+    public static NodeAction ChangeType(int id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndId(id, typeId));
+    public static NodeAction ChangeType(Guid id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndGuid(id, typeId));
     public static NodeAction ReIndex(int id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
     public static NodeAction ReIndex(Guid id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
     public static NodeAction Load(NodeOperation operation, INodeData node) => new NodeAction(operation, node);

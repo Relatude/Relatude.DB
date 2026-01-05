@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title></title>
 </head>
-<body style="background-color: #242424; display: flex; justify-content: center; margin: 0px; height: 100%; ">
+<body style="background-color: #242424; display: flex; justify-content: center; margin: 0px; height: 100%; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif ">
     <div id="mainDIV" style="display: flex; justify-content: center; flex-direction: column; transition: 2s; opacity: 0; scale: 0.95; margin: 0px; ">
         <svg id="logoSVG" viewBox="0 0 396.64 101.52" height="38px" style="fill: #CCCCCC;">
             <g id="Layer_2" data-name="Layer 2">
@@ -39,28 +39,43 @@
                 </g>
             </g>
         </svg>
-        <div id="outerPrgDIV" style="background-color: #424242; height: 3px; width: 100%; margin-top: 30px; margin-bottom: 150px; border-radius: 2px; overflow: hidden;">
+        <div id="outerPrgDIV" style="background-color: #424242; height: 3px; width: 100%; margin-top: 30px; margin-bottom: 25px; border-radius: 2px; overflow: hidden;">
             <div id="prgDIV" style="background-color: #1971C2; height: 3px; width: 0%; transition: width 0.5s ease-in-out; ">
             </div>
         </div>
+        <div id="prgText" style="width: 100%; text-align: center; margin-bottom: 100px; transition:all 0.5s; opacity:0.4; ">&nbsp;</div>
     </div>
     <script>
-        const style = (id) => document.getElementById(id).style;
+        const el = (id) => document.getElementById(id);
+        const style = (id) => el(id).style;
         const darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
         document.body.style.backgroundColor = darkMode ? '#242424' : '#FFF';
         style('logoSVG').fill = darkMode ? '#CCC' : '#111';
         style('outerPrgDIV').backgroundColor = darkMode ? '#424242' : '#E9ECEF';
         style('prgDIV').backgroundColor = darkMode ? '#1971C2' : '#228BE6';
+        style('prgText').color = darkMode ? '#CCC' : '#111';
         setTimeout(() => { style('mainDIV').opacity = 1; style('mainDIV').scale = 1; }, 0);
         let errors = 0;
+        function formatRemainingTime(ms) {
+            if (ms < 1000) return "&nbsp;";
+            ms = Math.floor(ms);
+            const seconds = Math.floor((ms / 1000) % 60);
+            const minutes = Math.floor((ms / (1000 * 60)) % 60);
+            const hours = Math.floor((ms / (1000 * 60 * 60)));
+            const hh = hours.toString().padStart(2, '0');
+            const mm = minutes.toString().padStart(2, '0');
+            const ss = seconds.toString().padStart(2, '0');
+            return hh + ":" + mm + ":" + ss;
+        }
         async function updateProgress() {
             try {
-                const response = await fetch('/GLOBALSTATUSURL', { method: "POST" }); 
+                const response = await fetch('/GLOBALSTATUSURL', { method: "POST" });
                 const status = await response.json();
                 if (status.responseCheck != "Valid") throw new Error("Invalid response from server");
                 if (status.starting) {
-                    style('prgDIV').width = status.progressEstimate + '%'
-                    setTimeout(updateProgress, 200);
+                    style('prgDIV').width = status.progressPercentage + '%';
+                    el('prgText').innerHTML = formatRemainingTime(status.timeRemainingMs);
+                    setTimeout(updateProgress, status.nextUpdate);
                 } else {
                     style('mainDIV').opacity = 0;
                     style('mainDIV').scale = 0.95;

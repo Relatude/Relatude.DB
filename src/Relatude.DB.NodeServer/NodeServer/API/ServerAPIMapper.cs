@@ -106,17 +106,29 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             return Results.File(data, "image/x-icon", "favicon.ico");
         });
     }
+    static DateTime _startUp = DateTime.UtcNow;
     public static SimpleStatus StatusResponse(RelatudeDBServer server) {
+        var timeSinceStart = DateTime.UtcNow - _startUp;
+        int nextUpdate;
+        if (timeSinceStart.TotalSeconds < 5) nextUpdate = 200;
+        else if (timeSinceStart.TotalSeconds < 30) nextUpdate = 1000;
+        else if (timeSinceStart.TotalMinutes < 2) nextUpdate = 5000;
+        else nextUpdate = 15000;
+        var dbStatus = server.GetOpeningStatus();
         return new SimpleStatus {
             Starting = server.AnyRemaingToAutoOpenIncludingFailed,
-            ProgressEstimate = server.GetStartingProgressEstimate(),
+            ProgressPercentage = dbStatus.ProgressPercentage,
+            TimeRemainingMs = dbStatus.TimeRemainingMs,
+            NextUpdate = nextUpdate,
             ResponseCheck = "Valid",
         };
     }
     public class SimpleStatus {
         public bool Starting { get; set; } = false;
-        public int ProgressEstimate { get; set; } = 0;
+        public int ProgressPercentage { get; set; } = 0;
+        public int TimeRemainingMs { get; set; } = 0;
         public string ResponseCheck { get; set; } = "";
+        public int NextUpdate { get; set; } = 100;
     }
     class Credentials {
         public string UserName { get; set; } = "";
@@ -183,7 +195,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(folderName));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => {
-            if (ioId == Guid.Empty) { 
+            if (ioId == Guid.Empty) {
                 var settings = container(storeId).Settings;
                 if (settings.IoBackup.HasValue && settings.IoBackup != Guid.Empty) ioId = settings.IoBackup.Value;
                 else ioId = settings.IoDatabase ?? throw new Exception("No IoBackup or IoDatabase defined in settings. ");

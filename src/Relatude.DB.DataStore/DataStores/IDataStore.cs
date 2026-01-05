@@ -20,7 +20,7 @@ public interface IDataStore : IDisposable {
     Datamodel Datamodel { get; }
     DataStoreState State { get; }
     DataStoreStatus GetStatus();
-    int GetStartupProgressEstimate();
+    DataStoreOpeningStatus GetOpeningStatus();
 
     long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
     long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);

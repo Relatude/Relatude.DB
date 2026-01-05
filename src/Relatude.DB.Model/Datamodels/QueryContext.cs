@@ -12,7 +12,6 @@ public class QueryContext {
     public bool ExcludeDecendants { get; set; } = false;
     public bool AnyCollections { get; set; } = false;
     public IRevisionSwitcher? RevisionSwitcher { get; set; }
-
     public static QueryContext CreateDefault() {
         return new QueryContext();
     }

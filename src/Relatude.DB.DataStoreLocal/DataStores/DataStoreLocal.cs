@@ -33,7 +33,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
-    
+
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
     readonly IIOProvider _ioLog;
@@ -104,7 +104,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         _createPersistedIndexStore = createPersistedIndexStore;
-        _fileKeys = new (_settings.FilePrefix);
+        _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);
         RegisterRunner(new IndexTaskRunner(this));
         RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
@@ -164,6 +164,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public IIOProvider IO => _io;
     public IIOProvider IOIndex => _ioIndex;
     public IIOProvider IOBackup => _ioAutoBackup;
+    public IEnumerable<IIOProvider> AllIOs => new[] { _io, _ioIndex, _ioAutoBackup, _ioLog, _ioLog2 }.Where(io => io != null);
     public SettingsLocal Settings => _settings;
     public long Timestamp {
         get {
@@ -245,7 +246,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } catch (StateFileReadException e) {
             LogInfo("Indexfile out of sync: " + e.Message);
             if (throwOnBadStateFile) {
-               throw createCriticalErrorAndSetDbToErrorState("Opening error. ", e);
+                throw createCriticalErrorAndSetDbToErrorState("Opening error. ", e);
             } else { // delete state file and reload
                 try {
                     LogInfo("Rebuilding index from log");
@@ -304,37 +305,37 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void validateStateInfoIfDebug() {
         return;
-//#if DEBUG
-//        // temporary code, to be deleted later on;
-//        // testing indexes
-//        foreach (var n in _nodes.Snapshot()) {
-//            var uid = n.nodeId;
-//            var node = _nodes.Get(uid);
-//            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
-//                throw new Exception("Node type mismatch. ");
-//            }
-//            if (_guids.GetId(node.Id) != uid) {
-//                throw new Exception("Guid mismatch. ");
-//            }
-//            if (_guids.GetGuid(uid) != node.Id) {
-//                throw new Exception("Guid mismatch. ");
-//            }
-//        }
+        //#if DEBUG
+        //        // temporary code, to be deleted later on;
+        //        // testing indexes
+        //        foreach (var n in _nodes.Snapshot()) {
+        //            var uid = n.nodeId;
+        //            var node = _nodes.Get(uid);
+        //            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
+        //                throw new Exception("Node type mismatch. ");
+        //            }
+        //            if (_guids.GetId(node.Id) != uid) {
+        //                throw new Exception("Guid mismatch. ");
+        //            }
+        //            if (_guids.GetGuid(uid) != node.Id) {
+        //                throw new Exception("Guid mismatch. ");
+        //            }
+        //        }
 
-//        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
-//        foreach (var r in _definition.Relations.Values) {
-//            foreach (var v in r.Values) {
-//                if (!_nodes.Contains(v.Target)) {
-//                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-//                    // r.DeleteIfReferenced(id); // fix
-//                }
-//                if (!_nodes.Contains(v.Source)) {
-//                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
-//                    // r.DeleteIfReferenced(id); // fix
-//                }
-//            }
-//        }
-//#endif
+        //        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
+        //        foreach (var r in _definition.Relations.Values) {
+        //            foreach (var v in r.Values) {
+        //                if (!_nodes.Contains(v.Target)) {
+        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+        //                    // r.DeleteIfReferenced(id); // fix
+        //                }
+        //                if (!_nodes.Contains(v.Source)) {
+        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+        //                    // r.DeleteIfReferenced(id); // fix
+        //                }
+        //            }
+        //        }
+        //#endif
     }
     public long GetLastTimestampID() {
         _lock.EnterReadLock();

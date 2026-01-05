@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />
+    <ProjectReference Include="..\Relatude.DB.Model\Relatude.DB.Model.csproj" />
   </ItemGroup>
 
 </Project>

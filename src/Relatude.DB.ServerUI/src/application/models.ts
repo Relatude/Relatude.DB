@@ -43,28 +43,58 @@ export interface NodeStoreContainer {
     ioSettings: IoSetting[]
     datamodelSources: DatamodelSource[]
 }
+
 export interface LocalSettings {
     filePrefix: string
-    doNotAcceptBadLogFile: boolean
-    doNotAcceptBadStateFile: boolean
-    enableSystemLog: boolean
+    throwOnBadLogFile: boolean
+    throwOnBadStateFile: boolean
+    enableSimpleSystemLog: boolean
+    onlyLogErrorsToSimpleSystemLog: boolean
     writeSystemLogConsole: boolean
-    daysToKeepSystemLog: number
+    doNotCacheMapperFile: boolean
     nodeCacheSizeGb: number
     setCacheSizeGb: number
-    forceDiskFlushOnEveryTransaction: boolean
+    flushDiskOnEveryTransactionByDefault: boolean
+    forceDiskFlushAfterActionCountLimit: number
+    deepFlushDisk: boolean
     autoFlushDiskInBackground: boolean
     autoFlushDiskIntervalInSeconds: number
+    delayAutoDiskFlushIfBusy: boolean
+    maxDelayAutoDiskFlushIfBusyInSeconds: number
+    busyThresholdActivitiesLast10Sec: number
+    busyThresholdQueriesLast10Sec: number
     autoSaveIndexStates: boolean
     autoSaveIndexStatesIntervalInMinutes: number
+    autoSaveIndexStatesActionCountLowerLimit: number
+    autoSaveIndexStatesActionCountUpperLimit: number
     autoBackUp: boolean
     noHourlyBackUps: number
     noDailyBackUps: number
     noWeeklyBackUps: number
+    noMontlyBackUps: number
+    noYearlyBackUps: number
     truncateBackups: boolean
+    secondaryBackupLog: boolean
     autoTruncate: boolean
     autoTruncateIntervalInMinutes: number
-    autoIndexes: boolean
+    autoTruncateActionCountLowerLimit: number
+    autoTruncateDeleteOldFileOnSuccess: boolean
+    autoPurgeCache: boolean
+    autoPurgeCacheIntervalInMinutes: number
+    autoPurgeCacheLowerSizeLimitInMb: number
+    usePersistedValueIndexesByDefault: boolean
+    persistedValueIndexEngine: number
+    persistedValueIndexFolderPath: string | null
+    enableTextIndexByDefault: boolean
+    enableSemanticIndexByDefault: boolean
+    enableInstantTextIndexingByDefault: boolean
+    usePersistedTextIndexesByDefault: boolean
+    persistedTextIndexEngine: number
+    autoDequeTasks: boolean
+    persistedQueueStoreEngine: number
+    persistedQueueStoreFolderPath: string | null
+
+
 }
 export interface IoSetting {
     id: string

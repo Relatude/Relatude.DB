@@ -206,8 +206,8 @@ internal static class ActionFactory {
             case NodeOperation.ChangeType: {
                     var idNode = nodeAction.Node;
                     int uid;
-                    if (nodeAction.Node is not NodeDataOnlyTypeAndUId nodeUid) {
-                        if (nodeAction.Node is not NodeDataOnlyTypeAndId nodeId) {
+                    if (nodeAction.Node is not NodeDataOnlyTypeAndId nodeUid) {
+                        if (nodeAction.Node is not NodeDataOnlyTypeAndGuid nodeId) {
                             throw new Exception("NodeAction.ChangeType requires NodeDataOnlyTypeAndUId. ");
                         } else {
                             uid = db._guids.GetId(nodeId.Id);

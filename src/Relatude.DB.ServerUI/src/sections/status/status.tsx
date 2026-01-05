@@ -99,8 +99,8 @@ export const component = () => {
                     <Button mt="sm" variant="light" disabled={state != "Open"} onClick={() => app.api.maintenance.clearCache(app.ui.selectedStoreId!)}>Clear Cache</Button>
                 </Panel>
                 <Panel title="Content" span={3}>
-                    {Object.entries(info.typeCounts).map(([type, count]) => (
-                        <div key={type}>{type}: {count}</div>
+                    {Object.entries(info.typeCounts).filter(([type, count]) => count > 0).map(([type, count]) => (
+                        <div key={type}>{type}: {formatNumber(count)}</div>
                     ))}
 
                 </Panel>

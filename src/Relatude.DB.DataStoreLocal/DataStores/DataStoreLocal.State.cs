@@ -210,7 +210,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         LogInfo(desc, null, true);
                         var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
                         UpdateActivity(activityId, desc.Trim(), progressBar);
-                        setStartupProgressEstimate(progressBar / 2 + 50);
+                        setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
                         lastBytesRead = readBytes;
                     }
                     if (isTransactionRelevantForIndexes) {
