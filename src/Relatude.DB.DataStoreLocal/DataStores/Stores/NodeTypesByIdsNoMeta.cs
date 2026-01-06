@@ -1,15 +1,11 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
-using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
 
-class MutableIdSet {
-    internal MutableIdSet() {
-    }
+class mutableIdSet {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
     HashSet<int> _ids = [];
@@ -35,8 +31,8 @@ internal class NodeTypesByIdsNoMeta {
     readonly Dictionary<Guid, short> _shortTypeIdByGuid = [];
     readonly Guid[] _typeGuidByShortTypeId = new Guid[short.MaxValue]; // wastes 32k for faster lookup, limits number of node types to 32 000, should be plenty
     readonly Dictionary<int, short> _typeByIds = [];
-    readonly Dictionary<Guid, MutableIdSet> _idsByTypeNoMetaIncludingDescendants = [];
-    readonly Dictionary<Guid, MutableIdSet> _idsByTypeNoMetaAndWithoutDescendants = [];
+    readonly Dictionary<Guid, mutableIdSet> _idsByTypeNoMetaIncludingDescendants = [];
+    readonly Dictionary<Guid, mutableIdSet> _idsByTypeNoMetaAndWithoutDescendants = [];
     internal NodeTypesByIdsNoMeta(Definition definition) {
         _definition = definition;
     }

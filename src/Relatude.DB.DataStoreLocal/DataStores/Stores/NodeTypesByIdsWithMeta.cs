@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 internal class NodeTypesByIdsWithMeta {
     readonly Definition _definition;
+    readonly List<NodeMeta> _metas = [];
     public NodeTypesByIdsWithMeta(Definition definition) {
         _definition = definition;
     }

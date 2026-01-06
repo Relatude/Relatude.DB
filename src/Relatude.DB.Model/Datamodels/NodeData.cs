@@ -14,6 +14,7 @@ public interface INodeData {
 
     bool IsComplex { get; }
 
+
     int ReadAccess { get; }
     int EditViewAccess { get; }
     int PublishAccess { get; }
@@ -23,6 +24,8 @@ public interface INodeData {
     int CollectionId { get; }
     int CultureId { get; }
     int RevisionId { get; }
+
+
     NodeData[] Versions { get; }
 
     DateTime ChangedUtc { get; }
@@ -169,14 +172,17 @@ public class NodeDataComplex : INodeData {
         _id = id;
         _gid = guid;
         _nodeType = typeId;
+
         Versions = versions;
         ReadAccess = readAccess;
         EditViewAccess = editAccess;
         PublishAccess = publishAccess;
+        CollectionId = collectionId;
+
         CreatedBy = createdBy;
         ChangedBy = changedBy;
         CultureId = cultureId;
-        CollectionId = collectionId;
+
     }
     int _id;
     public int __Id { get => _id; set => throw new NotImplementedException(); }
@@ -188,6 +194,7 @@ public class NodeDataComplex : INodeData {
     public int ReadAccess { get; }
     public int EditViewAccess { get; }
     public int PublishAccess { get; }
+
     public int CreatedBy { get; }
     public int ChangedBy { get; }
     public int CultureId { get; }

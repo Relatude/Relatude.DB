@@ -26,7 +26,10 @@ internal class LogQueue : IDisposable {
             transactionCount = _queue.Count;
             _queue = [];
         }
-        lock (_workLock) { // _workLock is needed to prevent multiple batches running simultaneously, ( would cause problem with disk flushes as they have no lock, and could interleave with db rewrite, that uses flush to ensure all node segments are written)
+        lock (_workLock) { 
+            // _workLock is needed to prevent multiple batches running simultaneously
+            // ( would cause problem with disk flushes as they have no lock,
+            // and could interleave with db rewrite, that uses flush to ensure all node segments are written)
             bytesWritten = 0;
             if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
         }
