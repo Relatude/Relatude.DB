@@ -1,6 +1,4 @@
-﻿using System.Text;
-using Relatude.DB.Common;
-using Relatude.DB.Datamodels.Properties;
+﻿using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Datamodels;
 public enum DataTypePublicId {
@@ -22,15 +20,6 @@ public partial class NodeTypeModel { // with default values
 
     readonly public static string DefaultPublicIdPropertyName = "Id";
     readonly public static string DefaultInternalIdPropertyName = "Id";
-
-    //readonly static public string DefaultNameOfCollectionProperty = "CollectionId";
-    //readonly static public string DefaultNameOfLCIDProperty = "LCID";
-    //readonly static public string DefaultNameDerivedFromLCID = "DerivedFromLCID";
-    //readonly static public string DefaultNameOfIsDerivedProperty = "IsDerived";
-    //readonly static public string DefaultNameOfReadAccessProperty = "ReadAccess";
-    //readonly static public string DefaultNameOfWriteAccessProperty = "WriteAccess";
-    //readonly static public string DefaultNameOfCreatedUtcProperty = "CreatedUtc";
-    //readonly static public string DefaultNameOfChangedUtcProperty = "ChangedUtc";
 
     public Guid Id { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }

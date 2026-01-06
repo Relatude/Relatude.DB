@@ -11,34 +11,9 @@ public interface INodeData {
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
-
-    bool IsComplex { get; }
-
-
-    int ReadAccess { get; }
-    int EditViewAccess { get; }
-    int PublishAccess { get; }
-    int CreatedBy { get; }
-    int ChangedBy { get; }
-
-    int CollectionId { get; }
-    int CultureId { get; }
-    int RevisionId { get; }
-
-
-    NodeData[] Versions { get; }
-
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
-
-    DateTime PublishedUtc { get; }
-    DateTime RetainedUtc { get; }
-    DateTime ReleasedUtc { get; }
-
-
-
     IEnumerable<PropertyEntry<object>> Values { get; }
-
     bool ReadOnly { get; }
     IRelations Relations { get; }
     int ValueCount { get; }
@@ -48,28 +23,8 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
-    T GetValue<T>(Guid propertyId);
     INodeData Copy();
     public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
-
-}
-public class NodeComplexMeta {
-    public NodeComplexMeta(int readAccess, int editViewAccess, int publishAccess, int createdBy, int changedBy, int cultureId, int collectionId) {
-        ReadAccess = readAccess;
-        EditViewAccess = editViewAccess;
-        PublishAccess = publishAccess;
-        CreatedBy = createdBy;
-        ChangedBy = changedBy;
-        CultureId = cultureId;
-        CollectionId = collectionId;
-    }
-    public int ReadAccess { get; }
-    public int EditViewAccess { get; }
-    public int PublishAccess { get; }
-    public int CreatedBy { get; }
-    public int ChangedBy { get; }
-    public int CultureId { get; }
-    public int CollectionId { get; }
 }
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
@@ -83,11 +38,6 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         _gid = id;
         _uid = uid;
         NodeType = nodeType;
-        //CollectionId = collectionId;
-        //LCID = lcid;
-        //DerivedFromLCID = derivedFromLcidId;
-        //ReadAccess = readAccess;
-        //WriteAccess = writeAccess;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
         //_values = new(values);
@@ -109,24 +59,6 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
-    public DateTime PublishedUtc => CreatedUtc;
-    public DateTime RetainedUtc => DateTime.MaxValue;
-    public DateTime ReleasedUtc => DateTime.MinValue;
-
-    public int ReadAccess => 0;
-    public int EditViewAccess => 0;
-    public int EditWriteAccess => 0;
-
-    public int PublishAccess => 0;
-    public int CreatedBy => 0;
-    public int ChangedBy => 0;
-    public int CollectionId => 0;
-    public int CultureId => 0;
-    public int RevisionId => 0;
-    public bool IsComplex => false;
-
-    public NodeData[] Versions => throw new Exception("Node has no versions. ");
-
     public Guid NodeType { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
     public int ValueCount => _values.Count;
@@ -143,12 +75,10 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         if (_readOnly) throw new Exception("Node data is readonly. ");
         _values.Remove(propertyId);
     }
-    public T GetValue<T>(Guid propertyId) => (T)_values[propertyId];
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) {
         return _values.TryGetValue(propertyId, out value);
     }
     public bool Contains(Guid propertyId) => _values.ContainsKey(propertyId);
-
     public void EnsureReadOnly() {
         if (!_readOnly) _readOnly = true;
     }
@@ -166,65 +96,6 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     public override string ToString() {
         return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
-}
-public class NodeDataComplex : INodeData {
-    public NodeDataComplex(Guid guid, int id, Guid typeId, int readAccess, int editAccess, int publishAccess, int createdBy, int changedBy, int cultureId, int collectionId, NodeData[] versions) {
-        _id = id;
-        _gid = guid;
-        _nodeType = typeId;
-
-        Versions = versions;
-        ReadAccess = readAccess;
-        EditViewAccess = editAccess;
-        PublishAccess = publishAccess;
-        CollectionId = collectionId;
-
-        CreatedBy = createdBy;
-        ChangedBy = changedBy;
-        CultureId = cultureId;
-
-    }
-    int _id;
-    public int __Id { get => _id; set => throw new NotImplementedException(); }
-    Guid _gid;
-    public Guid Id { get => _gid; set => throw new NotImplementedException(); }
-    Guid _nodeType;
-
-    public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public int ReadAccess { get; }
-    public int EditViewAccess { get; }
-    public int PublishAccess { get; }
-
-    public int CreatedBy { get; }
-    public int ChangedBy { get; }
-    public int CultureId { get; }
-    public int CollectionId { get; }
-    public int RevisionId => throw new NotImplementedException();
-    public bool IsComplex => true;
-    public NodeData[] Versions { get; }
-    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public DateTime ChangedUtc => throw new NotImplementedException();
-    public DateTime PublishedUtc => throw new NotImplementedException();
-    public DateTime RetainedUtc => DateTime.MaxValue;
-    public DateTime ReleasedUtc => DateTime.MinValue;
-
-    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
-
-    public int ValueCount => throw new NotImplementedException();
-    public bool ReadOnly => true;
-    public bool IsDerived => throw new NotImplementedException();
-    public IRelations Relations => throw new NotImplementedException();
-
-    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
-    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
-    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
-    public bool Contains(Guid propertyId) => throw new NotImplementedException();
-    public void EnsureReadOnly() => throw new NotImplementedException();
-    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
-    public INodeData Copy() => throw new NotImplementedException();
-    public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
-
 }
 public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyId(Guid gid) => _gid = gid;
@@ -274,7 +145,6 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
-    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
 
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
@@ -320,7 +190,6 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
-    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
@@ -364,7 +233,6 @@ public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with po
     public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
     public bool Contains(Guid propertyId) => throw new NotImplementedException();
     public void EnsureReadOnly() => throw new NotImplementedException();
-    public T GetValue<T>(Guid propertyId) => throw new NotImplementedException();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
@@ -413,7 +281,6 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();
     public bool Contains(Guid propertyId) => _node.Contains(propertyId);
     public void EnsureReadOnly() => _node.EnsureReadOnly();
-    public T GetValue<T>(Guid propertyId) => _node.GetValue<T>(propertyId);
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
     public INodeData Copy() => throw new NotImplementedException();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
@@ -465,10 +332,10 @@ public class Properties<T> {
         _size = 0;
         _values = new PropertyEntry<T>[sizeIndication];
     }
-    public Properties(Properties<T> tinyDictionary) {
-        _size = tinyDictionary._size;
+    public Properties(Properties<T> properties) {
+        _size = properties._size;
         _values = new PropertyEntry<T>[_size];
-        Array.Copy(tinyDictionary._values, _values, _size);
+        Array.Copy(properties._values, _values, _size);
     }
     public void Add(Guid key, T v) {
         if (_size == _values.Length) {

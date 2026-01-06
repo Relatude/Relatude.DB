@@ -8,10 +8,10 @@ internal class NodeTypesByIdsWithMeta {
     public NodeTypesByIdsWithMeta(Definition definition) {
         _definition = definition;
     }
-    internal void Insert(NodeDataComplex node, NodeTypeModel nodeType) {
+    internal void Insert(INodeDataComplex node, NodeTypeModel nodeType) {
         throw new NotImplementedException();
     }
-    internal void Delete(NodeDataComplex node, NodeTypeModel nodeType) {
+    internal void Delete(INodeDataComplex node, NodeTypeModel nodeType) {
         throw new NotImplementedException();
     }
     internal IdSet GetAllNodeIdsForType(NodeTypeModel typeDef, QueryContext ctx) {

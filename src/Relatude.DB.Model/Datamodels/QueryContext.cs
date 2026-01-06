@@ -23,7 +23,7 @@ public class PreviewSelector(Guid nodeId, int revisionId) : IRevisionSwitcher {
     public NodeData RevisionSwitcher(NodeData selected, NodeData[] allRevisions) {
         if (selected.Id == nodeId) {
             foreach (var r in allRevisions) {
-                if (r.RevisionId == revisionId) return r;
+                //if (r.RevisionId == revisionId) return r;
             }
         }
         return selected;

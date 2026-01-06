@@ -1,6 +1,5 @@
 ﻿using System.Text;
 using Relatude.DB.Datamodels.Properties;
-
 namespace Relatude.DB.Datamodels {
     public partial class NodeTypeModel {
         // Calculated and not part of Json serialization: ( by default only {get set} properties are serialized )
@@ -11,7 +10,6 @@ namespace Relatude.DB.Datamodels {
         public readonly Dictionary<Guid, NodeTypeModel> ThisAndDescendingTypes = [];
         public readonly List<PropertyModel> DisplayProperties = [];
         public readonly List<PropertyModel> TextIndexProperties = [];
-
         public void BuildDisplayName(INodeData node, StringBuilder sb) {
             var i = 0;
             foreach (var prop in DisplayProperties) {

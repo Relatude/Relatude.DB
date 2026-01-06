@@ -46,20 +46,20 @@ public static partial class ToBytes {
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
 
-        var all0 =
-            nodeData.ReadAccess == 0
-            && nodeData.EditViewAccess == 0
-            && nodeData.CultureId == 0
-            && nodeData.CollectionId == 0
-            && nodeData.RevisionId == 0;
-        stream.WriteBool(all0);
-        if (!all0) {
-            stream.WriteInt(nodeData.ReadAccess);
-            stream.WriteInt(nodeData.EditViewAccess);
-            stream.WriteInt(nodeData.CultureId);
-            stream.WriteInt(nodeData.CollectionId);
-            stream.WriteInt(nodeData.RevisionId);
-        }
+        //var all0 =
+        //    nodeData.ReadAccess == 0
+        //    && nodeData.EditViewAccess == 0
+        //    && nodeData.CultureId == 0
+        //    && nodeData.CollectionId == 0
+        //    && nodeData.RevisionId == 0;
+        //stream.WriteBool(all0);
+        //if (!all0) {
+        //    stream.WriteInt(nodeData.ReadAccess);
+        //    stream.WriteInt(nodeData.EditViewAccess);
+        //    stream.WriteInt(nodeData.CultureId);
+        //    stream.WriteInt(nodeData.CollectionId);
+        //    stream.WriteInt(nodeData.RevisionId);
+        //}
 
         stream.WriteDateTime(nodeData.CreatedUtc);
         stream.WriteDateTime(nodeData.ChangedUtc);
