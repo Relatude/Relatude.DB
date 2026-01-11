@@ -3,6 +3,7 @@ using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
+using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 
@@ -192,41 +193,51 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
                 foreach (var a in transaction.ExecutedActions) {
-                    actionCount++;
-                    actionCountInTransaction++;
-                    if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
-                        var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
-                        var estimatedByteProgressInTransaction = sizeOfCurrentTransaction * remainingInTrans;
-                        var readBytes = logReader.Position - estimatedByteProgressInTransaction;
-                        var totalBytes = logReader.FileSize;
-                        var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
-                        var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 3000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
-                        var estimatedTotalProgress = readBytes * 100D / totalBytes;
-                        var deltaBytes = readBytes - lastBytesRead;
-                        var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
-                        var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
-                        lastProgress = (int)sw.ElapsedMilliseconds;
-                        var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
-                        LogInfo(desc, null, true);
-                        var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
-                        UpdateActivity(activityId, desc.Trim(), progressBar);
-                        setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
-                        lastBytesRead = readBytes;
-                    }
-                    if (isTransactionRelevantForIndexes) {
-                        _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logError);
-                    }
-                    if (isTransactionRelevantForStateStores) {
-                        _guids.RegisterAction(a);
-                        if (a is PrimitiveNodeAction na) {
-                            _nodes.RegisterAction_NotThreadsafe(na);
-                            _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
-                        } else if (a is PrimitiveRelationAction ra) {
-                            _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
-                        } else throw new NotImplementedException();
-                        _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
-                        _noPrimitiveActionsSinceLastStateSnapshot++;
-                        if (a.Operation == PrimitiveOperation.Remove) _noPrimitiveActionsInLogThatCanBeTruncated++;
+                    try {
+                        if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
+                            var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
+                            var estimatedByteProgressInTransaction = sizeOfCurrentTransaction * remainingInTrans;
+                            var readBytes = logReader.Position - estimatedByteProgressInTransaction;
+                            var totalBytes = logReader.FileSize;
+                            var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
+                            var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 3000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
+                            var estimatedTotalProgress = readBytes * 100D / totalBytes;
+                            var deltaBytes = readBytes - lastBytesRead;
+                            var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
+                            var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
+                            lastProgress = (int)sw.ElapsedMilliseconds;
+                            var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
+                            LogInfo(desc, null, true);
+                            var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
+                            UpdateActivity(activityId, desc.Trim(), progressBar);
+                            setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
+                            lastBytesRead = readBytes;
+                        }
+                        if (isTransactionRelevantForStateStores) {
+                            _guids.RegisterAction(a);
+                            if (a is PrimitiveNodeAction na) {
+                                _nodes.RegisterAction_NotThreadsafe(na);
+                                _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
+                            } else if (a is PrimitiveRelationAction ra) {
+                                _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
+                            } else throw new NotImplementedException();
+                            _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
+                        }
+                        if (isTransactionRelevantForIndexes) {
+                            _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logError);
+                        }
+                        if (isTransactionRelevantForStateStores) {
+                            _noPrimitiveActionsSinceLastStateSnapshot++;
+                            if (a.Operation == PrimitiveOperation.Remove) _noPrimitiveActionsInLogThatCanBeTruncated++;
+                        }
+                        actionCount++;
+                        actionCountInTransaction++;
+                    } catch (Exception err) { 
+                        if(throwOnErrors) {
+                            throw new Exception("Error processing action in transaction at timestamp " + transaction.Timestamp + ". " + err.Message, err);
+                        } else {
+                            logError("Error processing action in transaction at timestamp " + transaction.Timestamp + ". ", err);
+                        }
                     }
                 }
                 if (isTransactionRelevantForStateStores) {

@@ -29,26 +29,26 @@ public class PreviewSelector(Guid nodeId, int revisionId) : IRevisionSwitcher {
         return selected;
     }
 }
-public class NodeMeta {
+//public class NodeMeta {
 
-    public Guid ReadAccessId { get; set; } // hard read access for nodes in any context
-    public Guid EditViewAccessId { get; set; } // soft filter for to show or hide nodes in the edit ui
-    public Guid EditWriteAccessId { get; set; } // control access to edit unpublished revisions and request publication/depublication
-    public Guid PublishAccessId { get; set; } // control access to change live publish or depublish revisions
-    public string? CultureCode { get; }
-    public bool IsFallbackCulture { get; set; }
+//    public Guid ReadAccessId { get; set; } // hard read access for nodes in any context
+//    public Guid EditViewAccessId { get; set; } // soft filter for to show or hide nodes in the edit ui
+//    public Guid EditWriteAccessId { get; set; } // control access to edit unpublished revisions and request publication/depublication
+//    public Guid PublishAccessId { get; set; } // control access to change live publish or depublish revisions
+//    public string? CultureCode { get; }
+//    public bool IsFallbackCulture { get; set; }
 
-    public int RevisionId { get; set; }
-    public bool IsDeleted { get; set; }
+//    public int RevisionId { get; set; }
+//    public bool IsDeleted { get; set; }
 
-    public DateTime ChangedUtc { get; }
-    public DateTime CreatedUtc { get; set; }
-    public DateTime PublishedUtc { get; }
-    public DateTime RetainedUtc { get; set; }
-    public DateTime ReleasedUtc { get; set; }
+//    public DateTime ChangedUtc { get; }
+//    public DateTime CreatedUtc { get; set; }
+//    public DateTime PublishedUtc { get; }
+//    public DateTime RetainedUtc { get; set; }
+//    public DateTime ReleasedUtc { get; set; }
 
 
-}
+//}
 
 /// <summary>
 /// Represents a high-performance, immutable cache key.

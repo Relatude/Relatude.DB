@@ -25,41 +25,41 @@ public static class StoreStreamExtenstions {
         return v1;
     }
 
-    public static void WriteMeta(this IAppendStream s, NodeMeta meta) { 
-        s.WriteGuid(meta.ReadAccessId);
-        s.WriteGuid(meta.EditViewAccessId);
-        s.WriteGuid(meta.EditWriteAccessId);
-        s.WriteGuid(meta.PublishAccessId);
-        s.WriteString(meta.CultureCode ?? string.Empty);
-        s.WriteBool(meta.IsFallbackCulture);
-        s.WriteVerifiedInt(meta.RevisionId);
-        s.WriteBool(meta.IsDeleted);
-        s.WriteDateTimeUtc(meta.ChangedUtc);
-        s.WriteDateTimeUtc(meta.CreatedUtc);
-        s.WriteDateTimeUtc(meta.PublishedUtc);
-        s.WriteDateTimeUtc(meta.RetainedUtc);
-        s.WriteDateTimeUtc(meta.ReleasedUtc);
-    }
-    public static NodeMeta ReadMeta(this IReadStream s) { 
-        throw new NotImplementedException();
-        //var meta = new NodeMeta();
-        //meta.ReadAccessId = s.ReadGuid();
-        //meta.EditViewAccessId = s.ReadGuid();
-        //meta.EditWriteAccessId = s.ReadGuid();
-        //meta.PublishAccessId = s.ReadGuid();
-        //var cultureCode = s.ReadString();
-        //meta.CultureCode = string.IsNullOrEmpty(cultureCode) ? null : cultureCode;
-        //meta.IsFallbackCulture = s.ReadBool();
-        //meta.RevisionId = s.ReadVerifiedInt();
-        //meta.IsDeleted = s.ReadBool();
-        //meta.ChangedUtc = s.ReadDateTimeUtc();
-        //meta.CreatedUtc = s.ReadDateTimeUtc();
-        //meta.PublishedUtc = s.ReadDateTimeUtc();
-        //meta.RetainedUtc = s.ReadDateTimeUtc();
-        //meta.ReleasedUtc = s.ReadDateTimeUtc();
-        //return meta;
+    //public static void WriteMeta(this IAppendStream s, NodeMeta meta) { 
+    //    s.WriteGuid(meta.ReadAccessId);
+    //    s.WriteGuid(meta.EditViewAccessId);
+    //    s.WriteGuid(meta.EditWriteAccessId);
+    //    s.WriteGuid(meta.PublishAccessId);
+    //    s.WriteString(meta.CultureCode ?? string.Empty);
+    //    s.WriteBool(meta.IsFallbackCulture);
+    //    s.WriteVerifiedInt(meta.RevisionId);
+    //    s.WriteBool(meta.IsDeleted);
+    //    s.WriteDateTimeUtc(meta.ChangedUtc);
+    //    s.WriteDateTimeUtc(meta.CreatedUtc);
+    //    s.WriteDateTimeUtc(meta.PublishedUtc);
+    //    s.WriteDateTimeUtc(meta.RetainedUtc);
+    //    s.WriteDateTimeUtc(meta.ReleasedUtc);
+    //}
+    //public static NodeMeta ReadMeta(this IReadStream s) { 
+    //    throw new NotImplementedException();
+    //    //var meta = new NodeMeta();
+    //    //meta.ReadAccessId = s.ReadGuid();
+    //    //meta.EditViewAccessId = s.ReadGuid();
+    //    //meta.EditWriteAccessId = s.ReadGuid();
+    //    //meta.PublishAccessId = s.ReadGuid();
+    //    //var cultureCode = s.ReadString();
+    //    //meta.CultureCode = string.IsNullOrEmpty(cultureCode) ? null : cultureCode;
+    //    //meta.IsFallbackCulture = s.ReadBool();
+    //    //meta.RevisionId = s.ReadVerifiedInt();
+    //    //meta.IsDeleted = s.ReadBool();
+    //    //meta.ChangedUtc = s.ReadDateTimeUtc();
+    //    //meta.CreatedUtc = s.ReadDateTimeUtc();
+    //    //meta.PublishedUtc = s.ReadDateTimeUtc();
+    //    //meta.RetainedUtc = s.ReadDateTimeUtc();
+    //    //meta.ReleasedUtc = s.ReadDateTimeUtc();
+    //    //return meta;
 
-    }
+    //}
 
 
     public static void WriteVerifiedLong(this IAppendStream s, long v) {

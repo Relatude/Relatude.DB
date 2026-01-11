@@ -75,20 +75,16 @@ internal class NodeTypesByIdsStore {
     void insert(INodeData node) {
         var nodeType = _definition.Datamodel.NodeTypes[node.NodeType];
         if (nodeType.IsComplex()) {
-            if (node is not INodeDataComplex cmx) throw new Exception("Internal error. Unable to index node with id: " + node.Id + " as complex node data is required.");
-            _metas.Insert(cmx, nodeType);
+            _metas.Insert(node, nodeType);
         } else {
-            if (node is not INodeDataComplex) throw new Exception("Internal error. Unable to index node with id: " + node.Id + " as non-complex node data is required.");
             _noMetas.Insert(node, nodeType);
         }
     }
     void delete(INodeData node) {
         var nodeType = _definition.Datamodel.NodeTypes[node.NodeType];
         if (nodeType.IsComplex()) {
-            if (node is not INodeDataComplex cmx) throw new Exception("Internal error. Unable to index node with id: " + node.Id + " as complex node data is required.");
-            _metas.Delete(cmx, nodeType);
+            _metas.Delete(node, nodeType);
         } else {
-            if (node is INodeDataComplex) throw new Exception("Internal error. Unable to index node with id: " + node.Id + " as non-complex node data is required.");
             _noMetas.Delete(node, nodeType);
         }
     }

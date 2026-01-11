@@ -4,14 +4,14 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 internal class NodeTypesByIdsWithMeta {
     readonly Definition _definition;
-    readonly List<NodeMeta> _metas = [];
+    //readonly List<NodeMeta> _metas = [];
     public NodeTypesByIdsWithMeta(Definition definition) {
         _definition = definition;
     }
-    internal void Insert(INodeDataComplex node, NodeTypeModel nodeType) {
+    internal void Insert(INodeData node, NodeTypeModel nodeType) {
         throw new NotImplementedException();
     }
-    internal void Delete(INodeDataComplex node, NodeTypeModel nodeType) {
+    internal void Delete(INodeData node, NodeTypeModel nodeType) {
         throw new NotImplementedException();
     }
     internal IdSet GetAllNodeIdsForType(NodeTypeModel typeDef, QueryContext ctx) {
