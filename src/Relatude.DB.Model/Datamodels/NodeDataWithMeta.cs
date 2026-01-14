@@ -1,26 +1,25 @@
-﻿using System;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
 
-public class NodeDataComplex : NodeData {
-    public NodeDataComplex(Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, NodeComplexMeta meta)
+public class NodeDataWithMeta : NodeData {
+    public NodeDataWithMeta(Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, NodeMeta meta)
         : base(id, uid, nodeType, createdUtc, changedUtc, values) {
         Meta = meta;
     }
-    public override NodeComplexMeta? Meta { get; }
+    public override NodeMeta? Meta { get; }
 }
-public class NodeDataComplexContainer : INodeData {
-    public NodeDataComplexContainer(int nodeId, NodeDataComplex[] versions) {
+public class NodeDataVersionContainer : INodeData {
+    public NodeDataVersionContainer(int nodeId, NodeDataWithMeta[] versions) {
         _id = nodeId;
         Versions = versions;
     }
     int _id;
     public int __Id { get => _id; set => throw new NotImplementedException(); }
-    public NodeDataComplex[] Versions { get; }
+    public NodeDataWithMeta[] Versions { get; }
     public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public Guid NodeType => throw new NotImplementedException();
-    public NodeComplexMeta? Meta => throw new NotImplementedException();
+    public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime ChangedUtc => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -36,17 +35,30 @@ public class NodeDataComplexContainer : INodeData {
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
 }
 
-public class NodeComplexMeta {
-    public int CollectionId { get; }
+public class NodeMeta {
+    required public int CollectionId { get; set; }
 
-    public int ReadAccess { get; }
-    public int EditViewAccess { get; }
-    public int PublishAccess { get; }
+    required public int ReadAccess { get; set; }
+    required public int EditViewAccess { get; set; }
+    required public int PublishAccess { get; set; }
 
-    public int CreatedBy { get; }
-    public int ChangedBy { get; }
-    public int CultureId { get; }
-    public DateTime PublishedUtc { get; }
-    public DateTime RetainedUtc { get; }
-    public DateTime ReleasedUtc { get; }
+    required public int CreatedBy { get; set; }
+    required public int ChangedBy { get; set; }
+    required public int CultureId { get; set; }
+    required public DateTime PublishedUtc { get; set; }
+    required public DateTime RetainedUtc { get; set; }
+    required public DateTime ReleasedUtc { get; set; }
+
+    public static NodeMeta Empty = new() {
+        CollectionId = 0,
+        ReadAccess = 0,
+        EditViewAccess = 0,
+        PublishAccess = 0,
+        CreatedBy = 0,
+        ChangedBy = 0,
+        CultureId = 0,
+        PublishedUtc = DateTime.MinValue,
+        RetainedUtc = DateTime.MinValue,
+        ReleasedUtc = DateTime.MinValue
+    };
 }

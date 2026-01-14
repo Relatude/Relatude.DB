@@ -4,16 +4,20 @@ namespace Relatude.DB.Datamodels;
 public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
-    Complex = 2, // Access, Revisions, Cultures
+    WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
+    WithRelations = 3, 
 }
 public interface INodeData {
     Guid Id { get; set; }
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
-    NodeComplexMeta? Meta { get; }
+    NodeMeta? Meta { get; }
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
+    //Guid CollectionId { get; set; }
+    //Guid ReadAccess{ get; set; }
+    //Guid WriteAccess { get; set; }
     IEnumerable<PropertyEntry<object>> Values { get; }
     bool ReadOnly { get; }
     IRelations Relations { get; }
@@ -59,9 +63,13 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         }
     }
     public Guid NodeType { get; }
-    public virtual NodeComplexMeta? Meta => null;
+    public virtual NodeMeta? Meta => null;
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
+    //bool _allEmpty;
+    //public Guid CollectionId { get { return Guid.Empty; } set { } }
+    //public Guid ReadAccess { get { return Guid.Empty; } set { } }
+    //public Guid WriteAccess { get { return Guid.Empty; } set { } }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
     public int ValueCount => _values.Count;
     public bool ReadOnly => _readOnly;
@@ -113,7 +121,7 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     int _id;
     public int __Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType => throw new NotImplementedException();
-    public NodeComplexMeta? Meta => throw new NotImplementedException();
+    public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -141,7 +149,7 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     Guid _nodeType;
     public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public NodeComplexMeta? Meta => throw new NotImplementedException();
+    public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -168,7 +176,7 @@ public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with po
     Guid _nodeType;
     public Guid Id { get => _id; set => throw new NotImplementedException(); }
     public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public NodeComplexMeta? Meta => throw new NotImplementedException();
+    public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
@@ -201,7 +209,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public Guid Id { get => _node.Id; set => throwReadOnlyError(); }
     public int __Id { get => _node.__Id; set => throwReadOnlyError(); }
     public Guid NodeType => _node.NodeType;
-    public NodeComplexMeta? Meta => _node.Meta;
+    public NodeMeta? Meta => _node.Meta;
     public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }

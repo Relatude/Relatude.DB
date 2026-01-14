@@ -1,17 +1,14 @@
-﻿using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
-using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
-
-internal class NodeTypesByIdsStore {
+internal class NodeTypesByIds {
     readonly Definition _definition;
     readonly NodeTypesByIdsNoMeta _noMetas;
     readonly NodeTypesByIdsWithMeta _metas;
-    internal NodeTypesByIdsStore(Definition definition) {
+    internal NodeTypesByIds(Definition definition) {
         _definition = definition;
         _noMetas = new(definition);
         _metas = new(definition);
@@ -20,7 +17,7 @@ internal class NodeTypesByIdsStore {
         if (excludeDecendants) return nodeType.IsComplex();
         return nodeType.ThisOrDescendingTypesAreComplex();
     }
-    public IdSet GetAllNodeIdsForType(Guid typeId, QueryContext ctx) {
+    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         var typeDef = _definition.NodeTypes[typeId].Model;
         var typesNoMetas = _noMetas.GetAllNodeIdsForType(typeId, ctx.ExcludeDecendants);
         if (involvesComplexTypes(typeDef, ctx.ExcludeDecendants)) {
@@ -30,7 +27,7 @@ internal class NodeTypesByIdsStore {
             return typesNoMetas;
         }
     }
-    public IdSet GetAllNodeIdsForTypeNoAccessControl(Guid typeId, bool excludeDecendants) {
+    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDecendants) {
         var typeDef = _definition.NodeTypes[typeId].Model;
         var typesNoMetas = _noMetas.GetAllNodeIdsForType(typeId, excludeDecendants);
         if (involvesComplexTypes(typeDef, excludeDecendants)) {
@@ -42,7 +39,7 @@ internal class NodeTypesByIdsStore {
     }
     public int GetCountForTypeForStatusInfo(Guid typeId) {
         // Optimization possible!
-        return GetAllNodeIdsForTypeNoAccessControl(typeId, true).Count;
+        return GetAllNodeIdsForTypeNoFilter(typeId, true).Count;
     }
     public Guid GetType(int id) {
         Guid typeId;
@@ -59,8 +56,8 @@ internal class NodeTypesByIdsStore {
         var node = na.Node;
         try {
             switch (na.Operation) {
-                case PrimitiveOperation.Add: insert(node); break;
-                case PrimitiveOperation.Remove: delete(node); break;
+                case PrimitiveOperation.Add: Index(node); break;
+                case PrimitiveOperation.Remove: DeIndex(node); break;
                 default: break;
             }
         } catch (Exception ex) {
@@ -69,10 +66,7 @@ internal class NodeTypesByIdsStore {
             if (throwOnErrors) throw new Exception(msg, ex);
         }
     }
-    public void Index(INodeData node) => insert(node);
-    public void DeIndex(INodeData node) => delete(node);
-
-    void insert(INodeData node) {
+    public void Index(INodeData node) {
         var nodeType = _definition.Datamodel.NodeTypes[node.NodeType];
         if (nodeType.IsComplex()) {
             _metas.Insert(node, nodeType);
@@ -80,7 +74,7 @@ internal class NodeTypesByIdsStore {
             _noMetas.Insert(node, nodeType);
         }
     }
-    void delete(INodeData node) {
+    public void DeIndex(INodeData node) {
         var nodeType = _definition.Datamodel.NodeTypes[node.NodeType];
         if (nodeType.IsComplex()) {
             _metas.Delete(node, nodeType);

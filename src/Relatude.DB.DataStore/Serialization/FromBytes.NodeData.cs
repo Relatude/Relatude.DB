@@ -20,7 +20,8 @@ namespace Relatude.DB.Serialization {
             __id = stream.ReadUInt();
             return version switch {
                 NodeDataStorageVersions.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
-                NodeDataStorageVersions.Complex => readVersion_2_Complex(datamodel, stream, guid, (int)__id),
+                NodeDataStorageVersions.WithMeta => readVersion_2_Meta(datamodel, stream, guid, (int)__id),
+                NodeDataStorageVersions.WithRelations => readVersion_3_Relations(datamodel, stream, guid, (int)__id),
                 _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
             };
         }
@@ -84,6 +85,10 @@ namespace Relatude.DB.Serialization {
                 var value = toPropertyValue(bytes, propType);
                 if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                     if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+                } else if (id == NodeConstants.SystemReadAccessPropertyId
+                    || id == NodeConstants.SystemWriteAccessPropertyId
+                    || id == NodeConstants.SystemCollectionPropertyId) {
+                    values.Add(id, forceValueType(PropertyType.Guid, value));
                 }
             }
             // add defaults for missing props
@@ -100,7 +105,8 @@ namespace Relatude.DB.Serialization {
                 //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
                 createdUtc, changedUtc, values);
         }
-        static NodeData readVersion_2_Complex(Datamodel datamodel, Stream stream, Guid guid, int __id) {
+        static NodeData readVersion_2_Meta(Datamodel datamodel, Stream stream, Guid guid, int __id) {
+            throw new NotImplementedException("NodeData version with Meta is not implemented yet. ");
             var nodeTypeId = stream.ReadGuid();
             var all0 = stream.ReadBool();
             if (!all0) {
@@ -143,6 +149,11 @@ namespace Relatude.DB.Serialization {
             }
             return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values);
         }
+        static NodeData readVersion_3_Relations(Datamodel datamodel, Stream stream, Guid guid, int __id) {
+            throw new NotImplementedException("NodeData version with Relations is not implemented yet. ");
+            // same as Minimal, but with relations
+        }
+
         static object toPropertyValue(byte[] bytes, PropertyType propType) {
             return propType switch {
                 PropertyType.String => RelatudeDBGlobals.Encoding.GetString(bytes),

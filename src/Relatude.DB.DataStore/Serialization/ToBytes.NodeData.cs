@@ -6,15 +6,17 @@ namespace Relatude.DB.Serialization;
 
 public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
-        var nodeType = datamodel.NodeTypes[nodeData.NodeType];
-        if (nodeType.IsComplex()) {
-            NodeData_Complex(nodeData, datamodel, stream);
+        if (nodeData is NodeData nd) {
+            NodeData_Minimal(nd, datamodel, stream);
+        } else if (nodeData is NodeDataWithMeta ndMeta) {
+            NodeData_Meta(ndMeta, datamodel, stream);
+        } else if (nodeData is NodeDataWithRelations ndRel) {
+            NodeData_Relations(ndRel, datamodel, stream);
         } else {
-            NodeData_Minimal(nodeData, datamodel, stream);
-
+            throw new NotSupportedException("Node data of type " + nodeData.GetType().FullName + " does not support serialization. ");
         }
     }
-    static void NodeData_Minimal(INodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Minimal(NodeData nodeData, Datamodel datamodel, Stream stream) {
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
         stream.WriteInt((int)NodeDataStorageVersions.Minimal);
@@ -24,25 +26,57 @@ public static partial class ToBytes {
         stream.WriteDateTime(nodeData.ChangedUtc);
         var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;
         List<KeyValuePair<PropertyModel, object>> propsToStore = new();
+        int metaPropsCount = 0;
+
+        Guid collectionId = Guid.Empty;
+        Guid readAccess = Guid.Empty;
+        Guid writeAccess = Guid.Empty;
+
         foreach (var kv in nodeData.Values) {
             if (allPossibleProps.TryGetValue(kv.PropertyId, out var prop) && prop.PropertyType != PropertyType.Relation) {
                 // only props that are part of datamodeland not relations
                 propsToStore.Add(new(prop, kv.Value));
+            } else if (kv.PropertyId == NodeConstants.SystemReadAccessPropertyId) {
+                readAccess = (Guid)kv.Value;
+                metaPropsCount++;
+            } else if (kv.PropertyId == NodeConstants.SystemWriteAccessPropertyId) {
+                writeAccess = (Guid)kv.Value;
+                metaPropsCount++;
+            } else if (kv.PropertyId == NodeConstants.SystemCollectionPropertyId) {
+                collectionId = (Guid)kv.Value;
+                metaPropsCount++;
             }
         }
-        stream.WriteInt(propsToStore.Count);
+        stream.WriteInt(propsToStore.Count + metaPropsCount);
         foreach (var p in propsToStore) {
             var bytes = serializePropertyValue(p.Value, p.Key.PropertyType);
             stream.WriteGuid(p.Key.Id);// prop ID
             stream.WriteUInt((uint)p.Key.PropertyType);// prop type
             stream.WriteByteArray(bytes); // data
         }
+        // write meta props
+        if (readAccess != Guid.Empty) {
+            stream.WriteGuid(NodeConstants.SystemReadAccessPropertyId);
+            stream.WriteUInt((uint)PropertyType.Guid);
+            stream.WriteByteArray(serializePropertyValue(readAccess, PropertyType.Guid));
+        }
+        if (writeAccess != Guid.Empty) {
+            stream.WriteGuid(NodeConstants.SystemWriteAccessPropertyId);
+            stream.WriteUInt((uint)PropertyType.Guid);
+            stream.WriteByteArray(serializePropertyValue(writeAccess, PropertyType.Guid));
+        }
+        if (collectionId != Guid.Empty) {
+            stream.WriteGuid(NodeConstants.SystemCollectionPropertyId);
+            stream.WriteUInt((uint)PropertyType.Guid);
+            stream.WriteByteArray(serializePropertyValue(collectionId, PropertyType.Guid));
+        }
     }
-    static void NodeData_Complex(INodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Meta(NodeDataWithMeta nodeData, Datamodel datamodel, Stream stream) {
+        throw new Exception("Not implemented yet.");
         //if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataStorageVersions.Complex);
+        stream.WriteInt((int)NodeDataStorageVersions.WithMeta);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
 
@@ -97,6 +131,10 @@ public static partial class ToBytes {
             PropertyType.File => FilePropertyModel.GetBytes((FileValue)value),
             _ => throw new NotSupportedException("Writing property type " + propType + " is not supported. "),
         };
+    }
+    static void NodeData_Relations(NodeDataWithRelations nodeData, Datamodel datamodel, Stream stream) {
+        throw new Exception("Not implemented yet.");
+        // same as Minimal but with relations serialized too
     }
 }
 
