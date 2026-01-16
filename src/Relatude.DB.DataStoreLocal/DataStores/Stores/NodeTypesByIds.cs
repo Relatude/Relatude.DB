@@ -52,7 +52,7 @@ internal class NodeTypesByIds {
         if (_metas.TryGetType(id, out typeId)) return true;
         return false;
     }
-    public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception> log) {
+    public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> log) {
         var node = na.Node;
         try {
             switch (na.Operation) {

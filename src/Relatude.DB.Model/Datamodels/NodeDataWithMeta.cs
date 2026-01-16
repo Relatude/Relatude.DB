@@ -22,6 +22,9 @@ public class NodeDataVersionContainer : INodeData {
     public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime ChangedUtc => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
     public bool ReadOnly => true;
     public IRelations Relations => throw new NotImplementedException();

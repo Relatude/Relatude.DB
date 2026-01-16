@@ -4,9 +4,10 @@ namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     long _activityIdCounter = 0; // used to generate unique activity IDs
     readonly Dictionary<long, DataStoreActivity> _currentActiveties = [];
-    DataStoreOpeningStatus _simpleStatus = new(0, 0);
+    DataStoreOpeningStatus _simpleStatus = new(0, 0, 0);
+    DateTime _startedOpeningUtc = DateTime.UtcNow;
     public DataStoreOpeningStatus GetOpeningStatus() => _simpleStatus;
-    void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) => _simpleStatus = new(progressInPercentage, remainingMs);
+    void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) => _simpleStatus = new(progressInPercentage, remainingMs, (int)(DateTime.UtcNow - _startedOpeningUtc).TotalMilliseconds);
     public DataStoreStatus GetStatus() {
         DataStoreActivity[] activities;
         lock (_currentActiveties) {

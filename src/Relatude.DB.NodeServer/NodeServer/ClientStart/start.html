@@ -74,7 +74,7 @@
                 if (status.responseCheck != "Valid") throw new Error("Invalid response from server");
                 if (status.starting) {
                     style('prgDIV').width = status.progressPercentage + '%';
-                    el('prgText').innerHTML = formatRemainingTime(status.timeRemainingMs);
+                    el('prgText').innerHTML = (status.timeElapsedMs > 10000) ? formatRemainingTime(status.timeRemainingMs) : "&nbsp;";
                     setTimeout(updateProgress, status.nextUpdate);
                 } else {
                     style('mainDIV').opacity = 0;

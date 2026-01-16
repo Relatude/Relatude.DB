@@ -1,11 +1,12 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
+
 public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
     WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
-    WithRelations = 3, 
+    WithRelations = 3,
 }
 public interface INodeData {
     Guid Id { get; set; }
@@ -15,9 +16,9 @@ public interface INodeData {
     NodeMeta? Meta { get; }
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
-    //Guid CollectionId { get; set; }
-    //Guid ReadAccess{ get; set; }
-    //Guid WriteAccess { get; set; }
+    Guid CollectionId { get; set; }
+    Guid ReadAccess { get; set; }
+    Guid WriteAccess { get; set; }
     IEnumerable<PropertyEntry<object>> Values { get; }
     bool ReadOnly { get; }
     IRelations Relations { get; }
@@ -45,7 +46,7 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         NodeType = nodeType;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
-         //_values = new(values);
+        //_values = new(values);
         _values = values;
     }
     public int __Id {
@@ -66,10 +67,36 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     public virtual NodeMeta? Meta => null;
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
-    //bool _allEmpty;
-    //public Guid CollectionId { get { return Guid.Empty; } set { } }
-    //public Guid ReadAccess { get { return Guid.Empty; } set { } }
-    //public Guid WriteAccess { get { return Guid.Empty; } set { } }
+    public Guid CollectionId {
+        get {
+            if (_values.TryGetValue(NodeConstants.SystemCollectionPropertyId, out var v)) return (Guid)v!;
+            return Guid.Empty;
+        }
+        set {
+            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemCollectionPropertyId);
+            else _values.AddOrUpdate(NodeConstants.SystemCollectionPropertyId, value);
+        }
+    }
+    public Guid ReadAccess {
+        get {
+            if (_values.TryGetValue(NodeConstants.SystemReadAccessPropertyId, out var v)) return (Guid)v!;
+            return Guid.Empty;
+        }
+        set {
+            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemReadAccessPropertyId);
+            else _values.AddOrUpdate(NodeConstants.SystemReadAccessPropertyId, value);
+        }
+    }
+    public Guid WriteAccess {
+        get {
+            if (_values.TryGetValue(NodeConstants.SystemWriteAccessPropertyId, out var v)) return (Guid)v!;
+            return Guid.Empty;
+        }
+        set {
+            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemWriteAccessPropertyId);
+            else _values.AddOrUpdate(NodeConstants.SystemWriteAccessPropertyId, value);
+        }
+    }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
     public int ValueCount => _values.Count;
     public bool ReadOnly => _readOnly;
@@ -124,6 +151,9 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
+    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
     public int ValueCount => throw new NotImplementedException();
     public bool ReadOnly => throw new NotImplementedException();
@@ -152,6 +182,9 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
+    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
     public int ValueCount => throw new NotImplementedException();
     public bool ReadOnly => true;
@@ -179,6 +212,9 @@ public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with po
     public NodeMeta? Meta => throw new NotImplementedException();
     public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public DateTime ChangedUtc => throw new NotImplementedException();
+    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
     public int ValueCount => throw new NotImplementedException();
     public bool ReadOnly => true;
@@ -214,6 +250,9 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }
     public DateTime ChangedUtc => _node.ChangedUtc;
+    public Guid CollectionId { get => _node.CollectionId; set => throwReadOnlyError(); }
+    public Guid ReadAccess { get => _node.ReadAccess; set => throwReadOnlyError(); }
+    public Guid WriteAccess { get => _node.WriteAccess; set => throwReadOnlyError(); }
     public IEnumerable<PropertyEntry<object>> Values => _node.Values;
 
     public int ValueCount => _node.ValueCount;
@@ -292,6 +331,31 @@ public class Properties<T> {
     public bool ContainsKey(Guid key) {
         for (int i = 0; i < _size; i++) if (_values[i].PropertyId == key) return true;
         return false;
+    }
+    public void AddOrUpdate(Guid key, T value) {
+        for (int i = 0; i < _size; i++) {
+            if (_values[i].PropertyId == key) {
+                _values[i] = new(key, value);
+                return;
+            }
+        }
+        Add(key, value);
+    }
+    public void RemoveIfExists(Guid key) {
+        for (int i = 0; i < _size; i++) {
+            if (_values[i].PropertyId == key) {
+                _values[i] = _values[--_size]; // move last item to this position
+                return;
+            }
+        }
+    }
+    public T GetValue(Guid key, Func<T> fallback) {
+        for (int i = 0; i < _size; i++) {
+            if (_values[i].PropertyId == key) {
+                return _values[i].Value;
+            }
+        }
+        return fallback();
     }
     public bool TryGetValue(Guid key, [MaybeNullWhen(false)] out T value) {
         for (int i = 0; i < _size; i++) {

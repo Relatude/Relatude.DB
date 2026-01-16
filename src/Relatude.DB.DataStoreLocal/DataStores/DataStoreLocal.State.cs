@@ -200,7 +200,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             var readBytes = logReader.Position - estimatedByteProgressInTransaction;
                             var totalBytes = logReader.FileSize;
                             var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
-                            var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 3000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
+                            var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 10000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
                             var estimatedTotalProgress = readBytes * 100D / totalBytes;
                             var deltaBytes = readBytes - lastBytesRead;
                             var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;

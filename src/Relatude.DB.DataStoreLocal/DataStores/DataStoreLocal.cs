@@ -229,6 +229,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
         var sw = Stopwatch.StartNew();
+        _startedOpeningUtc = DateTime.UtcNow;
         _scheduler.Stop();
         _lock.EnterWriteLock();
         LogInfo("Database opening");

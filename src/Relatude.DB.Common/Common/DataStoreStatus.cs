@@ -14,12 +14,14 @@ public class ActivityBranch(DataStoreActivity activity, ActivityBranch[] childre
     }
 }
 public class DataStoreOpeningStatus { 
-    public DataStoreOpeningStatus(int progressPercentage, int timeRemainingMs) {
+    public DataStoreOpeningStatus(int progressPercentage, int timeRemainingMs, int timeElapsedMs) {
         ProgressPercentage = progressPercentage;
         TimeRemainingMs = timeRemainingMs;
+        TimeElapsedMs = timeElapsedMs;
     }
     public int ProgressPercentage { get; } 
     public int TimeRemainingMs { get; }
+    public int TimeElapsedMs { get; }
 }
 public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activities) {
     [JsonConverter(typeof(JsonStringEnumConverter))]

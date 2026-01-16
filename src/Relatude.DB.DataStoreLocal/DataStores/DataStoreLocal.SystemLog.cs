@@ -18,7 +18,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_settings.WriteSystemLogConsole) {
                 lock (_consoleColorLock) {
                     var originalColor = Console.ForegroundColor;
-                    if (replace && Console.CursorTop > 0) Console.SetCursorPosition(0, Console.CursorTop - 1);
+                    if (replace && Console.CursorTop > 0) {
+                        Console.SetCursorPosition(0, Console.CursorTop - 1); // Move up one line
+                        Console.Write(new string(' ', Console.WindowWidth)); // Clear the line
+                        Console.SetCursorPosition(0, Console.CursorTop); // Move back to the start of the line
+                    }
                     Console.ForegroundColor = ConsoleColor.DarkCyan;
                     Console.Write("relatude.db ");
                     var color = type switch {
@@ -62,16 +66,19 @@ public sealed partial class DataStoreLocal : IDataStore {
         _state = Common.DataStoreState.Error;
         return new Exception("Critical error occurred. " + description, error);
     }
-    void logError(string description, Exception error) {
+    void logError(string description, Exception? error) {
         logError(description, error, null, false);
     }
-    void logError(string description, Exception error, TransactionData? transaction = null, bool isCritical = false) {
+    void logError(string description, Exception? error, TransactionData? transaction = null, bool isCritical = false) {
         var sb = new StringBuilder();
         try {
-            buildErrorLog(sb, error);
-            sb.AppendLine("--- Callstack:");
-            var callstack = new System.Diagnostics.StackTrace();
-            sb.AppendLine(callstack.ToString());
+            if (error != null) {
+                sb.AppendLine("--- Exception:");
+                buildErrorLog(sb, error);
+                sb.AppendLine("--- Callstack:");
+                var callstack = new System.Diagnostics.StackTrace();
+                sb.AppendLine(callstack.ToString());
+            }
             if (transaction != null) {
                 sb.AppendLine("--- Transaction:");
                 var n = 0;
@@ -117,12 +124,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             stream.WriteUTF8StringNoLengthPrefix(sb.ToString());
         }
     }
-    void buildErrorLog(StringBuilder sb, Exception error) {
+    void buildErrorLog(StringBuilder sb, Exception error, int level = 0) {
         sb.AppendLine(error.GetType().FullName + ": " + error.Message);
         sb.AppendLine(error.StackTrace);
         if (error.InnerException != null) {
-            sb.AppendLine("--- Inner exception:");
-            buildErrorLog(sb, error.InnerException);
+            for (int i = 0; i < level; i++) sb.Append(" --- Inner ");
+            sb.AppendLine("exception:");
+            buildErrorLog(sb, error.InnerException, level + 1);
         }
     }
 

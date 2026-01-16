@@ -119,6 +119,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             Starting = server.AnyRemaingToAutoOpenIncludingFailed,
             ProgressPercentage = dbStatus.ProgressPercentage,
             TimeRemainingMs = dbStatus.TimeRemainingMs,
+            TimeElapsedMs = dbStatus.TimeElapsedMs,
             NextUpdate = nextUpdate,
             ResponseCheck = "Valid",
         };
@@ -127,6 +128,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         public bool Starting { get; set; } = false;
         public int ProgressPercentage { get; set; } = 0;
         public int TimeRemainingMs { get; set; } = 0;
+        public int TimeElapsedMs { get; set; } = 0;
         public string ResponseCheck { get; set; } = "";
         public int NextUpdate { get; set; } = 100;
     }

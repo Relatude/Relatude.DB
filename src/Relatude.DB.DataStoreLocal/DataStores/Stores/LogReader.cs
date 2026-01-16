@@ -28,7 +28,7 @@ internal class LogReader : IDisposable {
         _definition = definition;
         _lastTimestampID = fromTimestamp;
     }
-    public static Guid ReadFileId( string fileKey, IIOProvider io) {
+    public static Guid ReadFileId(string fileKey, IIOProvider io) {
         Guid fileId;
         using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId)) {
             return fileId;
@@ -47,16 +47,22 @@ internal class LogReader : IDisposable {
         return readStream;
     }
     public long LastReadTimestamp { get => _lastTimestampID; }
-    public bool ReadNextTransaction([MaybeNullWhen(false)] out ExecutedPrimitiveTransaction transaction, bool throwOnErrors, Action<string, Exception> log, out long byteSizeOfTransaction) {
+    public bool ReadNextTransaction([MaybeNullWhen(false)] out ExecutedPrimitiveTransaction transaction, bool throwOnErrors, Action<string, Exception?> log, out long byteSizeOfTransaction) {
         while (_readStream != null && _readStream.More()) {
             var foundMarker = _readStream.MoveToNextValidMarker(WALFile._transactionStartMarker);
             if (!foundMarker) break;
+            var from = _readStream.Position;
             try {
                 transaction = tryReadNext(_readStream, _definition, ref _lastTimestampID, out byteSizeOfTransaction);
                 return true;
             } catch (Exception error) {
-                var errMsg = "Corruption or partially written transactions found in log file. " + error.Message + " Last valid timestamp UTC: " + new DateTime(_lastTimestampID, DateTimeKind.Utc);
+                var to = _readStream.Position;
+                var errMsg = "Corruption or partially written transactions found in log file. Transaction size: " + (to - from).ToByteString() + ". Timestamp UTC: " + new DateTime(_lastTimestampID, DateTimeKind.Utc);
+#if DEBUG
                 log(errMsg, error);
+#else
+                log(errMsg, null);
+#endif
                 if (throwOnErrors)
                     throw new LogReadException(errMsg, error);
             }
