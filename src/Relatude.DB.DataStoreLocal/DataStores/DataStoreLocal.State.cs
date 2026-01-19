@@ -85,6 +85,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
         LogInfo("Reading indexes:"); // progress 0-50%
         try {
+            var lastIndexReadStart =sw.ElapsedMilliseconds;
             _index.ReadStateForMemoryIndexes((txt, prg) => {
                 LogInfo(" - " + txt);
                 UpdateActivity(activityId, "Reading index " + txt, prg / 2);
@@ -172,7 +173,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         int transactionCount = 0;
         int actionCount = 0;
-        var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : " the beginning.";
+        var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : "the beginning.";
         int positionInPercentage = (int)Math.Round(readLogFileFom * 100d / (walFileSize + 1d));
         long bytesToRead = walFileSize - readLogFileFom;
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString() + " to read)");
@@ -185,7 +186,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
-            LogInfo(""); // to enable progress log on new line
             sw.Restart();
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
@@ -250,9 +250,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {
-            LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
+            LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, true);
         } else {
-            LogInfo("   No actions read from log file.");
+            LogInfo("   No actions read from log file.", null, true);
         }
         LogInfo(_noPrimitiveActionsInLogThatCanBeTruncated.To1000N() + " actions redundant in log file. ");
         LogInfo(_nodes.Count.To1000N() + " nodes in total");

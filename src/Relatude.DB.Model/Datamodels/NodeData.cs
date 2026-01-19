@@ -8,6 +8,9 @@ public enum NodeDataStorageVersions {
     WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
     WithRelations = 3,
 }
+public class NA : Exception {
+    public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
+}
 public interface INodeData {
     Guid Id { get; set; }
     int __Id { get; set; }
@@ -146,27 +149,27 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
         }
     }
     int _id;
-    public int __Id { get => _id; set => throw new NotImplementedException(); }
-    public Guid NodeType => throw new NotImplementedException();
-    public NodeMeta? Meta => throw new NotImplementedException();
-    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public DateTime ChangedUtc => throw new NotImplementedException();
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
-    public int ValueCount => throw new NotImplementedException();
-    public bool ReadOnly => throw new NotImplementedException();
-    public bool IsDerived => throw new NotImplementedException();
-    public bool IsReadOnly => throw new NotImplementedException();
-    public IRelations Relations => throw new NotImplementedException();
-    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
-    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
-    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
-    public bool Contains(Guid propertyId) => throw new NotImplementedException();
-    public void EnsureReadOnly() => throw new NotImplementedException();
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
-    public INodeData Copy() => throw new NotImplementedException();
+    public int __Id { get => _id; set => throw new NA(); }
+    public Guid NodeType => throw new NA();
+    public NodeMeta? Meta => throw new NA();
+    public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
+    public DateTime ChangedUtc => throw new NA();
+    public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
+    public Guid ReadAccess { get => throw new NA(); set => throw new NA(); }
+    public Guid WriteAccess { get => throw new NA(); set => throw new NA(); }
+    public IEnumerable<PropertyEntry<object>> Values => throw new NA();
+    public int ValueCount => throw new NA();
+    public bool ReadOnly => throw new NA();
+    public bool IsDerived => throw new NA();
+    public bool IsReadOnly => throw new NA();
+    public IRelations Relations => throw new NA();
+    public void Add(Guid propertyId, object value) => throw new NA();
+    public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
+    public void RemoveIfPresent(Guid propertyId) => throw new NA();
+    public bool Contains(Guid propertyId) => throw new NA();
+    public void EnsureReadOnly() => throw new NA();
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
+    public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
 }
 public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
@@ -175,28 +178,28 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
         _nodeType = typeId;
     }
     int _id;
-    public int __Id { get => _id; set => throw new NotImplementedException(); }
+    public int __Id { get => _id; set => throw new NA(); }
     Guid _nodeType;
-    public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public NodeMeta? Meta => throw new NotImplementedException();
-    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public DateTime ChangedUtc => throw new NotImplementedException();
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
-    public int ValueCount => throw new NotImplementedException();
+    public Guid Id { get => throw new NA(); set => throw new NA(); }
+    public Guid NodeType { get => _nodeType; set => throw new NA(); }
+    public NodeMeta? Meta => throw new NA();
+    public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
+    public DateTime ChangedUtc => throw new NA();
+    public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
+    public Guid ReadAccess { get => throw new NA(); set => throw new NA(); }
+    public Guid WriteAccess { get => throw new NA(); set => throw new NA(); }
+    public IEnumerable<PropertyEntry<object>> Values => throw new NA();
+    public int ValueCount => throw new NA();
     public bool ReadOnly => true;
-    public bool IsDerived => throw new NotImplementedException();
-    public IRelations Relations => throw new NotImplementedException();
-    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
-    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
-    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
-    public bool Contains(Guid propertyId) => throw new NotImplementedException();
-    public void EnsureReadOnly() => throw new NotImplementedException();
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
-    public INodeData Copy() => throw new NotImplementedException();
+    public bool IsDerived => throw new NA();
+    public IRelations Relations => throw new NA();
+    public void Add(Guid propertyId, object value) => throw new NA();
+    public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
+    public void RemoveIfPresent(Guid propertyId) => throw new NA();
+    public bool Contains(Guid propertyId) => throw new NA();
+    public void EnsureReadOnly() => throw new NA();
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
+    public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
 }
 public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with possibility to add relations for use in "include" queries
@@ -205,28 +208,28 @@ public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with po
         _nodeType = typeId;
     }
     Guid _id;
-    public int __Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public int __Id { get => throw new NA(); set => throw new NA(); }
     Guid _nodeType;
-    public Guid Id { get => _id; set => throw new NotImplementedException(); }
-    public Guid NodeType { get => _nodeType; set => throw new NotImplementedException(); }
-    public NodeMeta? Meta => throw new NotImplementedException();
-    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public DateTime ChangedUtc => throw new NotImplementedException();
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
-    public int ValueCount => throw new NotImplementedException();
+    public Guid Id { get => _id; set => throw new NA(); }
+    public Guid NodeType { get => _nodeType; set => throw new NA(); }
+    public NodeMeta? Meta => throw new NA();
+    public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
+    public DateTime ChangedUtc => throw new NA();
+    public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
+    public Guid ReadAccess { get => throw new NA(); set => throw new NA(); }
+    public Guid WriteAccess { get => throw new NA(); set => throw new NA(); }
+    public IEnumerable<PropertyEntry<object>> Values => throw new NA();
+    public int ValueCount => throw new NA();
     public bool ReadOnly => true;
-    public bool IsDerived => throw new NotImplementedException();
-    public IRelations Relations => throw new NotImplementedException();
-    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
-    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
-    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
-    public bool Contains(Guid propertyId) => throw new NotImplementedException();
-    public void EnsureReadOnly() => throw new NotImplementedException();
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
-    public INodeData Copy() => throw new NotImplementedException();
+    public bool IsDerived => throw new NA();
+    public IRelations Relations => throw new NA();
+    public void Add(Guid propertyId, object value) => throw new NA();
+    public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
+    public void RemoveIfPresent(Guid propertyId) => throw new NA();
+    public bool Contains(Guid propertyId) => throw new NA();
+    public void EnsureReadOnly() => throw new NA();
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
+    public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
 }
 public class NodeDataWithRelations : INodeData { // readonly node data with possibility to add relations for use in "include" queries
@@ -266,7 +269,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public bool Contains(Guid propertyId) => _node.Contains(propertyId);
     public void EnsureReadOnly() => _node.EnsureReadOnly();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
-    public INodeData Copy() => throw new NotImplementedException();
+    public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
 }
 public static class INodeDataExtensions {

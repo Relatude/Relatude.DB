@@ -15,34 +15,40 @@ public class NodeDataVersionContainer : INodeData {
         Versions = versions;
     }
     int _id;
-    public int __Id { get => _id; set => throw new NotImplementedException(); }
+    public int __Id { get => _id; set => throw new NA(); }
     public NodeDataWithMeta[] Versions { get; }
-    public Guid Id { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid NodeType => throw new NotImplementedException();
-    public NodeMeta? Meta => throw new NotImplementedException();
-    public DateTime ChangedUtc => throw new NotImplementedException();
-    public DateTime CreatedUtc { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid CollectionId { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid ReadAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Guid WriteAccess { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public IEnumerable<PropertyEntry<object>> Values => throw new NotImplementedException();
+    public Guid Id { get => throw new NA(); set => throw new NA(); }
+
+    public Guid NodeType => throw new NA();
+    public NodeMeta? Meta => throw new NA();
+    public DateTime ChangedUtc => throw new NA();
+    public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
+    public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
+    public Guid ReadAccess { get => throw new NA(); set => throw new NA(); }
+    public Guid WriteAccess { get => throw new NA(); set => throw new NA(); }
+
+    public IEnumerable<PropertyEntry<object>> Values => throw new NA();
     public bool ReadOnly => true;
-    public IRelations Relations => throw new NotImplementedException();
-    public int ValueCount => throw new NotImplementedException();
-    public void Add(Guid propertyId, object value) => throw new NotImplementedException();
-    public void AddOrUpdate(Guid propertyId, object value) => throw new NotImplementedException();
-    public bool Contains(Guid propertyId) => throw new NotImplementedException();
-    public INodeData Copy() => throw new NotImplementedException();
-    public void EnsureReadOnly() => throw new NotImplementedException();
-    public void RemoveIfPresent(Guid propertyId) => throw new NotImplementedException();
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NotImplementedException();
+    public IRelations Relations => throw new NA();
+    public int ValueCount => throw new NA();
+    public void Add(Guid propertyId, object value) => throw new NA();
+    public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
+    public bool Contains(Guid propertyId) => throw new NA();
+    public INodeData Copy() => throw new NA();
+    public void EnsureReadOnly() => throw new NA();
+    public void RemoveIfPresent(Guid propertyId) => throw new NA();
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
 }
-
-public class NodeMeta {
+public struct NodeBasicMeta {
     required public int CollectionId { get; set; }
-
     required public int ReadAccess { get; set; }
-    required public int EditViewAccess { get; set; }
+    required public int WriteAccess { get; set; }
+}
+public class NodeMeta {
+    required public NodeBasicMeta Basic { get; set; }
+    //required public int CollectionId { get; set; }
+    //required public int ReadAccess { get; set; }
+    //required public int EditViewAccess { get; set; }
     required public int PublishAccess { get; set; }
 
     required public int CreatedBy { get; set; }
@@ -53,9 +59,14 @@ public class NodeMeta {
     required public DateTime ReleasedUtc { get; set; }
 
     public static NodeMeta Empty = new() {
-        CollectionId = 0,
-        ReadAccess = 0,
-        EditViewAccess = 0,
+        Basic = new NodeBasicMeta {
+            CollectionId = 0,
+            ReadAccess = 0,
+            WriteAccess = 0
+        },
+        //CollectionId = 0,
+        //ReadAccess = 0,
+        //EditViewAccess = 0,
         PublishAccess = 0,
         CreatedBy = 0,
         ChangedBy = 0,

@@ -4,6 +4,8 @@ using Relatude.DB.DataStores.Definitions;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Transactions;
+using System.Diagnostics;
+using Relatude.DB.DataStores.Indexes;
 
 // threadsafe, for read operations, not for write
 namespace Relatude.DB.DataStores.Stores;
@@ -49,14 +51,21 @@ internal class IndexStore : IDisposable {
         }
     }
     public void ReadStateForMemoryIndexes(Action<string, int> progress, Guid walFileId) {
-        progress("Reading index states", 0);
-        //Parallel.ForEach(_definition.GetAllIndexes(), index => index.ReadStateForMemoryIndexes());
+        var swTotal = Stopwatch.StartNew();
         var count = _definition.GetAllIndexes().Count();
         var i = 0;
-        foreach (var index in _definition.GetAllIndexes()) {
-            progress(index.FriendlyName, 100 * i / count);
+        var readIndex = (IIndex index) => {
+            var sw = Stopwatch.StartNew();
+            //progress("Starting: " + index.FriendlyName, 100 * i / count);
             index.ReadStateForMemoryIndexes(walFileId);
-        }
+            //progress("Completed: " + index.FriendlyName + " - " + sw.ElapsedMilliseconds.To1000N() + "ms", 100 * i / count);
+            progress(index.FriendlyName + " - " + sw.ElapsedMilliseconds.To1000N() + "ms", 100 * i / count);
+            i++;
+        };
+        var allowParallelism = true;
+        if (allowParallelism) Parallel.ForEach(_definition.GetAllIndexes(), readIndex);
+        else foreach (var index in _definition.GetAllIndexes()) readIndex(index);
+        //progress("Completed reading index states - " + swTotal.ElapsedMilliseconds.To1000N() + "ms", 100);
     }
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
         if (action is not PrimitiveNodeAction na) return;

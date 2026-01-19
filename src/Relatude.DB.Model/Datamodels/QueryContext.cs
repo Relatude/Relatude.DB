@@ -2,6 +2,10 @@
 
 namespace Relatude.DB.Datamodels;
 
+public class QueryContextKey {
+
+}
+
 public class QueryContext {
     public Guid UserId { get; set; }
     public string? CultureCode { get; set; }
@@ -14,6 +18,13 @@ public class QueryContext {
     public IRevisionSwitcher? RevisionSwitcher { get; set; }
     public static QueryContext CreateDefault() {
         return new QueryContext();
+    }
+    QueryContextKey? _toKey;
+    public QueryContextKey ToKey() {
+        if (_toKey == null) {
+            _toKey = new QueryContextKey();
+        }
+        return _toKey;
     }
 }
 public interface IRevisionSwitcher {
@@ -111,7 +122,7 @@ public readonly struct NodeCacheKey :
         ReleasedUtc = releasedUtc;
     }
 
-    public NodeCacheKey(Guid TypeId, QueryContext ctx) { 
+    public NodeCacheKey(Guid TypeId, QueryContext ctx) {
         NodeType = TypeId;
         IsPublished = !ctx.IncludeUnpublished;
         IsDeleted = !ctx.IncludeDeleted;

@@ -160,6 +160,7 @@ public partial class RelatudeDBServer {
             var sw = Stopwatch.StartNew();
             container.StartUpException = null;
             container.StartUpExceptionDateTimeUTC = null;
+            Thread.Sleep(300); // give some time for the server to finish starting up
             container.Open();
             Log("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
