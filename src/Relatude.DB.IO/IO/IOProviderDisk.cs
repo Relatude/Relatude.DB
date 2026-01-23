@@ -38,13 +38,18 @@ public class IOProviderDisk : IIOProvider {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyString(fileKey);
             var filePath = Path.Combine(BaseFolder, fileKey);
-            StoreStreamDiscRead? stream = null;
+            IReadStream? stream = null;
             stream = new StoreStreamDiscRead(filePath, position, () => {
                 lock (_lock) {
                     unregisterReader(fileKey);
                     _openStreams.Remove(stream!);
                 }
             });
+            // if in WSL mode:
+            //var inWsl = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") != null;
+            //if (inWsl) {
+                stream = new BufferedStreamRead(stream, 1024 * 1024);
+            //}
             registerReader(fileKey);
             _openStreams.Add(stream);
             return stream;

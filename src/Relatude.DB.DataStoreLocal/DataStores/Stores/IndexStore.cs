@@ -74,4 +74,5 @@ internal class IndexStore : IDisposable {
     public void ClearCache() => _definition.GetAllIndexes().ForEach(index => index.ClearCache());
     internal long GetOldestPersistedTimestamp() => _definition.GetAllIndexes().Min(i => i.PersistedTimestamp);
     public void Dispose() => _definition.GetAllIndexes().ForEach(index => index.Dispose());
+
 }

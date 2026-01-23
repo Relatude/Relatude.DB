@@ -43,7 +43,8 @@ namespace Relatude.DB.Nodes {
         static byte[] compileCode(List<(string className, string code)> codeStrings, Datamodel datamodel) {
 #if DEBUG
             if (true) {
-                var path = "C:\\WAF_Temp\\CodeGen\\";
+                var path = Path.GetTempPath();
+                path = Path.Combine(path, "RelatudeDBCompiledModels");
                 if (Directory.Exists(path)) Directory.Delete(path, true);
                 Directory.CreateDirectory(path);
                 foreach (var code in codeStrings) {

@@ -492,6 +492,11 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var chunkSize = 1000;
             var created = 0;
             var path = "C:\\WAF_Sources\\wikipedia\\wiki-articles.json"; // temporary hardcoded path to wikipedia data file...
+            // if linux:
+            if (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX) {
+                // convert to WSL mapped path:
+                path = "/mnt/c/WAF_Sources/wikipedia/wiki-articles.json";
+            }
             var seed = 0; // same every time for reproducible results
             using IArticleGenerator generator = wikipediaData ? new WikipediaArticleGenerator(path) : new RandomArticleGenerator(seed);
             // continue from existing count:
