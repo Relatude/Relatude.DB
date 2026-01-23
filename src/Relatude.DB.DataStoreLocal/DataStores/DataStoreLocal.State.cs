@@ -65,12 +65,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     void readState(bool throwOnErrors, Guid currentModelHash, long parentActivityId) {
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Opening, "Reading state");
         try {
-            readStateSub(throwOnErrors, currentModelHash, activityId);
+            readStateInner(throwOnErrors, currentModelHash, activityId);
         } finally {
             DeRegisterActivity(activityId);
         }
     }
-    void readStateSub(bool throwOnErrors, Guid currentModelHash, long activityId) {
+    void readStateInner(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
 

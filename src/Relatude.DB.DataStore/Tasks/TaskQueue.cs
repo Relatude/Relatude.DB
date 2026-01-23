@@ -94,7 +94,9 @@ public class TaskQueue : IDisposable {
         var taskNo = 0;
         while (!_isShuttingdown) {
             if(_lastReportedCount < DateTime.UtcNow.AddSeconds(-1)) {
-                runningZeroEstimator.ReportValue(_queue.CountTasks(BatchState.Pending));
+                lock (_lock) { // due to counting
+                    runningZeroEstimator.ReportValue(_queue.CountTasks(BatchState.Pending));
+                }
                 _lastReportedCount = DateTime.UtcNow;
             }
             long childActivityId = -1;

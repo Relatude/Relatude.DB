@@ -1,9 +1,6 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
-using Relatude.DB.Transactions;
-using System;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 
@@ -250,7 +247,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
             try { info.FileStoreSize = _fileStores.Select(kv => kv.Value.GetSize()).Sum(); } catch { }
             try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Select(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
-            try { info.IndexFileSize = PersistedIndexStore?.GetTotalDiskSpace() ?? 0L + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
+            try { info.IndexFileSize = (PersistedIndexStore?.GetTotalDiskSpace() ?? 0L) + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
             try { info.TotalFileSize = AllIOs.SelectMany(io => io.GetFiles()).Sum(f => f.Size); } catch { }
             // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 

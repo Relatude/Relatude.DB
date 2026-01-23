@@ -6,7 +6,7 @@ public enum NodeDataStorageVersions {
     Legacy = 0,
     Minimal = 1,
     WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
-    WithRelations = 3,
+    WithRelations = 3, // due to serialization for transfer to db clients ( not for disk )
 }
 public class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
