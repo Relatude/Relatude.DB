@@ -19,6 +19,7 @@ public class DataStoreInfo {
     public long LogTruncatableActions { get; set; }
     public long LogActionsNotItInStatefile { get; set; }
     public long LogTransactionsNotItInStatefile { get; set; }
+    public int NoIndexesOutOfSync { get; set; }
     public int LogWritesQueuedTransactions { get; set; }
     public int LogWritesQueuedActions { get; set; }
     public string? LogFileKey { get; set; }

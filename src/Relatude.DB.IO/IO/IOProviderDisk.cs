@@ -48,7 +48,7 @@ public class IOProviderDisk : IIOProvider {
             // if in WSL mode:
             //var inWsl = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME") != null;
             //if (inWsl) {
-                stream = new BufferedStreamRead(stream, 1024 * 1024);
+                stream = new StoreStreamBufferedRead(stream, 1024 * 1024); // turned out that buffering helps a lot in any case
             //}
             registerReader(fileKey);
             _openStreams.Add(stream);

@@ -13,15 +13,15 @@ public class TestOptions {
     public string[]? SelectedTests { get; set; }
 
     public static string GetTempDataFolder(string folderName) {
-        string rootPath;
+        string tempRootPath;
         if (Environment.OSVersion.Platform == PlatformID.Win32NT) {
             // On Windows, use the system drive (usually C:)
-            rootPath = Path.GetPathRoot(Environment.SystemDirectory)!;
+            tempRootPath = Path.GetPathRoot(Environment.SystemDirectory)!;
         } else {
-            // On Linux/macOS, root is always "/"
-            rootPath = Path.DirectorySeparatorChar.ToString();
+            // get a writable temp root:
+            tempRootPath = Path.GetTempPath();
         }
-        string tempDataPath = Path.Combine(rootPath, folderName);        
+        string tempDataPath = Path.Combine(tempRootPath, folderName);        
         return tempDataPath;
     }
 }

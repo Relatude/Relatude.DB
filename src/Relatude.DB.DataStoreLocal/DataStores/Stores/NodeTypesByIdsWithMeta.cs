@@ -9,7 +9,7 @@ internal class NodeTypesByIdsWithMeta {
         _definition = definition;
     }
     internal void Insert(INodeData node, NodeTypeModel nodeType) {
-        if (node is NodeDataVersionContainer cont) {
+        if (node is NodeDataVersionsContainer cont) {
             _metaById[cont.__Id] = [.. cont.Versions.Select(v => v.Meta!)];
         } else if (node is NodeData nd) {
             

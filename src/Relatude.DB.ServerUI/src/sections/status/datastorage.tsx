@@ -38,6 +38,9 @@ export const DataStorage = (P: { info: DataStoreInfo, storestate: StoreStates })
                 {formatNumber(P.info.logActionsNotItInStatefile)} actions not in state file<br />
                 {/* {formatNumber(currentInfo.logTransactionsNotItInStatefile)} transactions not in state file<br /> */}
             </span>
+            <span style={{ color: P.info.noIndexesOutOfSync > 0 ? 'orange' : 'inherit' }}>
+                {formatNumber(P.info.noIndexesOutOfSync)} out-of-sync indexes<br />
+            </span>
             <span style={{ color: P.info.logTruncatableActions > 0 ? 'orange' : 'inherit' }}>
                 {formatNumber(P.info.logTruncatableActions)} truncatable actions<br />
             </span>
@@ -47,7 +50,7 @@ export const DataStorage = (P: { info: DataStoreInfo, storestate: StoreStates })
             </span>
         </div>
         <Group>
-            <Button variant="light" disabled={P.storestate != "Open" || (P.info.logActionsNotItInStatefile == 0)} onClick={() => app.api.maintenance.saveIndexStates(storeId, true, false)}>Save state</Button>
+            <Button variant="light" disabled={P.storestate != "Open" || (P.info.logActionsNotItInStatefile == 0 && P.info.noIndexesOutOfSync == 0)} onClick={() => app.api.maintenance.saveIndexStates(storeId, true, false)}>Save state</Button>
             {hasSecLog && <Button variant="light" disabled={P.storestate != "Open"} onClick={() => app.api.maintenance.resetSecondaryLogFile(storeId)}>Reset second log</Button>}
             <Button variant="light" disabled={P.storestate != "Open"} onClick={() => app.api.maintenance.resetStateAndIndexes(storeId)}>Reset all states</Button>
             <Button variant="light" disabled={P.storestate != "Closed"} onClick={() => app.api.maintenance.deleteStateAndIndexes(storeId)}>Delete all states</Button>

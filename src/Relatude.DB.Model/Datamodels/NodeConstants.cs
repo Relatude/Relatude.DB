@@ -14,6 +14,7 @@ public static class NodeConstants {
     public static readonly Guid SystemWriteAccessPropertyId = new(WriteAccessPropertyIdString);
     public static readonly Guid SystemCollectionPropertyId = new(CollectionPropertyIdString);
 
+    public static readonly Guid MasterAdminUserId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
 
     public static readonly string SystemTextIndexPropertyName = "_textIndex";
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";

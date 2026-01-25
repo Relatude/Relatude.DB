@@ -96,7 +96,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
                     // reset, since we have a new log file
                     SaveIndexStates(true, true); // needed to refresh state file with new log file
-                    _index.WriteNewTimestampDueToRewriteHotswap(_wal.LastTimestamp, _wal.FileId);
+                    _index.WriteNewTimestampDueToRewriteHotswapJustAfterSaveState(_wal.LastTimestamp, _wal.FileId);
                     PersistedIndexStore?.UpdateTimestampsDueToHotswap(_wal.LastTimestamp, _wal.FileId); // will update all sub indexes with new timestamp
                 }
             } finally {

@@ -96,7 +96,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock
             try {
                 validateDatabaseState();
-                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || forceRefresh) {
+                var anyOutOfSyncIndexes = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Any();
+                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {
                     var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
                     saveMainState(activityId); // requires WriteLock after flush due to node segments
@@ -210,6 +211,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.StartUpMs = _startUpTimeMs;
             info.LogTruncatableActions = _noPrimitiveActionsInLogThatCanBeTruncated;
             info.LogActionsNotItInStatefile = _noPrimitiveActionsSinceLastStateSnapshot;
+            info.NoIndexesOutOfSync = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Count();
             info.LogTransactionsNotItInStatefile = _noTransactionsSinceLastStateSnapshot;
             info.CountActionsSinceClearCache = _noPrimitiveActionsSinceClearCache;
             info.CountTransactionsSinceClearCache = _noTransactionsSinceClearCache;

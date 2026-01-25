@@ -154,6 +154,7 @@ export interface DataStoreInfo {
     logLastChange: Date | null;
     logTruncatableActions: number;
     logActionsNotItInStatefile: number;
+    noIndexesOutOfSync: number;
     logTransactionsNotItInStatefile: number;
     logWritesQueuedTransactions: number;
     logWritesQueuedActions: number;

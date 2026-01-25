@@ -8,7 +8,7 @@ public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
         if (nodeData is NodeData nd) {
             NodeData_Minimal(nd, datamodel, stream);
-        } else if (nodeData is NodeDataWithMeta ndMeta) {
+        } else if (nodeData is NodeDataVersion ndMeta) {
             NodeData_Meta(ndMeta, datamodel, stream);
         } else if (nodeData is NodeDataWithRelations ndRel) {
             NodeData_Relations(ndRel, datamodel, stream);
@@ -71,7 +71,7 @@ public static partial class ToBytes {
             stream.WriteByteArray(serializePropertyValue(collectionId, PropertyType.Guid));
         }
     }
-    static void NodeData_Meta(NodeDataWithMeta nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Meta(NodeDataVersion nodeData, Datamodel datamodel, Stream stream) {
         throw new Exception("Not implemented yet.");
         //if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
         stream.WriteGuid(nodeData.Id);

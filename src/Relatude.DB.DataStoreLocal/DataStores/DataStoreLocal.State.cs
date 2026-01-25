@@ -85,7 +85,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
         LogInfo("Reading indexes:"); // progress 0-50%
         try {
-            var lastIndexReadStart =sw.ElapsedMilliseconds;
+            var lastIndexReadStart = sw.ElapsedMilliseconds;
             _index.ReadStateForMemoryIndexes((txt, prg) => {
                 LogInfo(" - " + txt);
                 UpdateActivity(activityId, "Reading index " + txt, prg / 2);
@@ -232,8 +232,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                         }
                         actionCount++;
                         actionCountInTransaction++;
-                    } catch (Exception err) { 
-                        if(throwOnErrors) {
+                    } catch (Exception err) {
+                        if (throwOnErrors) {
                             throw new Exception("Error processing action in transaction at timestamp " + transaction.Timestamp + ". " + err.Message, err);
                         } else {
                             logError("Error processing action in transaction at timestamp " + transaction.Timestamp + ". ", err);
@@ -250,10 +250,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         if (actionCount > 0) {
-            LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, true);
+            LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
         } else {
             LogInfo("   No actions read from log file.", null, true);
         }
+
+        //if (_noTransactionsSinceLastStateSnapshot == 0) { // persist indexes that are new and never persisted
+        //    foreach (var indx in _definition.GetAllIndexes()) {
+        //        if (indx.PersistedTimestamp == 0) { // this indicates a new index, so persist it
+        //            LogInfo("Persisting new index '" + indx.FriendlyName + ". ");
+        //            // indx.SaveStateForMemoryIndexes(_wal.LastTimestamp, _wal.FileId);
+        //        }
+        //    }
+        //}
+
         LogInfo(_noPrimitiveActionsInLogThatCanBeTruncated.To1000N() + " actions redundant in log file. ");
         LogInfo(_nodes.Count.To1000N() + " nodes in total");
         LogInfo(_relations.TotalCount().To1000N() + " relations in total");
@@ -262,4 +272,39 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo(_nativeModelStore.CountCultures.To1000N() + " cultures");
         LogInfo(_nativeModelStore.CountCollections.To1000N() + " collections");
     }
+    void validateStateInfoIfDebug() {
+        return;
+        //#if DEBUG
+        //        // temporary code, to be deleted later on;
+        //        // testing indexes
+        //        foreach (var n in _nodes.Snapshot()) {
+        //            var uid = n.nodeId;
+        //            var node = _nodes.Get(uid);
+        //            if (_definition.GetTypeOfNode(uid) != node.NodeType) {
+        //                throw new Exception("Node type mismatch. ");
+        //            }
+        //            if (_guids.GetId(node.Id) != uid) {
+        //                throw new Exception("Guid mismatch. ");
+        //            }
+        //            if (_guids.GetGuid(uid) != node.Id) {
+        //                throw new Exception("Guid mismatch. ");
+        //            }
+        //        }
+
+        //        // validating all relations, to ensure that all nodes exists, this step is not needed for normal operation, but is needed for recovery
+        //        foreach (var r in _definition.Relations.Values) {
+        //            foreach (var v in r.Values) {
+        //                if (!_nodes.Contains(v.Target)) {
+        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+        //                    // r.DeleteIfReferenced(id); // fix
+        //                }
+        //                if (!_nodes.Contains(v.Source)) {
+        //                    throw new Exception("Relation to node ID : " + v + " refers to a non-existing node. RelationID " + r.Id);
+        //                    // r.DeleteIfReferenced(id); // fix
+        //                }
+        //            }
+        //        }
+        //#endif
+    }
+
 }

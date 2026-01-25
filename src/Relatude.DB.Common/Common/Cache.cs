@@ -132,7 +132,11 @@ namespace Relatude.DB.Common {
                 _size = 0;
             }
         }
-
+        public IEnumerable<KeyValuePair<TKey, TValue>> AllNotThreadSafe() {
+            foreach (var kv in _cache) {
+                yield return new KeyValuePair<TKey, TValue>(kv.Key, kv.Value.Data);
+            }
+        }
         public void HalfSize() {
             lock (_lock) reduceToSize(_size / 2);
         }

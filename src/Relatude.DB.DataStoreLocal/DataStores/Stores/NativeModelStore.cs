@@ -5,8 +5,8 @@ using Relatude.DB.Native;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace Relatude.DB.DataStores.Stores;
-public class NativeModelStore(DataStoreLocal store) {
 
+public class NativeModelStore(DataStoreLocal store) {
     Dictionary<int, NativeSystemUser> _users = [];
     Dictionary<int, NativeSystemUserGroup> _userGroups = [];
     Dictionary<int, NativeSystemCollection> _collections = [];
@@ -313,6 +313,9 @@ public class NativeModelStore(DataStoreLocal store) {
         array = newArray;
     }
 
+    public QueryContextKey GetQueryContextKey(QueryContext ctx) {
+        throw new NotImplementedException();
+    }
 }
 public sealed class IntArrayEqualityComparer : IEqualityComparer<int[]> {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

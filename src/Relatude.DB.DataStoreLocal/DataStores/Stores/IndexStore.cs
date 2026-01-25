@@ -39,7 +39,7 @@ internal class IndexStore : IDisposable {
     }
     public void Add(INodeData node) => _definition.IndexNode(node);
     public void Remove(INodeData node) => _definition.DeIndexNode(node);
-    public void WriteNewTimestampDueToRewriteHotswap(long logTimestamp, Guid walFileId) {
+    public void WriteNewTimestampDueToRewriteHotswapJustAfterSaveState(long logTimestamp, Guid walFileId) {
         _definition.GetAllIndexes().ForEach(index => index.WriteNewTimestampDueToRewriteHotswap(logTimestamp, walFileId));
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId, Action<string, int> progress) {
