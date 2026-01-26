@@ -60,18 +60,15 @@ internal class NodeIds {
     }
     bool isMetaRelevantForContext(NodeMetaWithType metaWithType, QueryContextKey ctx) {
         var typeDef = _definition.NodeTypes[metaWithType.NodeTypeId].Model;
-        // type filter
         if (ctx.ExcludeDecendants) {
             if (typeDef.Id != metaWithType.NodeTypeId) return false;
         } else {
             if (!typeDef.ThisAndDescendingTypes.ContainsKey(metaWithType.NodeTypeId)) return false;
         }
-        // deleted filter
         if (!ctx.IncludeDeleted && metaWithType.Deleted) return false;
-        // culture filter
-        if (!ctx.IncludeCultureFallback) {
-            if (metaWithType.CultureId != ctx.CultureId) return false;
-        }
+        if (!ctx.IncludeCultureFallback) if (metaWithType.CultureId != ctx.CultureId) return false;
+        if (!ctx.IncludeUnpublished && !metaWithType) return false;
+        if (!ctx.IncludeHidden && metaWithType.hi) return false;
         return true;
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
