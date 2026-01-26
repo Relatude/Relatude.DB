@@ -117,15 +117,14 @@ public class QueryContext {
 /// Declared as 'readonly struct' to eliminate defensive copies and GC pressure.
 /// </summary>
 public class QueryContextKey : IEquatable<QueryContextKey> {
-    public int CultureCode;
     public readonly bool IncludeDeleted;
     public readonly bool IncludeCultureFallback;
     public readonly bool IncludeUnpublished;
     public readonly bool IncludeHidden;
     public readonly bool ExcludeDecendants;
     public readonly int[]? CollectionIds;
-    public readonly int CultureId;
-    public QueryContextKey(int cultureId, int[]? collectionIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants) {
+    public readonly Guid CultureId;
+    public QueryContextKey(Guid cultureId, int[]? collectionIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
         IncludeDeleted = includeDeleted;

@@ -30,7 +30,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         _bytesRead = 0;
         _bytesWritten = 0;
     }
-    const int numberOfRetries = 5;
+    const int numberOfRetries = 10;
     FileStream getStream(string filePath) {
         Exception? lastException = null;
         for (int i = 1; i <= numberOfRetries; ++i) {
@@ -40,7 +40,7 @@ public class StoreStreamDiscWrite : IAppendStream {
                 return s;
             } catch (Exception e) {
                 lastException = e;
-                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 5 retries: 1s + 1s + 10s + 10s + 10s = 32s
+                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 10 retries: 1s + 1s + 10s + 10s + 10s + 10s + 10s + 10s + 10s + 10s = 81s
                 Thread.Sleep(delayOnRetry);
             }
         }

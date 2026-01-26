@@ -14,7 +14,6 @@ public class NativeModelStore(DataStoreLocal store) {
     Dictionary<int[], int[]> _effectiveMembershipsCache = new(new IntArrayEqualityComparer());
     Dictionary<Guid, NativeNodeType> _nodeTypeCache = [];
     Dictionary<Guid, NativeRelationType> _relationTypeCache = [];
-
     NativeNodeType getNativeNodeType(Guid nodeTypeId) {
         if (_nodeTypeCache.TryGetValue(nodeTypeId, out var nativeType)) return nativeType;
         var inheritedTypes = store.Datamodel.NodeTypes[nodeTypeId].ThisAndAllInheritedTypes;
@@ -218,7 +217,7 @@ public class NativeModelStore(DataStoreLocal store) {
     public int CountUserGroups => _userGroups.Count;
     public int CountCollections => _collections.Count;
     public int CountCultures => _cultures.Count;
-    public void deleteUser(int nodeId) {
+    void deleteUser(int nodeId) {
         _users.Remove(nodeId);
     }
     public void addUser(INodeData node) {
@@ -267,28 +266,28 @@ public class NativeModelStore(DataStoreLocal store) {
         }
         return [];
     }
-    public void deleteUserGroup(int nodeId) {
+    void deleteUserGroup(int nodeId) {
         _userGroups.Remove(nodeId);
     }
-    public void addUserGroup(int nodeId) {
+    void addUserGroup(int nodeId) {
         var group = new NativeSystemUserGroup {
             Id = nodeId,
         };
         _userGroups.Add(nodeId, group);
     }
-    public void deleteCollection(int nodeId) {
+    void deleteCollection(int nodeId) {
         _collections.Remove(nodeId);
     }
-    internal void addCollection(int nodeId) {
+    void addCollection(int nodeId) {
         var collection = new NativeSystemCollection {
             Id = nodeId,
         };
         _collections.Add(nodeId, collection);
     }
-    internal void deleteCulture(int nodeId) {
+    void deleteCulture(int nodeId) {
         _cultures.Remove(nodeId);
     }
-    internal void addCulture(INodeData node) {
+    void addCulture(INodeData node) {
         var culture = new NativeSystemCulture {
             Id = node.__Id,
         };

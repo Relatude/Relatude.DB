@@ -17,7 +17,7 @@ public class StoreStreamDiscRead : IReadStream {
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
-    const int numberOfRetries = 5;
+    const int numberOfRetries = 10;
     static FileStream getStream(string filePath) {
         Exception? lastException = null;
         for (int i = 1; i <= numberOfRetries; ++i) {
@@ -25,7 +25,7 @@ public class StoreStreamDiscRead : IReadStream {
                 return new(filePath, FileMode.OpenOrCreate, FileAccess.Read);
             } catch (Exception e) {
                 lastException = e;
-                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 5 retries: 1s + 1s + 10s + 10s + 10s = 32s
+                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 10 retries: 1s + 1s + 10s + 10s + 10s + 10s + 10s + 10s + 10s + 10s = 81s
                 Thread.Sleep(delayOnRetry);
             }
         }

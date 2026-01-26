@@ -38,51 +38,60 @@ public class NodeDataVersionsContainer : INodeData {
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
 }
 public class NodeMeta : IEquatable<NodeMeta> {
+    public Guid CollectionId { get; } // common
+    public Guid ReadAccess { get; } // common
+    public Guid EditViewAccess { get; } // common
+    public Guid PublishAccess { get; } // common
+    public bool Deleted { get; } // common
+    public bool Hidden { get; } // common
+
+    public Guid CreatedBy { get; } // specific
+    public Guid ChangedBy { get; } // specific
+    public Guid CultureId { get; } // specific
+
+    public DateTime? ReleasedUtc { get; } // specific
+    public DateTime? RetainedUtc { get; } // specific
+
     private NodeMeta() { }
     public NodeMeta(
         Guid collectionId,
         Guid readAccess,
-        Guid editViewAccess
+        Guid editViewAccess,
+        bool hidden
     ) {
         CollectionId = collectionId;
         ReadAccess = readAccess;
         EditViewAccess = editViewAccess;
         PublishAccess = editViewAccess;
+        Hidden = hidden;
     }
-
     public NodeMeta(
         Guid collectionId,
         Guid readAccess,
         Guid editViewAccess,
         Guid publishAccess,
+        bool hidden,
+        bool deleted,
+
         Guid createdBy,
         Guid changedBy,
         Guid cultureId,
         DateTime? releasedUtc,
         DateTime? retainedUtc
     ) {
-        CollectionId = collectionId;
-        ReadAccess = readAccess;
-        EditViewAccess = editViewAccess;
-        PublishAccess = publishAccess;
-        CreatedBy = createdBy;
-        ChangedBy = changedBy;
-        CultureId = cultureId;
-        ReleasedUtc = releasedUtc;
-        RetainedUtc = retainedUtc;
+        CollectionId = collectionId; 
+        ReadAccess = readAccess; 
+        Deleted = deleted;  
+        Hidden = hidden;  
+        EditViewAccess = editViewAccess; 
+        PublishAccess = publishAccess; 
+        CreatedBy = createdBy; 
+        ChangedBy = changedBy;  
+        CultureId = cultureId;  
+        ReleasedUtc = releasedUtc;  
+        RetainedUtc = retainedUtc;  
     }
 
-    public Guid CollectionId { get; }
-    public Guid ReadAccess { get; }
-    public Guid EditViewAccess { get; }
-    public Guid PublishAccess { get; }
-
-    public Guid CreatedBy { get; }
-    public Guid ChangedBy { get; }
-    public Guid CultureId { get; }
-
-    public DateTime? ReleasedUtc { get; }
-    public DateTime? RetainedUtc { get; }
 
     public override int GetHashCode() {
         var hash = HashCode.Combine(
@@ -92,7 +101,8 @@ public class NodeMeta : IEquatable<NodeMeta> {
             PublishAccess,
             CreatedBy,
             ChangedBy,
-            CultureId
+            CultureId,
+            Deleted
         );
         if (ReleasedUtc.HasValue) hash = HashCode.Combine(hash, ReleasedUtc.Value);
         if (RetainedUtc.HasValue) hash = HashCode.Combine(hash, RetainedUtc.Value);
@@ -112,7 +122,8 @@ public class NodeMeta : IEquatable<NodeMeta> {
             && ChangedBy == other.ChangedBy
             && CultureId == other.CultureId
             && ReleasedUtc == other.ReleasedUtc
-            && RetainedUtc == other.RetainedUtc;
+            && RetainedUtc == other.RetainedUtc
+            && Deleted == other.Deleted;
     }
     public static NodeMeta Empty = new();
 }
@@ -126,7 +137,8 @@ public class NodeMetaWithType : NodeMeta, IEquatable<NodeMetaWithType> {
         nodeMeta.ChangedBy,
         nodeMeta.CultureId,
         nodeMeta.ReleasedUtc,
-        nodeMeta.RetainedUtc
+        nodeMeta.RetainedUtc,
+        nodeMeta.Deleted
     ) {
         NodeTypeId = nodeTypeId;
     }

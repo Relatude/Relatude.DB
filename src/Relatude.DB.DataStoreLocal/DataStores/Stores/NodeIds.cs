@@ -30,40 +30,49 @@ class ids {
 }
 
 internal class NodeIds {
-    // legg til QueryContextKey
-    // oga lag QueryContextALL
-
     readonly Definition _definition;
+    readonly NativeModelStore _native;
     short shortIdCounter = 0;
     readonly Dictionary<short, NodeMetaWithType> _metaByShort = new();
     readonly Dictionary<NodeMetaWithType, short> _shortByMeta = new();
     readonly Dictionary<int, short[]> _nodeMetasByNodeId = new();
     readonly Cache<QueryContextKey, ids> _cachedNodeIdsByCtx;
     readonly Dictionary<Guid, int> _countByType = new();
-    readonly object _lock = new();
-    internal NodeIds(Definition definition) {
+    internal NodeIds(Definition definition, NativeModelStore nativeModelStore) {
         _definition = definition;
+        _native = nativeModelStore;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
     }
     ids evaluateRelevantIds(Guid typeId, QueryContext ctx) {
         var ids = new ids();
+        var relevantMetaIds = _shortByMeta
+            .Where(kv => isMetaRelevantForContext(kv.Key, ctx.Key))
+            .Select(kv => kv.Value).ToHashSet();
         foreach (var kv in _nodeMetasByNodeId) {
             foreach (var shortMetaId in kv.Value) {
-                if (isMetaRelevantForContext(_metaByShort[shortMetaId], ctx.Key, out var failedOnCommonProps)) {
+                if (relevantMetaIds.Contains(shortMetaId)) {
                     ids.Add(kv.Key);
                     break;
-                } else {
-                    if (failedOnCommonProps) {
-                        break; // no need to check other metas for this node
-                    }
                 }
             }
         }
         return ids;
     }
-    bool isMetaRelevantForContext(NodeMetaWithType metaWithType, QueryContextKey ctx, out bool failedOnCommonProps) {
-        var nodeTypeDef = _definition.NodeTypes[metaWithType.NodeTypeId].Model;
-        throw new NotImplementedException();
+    bool isMetaRelevantForContext(NodeMetaWithType metaWithType, QueryContextKey ctx) {
+        var typeDef = _definition.NodeTypes[metaWithType.NodeTypeId].Model;
+        // type filter
+        if (ctx.ExcludeDecendants) {
+            if (typeDef.Id != metaWithType.NodeTypeId) return false;
+        } else {
+            if (!typeDef.ThisAndDescendingTypes.ContainsKey(metaWithType.NodeTypeId)) return false;
+        }
+        // deleted filter
+        if (!ctx.IncludeDeleted && metaWithType.Deleted) return false;
+        // culture filter
+        if (!ctx.IncludeCultureFallback) {
+            if (metaWithType.CultureId != ctx.CultureId) return false;
+        }
+        return true;
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         if (_cachedNodeIdsByCtx.TryGet(ctx.Key, out var ids)) return ids.AsUnmutableIdSet();
@@ -105,6 +114,7 @@ internal class NodeIds {
     public void Index(INodeData node) {
         if (node is not NodeData && node is not NodeDataVersion) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
+            // must be root node data type, not a sub version or id type
         }
         NodeMetaWithType meta = new(node.Meta ?? NodeMeta.Empty, node.NodeType);
         if (!_shortByMeta.TryGetValue(meta, out var shortId)) {
@@ -119,21 +129,20 @@ internal class NodeIds {
             _nodeMetasByNodeId.Add(node.__Id, [shortId]);
         }
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
-            if (isMetaRelevantForContext(meta, kv.Key, out _)) {
+            if (isMetaRelevantForContext(meta, kv.Key)) {
                 kv.Value.Add(node.__Id);
             }
         }
-        lock (_lock) {
-            if (_countByType.TryGetValue(node.NodeType, out var count)) {
-                _countByType[node.NodeType] = count + 1;
-            } else {
-                _countByType[node.NodeType] = 1;
-            }
+        if (_countByType.TryGetValue(node.NodeType, out var count)) {
+            _countByType[node.NodeType] = count + 1;
+        } else {
+            _countByType[node.NodeType] = 1;
         }
     }
-    public void DeIndex(INodeData node) { // must be complex or simple ( not variant )
-        if(node is not NodeData && node is not NodeDataVersion) {
+    public void DeIndex(INodeData node) {
+        if (node is not NodeData && node is not NodeDataVersion) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
+            // must be root node data type, not a sub version or id type
         }
         var shortId = _shortByMeta[new(node.Meta ?? NodeMeta.Empty, node.NodeType)];
         var shortIds = _nodeMetasByNodeId[node.__Id];
@@ -149,7 +158,7 @@ internal class NodeIds {
             _nodeMetasByNodeId[node.__Id] = newShortIds;
         }
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
-            if (isMetaRelevantForContext(_metaByShort[shortId], kv.Key, out _)) {
+            if (isMetaRelevantForContext(_metaByShort[shortId], kv.Key)) {
                 kv.Value.Remove(node.__Id);
             }
         }
