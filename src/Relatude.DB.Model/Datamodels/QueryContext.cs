@@ -10,6 +10,7 @@ public class QueryContext {
     public bool IncludeUnpublished { get; set; } = false;
     public bool IncludeHidden { get; set; } = false;
     public bool ExcludeDecendants { get; set; } = false;
+    public DateTime? NowUtc;
     Guid[]? _collectionIds;
     public Guid[]? CollectionIds {
         get { return _collectionIds; }
@@ -19,7 +20,7 @@ public class QueryContext {
     public static QueryContext CreateDefault() {
         return new QueryContext();
     }
-    public QueryContextKey Key {
+    public QueryContextKey CtxKey {
         get {
             throw new NotImplementedException();
         }
@@ -32,7 +33,8 @@ public class QueryContext {
         IncludeUnpublished = true,
         IncludeHidden = true,
         ExcludeDecendants = true,
-        CollectionIds = null
+        CollectionIds = null,
+        NowUtc = null
     };
     public static QueryContext AllIncludingDescendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
@@ -42,7 +44,8 @@ public class QueryContext {
         IncludeUnpublished = true,
         IncludeHidden = true,
         ExcludeDecendants = false,
-        CollectionIds = null
+        CollectionIds = null,
+        NowUtc = null
     };
     static bool equalCollectionIds(Guid[]? a, Guid[]? b) {
         if (a == null && b == null) return true;
@@ -62,19 +65,24 @@ public class QueryContext {
             && IncludeUnpublished == other.IncludeUnpublished
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
-            && equalCollectionIds(CollectionIds, other.CollectionIds);
+            && equalCollectionIds(CollectionIds, other.CollectionIds)
+            && NowUtc == other.NowUtc;
     }
     public override int GetHashCode() {
         return HashCode.Combine(
-            UserId,
-            CultureCode,
-            IncludeDeleted,
-            IncludeCultureFallback,
-            IncludeUnpublished,
-            IncludeHidden,
-            ExcludeDecendants,
-            CollectionIds != null ?
-                CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode()) : 0
+            HashCode.Combine(
+                UserId,
+                CultureCode,
+                IncludeDeleted,
+                IncludeCultureFallback,
+                IncludeUnpublished,
+                IncludeHidden,
+                ExcludeDecendants
+            ),
+            HashCode.Combine(
+                CollectionIds != null ? CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode()) : 0
+                , NowUtc
+            )
         );
     }
 }
@@ -109,22 +117,17 @@ public class QueryContext {
 //    public DateTime RetainedUtc { get; set; }
 //    public DateTime ReleasedUtc { get; set; }
 
-
 //}
 
-/// <summary>
-/// Represents a high-performance, immutable cache key.
-/// Declared as 'readonly struct' to eliminate defensive copies and GC pressure.
-/// </summary>
 public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;
-    public readonly bool IncludeCultureFallback;
-    public readonly bool IncludeUnpublished;
+    public readonly bool IncludeCultureFallback;  // requires evaluating multiple versions
+    public readonly bool IncludeUnpublished;  // requires evaluating multiple versions
     public readonly bool IncludeHidden;
     public readonly bool ExcludeDecendants;
-    public readonly int[]? CollectionIds;
     public readonly Guid CultureId;
-    public QueryContextKey(Guid cultureId, int[]? collectionIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants) {
+    public readonly Guid[]? CollectionIds;
+    public QueryContextKey(Guid cultureId, Guid[]? collectionIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
         IncludeDeleted = includeDeleted;
@@ -142,13 +145,13 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             IncludeHidden,
             ExcludeDecendants,
             CollectionIds != null ?
-                CollectionIds.Aggregate(0, (acc, id) => acc ^ id) : 0
+                CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode()) : 0
         );
     }
     public override bool Equals(object? obj) {
         return obj is QueryContextKey other && Equals(other);
     }
-    public bool Equals(QueryContextKey other) {
+    public bool Equals(QueryContextKey? other) {
         if (other == null) return false;
         return CultureId == other.CultureId
             && IncludeDeleted == other.IncludeDeleted
@@ -158,7 +161,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             && ExcludeDecendants == other.ExcludeDecendants
             && equalCollectionIds(CollectionIds, other.CollectionIds);
     }
-    static bool equalCollectionIds(int[]? a, int[]? b) {
+    static bool equalCollectionIds(Guid[]? a, Guid[]? b) {
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;
         if (a.Length != b.Length) return false;
