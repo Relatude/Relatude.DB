@@ -199,7 +199,6 @@ public class NativeModelStore(DataStoreLocal store) {
             _cultures.Add(culture.Id, culture);
         }
     }
-
     public void RegisterActionDuringStateLoad(PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
         try {
             if (action is PrimitiveNodeAction na) {
@@ -313,7 +312,44 @@ public class NativeModelStore(DataStoreLocal store) {
     }
 
     public QueryContextKey GetQueryContextKey(QueryContext ctx) {
-        throw new NotImplementedException();
+        var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
+        //if (culture == null) throw new InvalidOperationException($"Culture with code '{ctx.CultureCode}' does not exist.");
+        var cultureId = culture == null ? 0 : culture.Id;
+        int[]? collectionIds;
+        if (ctx.CollectionIds is not null) {
+            List<int> collectionIdsList = [];
+            foreach (var colId in ctx.CollectionIds) {
+                if (store._guids.TryGetId(colId, out var intColId)) {
+                    collectionIdsList.Add(intColId);
+                } else {
+                    throw new InvalidOperationException($"Collection with id '{colId}' does not exist.");
+                }
+                if (!_collections.ContainsKey(intColId)) {
+                    throw new InvalidOperationException($"Id '{colId}' is not a collection.");
+                }
+            }
+            collectionIds = collectionIdsList.Order().ToArray();
+        } else {
+            collectionIds = null;
+        }
+        int[]? memershipIds;
+        if (ctx.UserId == Guid.Empty) {
+            memershipIds = null;
+        } else if (store._guids.TryGetId(ctx.UserId, out var userId)) {
+            memershipIds = GetEffectiveMembershipsOfUser(userId);
+        } else {
+            throw new InvalidOperationException($"User with id '{ctx.UserId}' does not exist.");
+        }
+        return new QueryContextKey(
+            cultureId: cultureId,
+            collectionIds: collectionIds,
+            membershipIds: memershipIds,
+            includeDeleted: ctx.IncludeDeleted,
+            includeCultureFallback: ctx.IncludeCultureFallback,
+            includeUnpublished: ctx.IncludeUnpublished,
+            includeHidden: ctx.IncludeHidden,
+            excludeDecendants: ctx.ExcludeDecendants
+        );
     }
 }
 public sealed class IntArrayEqualityComparer : IEqualityComparer<int[]> {

@@ -20,11 +20,6 @@ public class QueryContext {
     public static QueryContext CreateDefault() {
         return new QueryContext();
     }
-    public QueryContextKey CtxKey {
-        get {
-            throw new NotImplementedException();
-        }
-    }
     public static readonly QueryContext AllExcludingDecendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
         CultureCode = null,
@@ -125,9 +120,11 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeUnpublished;  // requires evaluating multiple versions
     public readonly bool IncludeHidden;
     public readonly bool ExcludeDecendants;
-    public readonly Guid CultureId;
-    public readonly Guid[]? CollectionIds;
-    public QueryContextKey(Guid cultureId, Guid[]? collectionIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants) {
+    public readonly int CultureId;
+    public readonly int[]? CollectionIds;
+    public readonly int[]? MembershipIds;
+    public QueryContextKey(int cultureId, int[]? collectionIds, int[]? membershipIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants
+        ) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
         IncludeDeleted = includeDeleted;
@@ -145,7 +142,11 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             IncludeHidden,
             ExcludeDecendants,
             CollectionIds != null ?
-                CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode()) : 0
+                CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode())
+                : 0,
+            MembershipIds != null ?
+                MembershipIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode())
+                : 0
         );
     }
     public override bool Equals(object? obj) {
@@ -159,9 +160,10 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             && IncludeUnpublished == other.IncludeUnpublished
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
-            && equalCollectionIds(CollectionIds, other.CollectionIds);
+            && equalIds(CollectionIds, other.CollectionIds)
+            && equalIds(MembershipIds, other.MembershipIds);
     }
-    static bool equalCollectionIds(Guid[]? a, Guid[]? b) {
+    static bool equalIds(int[]? a, int[]? b) {
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;
         if (a.Length != b.Length) return false;

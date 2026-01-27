@@ -21,6 +21,7 @@ public class NativeSystemCollection {
 }
 public class NativeSystemCulture {
     public int Id;
+    public Guid Guid;
     public string CultureCode = string.Empty;
     public int[] Collections = [];
 }

@@ -35,7 +35,7 @@ internal sealed class Definition {
             Relations.Add(c.Id, c);
         }
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
-        _nodeTypeIndex = new(this);
+        _nodeTypeIndex = new(this, store._nativeModelStore);
     }
     public Datamodel Datamodel { get; }
     public SetRegister Sets { get; }

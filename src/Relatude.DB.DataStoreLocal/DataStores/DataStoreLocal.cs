@@ -53,7 +53,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Datamodel Datamodel { get; }
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
-    NativeModelStore _nativeModelStore;
+    internal readonly NativeModelStore _nativeModelStore;
     internal IPersistedIndexStore? PersistedIndexStore;
     Func<IPersistedIndexStore>? _createPersistedIndexStore;
 

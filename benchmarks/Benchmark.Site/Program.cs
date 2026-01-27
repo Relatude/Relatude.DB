@@ -14,13 +14,13 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 100;
+    var dataSetMultiplier = 10;
     var timeMultiplier = 1;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
-    options.UserCount = 1000 * dataSetMultiplier;
-    options.CompanyCount = 500 * dataSetMultiplier;
-    options.DocumentCount = 1000 * dataSetMultiplier;
+    options.UserCount = 1 * dataSetMultiplier;
+    options.CompanyCount = (int)Math.Round(0.5 * dataSetMultiplier);
+    options.DocumentCount = 1 * dataSetMultiplier;
     options.Duration = TimeSpan.FromMilliseconds(1000 * timeMultiplier);
     //options.SelectedTests = [nameof(ITester.UpdateUserAge)];
     var testData = Generator.Generate(options);
@@ -28,11 +28,12 @@ app.MapPost("/start", () => {
     ITester[] testers = [
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
-        new LiteDBTester(),
-        new SQLiteDBTester(),
-        new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
-        new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
-        new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
+        //new LiteDBTester(),
+        //new SQLiteDBTester(),
+        //new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
+        //new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
+        //new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         ];
 

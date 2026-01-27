@@ -6,7 +6,7 @@ using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
 
-class ids {
+class idSet {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
     HashSet<int> _ids = [];
@@ -14,7 +14,7 @@ class ids {
     public DateTime _createdUsingNowUtc;
     public DateTime? ValidFrom;
     public DateTime? ValidTo;
-    public ids(DateTime nowUtc) {
+    public idSet(DateTime nowUtc) {
         _createdUsingNowUtc = nowUtc;
     }
     public DateTime CreatedWithNowUtc => _createdUsingNowUtc;
@@ -53,31 +53,43 @@ class ids {
 
     }
 }
-
-public class NodeIds {
+class metaAndType(NodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
+    public readonly Guid TypeId = typeId;
+    public readonly NodeMeta Meta = meta;
+    public bool Equals(metaAndType? other) {
+        if (other is null) return false;
+        return TypeId == other.TypeId && Meta.Equals(other.Meta);
+    }
+    public override bool Equals(object? obj) {
+        return obj is metaAndType other && Equals(other);
+    }
+    public override int GetHashCode() {
+        return HashCode.Combine(TypeId, Meta);
+    }
+}
+public class NodeTypesByIds {
     readonly Definition _definition;
-
     uint shortIdCounter = 0;
-    readonly Dictionary<uint, NodeMetaWithType> _metaByShort = new();
-    readonly Dictionary<NodeMetaWithType, uint> _shortByMeta = new();
+    readonly Dictionary<uint, metaAndType> _metaByShort = new();
+    readonly Dictionary<metaAndType, uint> _shortByMeta = new();
     readonly Dictionary<int, uint[]> _nodeMetasByNodeId = new();
     readonly Dictionary<Guid, int> _countByType = new();
-
-    readonly Cache<QueryContextKey, ids> _cachedNodeIdsByCtx;
-    
-    internal NodeIds(Definition definition) {
+    readonly Cache<QueryContextKey, idSet> _cachedNodeIdsByCtx;
+    readonly NativeModelStore _nativeModelStore;
+    internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore) {
         _definition = definition;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
+        _nativeModelStore = nativeModelStore;
     }
-    ids evaluateRelevantIds(Guid typeId, QueryContext ctx, DateTime nowUtc) {
-        var ids = new ids(nowUtc);
+    idSet evaluateRelevantIds(Guid typeId, QueryContextKey ctxKey, DateTime nowUtc) {
+        var ids = new idSet(nowUtc);
         var relevantMetaIds = _shortByMeta
-            .Where(kv => isMetaRelevantForContext(kv.Key, ctx.CtxKey, nowUtc))
+            .Where(kv => isMetaRelevantForContext(kv.Key, ctxKey, nowUtc))
             .Select(kv => kv.Value).ToHashSet();
         foreach (var kv in _nodeMetasByNodeId) {
             foreach (var shortMetaId in kv.Value) {
                 if (relevantMetaIds.Contains(shortMetaId)) {
-                    var meta = _metaByShort[shortMetaId];
+                    var meta = _metaByShort[shortMetaId].Meta;
                     ids.Add(kv.Key, meta.ReleaseUtc, meta.ExpireUtc);
                     break;
                 }
@@ -85,12 +97,14 @@ public class NodeIds {
         }
         return ids;
     }
-    bool isMetaRelevantForContext(NodeMetaWithType meta, QueryContextKey ctx, DateTime nowUtc) {
-        var typeDef = _definition.NodeTypes[meta.NodeTypeId].Model;
+    bool isMetaRelevantForContext(metaAndType mt, QueryContextKey ctx, DateTime nowUtc) {
+        var meta = mt.Meta;
+        var typeId = mt.TypeId;
+        var typeDef = _definition.NodeTypes[typeId].Model;
         if (ctx.ExcludeDecendants) {
-            if (typeDef.Id != meta.NodeTypeId) return false;
+            if (typeDef.Id != typeId) return false;
         } else {
-            if (!typeDef.ThisAndDescendingTypes.ContainsKey(meta.NodeTypeId)) return false;
+            if (!typeDef.ThisAndDescendingTypes.ContainsKey(typeId)) return false;
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
@@ -100,15 +114,17 @@ public class NodeIds {
         }
         if (!ctx.IncludeHidden && meta.Hidden) return false;
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
+        if (ctx.MembershipIds != null && ctx.MembershipIds.Length > 0 && !ctx.MembershipIds.Contains(meta.ReadAccess)) return false;
         return true;
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         DateTime nowUtc = ctx.NowUtc ?? DateTime.UtcNow;
-        if (_cachedNodeIdsByCtx.TryGet(ctx.CtxKey, out var ids)) {
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx);
+        if (_cachedNodeIdsByCtx.TryGet(ctxKey, out var ids)) {
             if (ids.IsWithinTimeConstraints(nowUtc)) return ids.AsUnmutableIdSet();
         }
-        ids = evaluateRelevantIds(typeId, ctx, nowUtc); // takes time! // could consider lock here to avoid double eval
-        _cachedNodeIdsByCtx.Set(ctx.CtxKey, ids, 1);
+        ids = evaluateRelevantIds(typeId, ctxKey, nowUtc); // takes time! // could consider lock here to avoid double eval
+        _cachedNodeIdsByCtx.Set(ctxKey, ids, 1);
         return ids.AsUnmutableIdSet();
     }
     public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDecendants) {
@@ -124,7 +140,7 @@ public class NodeIds {
     }
     public bool TryGetType(int id, out Guid typeId) {
         if (_nodeMetasByNodeId.TryGetValue(id, out var shortMetaIds)) {
-            typeId = _metaByShort[shortMetaIds[0]].NodeTypeId;
+            typeId = _metaByShort[shortMetaIds[0]].TypeId;
             return true;
         }
         typeId = default;
@@ -147,12 +163,12 @@ public class NodeIds {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
-        NodeMetaWithType meta = new(node.Meta ?? NodeMeta.Empty, node.NodeType);
-        if (!_shortByMeta.TryGetValue(meta, out var shortId)) {
+        metaAndType mt = new(node.Meta ?? NodeMeta.Empty, node.NodeType);
+        if (!_shortByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
             shortId = shortIdCounter++;
-            _metaByShort[shortId] = meta;
-            _shortByMeta.Add(meta, shortId);
+            _metaByShort[shortId] = mt;
+            _shortByMeta.Add(mt, shortId);
         }
         if (_nodeMetasByNodeId.TryGetValue(node.__Id, out var shortIds)) {
             _nodeMetasByNodeId[node.__Id] = [.. shortIds, shortId];
@@ -160,8 +176,8 @@ public class NodeIds {
             _nodeMetasByNodeId.Add(node.__Id, [shortId]);
         }
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
-            if (isMetaRelevantForContext(meta, kv.Key, kv.Value.CreatedWithNowUtc)) { // no time constraint
-                kv.Value.Add(node.__Id, meta.ReleaseUtc, meta.ExpireUtc);
+            if (isMetaRelevantForContext(mt, kv.Key, kv.Value.CreatedWithNowUtc)) { // no time constraint
+                kv.Value.Add(node.__Id, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
             }
         }
         if (_countByType.TryGetValue(node.NodeType, out var count)) {
@@ -200,21 +216,22 @@ public class NodeIds {
             throw new Exception("Internal error. Attempting to deindex node of type that has no count registered: " + node.NodeType);
         }
     }
-    static int formatVersion= 1000;
+    static int formatVersion = 1000;
     public void SaveState(IAppendStream stream) {
         stream.WriteInt(formatVersion);
-        stream.WriteUInt(shortIdCounter);  
+        stream.WriteUInt(shortIdCounter);
         stream.WriteInt(_metaByShort.Count);
         foreach (var kv in _metaByShort) {
             stream.WriteUInt(kv.Key);
-            stream.WriteByteArray(kv.Value.ToBytes());
+            stream.WriteByteArray(kv.Value.Meta.ToBytes());
+            stream.WriteGuid(kv.Value.TypeId);
         }
         stream.WriteInt(_nodeMetasByNodeId.Count);
         foreach (var kv in _nodeMetasByNodeId) {
             stream.WriteInt(kv.Key);
             stream.WriteInt(kv.Value.Length);
             foreach (var shortId in kv.Value) {
-                stream.WriteUInt(shortId);
+                stream.WriteUInt(shortId);                
             }
         }
         stream.WriteInt(_countByType.Count);
@@ -231,9 +248,11 @@ public class NodeIds {
         for (int i = 0; i < metaCount; i++) {
             var shortId = stream.ReadUInt();
             var metaBytes = stream.ReadByteArray();
-            var meta = NodeMetaWithType.FromBytes(metaBytes);
-            _metaByShort[shortId] = meta;
-            _shortByMeta[meta] = shortId;
+            var meta = NodeMeta.FromBytes(metaBytes);
+            var typeId = stream.ReadGuid();
+            var mt = new metaAndType(meta, typeId);
+            _metaByShort[shortId] = mt;
+            _shortByMeta[mt] = shortId;
         }
         var nodeMetaCount = stream.ReadInt();
         for (int i = 0; i < nodeMetaCount; i++) {
