@@ -11,13 +11,16 @@ class idSet {
     public long StateId { get => _state.Current; }
     HashSet<int> _ids = [];
     IdSet? _lastSet;
-    public DateTime _createdUsingNowUtc;
+    DateTime _createdUsingNowUtc;
+    Guid _createdUsingTypeId;
     public DateTime? ValidFrom;
     public DateTime? ValidTo;
-    public idSet(DateTime nowUtc) {
+    public idSet(DateTime nowUtc, Guid typeId) {
         _createdUsingNowUtc = nowUtc;
+        _createdUsingTypeId = typeId;
     }
     public DateTime CreatedWithNowUtc => _createdUsingNowUtc;
+    public Guid CreatedWithTypeId => _createdUsingTypeId;
     public void Add(int id, DateTime? releaseDate, DateTime? expireDate) {
         _ids.Add(id);
         _state.RegisterAddition(id);
@@ -81,10 +84,10 @@ public class NodeTypesByIds {
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
     }
-    idSet evaluateRelevantIds(Guid typeId, QueryContextKey ctxKey, DateTime nowUtc) {
-        var ids = new idSet(nowUtc);
+    idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
+        var ids = new idSet(nowUtc, ctxTypeId);
         var relevantMetaIds = _shortByMeta
-            .Where(kv => isMetaRelevantForContext(kv.Key, ctxKey, nowUtc))
+            .Where(kv => isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc))
             .Select(kv => kv.Value).ToHashSet();
         foreach (var kv in _nodeMetasByNodeId) {
             foreach (var shortMetaId in kv.Value) {
@@ -97,14 +100,14 @@ public class NodeTypesByIds {
         }
         return ids;
     }
-    bool isMetaRelevantForContext(metaAndType mt, QueryContextKey ctx, DateTime nowUtc) {
+    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc) {
         var meta = mt.Meta;
         var typeId = mt.TypeId;
         var typeDef = _definition.NodeTypes[typeId].Model;
         if (ctx.ExcludeDecendants) {
-            if (typeDef.Id != typeId) return false;
+            if (typeDef.Id != ctxTypeId) return false;
         } else {
-            if (!typeDef.ThisAndDescendingTypes.ContainsKey(typeId)) return false;
+            if (!typeDef.ThisAndDescendingTypes.ContainsKey(ctxTypeId)) return false;
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
@@ -176,7 +179,9 @@ public class NodeTypesByIds {
             _nodeMetasByNodeId.Add(node.__Id, [shortId]);
         }
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
-            if (isMetaRelevantForContext(mt, kv.Key, kv.Value.CreatedWithNowUtc)) { // no time constraint
+            var ctx = kv.Key;
+            var ids = kv.Value;
+            if (isMetaRelevantForContext(mt, ids.CreatedWithTypeId, ctx, ids.CreatedWithNowUtc)) { // no time constraint
                 kv.Value.Add(node.__Id, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
             }
         }
@@ -205,7 +210,9 @@ public class NodeTypesByIds {
             _nodeMetasByNodeId[node.__Id] = newShortIds;
         }
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
-            if (isMetaRelevantForContext(_metaByShort[shortId], kv.Key, kv.Value.CreatedWithNowUtc)) {
+            var ctx = kv.Key;
+            var ids = kv.Value;
+            if (isMetaRelevantForContext(_metaByShort[shortId], ids.CreatedWithTypeId, ctx, ids.CreatedWithNowUtc)) {
                 kv.Value.Remove(node.__Id);
             }
         }
@@ -231,7 +238,7 @@ public class NodeTypesByIds {
             stream.WriteInt(kv.Key);
             stream.WriteInt(kv.Value.Length);
             foreach (var shortId in kv.Value) {
-                stream.WriteUInt(shortId);                
+                stream.WriteUInt(shortId);
             }
         }
         stream.WriteInt(_countByType.Count);

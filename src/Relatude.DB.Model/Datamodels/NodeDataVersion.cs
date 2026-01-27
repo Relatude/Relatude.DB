@@ -41,6 +41,7 @@ public class NodeDataVersionsContainer : INodeData {
 public class NodeMeta : IEquatable<NodeMeta> {
     public int CollectionId { get; } // common
     public int ReadAccess { get; } // common
+
     public int EditViewAccess { get; } // common
     public int PublishAccess { get; } // common
     public bool Deleted { get; } // common
