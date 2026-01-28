@@ -72,31 +72,31 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     public DateTime ChangedUtc { get; }
     public Guid CollectionId {
         get {
-            if (_values.TryGetValue(NodeConstants.SystemCollectionPropertyId, out var v)) return (Guid)v!;
+            if (_values.TryGetValue(NodeConstants.SystemCollectionPropertyId, out var v)) return (Guid)v;
             return Guid.Empty;
         }
         set {
-            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemCollectionPropertyId);
+            if (value == Guid.Empty) _values.RemoveIfPresent(NodeConstants.SystemCollectionPropertyId);
             else _values.AddOrUpdate(NodeConstants.SystemCollectionPropertyId, value);
         }
     }
     public Guid ReadAccess {
         get {
-            if (_values.TryGetValue(NodeConstants.SystemReadAccessPropertyId, out var v)) return (Guid)v!;
+            if (_values.TryGetValue(NodeConstants.SystemReadAccessPropertyId, out var v)) return (Guid)v;
             return Guid.Empty;
         }
         set {
-            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemReadAccessPropertyId);
+            if (value == Guid.Empty) _values.RemoveIfPresent(NodeConstants.SystemReadAccessPropertyId);
             else _values.AddOrUpdate(NodeConstants.SystemReadAccessPropertyId, value);
         }
     }
     public Guid WriteAccess {
         get {
-            if (_values.TryGetValue(NodeConstants.SystemWriteAccessPropertyId, out var v)) return (Guid)v!;
+            if (_values.TryGetValue(NodeConstants.SystemWriteAccessPropertyId, out var v)) return (Guid)v;
             return Guid.Empty;
         }
         set {
-            if (value == Guid.Empty) _values.RemoveIfExists(NodeConstants.SystemWriteAccessPropertyId);
+            if (value == Guid.Empty) _values.RemoveIfPresent(NodeConstants.SystemWriteAccessPropertyId);
             else _values.AddOrUpdate(NodeConstants.SystemWriteAccessPropertyId, value);
         }
     }
@@ -113,11 +113,9 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
     public void RemoveIfPresent(Guid propertyId) {
         if (_readOnly) throw new Exception("Node data is readonly. ");
-        _values.Remove(propertyId);
+        _values.RemoveIfPresent(propertyId);
     }
-    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) {
-        return _values.TryGetValue(propertyId, out value);
-    }
+    public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _values.TryGetValue(propertyId, out value);
     public bool Contains(Guid propertyId) => _values.ContainsKey(propertyId);
     public void EnsureReadOnly() {
         if (!_readOnly) _readOnly = true;
@@ -269,24 +267,9 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public bool Contains(Guid propertyId) => _node.Contains(propertyId);
     public void EnsureReadOnly() => _node.EnsureReadOnly();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
+    public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
     public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
-}
-public static class INodeDataExtensions {
-    public static bool TryGetValue<T>(this INodeData nodeData, Guid propertyId, [MaybeNullWhen(false)] out T value) {
-        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
-            value = tValue;
-            return true;
-        }
-        value = default;
-        return false;
-    }
-    public static T GetValue<T>(this INodeData nodeData, Guid propertyId, T fallback) {
-        if (nodeData.TryGetValue(propertyId, out var obj) && obj is T tValue) {
-            return tValue;
-        }
-        return fallback;
-    }
 }
 public interface IRelations {
     void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation);
@@ -344,21 +327,13 @@ public class Properties<T> {
         }
         Add(key, value);
     }
-    public void RemoveIfExists(Guid key) {
+    public void RemoveIfPresent(Guid key) {
         for (int i = 0; i < _size; i++) {
             if (_values[i].PropertyId == key) {
                 _values[i] = _values[--_size]; // move last item to this position
                 return;
             }
         }
-    }
-    public T GetValue(Guid key, Func<T> fallback) {
-        for (int i = 0; i < _size; i++) {
-            if (_values[i].PropertyId == key) {
-                return _values[i].Value;
-            }
-        }
-        return fallback();
     }
     public bool TryGetValue(Guid key, [MaybeNullWhen(false)] out T value) {
         for (int i = 0; i < _size; i++) {
@@ -369,15 +344,6 @@ public class Properties<T> {
         }
         value = default;
         return false;
-    }
-    internal void Remove(Guid propertyId) {
-        // we do not care about the order of the items
-        for (int i = 0; i < _size; i++) {
-            if (_values[i].PropertyId == propertyId) {
-                _values[i] = _values[--_size]; // move last item to this position
-                return;
-            }
-        }
     }
     public IEnumerable<PropertyEntry<T>> Items {
         get {

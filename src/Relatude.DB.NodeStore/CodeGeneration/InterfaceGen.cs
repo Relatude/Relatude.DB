@@ -145,21 +145,6 @@ internal static class InterfaceGen {
                     sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeData).Namespace + "." + nameof(INodeData) + ")v" + CodeUtils.GuidName(p.Id) + ");");
                 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
                 sb.AppendLine(" }");
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine(" }");

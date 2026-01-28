@@ -7,6 +7,7 @@ using System.Xml.Linq;
 
 
 namespace Relatude.DB.CodeGeneration;
+
 internal static class MapperGen {
     public static List<(string className, string code)> GenerateValueMappers(Datamodel datamodel) {
         return datamodel.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId)
@@ -38,7 +39,6 @@ internal static class MapperGen {
         var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
         sb.Append("public " + typeof(INodeData).Namespace + "." + nameof(INodeData) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
         sb.AppendLine(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related){");
-        // sb.AppendLine("var values = new System.Collections.Generic.Dictionary<Guid, object>();");
         var noneRelProps = nodeDef.AllProperties.Values.Where(p => !p.Private && p.PropertyType != PropertyType.Relation);
         sb.AppendLine("var values = new " + typeof(Properties<>).FullName!.Replace("`1", "") + "<object>(" + noneRelProps.Count() + ");");
         sb.AppendLine("var node = (" + classTypeName + ")obj;");

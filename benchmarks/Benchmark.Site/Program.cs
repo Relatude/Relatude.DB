@@ -14,7 +14,7 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 10;
+    var dataSetMultiplier = 1000000;
     var timeMultiplier = 1;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
@@ -31,9 +31,8 @@ app.MapPost("/start", () => {
         //new LiteDBTester(),
         //new SQLiteDBTester(),
         //new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
-        //new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
+        new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
         //new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush),
-        new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         new RelatudeDBTester( RelatudeDiskFlushMode.NoFlush),
         ];
 

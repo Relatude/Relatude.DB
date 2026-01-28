@@ -220,10 +220,14 @@ public class NativeModelStore(DataStoreLocal store) {
         _users.Remove(nodeId);
     }
     public void addUser(INodeData node) {
+        SystemUserType userType = SystemUserType.Anonymous;
+        if (node.TryGetValue(NodeConstants.NativeUserPropertyUserType, out var objUserType)) {
+            userType = (SystemUserType)objUserType;
+        }
         var user = new NativeSystemUser {
-            Id = node.__Id,
-            UserType = node.GetValue(NodeConstants.NativeUserPropertyUserType, SystemUserType.Anonymous),
-        };
+                Id = node.__Id,
+                UserType = userType,
+            };
         _users.Add(user.Id, user);
     }
     int[] calculateEffectiveMemberships(NativeSystemUser user) {

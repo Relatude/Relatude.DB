@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
+
 public class NodeDataVersion : NodeData {
     public NodeDataVersion(
         Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, NodeMeta meta)
@@ -37,6 +38,7 @@ public class NodeDataVersionsContainer : INodeData {
     public void EnsureReadOnly() => throw new NA();
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
+    public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
 }
 public class NodeMeta : IEquatable<NodeMeta> {
     public int CollectionId { get; } // common

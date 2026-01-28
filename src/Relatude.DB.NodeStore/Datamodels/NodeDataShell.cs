@@ -22,7 +22,7 @@ public class NodeDataShell {
         _copyBeforeUpdate = copyBeforeUpdate;
     }
     public T GetValue<T>(Guid propertyId) {
-        if (NodeData.TryGetValue<T>(propertyId, out var value)) return value;
+        if (NodeData.TryGetValue(propertyId, out var value) && value is T typedValue) return typedValue;
         var prop = _dm.Properties[propertyId];
         return (T)prop.GetDefaultValue();
     }
