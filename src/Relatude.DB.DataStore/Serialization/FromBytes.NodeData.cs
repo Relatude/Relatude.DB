@@ -15,8 +15,15 @@ public static partial class FromBytes {
             NodeDataStorageVersions.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
             NodeDataStorageVersions.WithMeta => readVersion_2_Meta(datamodel, stream, guid, (int)__id),
             NodeDataStorageVersions.WithRelations => readVersion_3_Relations(datamodel, stream, guid, (int)__id),
+            NodeDataStorageVersions.WithMinimalMeta => readVersion_4_MinimalMeta(datamodel, stream, guid, (int)__id),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
+    }
+    private static NodeData readVersion_4_MinimalMeta(Datamodel datamodel, Stream stream, Guid guid, int id) {
+        var node = readVersion_1_Minimal(datamodel, stream, guid, id);
+        var meta = NodeMetaInternal.FromStream(stream);
+        node._setMeta(meta);
+        return node;
     }
     static NodeData readVersion_0_Legacy(Datamodel datamodel, Stream stream, Guid guid, int __id) {
         var nodeTypeId = stream.ReadGuid();
@@ -67,7 +74,7 @@ public static partial class FromBytes {
         if (valueCount > 10000) throw new Exception("Binary data corruption. ");
         var values = new Properties<object>(valueCount);
         if (!datamodel.NodeTypes.TryGetValue(nodeTypeId, out var nodeType)) {
-            nodeType = datamodel.NodeTypes[Relatude.DB.Datamodels.NodeConstants.BaseNodeTypeId]; // fallback if unknown
+            nodeType = datamodel.NodeTypes[NodeConstants.BaseNodeTypeId]; // fallback if unknown
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
@@ -144,7 +151,7 @@ public static partial class FromBytes {
     }
     static NodeData readVersion_3_Relations(Datamodel datamodel, Stream stream, Guid guid, int __id) {
         throw new NotImplementedException("NodeData version with Relations is not implemented yet. ");
-        // same as Minimal, but with relations
+        // same as Minimal, but with relations, for client network serialization
     }
     static object toPropertyValue(byte[] bytes, PropertyType propType) {
         return propType switch {
