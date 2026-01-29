@@ -6,6 +6,7 @@ using Relatude.DB.Nodes;
 using System.Xml.Linq;
 
 namespace Relatude.DB.CodeGeneration;
+
 internal static class InterfaceGen {
     public static List<(string className, string code)> GetImplementations(Datamodel datamodel) {
         return datamodel.NodeTypes.Values.Where(c => c.IsInterface && c.Id != NodeConstants.BaseNodeTypeId)
@@ -151,7 +152,10 @@ internal static class InterfaceGen {
                 sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
-                sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + "); } ");
+                sb.Append("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ")");
+                if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
+                sb.AppendLine("; } ");
+
                 sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");
                 sb.AppendLine(" }");
             }
