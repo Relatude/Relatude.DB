@@ -7,7 +7,11 @@ namespace Relatude.DB.Serialization;
 public static partial class ToBytes {
     public static void NodeData(INodeData nodeData, Datamodel datamodel, Stream stream) { // Storing
         if (nodeData is NodeData nd) {
-            NodeData_Minimal(nd, datamodel, stream);
+            if (nd.Meta == null) {
+                NodeData_Minimal(nd, datamodel, stream, NodeDataStorageVersions.Minimal);
+            } else {
+                NodeData_MinimalMeta(nd, datamodel, stream);
+            }
         } else if (nodeData is NodeDataVersion ndMeta) {
             NodeData_Meta(ndMeta, datamodel, stream);
         } else if (nodeData is NodeDataWithRelations ndRel) {
@@ -16,10 +20,10 @@ public static partial class ToBytes {
             throw new NotSupportedException("Node data of type " + nodeData.GetType().FullName + " does not support serialization. ");
         }
     }
-    static void NodeData_Minimal(NodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void NodeData_Minimal(NodeData nodeData, Datamodel datamodel, Stream stream, NodeDataStorageVersions version) {
         stream.WriteGuid(nodeData.Id);
         stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataStorageVersions.Minimal);
+        stream.WriteInt((int)version);
         stream.WriteUInt((uint)nodeData.__Id);
         stream.WriteGuid(nodeData.NodeType);
         stream.WriteDateTime(nodeData.CreatedUtc);
@@ -70,6 +74,10 @@ public static partial class ToBytes {
             stream.WriteUInt((uint)PropertyType.Guid);
             stream.WriteByteArray(serializePropertyValue(collectionId, PropertyType.Guid));
         }
+    }
+    static void NodeData_MinimalMeta(NodeData nodeData, Datamodel datamodel, Stream stream) {
+        NodeData_Minimal(nodeData, datamodel, stream, NodeDataStorageVersions.WithMinimalMeta);
+        nodeData.Meta!.ToStream(stream);
     }
     static void NodeData_Meta(NodeDataVersion nodeData, Datamodel datamodel, Stream stream) {
         throw new Exception("Not implemented yet.");

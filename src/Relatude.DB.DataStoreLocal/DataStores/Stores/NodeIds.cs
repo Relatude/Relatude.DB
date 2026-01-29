@@ -56,9 +56,9 @@ class idSet {
 
     }
 }
-class metaAndType(NodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
+class metaAndType(NodeMetaInternal meta, Guid typeId) : IEquatable<metaAndType> {
     public readonly Guid TypeId = typeId;
-    public readonly NodeMeta Meta = meta;
+    public readonly NodeMetaInternal Meta = meta;
     public bool Equals(metaAndType? other) {
         if (other is null) return false;
         return TypeId == other.TypeId && Meta.Equals(other.Meta);
@@ -166,7 +166,7 @@ public class NodeTypesByIds {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
-        metaAndType mt = new(node.Meta ?? NodeMeta.Empty, node.NodeType);
+        metaAndType mt = new(node.Meta ?? NodeMetaInternal.Empty, node.NodeType);
         if (!_shortByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
             shortId = shortIdCounter++;
@@ -196,7 +196,7 @@ public class NodeTypesByIds {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
-        var shortId = _shortByMeta[new(node.Meta ?? NodeMeta.Empty, node.NodeType)];
+        var shortId = _shortByMeta[new(node.Meta ?? NodeMetaInternal.Empty, node.NodeType)];
         var shortIds = _nodeMetasByNodeId[node.__Id];
         if (shortIds.Length == 1) {
             if (shortIds[0] != shortId) throw new Exception("Internal error. Attempting to deindex node meta that is not indexed for node id: " + node.__Id);
@@ -255,7 +255,7 @@ public class NodeTypesByIds {
         for (int i = 0; i < metaCount; i++) {
             var shortId = stream.ReadUInt();
             var metaBytes = stream.ReadByteArray();
-            var meta = NodeMeta.FromBytes(metaBytes);
+            var meta = NodeMetaInternal.FromBytes(metaBytes);
             var typeId = stream.ReadGuid();
             var mt = new metaAndType(meta, typeId);
             _metaByShort[shortId] = mt;
