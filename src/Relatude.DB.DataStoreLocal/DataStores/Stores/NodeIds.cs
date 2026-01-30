@@ -209,7 +209,22 @@ public class NodeTypesByIds {
         }
         if (!ctx.IncludeHidden && meta.Hidden) return false;
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
-        if (ctx.MembershipIds != null && ctx.MembershipIds.Length > 0 && !ctx.MembershipIds.Contains(meta.ReadAccess)) return false;
+
+        // Access control:
+        switch (ctx.UserType) {
+            case Native.SystemUserType.Anonymous:
+                if (meta.ReadAccess != Guid.Empty) return false;
+                break;
+            case Native.SystemUserType.User:
+                if (!ctx.IsMember(meta.ReadAccess)) return false;
+                if (ctx.EditView && !ctx.IsMember(meta.EditViewAccess)) return false;
+                break;
+            case Native.SystemUserType.Admin: // admins have access to everything
+                break;
+            default:
+                throw new Exception("Internal error. Unknown system user type: " + ctx.UserType);
+        }
+
         return true;
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {

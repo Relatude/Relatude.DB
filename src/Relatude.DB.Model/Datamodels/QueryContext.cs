@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+﻿using Relatude.DB.Native;
 
 namespace Relatude.DB.Datamodels;
 
@@ -147,6 +147,16 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly Guid CultureId;
     public readonly Guid[]? CollectionIds;
     public readonly Guid[]? MembershipIds;
+    public bool IsMember(Guid groupId) {
+        if (groupId == Guid.Empty) return true;
+        if (MembershipIds == null) return false;
+        if (MembershipIds.Length == 0) return false;
+        foreach (var id in MembershipIds) {
+            if (id == groupId) return true;
+        }
+        return false;
+    }
+    public readonly SystemUserType UserType;
     public QueryContextKey(
         Guid cultureId,
         Guid[]? collectionIds,
@@ -156,7 +166,8 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         bool includeUnpublished,
         bool editView,
         bool includeHidden,
-        bool excludeDecendants
+        bool excludeDecendants,
+        SystemUserType userType
         ) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
@@ -165,9 +176,10 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         IncludeUnpublished = includeUnpublished;
         IncludeHidden = includeHidden;
         ExcludeDecendants = excludeDecendants;
+        UserType = userType;
     }
     public override int GetHashCode() {
-        
+
         // slower but better distributed:
         //var hash = new HashCode();
         //hash.Add(CultureId);
@@ -177,6 +189,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         //hash.Add(EditView);
         //hash.Add(IncludeHidden);
         //hash.Add(ExcludeDecendants);
+        //hach.Add(UserType);
         //if (CollectionIds != null) {
         //    foreach (var id in CollectionIds) {
         //        hash.Add(id);
@@ -192,7 +205,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         //    hash.Add(0);
         //}
         //return hash.ToHashCode();
-        
+
         // faster but less distributed:
         int hash = CultureId.GetHashCode();
         hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
@@ -201,6 +214,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         hash = (hash * 397) ^ EditView.GetHashCode();
         hash = (hash * 397) ^ IncludeHidden.GetHashCode();
         hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
+        hash = (hash * 397) ^ UserType.GetHashCode();
         if (CollectionIds != null) {
             foreach (var id in CollectionIds) {
                 hash = (hash * 397) ^ id.GetHashCode();
@@ -231,6 +245,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
+            && UserType == other.UserType
             && equalIds(CollectionIds, other.CollectionIds)
             && equalIds(MembershipIds, other.MembershipIds);
     }

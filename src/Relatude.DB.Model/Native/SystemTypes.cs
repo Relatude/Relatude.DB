@@ -1,7 +1,8 @@
 ﻿namespace Relatude.DB.Native;
+
 public enum SystemUserType {
     Anonymous = 0, // unauthenticated user
-    System = 1, // authenticated user part of the system
+    User = 1, // authenticated user part of the system
     Admin = 2, // authenticated user with access to everything
 }
 public class NativeSystemUser {

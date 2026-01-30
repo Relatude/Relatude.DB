@@ -220,9 +220,9 @@ public class NativeModelStore(DataStoreLocal store) {
         _users.Remove(nodeId);
     }
     public void addUser(INodeData node) {
-        SystemUserType userType = SystemUserType.Anonymous;
+        Native.SystemUserType userType = Native.SystemUserType.Anonymous;
         if (node.TryGetValue(NodeConstants.NativeUserPropertyUserType, out var objUserType)) {
-            userType = (SystemUserType)objUserType;
+            userType = (Native.SystemUserType)objUserType;
         }
         var user = new NativeSystemUser {
                 Id = node.__Id,
@@ -328,23 +328,28 @@ public class NativeModelStore(DataStoreLocal store) {
         } else {
             collectionIds = null;
         }
-        Guid[]? memershipIds;
+        Guid[]? membershipIds;
         if (ctx.UserId == Guid.Empty) {
-            memershipIds = null;
+            membershipIds = null;
         } else if (store._guids.TryGetId(ctx.UserId, out var userId)) {
-            memershipIds = GetEffectiveMembershipsOfUser(userId);
+            membershipIds = GetEffectiveMembershipsOfUser(userId);
         } else {
             throw new InvalidOperationException($"User with id '{ctx.UserId}' does not exist.");
+        }
+        var userType = Native.SystemUserType.Anonymous;
+        if (ctx.UserId == Guid.Empty) { 
         }
         return new QueryContextKey(
             cultureId: cultureId,
             collectionIds: collectionIds,
-            membershipIds: memershipIds,
+            membershipIds: membershipIds,
             includeDeleted: ctx.IncludeDeleted,
             includeCultureFallback: ctx.IncludeCultureFallback,
             includeUnpublished: ctx.IncludeUnpublished,
+            editView: ctx.EditView,
             includeHidden: ctx.IncludeHidden,
-            excludeDecendants: ctx.ExcludeDecendants
+            excludeDecendants: ctx.ExcludeDecendants,
+            userType: userType
         );
     }
 }
