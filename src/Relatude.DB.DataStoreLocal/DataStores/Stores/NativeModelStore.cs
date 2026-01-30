@@ -11,7 +11,7 @@ public class NativeModelStore(DataStoreLocal store) {
     Dictionary<int, NativeSystemUserGroup> _userGroups = [];
     Dictionary<int, NativeSystemCollection> _collections = [];
     Dictionary<int, NativeSystemCulture> _cultures = [];
-    Dictionary<int[], int[]> _effectiveMembershipsCache = new(new IntArrayEqualityComparer());
+    Dictionary<int[], Guid[]> _effectiveMembershipsCache = new(new IntArrayEqualityComparer());
     Dictionary<Guid, NativeNodeType> _nodeTypeCache = [];
     Dictionary<Guid, NativeRelationType> _relationTypeCache = [];
     NativeNodeType getNativeNodeType(Guid nodeTypeId) {
@@ -230,9 +230,9 @@ public class NativeModelStore(DataStoreLocal store) {
             };
         _users.Add(user.Id, user);
     }
-    int[] calculateEffectiveMemberships(NativeSystemUser user) {
+    Guid[] calculateEffectiveMemberships(NativeSystemUser user) {
         var iterations = 0;
-        var effectiveMemberships = new HashSet<int>(user.Memberships);
+        var effectiveMemberships = user.Memberships.Select(store._guids.GetGuid).ToHashSet();
         var toProcess = new Queue<int>(user.Memberships);
         while (toProcess.Count > 0) {
             var currentGroupId = toProcess.Dequeue();
@@ -246,7 +246,7 @@ public class NativeModelStore(DataStoreLocal store) {
             }
             if (_userGroups.TryGetValue(currentGroupId, out var group)) {
                 foreach (var parentGroupId in group.GroupMemberships) {
-                    if (effectiveMemberships.Add(parentGroupId)) {
+                    if (effectiveMemberships.Add(store._guids.GetGuid(parentGroupId))) {
                         toProcess.Enqueue(parentGroupId);
                     }
                 }
@@ -257,7 +257,7 @@ public class NativeModelStore(DataStoreLocal store) {
     void resetEffectiveMembershipsCache() {
         _effectiveMembershipsCache.Clear();
     }
-    public int[] GetEffectiveMembershipsOfUser(int userId) {
+    public Guid[] GetEffectiveMembershipsOfUser(int userId) {
         lock (_effectiveMembershipsCache) {
             if (_users.TryGetValue(userId, out var user)) {
                 if (!_effectiveMembershipsCache.TryGetValue(user.Memberships, out var effectiveMemberships)) {
@@ -317,26 +317,18 @@ public class NativeModelStore(DataStoreLocal store) {
 
     public QueryContextKey GetQueryContextKey(QueryContext ctx) {
         var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
-        //if (culture == null) throw new InvalidOperationException($"Culture with code '{ctx.CultureCode}' does not exist.");
-        var cultureId = culture == null ? 0 : culture.Id;
-        int[]? collectionIds;
+        var cultureId = culture == null ? Guid.Empty : culture.Guid;
+        Guid[]? collectionIds;
         if (ctx.CollectionIds is not null) {
-            List<int> collectionIdsList = [];
+            List<Guid> collectionIdsList = [];
             foreach (var colId in ctx.CollectionIds) {
-                if (store._guids.TryGetId(colId, out var intColId)) {
-                    collectionIdsList.Add(intColId);
-                } else {
-                    throw new InvalidOperationException($"Collection with id '{colId}' does not exist.");
-                }
-                if (!_collections.ContainsKey(intColId)) {
-                    throw new InvalidOperationException($"Id '{colId}' is not a collection.");
-                }
+                collectionIdsList.Add(colId);
             }
             collectionIds = collectionIdsList.Order().ToArray();
         } else {
             collectionIds = null;
         }
-        int[]? memershipIds;
+        Guid[]? memershipIds;
         if (ctx.UserId == Guid.Empty) {
             memershipIds = null;
         } else if (store._guids.TryGetId(ctx.UserId, out var userId)) {

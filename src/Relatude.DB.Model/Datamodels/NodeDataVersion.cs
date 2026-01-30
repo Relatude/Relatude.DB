@@ -3,7 +3,7 @@ namespace Relatude.DB.Datamodels;
 
 public class NodeDataVersion : NodeData {
     public NodeDataVersion(
-        Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, NodeMetaInternal meta)
+        Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, INodeMeta meta)
         : base(id, uid, nodeType, createdUtc, changedUtc, values) {
         _setMeta(meta);
     }    
@@ -19,7 +19,7 @@ public class NodeDataVersionsContainer : INodeData {
     public Guid Id { get => throw new NA(); set => throw new NA(); }
 
     public Guid NodeType => throw new NA();
-    public NodeMetaInternal? Meta => throw new NA();
+    public INodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
 

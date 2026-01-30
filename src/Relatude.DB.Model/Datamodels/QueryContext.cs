@@ -8,6 +8,7 @@ public class QueryContext {
     public bool IncludeDeleted { get; set; } = false;
     public bool IncludeCultureFallback { get; set; } = false;
     public bool IncludeUnpublished { get; set; } = false;
+    public bool EditView { get; set; } = false;
     public bool IncludeHidden { get; set; } = false;
     public bool ExcludeDecendants { get; set; } = false;
     public DateTime? NowUtc;
@@ -64,21 +65,43 @@ public class QueryContext {
             && NowUtc == other.NowUtc;
     }
     public override int GetHashCode() {
-        return HashCode.Combine(
-            HashCode.Combine(
-                UserId,
-                CultureCode,
-                IncludeDeleted,
-                IncludeCultureFallback,
-                IncludeUnpublished,
-                IncludeHidden,
-                ExcludeDecendants
-            ),
-            HashCode.Combine(
-                CollectionIds != null ? CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode()) : 0
-                , NowUtc
-            )
-        );
+        // slower but better distributed:
+        //var hash = new HashCode();
+        //hash.Add(UserId);
+        //hash.Add(CultureCode);
+        //hash.Add(IncludeDeleted);
+        //hash.Add(IncludeCultureFallback);
+        //hash.Add(IncludeUnpublished);
+        //hash.Add(IncludeHidden);
+        //hash.Add(ExcludeDecendants);
+        //if (CollectionIds != null) {
+        //    foreach (var id in CollectionIds) {
+        //        hash.Add(id);
+        //    }
+        //} else {
+        //    hash.Add(0);
+        //}
+        //hash.Add(NowUtc);
+        //return hash.ToHashCode();
+
+        // faster but less distributed:
+        int hash = 17;
+        hash = (hash * 397) ^ UserId.GetHashCode();
+        hash = (hash * 397) ^ (CultureCode?.GetHashCode() ?? 0);
+        hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
+        hash = (hash * 397) ^ IncludeCultureFallback.GetHashCode();
+        hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
+        hash = (hash * 397) ^ IncludeHidden.GetHashCode();
+        hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
+        if (CollectionIds != null) {
+            foreach (var id in CollectionIds) {
+                hash = (hash * 397) ^ id.GetHashCode();
+            }
+        } else {
+            hash = (hash * 397) ^ 0;
+        }
+        hash = (hash * 397) ^ (NowUtc?.GetHashCode() ?? 0);
+        return hash;
     }
 }
 //public interface IRevisionSwitcher {
@@ -118,12 +141,22 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;
     public readonly bool IncludeCultureFallback;  // requires evaluating multiple versions
     public readonly bool IncludeUnpublished;  // requires evaluating multiple versions
+    public readonly bool EditView;
     public readonly bool IncludeHidden;
     public readonly bool ExcludeDecendants;
-    public readonly int CultureId;
-    public readonly int[]? CollectionIds;
-    public readonly int[]? MembershipIds;
-    public QueryContextKey(int cultureId, int[]? collectionIds, int[]? membershipIds, bool includeDeleted, bool includeCultureFallback, bool includeUnpublished, bool includeHidden, bool excludeDecendants
+    public readonly Guid CultureId;
+    public readonly Guid[]? CollectionIds;
+    public readonly Guid[]? MembershipIds;
+    public QueryContextKey(
+        Guid cultureId,
+        Guid[]? collectionIds,
+        Guid[]? membershipIds,
+        bool includeDeleted,
+        bool includeCultureFallback,
+        bool includeUnpublished,
+        bool editView,
+        bool includeHidden,
+        bool excludeDecendants
         ) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
@@ -134,20 +167,57 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         ExcludeDecendants = excludeDecendants;
     }
     public override int GetHashCode() {
-        return HashCode.Combine(
-            CultureId,
-            IncludeDeleted,
-            IncludeCultureFallback,
-            IncludeUnpublished,
-            IncludeHidden,
-            ExcludeDecendants,
-            CollectionIds != null ?
-                CollectionIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode())
-                : 0,
-            MembershipIds != null ?
-                MembershipIds.Aggregate(0, (acc, id) => acc ^ id.GetHashCode())
-                : 0
-        );
+        
+        // slower but better distributed:
+        //var hash = new HashCode();
+        //hash.Add(CultureId);
+        //hash.Add(IncludeDeleted);
+        //hash.Add(IncludeCultureFallback);
+        //hash.Add(IncludeUnpublished);
+        //hash.Add(EditView);
+        //hash.Add(IncludeHidden);
+        //hash.Add(ExcludeDecendants);
+        //if (CollectionIds != null) {
+        //    foreach (var id in CollectionIds) {
+        //        hash.Add(id);
+        //    }
+        //} else {
+        //    hash.Add(0);
+        //}
+        //if (MembershipIds != null) {
+        //    foreach (var id in MembershipIds) {
+        //        hash.Add(id);
+        //    }
+        //} else {
+        //    hash.Add(0);
+        //}
+        //return hash.ToHashCode();
+        
+        // faster but less distributed:
+        int hash = CultureId.GetHashCode();
+        hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
+        hash = (hash * 397) ^ IncludeCultureFallback.GetHashCode();
+        hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
+        hash = (hash * 397) ^ EditView.GetHashCode();
+        hash = (hash * 397) ^ IncludeHidden.GetHashCode();
+        hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
+        if (CollectionIds != null) {
+            foreach (var id in CollectionIds) {
+                hash = (hash * 397) ^ id.GetHashCode();
+            }
+        } else {
+            hash = (hash * 397) ^ 0;
+        }
+        if (MembershipIds != null) {
+            foreach (var id in MembershipIds) {
+                hash = (hash * 397) ^ id.GetHashCode();
+            }
+        } else {
+            hash = (hash * 397) ^ 0;
+        }
+        return hash;
+
+
     }
     public override bool Equals(object? obj) {
         return obj is QueryContextKey other && Equals(other);
@@ -158,12 +228,13 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             && IncludeDeleted == other.IncludeDeleted
             && IncludeCultureFallback == other.IncludeCultureFallback
             && IncludeUnpublished == other.IncludeUnpublished
+            && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
             && equalIds(CollectionIds, other.CollectionIds)
             && equalIds(MembershipIds, other.MembershipIds);
     }
-    static bool equalIds(int[]? a, int[]? b) {
+    static bool equalIds(Guid[]? a, Guid[]? b) {
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;
         if (a.Length != b.Length) return false;
@@ -172,7 +243,6 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         }
         return true;
     }
+
 }
-
-
 

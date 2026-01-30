@@ -56,9 +56,9 @@ class idSet {
 
     }
 }
-class metaAndType(NodeMetaInternal meta, Guid typeId) : IEquatable<metaAndType> {
+class metaAndType(INodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
     public readonly Guid TypeId = typeId;
-    public readonly NodeMetaInternal Meta = meta;
+    public readonly INodeMeta Meta = meta;
     public bool Equals(metaAndType? other) {
         if (other is null) return false;
         return TypeId == other.TypeId && Meta.Equals(other.Meta);
@@ -95,20 +95,80 @@ class nodeMetasByNodeId {
         return false;
     }
     public void Add(int nodeId, uint metaId) {
-        if (_single.ContainsKey(nodeId) || _multiple.ContainsKey(nodeId)) {
-            throw new Exception("Internal error. Attempting to add node meta id for node id that already has meta ids: " + nodeId);
+        if (_single.ContainsKey(nodeId)) {
+            // move to multiple:
+            var existingMetaId = _single[nodeId];
+            _single.Remove(nodeId);
+            _multiple[nodeId] = [existingMetaId, metaId];
+        } else if (_multiple.TryGetValue(nodeId, out var existingMetaIds)) {
+            _multiple[nodeId] = [.. existingMetaIds, metaId];
+        } else {
+            _single[nodeId] = metaId;
         }
-        _single[nodeId] = metaId;
+    }
+    public void Remove(int nodeId, uint metaId) {
+        if (_single.TryGetValue(nodeId, out var existingMetaId)) {
+            if (existingMetaId == metaId) {
+                _single.Remove(nodeId);
+            } else {
+                throw new Exception("Internal error. Attempting to remove non-existing metaId from nodeId.");
+            }
+        } else if (_multiple.TryGetValue(nodeId, out var existingMetaIds)) {
+            var newMetaIds = existingMetaIds.Where(id => id != metaId).ToArray();
+            if (newMetaIds.Length == existingMetaIds.Length) {
+                throw new Exception("Internal error. Attempting to remove non-existing metaId from nodeId.");
+            } else if (newMetaIds.Length == 0) {
+                _multiple.Remove(nodeId);
+            } else if (newMetaIds.Length == 1) {
+                _multiple.Remove(nodeId);
+                _single[nodeId] = newMetaIds[0];
+            } else {
+                _multiple[nodeId] = newMetaIds;
+            }
+        } else {
+            throw new Exception("Internal error. Attempting to remove metaId from nodeId that has no metas.");
+        }
+    }
+    public void ReadFromStream(IReadStream stream) {
+        var singleCount = stream.ReadInt();
+        for (int i = 0; i < singleCount; i++) {
+            var nodeId = stream.ReadInt();
+            var metaId = stream.ReadUInt();
+            _single[nodeId] = metaId;
+        }
+        var multipleCount = stream.ReadInt();
+        for (int i = 0; i < multipleCount; i++) {
+            var nodeId = stream.ReadInt();
+            var metaIdCount = stream.ReadInt();
+            var metaIds = new uint[metaIdCount];
+            for (int j = 0; j < metaIdCount; j++) {
+                metaIds[j] = stream.ReadUInt();
+            }
+            _multiple[nodeId] = metaIds;
+        }
+    }
+    public void WriteToStream(IAppendStream stream) {
+        stream.WriteInt(_single.Count);
+        foreach (var kv in _single) {
+            stream.WriteInt(kv.Key);
+            stream.WriteUInt(kv.Value);
+        }
+        stream.WriteInt(_multiple.Count);
+        foreach (var kv in _multiple) {
+            stream.WriteInt(kv.Key);
+            stream.WriteInt(kv.Value.Length);
+            foreach (var metaId in kv.Value) {
+                stream.WriteUInt(metaId);
+            }
+        }
     }
 }
-
 public class NodeTypesByIds {
     readonly Definition _definition;
     uint shortIdCounter = 0;
     readonly Dictionary<uint, metaAndType> _metaById = new();
     readonly Dictionary<metaAndType, uint> _idByMeta = new();
     readonly nodeMetasByNodeId _metaIdsByNodeId = new();
-    //readonly Dictionary<int, uint[]> _nodeMetasByNodeId = new();    
     readonly Dictionary<Guid, int> _countByType = new();
     readonly Cache<QueryContextKey, idSet> _cachedNodeIdsByCtx;
     readonly NativeModelStore _nativeModelStore;
@@ -198,18 +258,14 @@ public class NodeTypesByIds {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
-        metaAndType mt = new(node.Meta ?? NodeMetaInternal.Empty, node.NodeType);
+        metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
             shortId = shortIdCounter++;
             _metaById[shortId] = mt;
             _idByMeta.Add(mt, shortId);
         }
-        if (_metaIdsByNodeId.TryGetValue(node.__Id, out var shortIds)) {
-            _metaIdsByNodeId[node.__Id] = [.. shortIds, shortId];
-        } else {
-            _metaIdsByNodeId.Add(node.__Id, [shortId]);
-        }
+        _metaIdsByNodeId.Add(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
@@ -228,19 +284,8 @@ public class NodeTypesByIds {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
-        var shortId = _idByMeta[new(node.Meta ?? NodeMetaInternal.Empty, node.NodeType)];
-        var shortIds = _metaIdsByNodeId[node.__Id];
-        if (shortIds.Length == 1) {
-            if (shortIds[0] != shortId) throw new Exception("Internal error. Attempting to deindex node meta that is not indexed for node id: " + node.__Id);
-            _metaIdsByNodeId.Remove(node.__Id);
-        } else {
-            var newShortIds = new uint[shortIds.Length - 1];
-            for (int i = 0, j = 0; i < shortIds.Length; i++) {
-                if (shortIds[i] != shortId) newShortIds[j++] = shortIds[i];
-            }
-            if (newShortIds.Length == shortIds.Length) throw new Exception("Internal error. Attempting to deindex node meta that is not indexed for node id: " + node.__Id);
-            _metaIdsByNodeId[node.__Id] = newShortIds;
-        }
+        var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
+        _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
@@ -265,14 +310,7 @@ public class NodeTypesByIds {
             stream.WriteByteArray(kv.Value.Meta.ToBytes());
             stream.WriteGuid(kv.Value.TypeId);
         }
-        stream.WriteInt(_metaIdsByNodeId.Count);
-        foreach (var kv in _metaIdsByNodeId) {
-            stream.WriteInt(kv.Key);
-            stream.WriteInt(kv.Value.Length);
-            foreach (var shortId in kv.Value) {
-                stream.WriteUInt(shortId);
-            }
-        }
+        _metaIdsByNodeId.WriteToStream(stream);
         stream.WriteInt(_countByType.Count);
         foreach (var kv in _countByType) {
             stream.WriteGuid(kv.Key);
@@ -287,22 +325,13 @@ public class NodeTypesByIds {
         for (int i = 0; i < metaCount; i++) {
             var shortId = stream.ReadUInt();
             var metaBytes = stream.ReadByteArray();
-            var meta = NodeMetaInternal.FromBytes(metaBytes);
+            var meta = INodeMeta.FromBytes(metaBytes);
             var typeId = stream.ReadGuid();
             var mt = new metaAndType(meta, typeId);
             _metaById[shortId] = mt;
             _idByMeta[mt] = shortId;
         }
-        var nodeMetaCount = stream.ReadInt();
-        for (int i = 0; i < nodeMetaCount; i++) {
-            var nodeId = stream.ReadInt();
-            var shortIdArrayLength = stream.ReadInt();
-            var shortIds = new uint[shortIdArrayLength];
-            for (int j = 0; j < shortIdArrayLength; j++) {
-                shortIds[j] = stream.ReadUInt();
-            }
-            _metaIdsByNodeId[nodeId] = shortIds;
-        }
+        _metaIdsByNodeId.ReadFromStream(stream);
         var countByTypeCount = stream.ReadInt();
         for (int i = 0; i < countByTypeCount; i++) {
             var typeId = stream.ReadGuid();
@@ -311,4 +340,3 @@ public class NodeTypesByIds {
         }
     }
 }
-

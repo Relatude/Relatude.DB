@@ -77,49 +77,10 @@ public static partial class ToBytes {
     }
     static void NodeData_MinimalMeta(NodeData nodeData, Datamodel datamodel, Stream stream) {
         NodeData_Minimal(nodeData, datamodel, stream, NodeDataStorageVersions.WithMinimalMeta);
-        nodeData.Meta!.ToStream(stream);
+        stream.WriteByteArray(nodeData.Meta!.ToBytes());
     }
     static void NodeData_Meta(NodeDataVersion nodeData, Datamodel datamodel, Stream stream) {
         throw new Exception("Not implemented yet.");
-        //if (nodeData is not NodeDataComplex) nodeData = NodeDataComplex.FromMinimal(nodeData);
-        stream.WriteGuid(nodeData.Id);
-        stream.WriteUInt(0); // indicating newer format version
-        stream.WriteInt((int)NodeDataStorageVersions.WithMeta);
-        stream.WriteUInt((uint)nodeData.__Id);
-        stream.WriteGuid(nodeData.NodeType);
-
-        //var all0 =
-        //    nodeData.ReadAccess == 0
-        //    && nodeData.EditViewAccess == 0
-        //    && nodeData.CultureId == 0
-        //    && nodeData.CollectionId == 0
-        //    && nodeData.RevisionId == 0;
-        //stream.WriteBool(all0);
-        //if (!all0) {
-        //    stream.WriteInt(nodeData.ReadAccess);
-        //    stream.WriteInt(nodeData.EditViewAccess);
-        //    stream.WriteInt(nodeData.CultureId);
-        //    stream.WriteInt(nodeData.CollectionId);
-        //    stream.WriteInt(nodeData.RevisionId);
-        //}
-
-        stream.WriteDateTime(nodeData.CreatedUtc);
-        stream.WriteDateTime(nodeData.ChangedUtc);
-        var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;
-        List<KeyValuePair<PropertyModel, object>> propsToStore = new();
-        foreach (var kv in nodeData.Values) {
-            if (allPossibleProps.TryGetValue(kv.PropertyId, out var prop) && prop.PropertyType != PropertyType.Relation) {
-                // only props that are part of datamodeland not relations
-                propsToStore.Add(new(prop, kv.Value));
-            }
-        }
-        stream.WriteInt(propsToStore.Count);
-        foreach (var p in propsToStore) {
-            var bytes = serializePropertyValue(p.Value, p.Key.PropertyType);
-            stream.WriteGuid(p.Key.Id);// prop ID
-            stream.WriteUInt((uint)p.Key.PropertyType);// prop type
-            stream.WriteByteArray(bytes); // data
-        }
     }
     static byte[] serializePropertyValue(object value, PropertyType propType) {
         return propType switch {

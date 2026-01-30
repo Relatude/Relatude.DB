@@ -21,7 +21,7 @@ public static partial class FromBytes {
     }
     private static NodeData readVersion_4_MinimalMeta(Datamodel datamodel, Stream stream, Guid guid, int id) {
         var node = readVersion_1_Minimal(datamodel, stream, guid, id);
-        var meta = NodeMetaInternal.FromStream(stream);
+        var meta = INodeMeta.FromBytes(stream.ReadByteArray());
         node._setMeta(meta);
         return node;
     }
