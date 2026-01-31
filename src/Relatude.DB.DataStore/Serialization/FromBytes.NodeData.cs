@@ -2,30 +2,29 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Serialization;
+
 public static partial class FromBytes {
     // NodeData
     public static INodeData NodeData(Datamodel datamodel, Stream stream) { // Reading
+
+        // reading header:
         var guid = stream.ReadGuid();
-        var __id = stream.ReadUInt();
-        if (__id != 0) return readVersion_0_Legacy(datamodel, stream, guid, (int)__id);
-        // newer versioned format:
+        var __id = (int)stream.ReadUInt();
+        if (__id != 0) { // special handling of older version: ( wasting 4 bytes for version info )
+            return read_Legacy_0(datamodel, stream, guid, __id);
+        }
         var version = (NodeDataStorageVersions)stream.ReadInt();
-        __id = stream.ReadUInt();
+        __id = (int)stream.ReadUInt(); // casting remains from older format, too much hassle to change now
+        var nodeTypeId = stream.ReadGuid();
+
         return version switch {
-            NodeDataStorageVersions.Minimal => readVersion_1_Minimal(datamodel, stream, guid, (int)__id),
-            NodeDataStorageVersions.WithMeta => readVersion_2_Meta(datamodel, stream, guid, (int)__id),
-            NodeDataStorageVersions.WithRelations => readVersion_3_Relations(datamodel, stream, guid, (int)__id),
-            NodeDataStorageVersions.WithMinimalMeta => readVersion_4_MinimalMeta(datamodel, stream, guid, (int)__id),
+            NodeDataStorageVersions.Legacy1 => read_Legacy_1(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.VersionContainer => read_VersionContainer(datamodel, stream, guid, __id, nodeTypeId),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
     }
-    private static NodeData readVersion_4_MinimalMeta(Datamodel datamodel, Stream stream, Guid guid, int id) {
-        var node = readVersion_1_Minimal(datamodel, stream, guid, id);
-        var meta = INodeMeta.FromBytes(stream.ReadByteArray());
-        node._setMeta(meta);
-        return node;
-    }
-    static NodeData readVersion_0_Legacy(Datamodel datamodel, Stream stream, Guid guid, int __id) {
+    static NodeData read_Legacy_0(Datamodel datamodel, Stream stream, Guid guid, int __id) {
         var nodeTypeId = stream.ReadGuid();
         var collectionId = stream.ReadGuid();
         var lcid = stream.ReadInt();
@@ -66,8 +65,7 @@ public static partial class FromBytes {
             //collectionId, lcid, derivedFromLCID, readAccess, writeAccess, 
             createdUtc, changedUtc, values);
     }
-    static NodeData readVersion_1_Minimal(Datamodel datamodel, Stream stream, Guid guid, int __id) {
-        var nodeTypeId = stream.ReadGuid();
+    static NodeData read_Legacy_1(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
         var valueCount = stream.ReadInt();
@@ -85,10 +83,6 @@ public static partial class FromBytes {
             var value = toPropertyValue(bytes, propType);
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
-            } else if (id == NodeConstants.SystemReadAccessPropertyId
-                || id == NodeConstants.SystemWriteAccessPropertyId
-                || id == NodeConstants.SystemCollectionPropertyId) {
-                values.Add(id, forceValueType(PropertyType.Guid, value));
             }
         }
         // add defaults for missing props
@@ -105,26 +99,20 @@ public static partial class FromBytes {
             //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
             createdUtc, changedUtc, values);
     }
-    static NodeData readVersion_2_Meta(Datamodel datamodel, Stream stream, Guid guid, int __id) {
-        throw new NotImplementedException("NodeData version with Meta is not implemented yet. ");
-        var nodeTypeId = stream.ReadGuid();
-        var all0 = stream.ReadBool();
-        if (!all0) {
-            var readAccess = stream.ReadInt();
-            var writeAccess = stream.ReadInt();
-            var cultureId = stream.ReadInt();
-            var collectionId = stream.ReadInt();
-            var revisionId = stream.ReadInt();
-        }
-
+    static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
 
+        // Node data meta:
+        var metaArray = stream.ReadByteArray();
+        var meta = INodeMeta.FromBytes(metaArray);
+
+        // Node data properties
         var valueCount = stream.ReadInt();
         if (valueCount > 10000) throw new Exception("Binary data corruption. ");
         var values = new Properties<object>(valueCount);
         if (!datamodel.NodeTypes.TryGetValue(nodeTypeId, out var nodeType)) {
-            nodeType = datamodel.NodeTypes[Relatude.DB.Datamodels.NodeConstants.BaseNodeTypeId]; // fallback if unknown
+            nodeType = datamodel.NodeTypes[NodeConstants.BaseNodeTypeId]; // fallback if unknown
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
@@ -147,12 +135,25 @@ public static partial class FromBytes {
                 }
             }
         }
-        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values);
+
+        var newNodeData = new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values);
+        if(meta!=null) newNodeData._setMeta(meta!);
+        return newNodeData;
     }
-    static NodeData readVersion_3_Relations(Datamodel datamodel, Stream stream, Guid guid, int __id) {
-        throw new NotImplementedException("NodeData version with Relations is not implemented yet. ");
-        // same as Minimal, but with relations, for client network serialization
+    static NodeDataRevisions read_VersionContainer(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
+        var versionCount = stream.ReadInt();
+        if (versionCount < 0 || versionCount > 10000) throw new Exception("Binary data corruption. ");
+        var versions = new NodeDataRevision[versionCount];
+        for (int v = 0; v < versionCount; v++) {
+            versions[v] = new (
+                read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
+                stream.ReadGuid(),
+                (NodeDataRevisionType)stream.ReadInt()
+            );
+        }
+        return new (guid, __id, nodeTypeId, versions);
     }
+
     static object toPropertyValue(byte[] bytes, PropertyType propType) {
         return propType switch {
             PropertyType.String => RelatudeDBGlobals.Encoding.GetString(bytes),

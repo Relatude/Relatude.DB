@@ -4,15 +4,15 @@ public static class NodeConstants {
     const string BaseNodeTypeIdString = "ac6515ae-3ca5-43fa-8045-7a5a1bb11830";
     const string TextIndexPropertyIdString = "b835577e-84a2-4fa3-a850-44ab2112e6cf";
     const string VectorIndexPropertyIdString = "1e282f9f-3bd2-4230-abcb-f9e840145159";
-    const string ReadAccessIdString = "58d3c678-567d-41ac-8b9a-1e15e897f432";
-    const string WriteAccessPropertyIdString = "0c0d68a0-ec5b-4811-a558-3376573fc9fa";
-    const string CollectionPropertyIdString = "17dd6bf5-e5be-4908-ac81-2278df2ad150";
+    //const string ReadAccessIdString = "58d3c678-567d-41ac-8b9a-1e15e897f432";
+    //const string WriteAccessPropertyIdString = "0c0d68a0-ec5b-4811-a558-3376573fc9fa";
+    //const string CollectionPropertyIdString = "17dd6bf5-e5be-4908-ac81-2278df2ad150";
     public static readonly Guid BaseNodeTypeId = new(BaseNodeTypeIdString);
     public static readonly Guid SystemTextIndexPropertyId = new(TextIndexPropertyIdString);
     public static readonly Guid SystemVectorIndexPropertyId = new(VectorIndexPropertyIdString);
-    public static readonly Guid SystemReadAccessPropertyId = new(ReadAccessIdString);
-    public static readonly Guid SystemWriteAccessPropertyId = new(WriteAccessPropertyIdString);
-    public static readonly Guid SystemCollectionPropertyId = new(CollectionPropertyIdString);
+    //public static readonly Guid SystemReadAccessPropertyId = new(ReadAccessIdString);
+    //public static readonly Guid SystemWriteAccessPropertyId = new(WriteAccessPropertyIdString);
+    //public static readonly Guid SystemCollectionPropertyId = new(CollectionPropertyIdString);
 
     public static readonly Guid MasterAdminUserId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
 

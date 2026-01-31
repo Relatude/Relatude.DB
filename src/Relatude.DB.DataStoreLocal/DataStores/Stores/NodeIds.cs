@@ -269,7 +269,7 @@ public class NodeTypesByIds {
         }
     }
     public void Index(INodeData node) {
-        if (node is not NodeData && node is not NodeDataVersion) {
+        if (node is not NodeData && node is not NodeDataRevision) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
@@ -295,7 +295,7 @@ public class NodeTypesByIds {
         }
     }
     public void DeIndex(INodeData node) {
-        if (node is not NodeData && node is not NodeDataVersion) {
+        if (node is not NodeData && node is not NodeDataRevision) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
         }
@@ -322,7 +322,7 @@ public class NodeTypesByIds {
         stream.WriteInt(_metaById.Count);
         foreach (var kv in _metaById) {
             stream.WriteUInt(kv.Key);
-            stream.WriteByteArray(kv.Value.Meta.ToBytes());
+            stream.WriteByteArray(INodeMeta.ToBytes(kv.Value.Meta));
             stream.WriteGuid(kv.Value.TypeId);
         }
         _metaIdsByNodeId.WriteToStream(stream);
@@ -341,6 +341,7 @@ public class NodeTypesByIds {
             var shortId = stream.ReadUInt();
             var metaBytes = stream.ReadByteArray();
             var meta = INodeMeta.FromBytes(metaBytes);
+            if (meta == null) meta = INodeMeta.Empty;
             var typeId = stream.ReadGuid();
             var mt = new metaAndType(meta, typeId);
             _metaById[shortId] = mt;

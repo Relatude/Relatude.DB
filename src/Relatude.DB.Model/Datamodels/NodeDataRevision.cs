@@ -1,24 +1,39 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
-public class NodeDataVersion : NodeData {
-    public NodeDataVersion(
-        Guid id, int uid, Guid nodeType, DateTime createdUtc, DateTime changedUtc, Properties<object> values, INodeMeta meta)
-        : base(id, uid, nodeType, createdUtc, changedUtc, values) {
-        _setMeta(meta);
-    }    
+public enum NodeDataRevisionType {
+    Binned = 0,
+    Archived = 1,
+    Preliminary = 2,
+    Published = 3,
+    AwaitingPublicationApproval = 4,
+    AwaitingArchiveApproval = 5,
+    AwaitingBinningApproval = 6,
 }
-public class NodeDataVersionsContainer : INodeData {
-    public NodeDataVersionsContainer(int nodeId, NodeDataVersion[] versions) {
-        _id = nodeId;
-        Versions = versions;
+public class NodeDataRevision {
+    public NodeDataRevision(NodeData node, Guid versionId, NodeDataRevisionType revisionType) {
+        Node = node;
+        RevisionId = versionId;
+        RevisionType = revisionType;
+    }
+    public NodeData Node { get; }
+    public Guid RevisionId { get; }
+    public NodeDataRevisionType RevisionType { get; }
+}
+public class NodeDataRevisions : INodeData {
+    public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {
+        _id = id;
+        _guid = guid;
+        NodeType = typeId;
+        Revisions = revisions;
     }
     int _id;
     public int __Id { get => _id; set => throw new NA(); }
-    public NodeDataVersion[] Versions { get; }
-    public Guid Id { get => throw new NA(); set => throw new NA(); }
-
-    public Guid NodeType => throw new NA();
+    public NodeDataRevision[] Revisions { get; }
+    //public string[]? Log{ get; }
+    Guid _guid;
+    public Guid Id { get => _guid; set => throw new NA(); }
+    public Guid NodeType { get; }
     public INodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }

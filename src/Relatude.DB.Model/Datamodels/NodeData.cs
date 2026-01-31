@@ -3,11 +3,13 @@ using Relatude.DB.Common;
 namespace Relatude.DB.Datamodels;
 
 public enum NodeDataStorageVersions {
-    Legacy = 0,
-    Minimal = 1,
-    WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
-    WithRelations = 3, // due to serialization for transfer to db clients ( not for disk )
-    WithMinimalMeta = 4, // Access, NOT versions 
+    Legacy0 = 0,
+    Legacy1 = 1,
+    NodeData = 2,
+    VersionContainer = 100,
+    //WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
+    //WithRelations = 3, // due to serialization for transfer to db clients ( not for disk )
+    //WithMinimalMeta = 4, // Access, NOT versions 
 }
 public class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
@@ -37,14 +39,14 @@ public interface INodeData {
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
-    int _uid;
-    Guid _gid;
+    int _id;
+    Guid _guid;
     Properties<object> _values;
-    public NodeData(Guid id, int uid, Guid nodeType,
+    public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values) {
-        _gid = id;
-        _uid = uid;
+        _guid = guid;
+        _id = id;
         NodeType = nodeType;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
@@ -52,17 +54,17 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         _values = values;
     }
     public int __Id {
-        get => _uid;
+        get => _id;
         set {
-            if (_uid != 0) throw new Exception("ID can only be initialized once. ");
-            _uid = value;
+            if (_id != 0) throw new Exception("ID can only be initialized once. ");
+            _id = value;
         }
     }
     public Guid Id {
-        get => _gid;
+        get => _guid;
         set {
-            if (_gid != Guid.Empty) throw new Exception("ID can only be initialized once. ");
-            _gid = value;
+            if (_guid != Guid.Empty) throw new Exception("ID can only be initialized once. ");
+            _guid = value;
         }
     }
     public Guid NodeType { get; }

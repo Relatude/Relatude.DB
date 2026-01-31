@@ -174,13 +174,25 @@ namespace Relatude.DB.Common {
             s.Read(b, 0, 16);
             return new Guid(b);
         }
-
+        public static void WriteVerifiedByteArray(this Stream s, byte[] v) {
+            s.WriteInt(v.Length);
+            s.WriteInt(v.Length);
+            s.Write(v, 0, v.Length);
+        }
         public static void WriteByteArray(this Stream s, byte[] v) {
             s.WriteInt(v.Length);
             s.Write(v, 0, v.Length);
         }
         public static byte[] ReadByteArray(this Stream s) {
             var length = s.ReadInt();
+            var bs = new byte[length];
+            s.Read(bs, 0, length);
+            return bs;
+        }
+        public static byte[] ReadVerifiedByteArray(this Stream s) {
+            var length = s.ReadInt();
+            var lengthCheck = s.ReadInt();
+            if (length != lengthCheck) throw new InvalidDataException("Byte array length verification failed. ");
             var bs = new byte[length];
             s.Read(bs, 0, length);
             return bs;

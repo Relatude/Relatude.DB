@@ -1,7 +1,13 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
 
+public enum NodeMetaType : byte {
+    Empty = 0,
+    Min = 1,
+    Full = 2,
+}
 public interface INodeMeta : IEqualityComparer<INodeMeta> {
     Guid CollectionId { get; }
     Guid ReadAccess { get; }
@@ -17,49 +23,68 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> {
     DateTime? ReleaseUtc { get; }
     DateTime? ExpireUtc { get; }
     public static INodeMeta Empty { get; } = new NodeMetaEmpty();
-    byte[] ToBytes();
-    public static INodeMeta FromBytes(byte[] data) {
-        if (data.Length == 0) return Empty;
-        if (data.Length == 48) {
-            Span<byte> buffer = data;
-            return new NodeMetaMin(
-                new(buffer.Slice(0, 16)),
-                new(buffer.Slice(16, 16)),
-                new(buffer.Slice(32, 16))
-            );
+    public static byte[] ToBytes(INodeMeta? meta) {
+        if (meta == null || meta is NodeMetaEmpty) {
+            return [(byte)NodeMetaType.Empty];
+        } else if (meta is NodeMetaMin) {
+            Span<byte> buffer = stackalloc byte[1 + 32 * 3];
+            buffer[0] = (byte)NodeMetaType.Min;
+            meta.CollectionId.TryWriteBytes(buffer.Slice(1, 16));
+            meta.ReadAccess.TryWriteBytes(buffer.Slice(17, 16));
+            meta.EditAccess.TryWriteBytes(buffer.Slice(33, 16));
+            return buffer.ToArray();
+        } else if (meta is NodeMetaFull) {
+            Span<byte> buffer = stackalloc byte[1 + 16 * 7 + 1 * 3 + 8 * 2];
+            buffer[0] = (byte)NodeMetaType.Full;
+            meta.CollectionId.TryWriteBytes(buffer.Slice(1, 16));
+            meta.ReadAccess.TryWriteBytes(buffer.Slice(17, 16));
+            meta.EditAccess.TryWriteBytes(buffer.Slice(33, 16));
+            meta.EditViewAccess.TryWriteBytes(buffer.Slice(49, 16));
+            meta.PublishAccess.TryWriteBytes(buffer.Slice(65, 16));
+            buffer[81] = (byte)(meta.Deleted ? 1 : 0);
+            buffer[82] = (byte)(meta.Hidden ? 1 : 0);
+            buffer[83] = (byte)(meta.AnyPublishedContentAnyDate ? 1 : 0);
+            meta.CreatedBy.TryWriteBytes(buffer.Slice(84, 16));
+            meta.ChangedBy.TryWriteBytes(buffer.Slice(100, 16));
+            meta.CultureId.TryWriteBytes(buffer.Slice(116, 16));
+            long releaseTicks = meta.ReleaseUtc?.Ticks ?? 0;
+            long expireTicks = meta.ExpireUtc?.Ticks ?? 0;
+            BitConverter.TryWriteBytes(buffer.Slice(132, 8), releaseTicks);
+            BitConverter.TryWriteBytes(buffer.Slice(140, 8), expireTicks);
+            return buffer.ToArray();
+        } else {
+            throw new InvalidOperationException("Unknown INodeMeta implementation.");
         }
-        if (data.Length == 147) {
-            Span<byte> buffer = data;
-            Guid collectionId = new(buffer.Slice(0, 16));
-            Guid readAccess = new(buffer.Slice(16, 16));
-            Guid editAccess = new(buffer.Slice(32, 16));
-            Guid editViewAccess = new(buffer.Slice(48, 16));
-            Guid publishAccess = new(buffer.Slice(64, 16));
-            bool deleted = buffer[80] != 0;
-            bool hidden = buffer[81] != 0;
-            bool anyPublishedContentAnyDate = buffer[82] != 0;
-            Guid createdBy = new(buffer.Slice(83, 16));
-            Guid changedBy = new(buffer.Slice(99, 16));
-            Guid cultureId = new(buffer.Slice(115, 16));
-            long releaseTicks = BitConverter.ToInt64(buffer.Slice(131, 8));
-            long expireTicks = BitConverter.ToInt64(buffer.Slice(139, 8));
+    }
+    public static INodeMeta? FromBytes(byte[] data) {
+        var metaType = (NodeMetaType)data[0];
+        if (metaType == NodeMetaType.Empty) {
+            return null;
+        } else if (metaType == NodeMetaType.Min) {
+            Guid collectionId = new Guid(new ReadOnlySpan<byte>(data, 1, 16));
+            Guid readAccess = new Guid(new ReadOnlySpan<byte>(data, 17, 16));
+            Guid editAccess = new Guid(new ReadOnlySpan<byte>(data, 33, 16));
+            return new NodeMetaMin(collectionId, readAccess, editAccess);
+        } else if (metaType == NodeMetaType.Full) {
+            Guid collectionId = new Guid(new ReadOnlySpan<byte>(data, 1, 16));
+            Guid readAccess = new Guid(new ReadOnlySpan<byte>(data, 17, 16));
+            Guid editAccess = new Guid(new ReadOnlySpan<byte>(data, 33, 16));
+            Guid editViewAccess = new Guid(new ReadOnlySpan<byte>(data, 49, 16));
+            Guid publishAccess = new Guid(new ReadOnlySpan<byte>(data, 65, 16));
+            bool deleted = data[81] != 0;
+            bool hidden = data[82] != 0;
+            bool anyPublishedContentAnyDate = data[83] != 0;
+            Guid createdBy = new Guid(new ReadOnlySpan<byte>(data, 84, 16));
+            Guid changedBy = new Guid(new ReadOnlySpan<byte>(data, 100, 16));
+            Guid cultureId = new Guid(new ReadOnlySpan<byte>(data, 116, 16));
+            long releaseTicks = BitConverter.ToInt64(data, 132);
+            long expireTicks = BitConverter.ToInt64(data, 140);
             DateTime? releaseUtc = releaseTicks == 0 ? null : new DateTime(releaseTicks, DateTimeKind.Utc);
             DateTime? expireUtc = expireTicks == 0 ? null : new DateTime(expireTicks, DateTimeKind.Utc);
-            return new NodeMetaFull(collectionId,
-                readAccess,
-                editAccess,
-                editViewAccess,
-                publishAccess,
-                deleted,
-                hidden,
-                anyPublishedContentAnyDate,
-                createdBy,
-                changedBy,
-                cultureId,
-                releaseUtc,
-                expireUtc);
+            return new NodeMetaFull(collectionId, readAccess, editAccess, editViewAccess, publishAccess, deleted, hidden, anyPublishedContentAnyDate, createdBy, changedBy, cultureId, releaseUtc, expireUtc);
+        } else {
+            throw new InvalidOperationException("Unknown INodeMeta type in byte array.");
         }
-        throw new ArgumentException("Invalid data length for NodeMeta deserialization.", nameof(data));
     }
     internal static bool IEquals(INodeMeta? x, INodeMeta? y) {
         if (x == null && y == null) return true;
@@ -86,10 +111,10 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> {
     }
     internal static int GetIHashCode([DisallowNull] INodeMeta obj) {
         HashCode hash = new();
-        
+
         // cannot do below line, as object with same values but different types would have different hashcodes:
         // if (obj is NodeMetaEmpty) return 0; 
-        
+
         hash.Add(obj.CollectionId);
         hash.Add(obj.ReadAccess);
         hash.Add(obj.EditAccess);
@@ -156,13 +181,6 @@ public class NodeMetaMin : INodeMeta {
     public DateTime? ExpireUtc => null;
     public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
     public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj);
-    public byte[] ToBytes() {
-        Span<byte> buffer = stackalloc byte[32 * 3];
-        CollectionId.TryWriteBytes(buffer.Slice(0, 16));
-        ReadAccess.TryWriteBytes(buffer.Slice(16, 16));
-        EditAccess.TryWriteBytes(buffer.Slice(32, 16));
-        return buffer.ToArray();
-    }
 }
 public class NodeMetaFull : INodeMeta {
     public Guid CollectionId { get; }
@@ -199,23 +217,4 @@ public class NodeMetaFull : INodeMeta {
 
     public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
     public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj);
-    public byte[] ToBytes() {
-        Span<byte> buffer = stackalloc byte[16 * 7 + 1 * 3 + 8 * 2];
-        CollectionId.TryWriteBytes(buffer.Slice(0, 16));
-        ReadAccess.TryWriteBytes(buffer.Slice(16, 16));
-        EditAccess.TryWriteBytes(buffer.Slice(32, 16));
-        EditViewAccess.TryWriteBytes(buffer.Slice(48, 16));
-        PublishAccess.TryWriteBytes(buffer.Slice(64, 16));
-        buffer[80] = (byte)(Deleted ? 1 : 0);
-        buffer[81] = (byte)(Hidden ? 1 : 0);
-        buffer[82] = (byte)(AnyPublishedContentAnyDate ? 1 : 0);
-        CreatedBy.TryWriteBytes(buffer.Slice(83, 16));
-        ChangedBy.TryWriteBytes(buffer.Slice(99, 16));
-        CultureId.TryWriteBytes(buffer.Slice(115, 16));
-        long releaseTicks = ReleaseUtc?.Ticks ?? 0;
-        long expireTicks = ExpireUtc?.Ticks ?? 0;
-        BitConverter.TryWriteBytes(buffer.Slice(131, 8), releaseTicks);
-        BitConverter.TryWriteBytes(buffer.Slice(139, 8), expireTicks);
-        return buffer.ToArray();
-    }
 }
