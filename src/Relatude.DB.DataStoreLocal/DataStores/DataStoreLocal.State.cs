@@ -1,10 +1,14 @@
-﻿using Relatude.DB.Common;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Relatude.DB.Common;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
 using System;
 using System.Diagnostics;
+using System.Transactions;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
@@ -183,6 +187,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
         PersistedIndexStore?.StartTransaction();
+        var idValidator = new IdValidator(this, throwOnErrors);
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
@@ -193,6 +198,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
                 foreach (var a in transaction.ExecutedActions) {
+                    if (!idValidator.Validate(a, transaction.Timestamp)) continue;
                     try {
                         if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
                             var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
@@ -249,12 +255,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
-        if (actionCount > 0) {
-            LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
-        } else {
-            LogInfo("   No actions read from log file.", null, true);
-        }
-
+        foreach (var e in idValidator.GetErrors()) logError(e);
+        if (actionCount > 0) LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
+        else LogInfo("   No actions read from log file.", null, true);
         //if (_noTransactionsSinceLastStateSnapshot == 0) { // persist indexes that are new and never persisted
         //    foreach (var indx in _definition.GetAllIndexes()) {
         //        if (indx.PersistedTimestamp == 0) { // this indicates a new index, so persist it
@@ -307,4 +310,38 @@ public sealed partial class DataStoreLocal : IDataStore {
         //#endif
     }
 
+}
+
+class IdValidator(DataStoreLocal store, bool throwOnErrors) {
+    // simple validator to check that node ids are not added or removed multiple times
+    HashSet<int> ids = [];
+    int maxErrorCount = 256;
+    int errorCount = 0;
+    public List<string> errors = [];
+    public IEnumerable<string> GetErrors() {
+        if(maxErrorCount <= errorCount) {
+            yield return errorCount + " ID errors found! Listing first " + maxErrorCount + ":";
+        }
+        foreach (var e in errors) {
+            yield return e;
+        }
+    }
+    string typeName(PrimitiveNodeAction pna) => store._definition.NodeTypes.TryGetValue(pna.Node.NodeType, out var t) ? t.Model.FullName : "Unknown type: " + pna.Node.NodeType;
+    string date(long timestamp) => new DateTime(timestamp, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm:ss.fff") + " UTC";
+    public bool Validate(PrimitiveActionBase a, long timestamp) {
+        if (a is PrimitiveNodeAction pna) {
+            if (pna.Operation == PrimitiveOperation.Add && ids.Add(pna.Node.__Id) == false) {
+                errorCount++;
+                if (errorCount < maxErrorCount) errors.Add("Node " + pna.Node.__Id + " (" + typeName(pna) + ") added twice at " + date(timestamp));
+                if (throwOnErrors) throw new Exception(errors.First());
+                return false;
+            } else if (pna.Operation == PrimitiveOperation.Remove && ids.Remove(pna.Node.__Id) == false) {
+                errorCount++;
+                if (errorCount < maxErrorCount) errors.Add("Node " + pna.Node.__Id + " (" + typeName(pna) + ") removed twice at " + date(timestamp));
+                if (throwOnErrors) throw new Exception(errors.First());
+                return false;
+            }
+        }
+        return true;
+    }
 }

@@ -225,9 +225,9 @@ public class NativeModelStore(DataStoreLocal store) {
             userType = (Native.SystemUserType)objUserType;
         }
         var user = new NativeSystemUser {
-                Id = node.__Id,
-                UserType = userType,
-            };
+            Id = node.__Id,
+            UserType = userType,
+        };
         _users.Add(user.Id, user);
     }
     Guid[] calculateEffectiveMemberships(NativeSystemUser user) {
@@ -329,15 +329,17 @@ public class NativeModelStore(DataStoreLocal store) {
             collectionIds = null;
         }
         Guid[]? membershipIds;
+        var userType = Native.SystemUserType.Anonymous;
         if (ctx.UserId == Guid.Empty) {
             membershipIds = null;
         } else if (store._guids.TryGetId(ctx.UserId, out var userId)) {
             membershipIds = GetEffectiveMembershipsOfUser(userId);
+            userType = _users[userId].UserType;
+        } else if (ctx.UserId == NodeConstants.MasterAdminUserId) {
+            userType = SystemUserType.Admin;
+            membershipIds = null;
         } else {
             throw new InvalidOperationException($"User with id '{ctx.UserId}' does not exist.");
-        }
-        var userType = Native.SystemUserType.Anonymous;
-        if (ctx.UserId == Guid.Empty) { 
         }
         return new QueryContextKey(
             cultureId: cultureId,

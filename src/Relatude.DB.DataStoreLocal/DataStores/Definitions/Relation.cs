@@ -86,7 +86,9 @@ namespace Relatude.DB.DataStores.Definitions {
         public int MaxCountTo { get; }
         public int MaxCountFrom { get; }
         string getDescription(int source, int target) {
-            return $"from " + _store._nodes.Get(source).Id + " and " + _store._nodes.Get(target).Id;
+            // dissabled as this could be called while loading state and _wal file is closed, causing exceptions
+            //return $"from " + _store._nodes.Get(source).Id + " and " + _store._nodes.Get(target).Id; 
+            return $"from " + source + " and " + target;
         }
         bool canAdd(int source, int target, [MaybeNullWhen(true)] out string reason) {
             if (!_store._nodes.Contains(source)) { reason = $"Unable to add {source} to the relation {Model}. It does not exist. "; return false; }

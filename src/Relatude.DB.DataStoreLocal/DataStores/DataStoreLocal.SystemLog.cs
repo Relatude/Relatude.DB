@@ -36,7 +36,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     Console.Write(type.ToString().ToLower());
                     Console.ForegroundColor = originalColor;
                     Console.Write(": ");
-                    Console.WriteLine(text + (details == null ? null : Environment.NewLine + details));
+                    Console.WriteLine(text + (string.IsNullOrEmpty(details) ? null : Environment.NewLine + details));
                 }
             }
         } catch { }
@@ -66,7 +66,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _state = Common.DataStoreState.Error;
         return new Exception("Critical error occurred. " + description, error);
     }
-    void logError(string description, Exception? error) {
+    void logError(string description, Exception? error = null) {
         logError(description, error, null, false);
     }
     void logError(string description, Exception? error, TransactionData? transaction = null, bool isCritical = false) {

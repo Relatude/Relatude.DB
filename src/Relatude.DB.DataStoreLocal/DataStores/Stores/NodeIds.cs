@@ -1,4 +1,6 @@
-﻿using Relatude.DB.Common;
+﻿
+
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
@@ -6,21 +8,21 @@ using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Stores;
 
+// Could consider using short instead of uint for the ID of metas, to save memory.
+// It is very unlikely to have more than 65k different metas
+
 class idSet {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
     HashSet<int> _ids = [];
     IdSet? _lastSet;
     DateTime _createdUsingNowUtc;
-    Guid _createdUsingTypeId;
     public DateTime? ValidFrom;
     public DateTime? ValidTo;
-    public idSet(DateTime nowUtc, Guid typeId) {
+    public idSet(DateTime nowUtc) {
         _createdUsingNowUtc = nowUtc;
-        _createdUsingTypeId = typeId;
     }
     public DateTime CreatedWithNowUtc => _createdUsingNowUtc;
-    public Guid CreatedWithTypeId => _createdUsingTypeId;
     public void Add(int id, DateTime? releaseDate, DateTime? expireDate) {
         _ids.Add(id);
         _state.RegisterAddition(id);
@@ -68,6 +70,20 @@ class metaAndType(INodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
     }
     public override int GetHashCode() {
         return HashCode.Combine(TypeId, Meta);
+    }
+}
+class ctxAndType(Guid ctxTypeId, QueryContextKey ctxKey) : IEquatable<ctxAndType> {
+    public readonly Guid TypeId = ctxTypeId;
+    public readonly QueryContextKey CxtKey = ctxKey;
+    public bool Equals(ctxAndType? other) {
+        if (other is null) return false;
+        return TypeId == other.TypeId && CxtKey.Equals(other.CxtKey);
+    }
+    public override bool Equals(object? obj) {
+        return obj is ctxAndType other && Equals(other);
+    }
+    public override int GetHashCode() {
+        return HashCode.Combine(TypeId, CxtKey);
     }
 }
 class nodeMetasByNodeId {
@@ -170,7 +186,7 @@ public class NodeTypesByIds {
     readonly Dictionary<metaAndType, uint> _idByMeta = new();
     readonly nodeMetasByNodeId _metaIdsByNodeId = new();
     readonly Dictionary<Guid, int> _countByType = new();
-    readonly Cache<QueryContextKey, idSet> _cachedNodeIdsByCtx;
+    readonly Cache<ctxAndType, idSet> _cachedNodeIdsByCtx;
     readonly NativeModelStore _nativeModelStore;
     internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore) {
         _definition = definition;
@@ -178,7 +194,7 @@ public class NodeTypesByIds {
         _nativeModelStore = nativeModelStore;
     }
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
-        var ids = new idSet(nowUtc, ctxTypeId);
+        var ids = new idSet(nowUtc);
         var relevantMetaIds = _idByMeta
             .Where(kv => isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc))
             .Select(kv => kv.Value).ToHashSet();
@@ -195,11 +211,12 @@ public class NodeTypesByIds {
     bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc) {
         var meta = mt.Meta;
         var typeId = mt.TypeId;
-        var typeDef = _definition.NodeTypes[typeId].Model;
         if (ctx.ExcludeDecendants) {
-            if (typeDef.Id != ctxTypeId) return false;
+            if (typeId != ctxTypeId) return false;
         } else {
-            if (!typeDef.ThisAndDescendingTypes.ContainsKey(ctxTypeId)) return false;
+            var ctxTypeDef = _definition.NodeTypes[ctxTypeId].Model;
+            if (!ctxTypeDef.ThisAndDescendingTypes.ContainsKey(typeId)) 
+                return false;
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
@@ -230,11 +247,12 @@ public class NodeTypesByIds {
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         DateTime nowUtc = ctx.NowUtc ?? DateTime.UtcNow;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx);
-        if (_cachedNodeIdsByCtx.TryGet(ctxKey, out var ids)) {
+        var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);
+        if (_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var ids)) {
             if (ids.IsWithinTimeConstraints(nowUtc)) return ids.AsUnmutableIdSet();
         }
         ids = evaluateRelevantIds(typeId, ctxKey, nowUtc); // takes time! // could consider lock here to avoid double eval
-        _cachedNodeIdsByCtx.Set(ctxKey, ids, 1);
+        _cachedNodeIdsByCtx.Set(ctxAndTypeKey, ids, 1);
         return ids.AsUnmutableIdSet();
     }
     public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDecendants) {
@@ -284,7 +302,7 @@ public class NodeTypesByIds {
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
-            if (isMetaRelevantForContext(mt, ids.CreatedWithTypeId, ctx, ids.CreatedWithNowUtc)) { // no time constraint
+            if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) { // no time constraint
                 kv.Value.Add(node.__Id, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
             }
         }
@@ -304,7 +322,7 @@ public class NodeTypesByIds {
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
-            if (isMetaRelevantForContext(_metaById[shortId], ids.CreatedWithTypeId, ctx, ids.CreatedWithNowUtc)) {
+            if (isMetaRelevantForContext(_metaById[shortId], ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) {
                 kv.Value.Remove(node.__Id);
             }
         }
