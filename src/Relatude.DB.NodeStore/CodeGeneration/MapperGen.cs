@@ -135,14 +135,8 @@ internal static class MapperGen {
                 if (!string.IsNullOrEmpty(name))
                     sb.AppendLine("obj." + name + " = nodeData." + prop + ";");
             }
-            //h1(nodeDef.NameOfCollectionProperty, nameof(INodeData.CollectionId));
-            //h1(nodeDef.NameOfLCIDProperty, nameof(INodeData.LCID));
-            //h1(nodeDef.NameOfDerivedFromLCID, nameof(INodeData.DerivedFromLCID));
-            //h1(nodeDef.NameOfReadAccessProperty, nameof(INodeData.ReadAccess));
-            //h1(nodeDef.NameOfWriteAccessProperty, nameof(INodeData.WriteAccess));
             h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeData.CreatedUtc));
             h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeData.ChangedUtc));
-            //if (!string.IsNullOrEmpty(nodeDef.NameOfCollectionProperty)) sb.Append("obj." + nodeDef.NameOfCollectionProperty + " = nodeData." + nameof(INodeData.CollectionId) + ";");
         }
         if (!nodeDef.IsInterface) {
             foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Private)) {
