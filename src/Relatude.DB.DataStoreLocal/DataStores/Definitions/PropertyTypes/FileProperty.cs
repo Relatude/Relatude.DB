@@ -31,13 +31,13 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object GetDefaultValue() => Array.Empty<byte>();
         public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
         public override bool CanBeFacet() => false;
-        public override Facets GetDefaultFacets(Facets? given) {
+        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
             throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
         }
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
         }
-        public override void CountFacets(IdSet nodeIds, Facets facets) {
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
         }
         public override bool AreValuesEqual(object v1, object v2) {

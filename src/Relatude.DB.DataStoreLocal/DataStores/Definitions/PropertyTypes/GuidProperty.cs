@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -33,16 +34,16 @@ internal class GuidProperty : Property, IPropertyContainsValue {
         return Index.ContainsValue((Guid)value);
     }
     public override bool CanBeFacet() => false;
-    public override Facets GetDefaultFacets(Facets? given) {
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
     }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
     }
-    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values) {
+    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Property is not indexed. ");
         return Index.FilterInValues(ids, values.Cast<Guid>().ToList());
     }

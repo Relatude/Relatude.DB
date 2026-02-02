@@ -13,7 +13,7 @@ public class WhereInMethod : IExpression {
     public object Evaluate(IVariables vars) {
         var result = _input.Evaluate(vars);
         if (result is not IStoreNodeDataCollection nodesColl) throw new Exception("Unable to link Relates to previous expression.");
-        return nodesColl.WhereIn(_propertyGuid, _values);
+        return nodesColl.WhereIn(_propertyGuid, _values, vars.Context);
     }
     public override string ToString() => throw new NotImplementedException();
 }

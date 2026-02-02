@@ -1,11 +1,12 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes
 {
@@ -56,13 +57,13 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
                 bytes[14]);
         }
         public override bool CanBeFacet() => Indexed;
-        public override Facets GetDefaultFacets(Facets? given) {
+        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
             throw new NotSupportedException();
         }
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             throw new NotSupportedException();
         }
-        public override void CountFacets(IdSet nodeIds, Facets facets) {
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             throw new NotSupportedException();
         }
         public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {

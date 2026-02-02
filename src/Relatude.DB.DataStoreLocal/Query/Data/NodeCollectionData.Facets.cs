@@ -6,7 +6,7 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data {
     internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
         public Datamodel Datamodel { get => _def.Datamodel; }
-        public Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, out IFacetSource filteredSource, int pageIndex, int? pageSize) {
+        public Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx) {
             var ids = _ids;
             var relevantProps = findRelevantProperties(givenById, true, _def, ids);
             var result = new Dictionary<Guid, Facets>();
@@ -14,26 +14,26 @@ namespace Relatude.DB.Query.Data {
             var specialSetsForSelectedFacets = new Dictionary<Guid, IdSet>();
             var propsWithSelection = new Dictionary<Guid, Property>();
             foreach (var prop in relevantProps) {
-                var facets = prop.GetDefaultFacets(givenById.TryGetValue(prop.Id, out var g) ? g : null);
+                var facets = prop.GetDefaultFacets(givenById.TryGetValue(prop.Id, out var g) ? g : null, ctx);
                 facets.Sort();
                 result.Add(prop.Id, facets);
                 if (selection.TryGetValue(prop.Id, out var selected))
                     facets.SetSelected(selected.HasValues() ? selected.Values : null);
                 if (facets.HasSelected()) {
-                    innerSet = prop.FilterFacets(facets, innerSet);
+                    innerSet = prop.FilterFacets(facets, innerSet, ctx);
                     propsWithSelection.Add(prop.Id, prop);
                 }
             }
             foreach (var prop in propsWithSelection.Values) {
                 var specialSet = ids;
                 var otherPropsWithSelection = propsWithSelection.Values.Where(p => p.Id != prop.Id);
-                foreach (var otherProp in otherPropsWithSelection) specialSet = otherProp.FilterFacets(result[otherProp.Id], specialSet);
+                foreach (var otherProp in otherPropsWithSelection) specialSet = otherProp.FilterFacets(result[otherProp.Id], specialSet, ctx);
                 specialSetsForSelectedFacets.Add(prop.Id, specialSet);
             }
             foreach (var prop in relevantProps) {
                 var facets = result[prop.Id];
                 var set = specialSetsForSelectedFacets.TryGetValue(prop.Id, out var s) ? s : innerSet;
-                prop.CountFacets(set, facets);
+                prop.CountFacets(set, facets, ctx);
             }
             filteredSource = new NodeCollectionData(_db, _metrics, innerSet, this._nodeType, _includeBranches);
             if (pageSize.HasValue) {

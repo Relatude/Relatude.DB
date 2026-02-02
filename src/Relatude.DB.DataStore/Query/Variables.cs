@@ -4,6 +4,7 @@ using System.Text;
 namespace Relatude.DB.Query {
     public interface IVariables {
         Variables CreateScope();
+        public QueryContext Context { get; }
         object Get(string name);
     }
     public class Variable {

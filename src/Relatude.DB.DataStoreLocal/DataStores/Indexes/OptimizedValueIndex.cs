@@ -1,4 +1,5 @@
-﻿using Relatude.DB.DataStores.Sets;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 /// <summary>
@@ -33,7 +34,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public int CountLessThan(T value, bool inclusive) { _o.Dequeue(); return _i.CountLessThan(value, inclusive); }
     public void Dispose() { _o.Dequeue(); _i.Dispose(); }
 
-    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) { _o.Dequeue(); return _i.Filter(nodeIds, op, v); }
+    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v, QueryContext ctx) { _o.Dequeue(); return _i.Filter(nodeIds, op, v, ctx); }
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) { _o.Dequeue(); return _i.FilterInValues(nodeIds, selectedValues); }
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) { _o.Dequeue(); return _i.FilterRanges(nodeIds, selectedRanges); }
     public IdSet FilterRangesObject(IdSet set, object from, object to) { _o.Dequeue(); return _i.FilterRangesObject(set, from, to); }

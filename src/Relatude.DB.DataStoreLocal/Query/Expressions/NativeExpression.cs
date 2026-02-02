@@ -1,14 +1,15 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using System.Text;
-using Relatude.DB.DataStores.Definitions;
-using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Query.Expressions {
     internal interface IBooleanNativeExpression : IExpression {
-        public IdSet Filter(IdSet set);
+        public IdSet Filter(IdSet set, QueryContext ctx);
         /// <summary>
         /// Value is used for optimizing the evaluation order of expressions.
         /// The calculation of this value must be fast and is only an estimation.
@@ -22,7 +23,7 @@ namespace Relatude.DB.Query.Expressions {
     internal class ConstantBooleanNativeExpression(bool value) : IBooleanNativeExpression {
         public bool Value { get; } = value;
         public object? Evaluate(IVariables vars) => Value;
-        public IdSet Filter(IdSet set) => Value ? set : IdSet.Empty;
+        public IdSet Filter(IdSet set, QueryContext ctx) => Value ? set : IdSet.Empty;
         public int MaxCount() => Value ? int.MaxValue : 0;
     }
     internal class AndNativeExpression : IAndOrNativeExpression {
@@ -30,11 +31,11 @@ namespace Relatude.DB.Query.Expressions {
             Expressions = new List<IBooleanNativeExpression>();
         }
         public List<IBooleanNativeExpression> Expressions { get; }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (Expressions.Count < 2) throw new Exception("Too few expressions in AND statement. ");
             var optimizedOrder = Expressions.OrderBy(e => e.MaxCount());
             foreach (var exp in optimizedOrder) {
-                set = exp.Filter(set);
+                set = exp.Filter(set, ctx);
                 var after = set.Count;
                 if (set.Count == 0) break;
             }
@@ -63,15 +64,15 @@ namespace Relatude.DB.Query.Expressions {
             _sets = sets;
         }
         public List<IBooleanNativeExpression> Expressions { get; }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (Expressions.Count < 2) throw new Exception("Too few expressions in OR statement. ");
             var countAll = set.Count;
             var optimizedOrder = Expressions.OrderBy(e => e.MaxCount());
             var firstExpression = optimizedOrder.First();
-            var workingSet = firstExpression.Filter(set);
+            var workingSet = firstExpression.Filter(set, ctx);
             foreach (var exp in optimizedOrder.Skip(1)) {
                 if (workingSet.Count == countAll) break;
-                workingSet = _sets.Union(workingSet, exp.Filter(set));
+                workingSet = _sets.Union(workingSet, exp.Filter(set, ctx));
             }
             return workingSet;
         }
@@ -103,7 +104,7 @@ namespace Relatude.DB.Query.Expressions {
         public object Evaluate(IVariables vars) {
             throw new NotImplementedException();
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_operator == IndexOperator.Equal) {
                 return _sets.WhereEqualId(set, Id);
             } else if (_operator == IndexOperator.NotEqual) {
@@ -131,9 +132,9 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -159,10 +160,10 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -188,10 +189,10 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -217,10 +218,10 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -246,10 +247,10 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -275,10 +276,10 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException();
             }
@@ -304,9 +305,9 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
-                return _property.Index.Filter(set, _operator, _value);
+                return _property.Index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException("String property is not indexed by value.");
             }
@@ -339,7 +340,7 @@ namespace Relatude.DB.Query.Expressions {
                 _maxHits = int.MaxValue;
             }
         }
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             throw new NotImplementedException("Search method with max hits not implemented in native expression.");
             //var ids = _property.SearchForIdSet(_value, ratioSemantic, orSearch, _db);
             //return _sets.Intersection(set, ids);
@@ -355,17 +356,17 @@ namespace Relatude.DB.Query.Expressions {
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class MethodExpressionNativeRelation(SetRegister sets, bool[] directions, Relation[] relations, int to, RelQuestion method) : IBooleanNativeExpression {
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             return sets.WhereHasRelation(set, directions, relations, to, method);
         }
         public int MaxCount() => int.MaxValue;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class MethodExpressionNativeRange(Property prop, string from, string to) : IBooleanNativeExpression {
-        public IdSet Filter(IdSet set) {
+        public IdSet Filter(IdSet set, QueryContext ctx) {
             var fromO = prop.ForceValueType(from, out _);
             var toO = prop.ForceValueType(to, out _);
-            return prop.FilterRanges(set, fromO, toO);
+            return prop.FilterRanges(set, fromO, toO, ctx);
         }
         public int MaxCount() => 1000;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
@@ -377,8 +378,8 @@ namespace Relatude.DB.Query.Expressions {
             _expression = expression;
             _sets = sets;
         }
-        public IdSet Filter(IdSet set) {
-            return _sets.Difference(set, _expression.Filter(set));
+        public IdSet Filter(IdSet set, QueryContext ctx) {
+            return _sets.Difference(set, _expression.Filter(set, ctx));
         }
         public int MaxCount() {
             return int.MaxValue;

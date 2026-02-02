@@ -89,7 +89,7 @@ public class FacetMethod : IExpression {
     public object Evaluate(IVariables vars) {
         var set = _input.Evaluate(vars);
         if (set is not IFacetSource facetSource) throw new Exception("Collection does not implement " + nameof(IFacetSource));
-        var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, out var newSource, _pageIndex, _pageSize);
+        var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, out var newSource, _pageIndex, _pageSize, vars.Context);
         Facets.SetSelected(facets, _selected);
         return new FacetQueryResultData(facets, facetSource.TotalCount, newSource, _dm);
     }

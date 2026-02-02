@@ -27,7 +27,7 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IStoreNodeDataCollection Relates(Guid propertyId, Guid nodeId);
     IStoreNodeDataCollection RelatesNot(Guid propertyId, Guid nodeId);
     IStoreNodeDataCollection RelatesAny(Guid propertyId, IEnumerable<Guid> nodeId);
-    IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values);
+    IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values, QueryContext ctx);
     IStoreNodeDataCollection WhereInIds(IEnumerable<Guid> values);
     IEnumerable<INodeData> NodeValues { get; }
     IEnumerable<int> NodeIds { get; }
@@ -44,7 +44,7 @@ public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {
     string Search { get; }
 }
 public interface IFacetSource : IStoreNodeDataCollection {
-    Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize);
+    Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx);
     Datamodel Datamodel { get; }
 }
 public interface ISearchCollection : IStoreNodeDataCollection {

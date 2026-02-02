@@ -58,9 +58,9 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract void ValidateValue(object value);
 
         public virtual bool CanBeFacet() => false;
-        public virtual void CountFacets(IdSet nodeIds, Facets facets) => throw new NotSupportedException();
-        public virtual IdSet FilterFacets(Facets facets, IdSet nodeIds) => throw new NotSupportedException();
-        public virtual Facets GetDefaultFacets(Facets? given) => throw new NotSupportedException();
+        public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) => throw new NotSupportedException();
+        public virtual IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) => throw new NotSupportedException();
+        public virtual Facets GetDefaultFacets(Facets? given, QueryContext ctx) => throw new NotSupportedException();
 
         readonly public Definition Definition;
         readonly public Guid Id;
@@ -77,11 +77,11 @@ namespace Relatude.DB.DataStores.Definitions {
             foreach (var item in Indexes) item.CompressMemory();
         }
         public virtual IRangeIndex? ValueIndex { get { return null; } }
-        public virtual IdSet FilterRanges(IdSet set, object from, object to) {
+        public virtual IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
             if (ValueIndex is null) throw new NotSupportedException("This property does not support range filtering. ");
             return ValueIndex.FilterRangesObject(set, from, to);
         }
-        public virtual IdSet WhereIn(IdSet ids, IEnumerable<object?> values) {
+        public virtual IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
             throw new NotSupportedException("This property does not support filtering by multiple values. ");
         }
         public virtual object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {

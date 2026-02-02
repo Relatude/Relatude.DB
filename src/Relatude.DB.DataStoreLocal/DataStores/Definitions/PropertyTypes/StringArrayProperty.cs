@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -30,7 +31,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         return Index.ContainsValue((string)value);
     }
     public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given) {
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         var facets = new Facets(Model);
         if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
@@ -43,14 +44,14 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         }
         return facets;
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
             facetValue.Count = Index.CountEqual(nodeIds, v);
         }
     }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         List<string> selectedValues = new();
         foreach (var facetValue in facets.Values) {

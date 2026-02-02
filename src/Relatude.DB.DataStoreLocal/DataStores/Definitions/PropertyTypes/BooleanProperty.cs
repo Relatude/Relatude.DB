@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -31,21 +32,21 @@ internal class BooleanProperty : Property {
     public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
     public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given) {
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var facets = new Facets(Model);
         facets.AddValue(new FacetValue(false));
         facets.AddValue(new FacetValue(true));
         return facets;
     }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = BooleanPropertyModel.ForceValueType(facetValue.Value, out _);
-            nodeIds = Index.Filter(nodeIds, IndexOperator.Equal, v);
+            nodeIds = Index.Filter(nodeIds, IndexOperator.Equal, v, ctx);
         }
         return nodeIds;
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = BooleanPropertyModel.ForceValueType(facetValue.Value, out _);

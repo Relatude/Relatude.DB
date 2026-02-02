@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -21,11 +22,11 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
             return false;
             throw new NotImplementedException();
         }
-        public override void CountFacets(IdSet nodeIds, Facets facets) {
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             throw new NotImplementedException();
         }
 
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             throw new NotImplementedException();
         }
 
@@ -33,7 +34,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
             throw new NotImplementedException();
         }
 
-        public override Facets GetDefaultFacets(Facets? given) {
+        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
             throw new NotImplementedException();
         }
 

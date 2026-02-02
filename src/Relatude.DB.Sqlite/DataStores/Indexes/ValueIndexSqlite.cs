@@ -1,5 +1,5 @@
-﻿using Relatude.DB.DataStores.Sets;
-using Relatude.DB.IO;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
 public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
@@ -101,7 +101,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public int GetQueuedTaskCount() => 0;
     public void Dispose() { }
 
-    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);
+    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v, QueryContext ctx) => _sets.Filter(this, nodeIds, op, v);
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) => _sets.FilterInValues(this, nodeIds, selectedValues);
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) => _sets.FilterRanges(this, nodeIds, selectedRanges);
     public IdSet FilterRangesObject(IdSet set, object from, object to) => _sets.FilterRangesObject(this, set, from, to);

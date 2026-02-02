@@ -86,7 +86,7 @@ internal class StringProperty : Property, IPropertyContainsValue {
         return Index.ContainsValue((string)value);
     }
     public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given) {
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         var facets = new Facets(Model);
         if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
@@ -99,14 +99,14 @@ internal class StringProperty : Property, IPropertyContainsValue {
         }
         return facets;
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
             facetValue.Count = Index.CountEqual(nodeIds, v);
         }
     }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         List<string> selectedValues = new();
         foreach (var facetValue in facets.Values) {

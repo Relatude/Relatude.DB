@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -46,7 +47,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object GetDefaultValue() => DefaultValue;
         public static object GetValue(byte[] bytes) => BitConverter.ToSingle(bytes, 0);
         public override bool CanBeFacet() => Indexed;
-        public override Facets GetDefaultFacets(Facets? given) {
+        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
             if (Index == null) throw new NullReferenceException("Index is null. ");
             var facets = new Facets(Model);
             if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
@@ -73,10 +74,10 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             return facets;
 
         }
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             throw new NotSupportedException();
         }
-        public override void CountFacets(IdSet nodeIds, Facets facets) {
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             if (Index == null) throw new NullReferenceException("Index is null. ");
             var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
             if (useRange) {

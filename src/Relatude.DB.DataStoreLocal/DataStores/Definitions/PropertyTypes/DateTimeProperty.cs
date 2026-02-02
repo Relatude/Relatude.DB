@@ -1,11 +1,12 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 internal class DateTimeProperty : Property, IPropertyContainsValue {
     public DateTimeProperty(DateTimePropertyModel pm, Definition def) : base(pm, def) {
@@ -49,7 +50,7 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
     }
     // Facets Needs improvement...
     public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given) {
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         var facets = new Facets(Model);
         if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
@@ -76,7 +77,7 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
         }
         return facets;
     }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds) {
+    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
         if (useRange) {
@@ -97,7 +98,7 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
         }
         return nodeIds;
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
         if (useRange) {

@@ -1,8 +1,9 @@
-﻿using Relatude.DB.DataStores.Sets;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.Query.Data;
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
-    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values) {
+    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values, QueryContext ctx) {
         var property = _def.Properties[propertyId];
         IdSet idset;
         if (property.ValueIndex == null) {
@@ -21,7 +22,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             }
             idset = IdSet.UncachableSet(ids);
         } else {
-            idset = property.WhereIn(_ids, values);
+            idset = property.WhereIn(_ids, values, ctx);
         }
         return new NodeCollectionData(_db, _metrics, idset, _nodeType, _includeBranches);
     }
