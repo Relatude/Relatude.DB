@@ -258,6 +258,17 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         }
         return true;
     }
-
+    public override string ToString() {
+        var s = "";
+        if(IncludeDeleted) s += "Deleted ";
+        if(IncludeCultureFallback) s += "CultureFallback ";
+        if(IncludeUnpublished) s += "Unpublished ";
+        if(EditView) s += "EditView ";
+        if(IncludeHidden) s += "Hidden ";
+        if(ExcludeDecendants) s += "NoDescendants ";
+        s += $"Culture:{CultureId} ";
+        if(IncludeUnpublished) s += $"UserType:{UserType} ";
+        return s;
+    }
 }
 

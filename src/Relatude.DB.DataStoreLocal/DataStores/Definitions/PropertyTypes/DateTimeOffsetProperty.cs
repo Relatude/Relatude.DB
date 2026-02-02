@@ -48,7 +48,7 @@ internal class DateTimeOffsetProperty : Property, IPropertyContainsValue {
         if (Index == null) throw new Exception("Index is null. ");
         return Index.ContainsValue((DateTimeOffset)value);
     }
-    // Acets Needs improvement...
+    // Facets Needs improvement...
     public override bool CanBeFacet() => Indexed;
     public override Facets GetDefaultFacets(Facets? given) {
         if (Index == null) throw new NullReferenceException("Index is null. ");

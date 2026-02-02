@@ -21,7 +21,6 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
     }
     void write(DateTime v, IAppendStream stream) => stream.WriteDateTimeUtc(v);
     DateTime read(IReadStream stream) => stream.ReadDateTimeUtc();
-
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);
@@ -48,7 +47,7 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
         if (Index == null) throw new Exception("Index is null. ");
         return Index.ContainsValue((DateTime)value);
     }
-    // Acets Needs improvement...
+    // Facets Needs improvement...
     public override bool CanBeFacet() => Indexed;
     public override Facets GetDefaultFacets(Facets? given) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
@@ -131,5 +130,4 @@ internal class DateTimeProperty : Property, IPropertyContainsValue {
         if (v1 is DateTime dt1 && v2 is DateTime dt2) return dt1 == dt2;
         return false;
     }
-
 }

@@ -194,6 +194,7 @@ public class NodeTypesByIds {
         _nativeModelStore = nativeModelStore;
     }
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
+        Console.WriteLine("Evaluating relevant node IDs for type " + ctxTypeId + " and context " + ctxKey + " Count:" + _cachedNodeIdsByCtx.Count );
         var ids = new idSet(nowUtc);
         var relevantMetaIds = _idByMeta
             .Where(kv => isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc))
