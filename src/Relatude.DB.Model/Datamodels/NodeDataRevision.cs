@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
-public enum NodeDataRevisionType {
+public enum RevisionType {
     Binned = 0,
     Archived = 1,
     Preliminary = 2,
@@ -9,16 +9,17 @@ public enum NodeDataRevisionType {
     AwaitingPublicationApproval = 4,
     AwaitingArchiveApproval = 5,
     AwaitingBinningApproval = 6,
+    PermanentlyDeleted = 99,
 }
 public class NodeDataRevision {
-    public NodeDataRevision(NodeData node, Guid versionId, NodeDataRevisionType revisionType) {
+    public NodeDataRevision(NodeData node, Guid versionId, RevisionType revisionType) {
         Node = node;
         RevisionId = versionId;
         RevisionType = revisionType;
     }
     public NodeData Node { get; }
     public Guid RevisionId { get; }
-    public NodeDataRevisionType RevisionType { get; }
+    public RevisionType RevisionType { get; }
 }
 public class NodeDataRevisions : INodeData {
     public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {

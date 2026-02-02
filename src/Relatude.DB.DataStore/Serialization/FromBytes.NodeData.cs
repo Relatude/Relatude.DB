@@ -148,7 +148,7 @@ public static partial class FromBytes {
             versions[v] = new (
                 read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
                 stream.ReadGuid(),
-                (NodeDataRevisionType)stream.ReadInt()
+                (RevisionType)stream.ReadInt()
             );
         }
         return new (guid, __id, nodeTypeId, versions);

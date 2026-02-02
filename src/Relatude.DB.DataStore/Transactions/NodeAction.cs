@@ -16,6 +16,7 @@ public enum NodeOperation : byte {
     ForceUpsert, // inserts a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
     ChangeType, // changes the type of a node, fails if node does not exist
     ReIndex, // triggers a re-index of the node, ignored if the node does not exist
+    SetRevisionState,
 }
 public class NodeAction : ActionBase {
     public static NodeAction InsertOrFail(INodeData node) => new(NodeOperation.InsertOrFail, node);
@@ -33,6 +34,7 @@ public class NodeAction : ActionBase {
     public static NodeAction ChangeType(Guid id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndGuid(id, typeId));
     public static NodeAction ReIndex(int id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
     public static NodeAction ReIndex(Guid id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
+    public static NodeAction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeOperation.SetRevisionState, new NodeDataOnlyId(nodeId));
     public static NodeAction Load(NodeOperation operation, INodeData node) => new NodeAction(operation, node);
     //public static NodeAction RemoveCulture(Guid id, int lcid) => new(NodeOperation.Update, NodeData.CreateEmptyDerivedNode(id, lcid)); // updating with a derived node will cause removal of culture
     private NodeAction(NodeOperation operation, INodeData node)
