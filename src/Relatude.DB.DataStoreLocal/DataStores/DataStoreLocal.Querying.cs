@@ -40,7 +40,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
+    public Task<IEnumerable<NodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids));
     }
     public INodeData Get(Guid id, QueryContext? ctx = null) {
@@ -168,7 +168,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
+    public IEnumerable<NodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -181,7 +181,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
+    public IEnumerable<NodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {

@@ -46,7 +46,6 @@ public class NodeDataRevisions : INodeData {
     public void Add(Guid propertyId, object value) => throw new NA();
     public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
     public bool Contains(Guid propertyId) => throw new NA();
-    public INodeData Copy() => throw new NA();
     public void EnsureReadOnly() => throw new NA();
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();

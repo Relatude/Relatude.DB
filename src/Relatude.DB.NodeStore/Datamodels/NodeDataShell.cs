@@ -11,11 +11,11 @@ public interface INodeShellAccess {
 }
 public class NodeDataShell {
     List<Guid>? changed;
-    public INodeData NodeData;
+    public NodeData NodeData;
     bool _copyBeforeUpdate;
     public NodeStore Store;
     Datamodel _dm;
-    public NodeDataShell(NodeStore store, INodeData nodeData, bool copyBeforeUpdate) {
+    public NodeDataShell(NodeStore store, NodeData nodeData, bool copyBeforeUpdate) {
         NodeData = nodeData;
         _dm = store.Datastore.Datamodel;
         Store = store;

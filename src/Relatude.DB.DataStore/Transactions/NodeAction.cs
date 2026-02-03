@@ -40,7 +40,8 @@ public class NodeAction : ActionBase {
     //public static NodeAction RemoveCulture(Guid id, int lcid) => new(NodeOperation.Update, NodeData.CreateEmptyDerivedNode(id, lcid)); // updating with a derived node will cause removal of culture
     private NodeAction(NodeOperation operation, INodeData node)
         : base(ActionTarget.Node) {
-        Operation = operation; Node = node;
+        Operation = operation;
+        Node = node;
     }
     public NodeOperation Operation { get; set; }
     public INodeData Node { get; set; }

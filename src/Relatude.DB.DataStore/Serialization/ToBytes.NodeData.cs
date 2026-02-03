@@ -5,12 +5,12 @@ using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Serialization;
 
 public static partial class ToBytes {
-    public static void NodeData(INodeData n, Datamodel datamodel, Stream stream) { // Storing
+    public static void NodeData(INodeDataBase n, Datamodel datamodel, Stream stream) { // Storing
         if (n is NodeData nd) {
-            nodeDataHeader(n, datamodel, stream);
+            nodeDataHeader(nd, datamodel, stream);
             nodeData(nd, datamodel, stream);
         } else if (n is NodeDataRevisions ndMeta) {
-            nodeDataHeader(n, datamodel, stream);
+            nodeDataHeader(ndMeta, datamodel, stream);
             nodeData_versions(ndMeta, datamodel, stream);
         } else if (n is NodeDataWithRelations ndRel) {
             throw new NotImplementedException("Serialization of NodeDataWithRelations is not implemented yet. ");
