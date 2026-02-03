@@ -171,7 +171,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         var value = action.Node.TryGetValue(p.Id, out var v) ? v : "";
                         throw new ValueConstraintException("The value: \"" + value + "\" of " + propName + " is not unique for node with ID: " + action.Node.__Id + "(" + action.Node.Id + ")", p.Id);
                     }
-                    _nodes.Add(action.Node, action.Segment);
+                    _nodes.Add((NodeData)action.Node, action.Segment);
                     _index.Add(action.Node);
                 }
                 break;

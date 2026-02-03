@@ -6,7 +6,7 @@ public enum NodeDataStorageVersions {
     Legacy0 = 0,
     Legacy1 = 1,
     NodeData = 2,
-    VersionContainer = 100,
+    RevisionContainer = 100,
     //WithMeta = 2, // Access, Revisions, Cultures, Versions etc.
     //WithRelations = 3, // due to serialization for transfer to db clients ( not for disk )
     //WithMinimalMeta = 4, // Access, NOT versions 
@@ -33,7 +33,7 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
-    INodeData Copy();
+    //INodeData Copy();
     public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
 }
 public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set

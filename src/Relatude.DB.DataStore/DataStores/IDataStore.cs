@@ -44,6 +44,9 @@ public interface IDataStore : IDisposable {
     Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null);
     Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null);
 
+    // Revisions:
+    NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
+
     // Access controlled queries
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);

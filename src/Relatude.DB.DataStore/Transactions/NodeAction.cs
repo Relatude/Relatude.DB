@@ -16,6 +16,7 @@ public enum NodeOperation : byte {
     ForceUpsert, // inserts a new node or update an existing one, update even if node is the same  ( faster if changed as no comparison, slower if not changed )
     ChangeType, // changes the type of a node, fails if node does not exist
     ReIndex, // triggers a re-index of the node, ignored if the node does not exist
+    AddRevision,
     SetRevisionState,
 }
 public class NodeAction : ActionBase {

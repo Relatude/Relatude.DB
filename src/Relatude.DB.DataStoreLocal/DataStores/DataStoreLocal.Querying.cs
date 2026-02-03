@@ -13,7 +13,7 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
-    public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
+    public Task<NodeData> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -27,7 +27,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public Task<INodeData> GetAsync(int id, QueryContext? ctx = null) {
+    public Task<NodeData> GetAsync(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -124,7 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -142,7 +142,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(int id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -343,5 +343,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null) {
         return Task.FromResult(Query(query, parameters));
+    }
+
+    public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null) {
+        throw new NotImplementedException();
     }
 }

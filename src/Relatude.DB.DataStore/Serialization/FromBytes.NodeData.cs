@@ -20,7 +20,7 @@ public static partial class FromBytes {
         return version switch {
             NodeDataStorageVersions.Legacy1 => read_Legacy_1(datamodel, stream, guid, __id, nodeTypeId),
             NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
-            NodeDataStorageVersions.VersionContainer => read_VersionContainer(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.RevisionContainer => read_VersionContainer(datamodel, stream, guid, __id, nodeTypeId),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
     }
