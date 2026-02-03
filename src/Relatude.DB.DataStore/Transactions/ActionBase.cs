@@ -5,6 +5,7 @@ namespace Relatude.DB.Transactions {
         Node = 0,
         Relation = 1,
         NodeProperty = 2,
+        NodeRevision = 3,
     }
     public abstract class ActionBase {
         public int _i; // for internal use only, do not set. Used to connect actions to operation results for plugins

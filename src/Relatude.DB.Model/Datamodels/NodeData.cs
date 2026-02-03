@@ -14,8 +14,8 @@ public enum NodeDataStorageVersions {
 internal class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
 }
-//public interface INodeDataBase {}
-public interface INodeData {
+public interface INodeDataBase {}
+public interface INodeData: INodeDataBase {
     Guid Id { get; set; }
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
