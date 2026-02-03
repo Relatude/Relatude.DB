@@ -14,8 +14,8 @@ public enum NodeDataStorageVersions {
 internal class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
 }
-public interface INodeDataBase {}
-public interface INodeData : INodeDataBase {
+//public interface INodeDataBase {}
+public interface INodeData {
     Guid Id { get; set; }
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
@@ -26,7 +26,7 @@ public interface INodeData : INodeDataBase {
     IEnumerable<PropertyEntry<object>> Values { get; }
     bool ReadOnly { get; }
     IRelations Relations { get; }
-
+    INodeData Copy();
     int ValueCount { get; }
     void Add(Guid propertyId, object value);
     void AddOrUpdate(Guid propertyId, object value);
@@ -93,7 +93,7 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
         if (!_readOnly) _readOnly = true;
     }
     public IRelations Relations => emptyRelations;
-    public NodeData Copy() {
+    public INodeData Copy() {
         return new NodeData(Id, __Id, NodeType,
             //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
             CreatedUtc, ChangedUtc, new(_values));

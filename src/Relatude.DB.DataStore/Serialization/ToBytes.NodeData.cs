@@ -5,7 +5,7 @@ using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Serialization;
 
 public static partial class ToBytes {
-    public static void NodeData(INodeDataBase n, Datamodel datamodel, Stream stream) { // Storing
+    public static void NodeData(INodeData n, Datamodel datamodel, Stream stream) { // Storing
         if (n is NodeData nd) {
             nodeDataHeader(nd, datamodel, stream);
             nodeData(nd, datamodel, stream);

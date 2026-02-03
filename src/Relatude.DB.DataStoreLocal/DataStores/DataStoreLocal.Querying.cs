@@ -13,7 +13,7 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
-    public Task<NodeData> GetAsync(Guid id, QueryContext? ctx = null) {
+    public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -21,26 +21,26 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
-            return Task.FromResult(_nodes.Get(_guids.GetId(id)));
+            return Task.FromResult<INodeData>(_nodes.Get(_guids.GetId(id)));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public Task<NodeData> GetAsync(int id, QueryContext? ctx = null) {
+    public Task<INodeData> GetAsync(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return Task.FromResult(_nodes.Get(id));
+            return Task.FromResult<INodeData>(_nodes.Get(id));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public Task<IEnumerable<NodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
+    public Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids));
     }
     public INodeData Get(Guid id, QueryContext? ctx = null) {
@@ -124,7 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(Guid id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -142,7 +142,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(int id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -168,7 +168,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<NodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
+    public IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -181,7 +181,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<NodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
+    public IEnumerable<INodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {

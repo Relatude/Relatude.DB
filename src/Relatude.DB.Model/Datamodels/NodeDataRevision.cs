@@ -38,6 +38,7 @@ public class NodeDataRevisions : INodeData {
     public INodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
+    public INodeData Copy() => throw new NA();
 
     public IEnumerable<PropertyEntry<object>> Values => throw new NA();
     public bool ReadOnly => true;

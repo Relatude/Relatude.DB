@@ -11,7 +11,7 @@ public interface INodeShellAccess {
 }
 public class NodeDataShell {
     List<Guid>? changed;
-    public NodeData NodeData;
+    public INodeData NodeData;
     bool _copyBeforeUpdate;
     public NodeStore Store;
     Datamodel _dm;

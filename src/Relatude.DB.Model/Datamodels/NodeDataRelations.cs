@@ -30,7 +30,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
     public int ValueCount => _node.ValueCount;
     public bool ReadOnly => _node.ReadOnly;
     public IRelations Relations => _relations;
-
+    public INodeData Copy() => throw new NA();
     public void Add(Guid propertyId, object value) => throwReadOnlyError();
     public void AddOrUpdate(Guid propertyId, object value) => throwReadOnlyError();
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();

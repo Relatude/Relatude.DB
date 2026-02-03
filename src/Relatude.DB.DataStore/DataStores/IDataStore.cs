@@ -50,14 +50,14 @@ public interface IDataStore : IDisposable {
     // Access controlled queries
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
-    Task<NodeData> GetAsync(Guid id, QueryContext? ctx = null);
-    Task<IEnumerable<NodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
-    Task<NodeData> GetAsync(int id, QueryContext? ctx = null);
-    NodeData Get(Guid id, QueryContext? ctx = null);
-    NodeData Get(int id, QueryContext? ctx = null);
-    NodeData Get(IdKey id, QueryContext? ctx = null);
-    bool TryGet(Guid id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null);
-    bool TryGet(int id, [MaybeNullWhen(false)] out NodeData nodeData, QueryContext? ctx = null);
+    Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null);
+    Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
+    Task<INodeData> GetAsync(int id, QueryContext? ctx = null);
+    INodeData Get(Guid id, QueryContext? ctx = null);
+    INodeData Get(int id, QueryContext? ctx = null);
+    INodeData Get(IdKey id, QueryContext? ctx = null);
+    bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null);
+    bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null);
     bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null);
     IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
     IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
