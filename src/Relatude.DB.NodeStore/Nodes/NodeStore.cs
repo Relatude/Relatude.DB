@@ -29,7 +29,10 @@ namespace Relatude.DB.Nodes;
 //    ReIndex, // triggers a re-index of the node, ignored if the node does not exist
 //}
 
-public sealed class NodeStore : IDisposable {
+public class NodeStore : IDisposable {
+    public NodeStore NewContext(QueryContext ctx) {
+        return new NodeStore(new DataStoreSession(ctx, Datastore));
+    }
     public readonly IDataStore Datastore;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
@@ -223,20 +226,20 @@ public sealed class NodeStore : IDisposable {
 
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
-    public IQueryOfNodes<object, object> Query() => new QueryOfNodes<object, object>(this);
-    public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId) => new QueryOfNodes<object, object>(this, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
-    public IQueryOfNodes<object, object> QueryType(string typeName) => new QueryOfNodes<object, object>(this, typeName);
+    public IQueryOfNodes<object, object> Query(QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx);
+    public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
+    public IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this,ctx, typeName);
 
-    public Task<object?> EvaluateForJsonAsync(string query, List<Parameter> parameters) {
-        return new QueryStringBuilder(this, query, parameters).Prepare().EvaluateForJsonAsync();
+    public Task<object?> EvaluateForJsonAsync(string query, List<Parameter> parameters, QueryContext? ctx = null) {
+        return new QueryStringBuilder(this, ctx, query, parameters).Prepare().EvaluateForJsonAsync();
     }
-    public IQueryOfNodes<T, T> Query<T>(Guid id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
-    public IQueryOfNodes<T, T> Query<T>(int id) => new QueryOfNodes<T, T>(this).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
-    public IQueryOfNodes<T, T> Query<T>(IdKey id) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
-    public IQueryOfNodes<T, T> Query<T>() => new QueryOfNodes<T, T>(this);
-    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids) => new QueryOfNodes<T, T>(this).WhereInIds(ids);
-    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression) => new QueryOfNodes<T, T>(this).Where(expression);
-    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId) => new QueryOfNodes<T, T>(this).WhereRelates(propertyId, nodeId);
+    public IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
+    public IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
+    public IQueryOfNodes<T, T> Query<T>(IdKey id, QueryContext? ctx = null) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
+    public IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null) => new QueryOfNodes<T, T>(this);
+    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).WhereInIds(ids);
+    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).Where(expression);
+    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).WhereRelates(propertyId, nodeId);
 
     public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId) => Query<T>(fromId).WhereRelates<T, object>(expression, toId).Count() > 0;
     public Task FlushAsync() => Datastore.MaintenanceAsync(MaintenanceAction.FlushDisk);

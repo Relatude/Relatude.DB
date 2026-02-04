@@ -26,6 +26,7 @@ public class NodeRevisionAction : ActionBase {
         NodeIdKey = idKey;
         RevisionId = revisionId;
         Node = node;
+        CultureCode = cultureCode;
     }
     public NodeRevisionOperation Operation { get; }
     public IdKey NodeIdKey;

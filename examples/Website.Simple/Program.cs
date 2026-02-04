@@ -1,3 +1,4 @@
+using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
@@ -24,6 +25,62 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
     ctx.Database.DeleteMany<DemoArticle>();
 
 });
+
+static class StireCintectec {
+
+    public RelatudeDBContext Norsk = new RelatudeDBContext().Culture("no");
+
+}
+
+class NorskContext (QueryContext ctxBase) {
+    public NorskContext(QueryContext ctxBase) { }
+}
+
+
+
+app.MapGet("/Test", (RelatudeDBContext context) => {
+
+    var db = context.Database;
+
+    var ctx = context.UserContext;
+
+    //ctx = ctx.Culture("en").CultureFallbacks();
+
+    var dnAdminNo = db.NewContext(StireCintectec.Norsk);
+    var dnAdminNo=  ctx.Admin(db);
+    
+    var dnAdminNo = db.NewContext<AdminContent>();
+
+
+
+
+
+
+
+
+    var articlesAdminNo = dnAdminNo.Query<DemoArticle>().Page(0, 10).Execute();
+
+    var articles = db.Query<DemoArticle>(ctx.Admin().Culture("no")).Page(0, 10).Execute();
+
+    var articles2 = db.Query<DemoArticle>(ctx.Culture("en")).Page(0, 10).Execute();
+
+    var articles2 = db.Query<DemoArticle>().Page(0, 10).Execute();
+
+
+
+    //var dbCtxEng = db.AsContext(ctx.Admin().Culture("en"));
+
+    //var dbCtxNor = db.AsContext(ctx.Admin().Culture("no"));
+
+    //var articles = db.Query<DemoArticle>(ctx.Culture("no")).Page(0, 10).Execute();
+
+
+
+});
+
+
+
+
 app.MapGet("/Add", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var transaction = db.CreateTransaction();

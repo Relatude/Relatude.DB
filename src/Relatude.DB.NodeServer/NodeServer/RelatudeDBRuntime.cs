@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Nodes;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Nodes;
 
 namespace Relatude.DB.NodeServer;
 /// <summary>
@@ -13,8 +14,11 @@ public static class RelatudeDBRuntime {
         _current = server ?? throw new ArgumentNullException(nameof(server));
     }
 }
-public class RelatudeDBContext() {
+
+    public class RelatudeDBContext() {
     public RelatudeDBServer Server => RelatudeDBRuntime.Server;
+    public QueryContext UserContext { get; set; } = QueryContext.Anonymous;
+    public QueryContext EditUserContext { get; set; } = QueryContext.Anonymous;
     public NodeStore Database {
         get {
             var store = Server.DefaultContainer?.Store;

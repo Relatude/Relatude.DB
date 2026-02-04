@@ -15,16 +15,19 @@ namespace Relatude.DB.Query;
 internal sealed class QueryStringBuilder {
     internal StringBuilder _sb;
     internal readonly List<Parameter> _parameters;
-    internal QueryStringBuilder(NodeStore store, string sourceName, List<Parameter>? parameters = null) {
+    QueryContext? _ctx;
+    internal QueryStringBuilder(NodeStore store, QueryContext? ctx, string sourceName, List<Parameter>? parameters = null) {
         Store = store;
         this._parameters = parameters is null ? [] : parameters;
         _sb = new StringBuilder(sourceName);
+        _ctx = ctx;
     }
     internal NodeStore Store { get; }
-    internal QueryStringBuilder(NodeStore store, StringBuilder sb, List<Parameter> parameters) {
+    internal QueryStringBuilder(NodeStore store, QueryContext? ctx, StringBuilder sb, List<Parameter> parameters) {
         Store = store;
         _sb = sb;
         _parameters = parameters;
+        _ctx = ctx;
     }
     void add(string method, params object[]? args) {
         _sb.Append('.');

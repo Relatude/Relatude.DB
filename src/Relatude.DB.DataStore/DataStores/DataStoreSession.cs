@@ -9,7 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
 
-internal class DataStoreSession : IDataStore {
+public class DataStoreSession : IDataStore {
     private readonly IDataStore _datastore;
     public QueryContext Context { get; }
 

@@ -34,11 +34,11 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         _q = q;
     }
     internal NodeStore Store { get => _q.Store; }
-    public QueryOfNodes(NodeStore store) {
-        _q = new QueryStringBuilder(store, typeof(TNode).Name);
+    public QueryOfNodes(NodeStore store, QueryContext? ctx) {
+        _q = new QueryStringBuilder(store, ctx, typeof(TNode).Name);
     }
-    public QueryOfNodes(NodeStore store, string typeName) {
-        _q = new QueryStringBuilder(store, typeName);
+    public QueryOfNodes(NodeStore store, QueryContext? ctx, string typeName) {
+        _q = new QueryStringBuilder(store, ctx, typeName);
     }
     public Task<ResultSet<TNode>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<TNode>()!;
     public ResultSet<TNode> Execute() => _q.Prepare().EvaluateSet<TNode>()!;
