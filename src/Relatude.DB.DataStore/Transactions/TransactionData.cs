@@ -74,6 +74,19 @@ public class TransactionData {
     public void ValidateProperty(Guid[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, nodeIds, null, propetyId, value));
     public void ValidateProperty(int[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, null, nodeIds, propetyId, value));
 
+    public void CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) => Add(NodeRevisionAction.CreateRevision(nodeId, revisionId, state));
+    public void CreateRevision(int nodeId, Guid revisionId, RevisionType state) => Add(NodeRevisionAction.CreateRevision(nodeId, revisionId, state));
+    public void InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, INodeData node, string? cultureCode) => Add(NodeRevisionAction.InsertRevision(nodeId, revisionId, state, node, cultureCode));
+    //public void InsertRevision(int nodeId, Guid revisionId, RevisionType state, INodeData node, string? cultureCode) => Add(NodeRevisionAction.InsertRevision(nodeId, revisionId, state, node, cultureCode));
+    // commented out above because having nodeId as int and node as INodeData is redundant and can lead to mistakes
+    public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(nodeId, revisionId));
+    public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(nodeId, revisionId));
+    public void SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) => Add(NodeRevisionAction.SetRevisionState(nodeId, revisionId, state));
+    public void SetRevisionState(int nodeId, Guid revisionId, RevisionType state) => Add(NodeRevisionAction.SetRevisionState(nodeId, revisionId, state));
+
+
+
+
     public void SetRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = DateTime.UtcNow });
     public void SetRelation(Guid relationId, int source, int target, DateTime dtUtc) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = dtUtc });
     public void SetRelation(Guid relationId, Guid source, Guid target) => Add(new RelationAction(RelationOperation.Set, relationId) { SourceGuid = source, TargetGuid = target, ChangeUtc = DateTime.UtcNow });

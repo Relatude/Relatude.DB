@@ -10,19 +10,25 @@ public enum NodeRevisionOperation : byte {
     SetRevisionState, // sets the state of a revision for the node
 }
 public class NodeRevisionAction : ActionBase {
-    public static NodeRevisionAction CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.CreateRevision, nodeId, revisionId, null, null);
-    public static NodeRevisionAction InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, INodeData node, string? cultureCode) => new(NodeRevisionOperation.InsertRevision, nodeId, revisionId, node, cultureCode);
-    public static NodeRevisionAction DeleteRevision(Guid nodeId, Guid revisionId) => new(NodeRevisionOperation.DeleteRevision, nodeId, revisionId, null, null);
-    public static NodeRevisionAction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.SetRevisionState, nodeId, revisionId, null, null);
-    private NodeRevisionAction(NodeRevisionOperation operation, Guid nodeId, Guid revisionId, INodeData? node, string? cultureCode)
+    public static NodeRevisionAction CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.CreateRevision, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, INodeData node, string? cultureCode) => new(NodeRevisionOperation.InsertRevision, new IdKey(nodeId), revisionId, node, cultureCode);
+    public static NodeRevisionAction DeleteRevision(Guid nodeId, Guid revisionId) => new(NodeRevisionOperation.DeleteRevision, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.SetRevisionState, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction UpdateRevision(Guid nodeId, Guid revisionId, INodeData node, string? cultureCode) => new(NodeRevisionOperation.UpdateRevision, new IdKey(nodeId), revisionId, node, cultureCode);
+    public static NodeRevisionAction CreateRevision(int nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.CreateRevision, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction InsertRevision(int nodeId, Guid revisionId, RevisionType state, INodeData node, string? cultureCode) => new(NodeRevisionOperation.InsertRevision, new IdKey(nodeId), revisionId, node, cultureCode);
+    public static NodeRevisionAction DeleteRevision(int nodeId, Guid revisionId) => new(NodeRevisionOperation.DeleteRevision, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction SetRevisionState(int nodeId, Guid revisionId, RevisionType state) => new(NodeRevisionOperation.SetRevisionState, new IdKey(nodeId), revisionId, null, null);
+    public static NodeRevisionAction UpdateRevision(int nodeId, Guid revisionId, INodeData node, string? cultureCode) => new(NodeRevisionOperation.UpdateRevision, new IdKey(nodeId), revisionId, node, cultureCode);
+    private NodeRevisionAction(NodeRevisionOperation operation, IdKey idKey, Guid revisionId, INodeData? node, string? cultureCode)
         : base(ActionTarget.NodeRevision) {
         Operation = operation;
-        NodeId = nodeId;
+        NodeIdKey = idKey;
         RevisionId = revisionId;
         Node = node;
     }
     public NodeRevisionOperation Operation { get; }
-    public Guid NodeId { get; }
+    public IdKey NodeIdKey;
     public Guid RevisionId { get; }
     public string? CultureCode { get; }
     public INodeData? Node { get; }

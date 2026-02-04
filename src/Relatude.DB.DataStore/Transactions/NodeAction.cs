@@ -33,11 +33,6 @@ public class NodeAction : ActionBase {
     public static NodeAction ChangeType(Guid id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndGuid(id, typeId));
     public static NodeAction ReIndex(int id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
     public static NodeAction ReIndex(Guid id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
-
-    public static NodeAction AddRevision(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeOperation.AddRevision, new NodeDataOnlyId(nodeId));
-    public static NodeAction DeleteRevision(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeOperation.DeleteRevision, new NodeDataOnlyId(nodeId));
-    public static NodeAction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) => new(NodeOperation.SetRevisionState, new NodeDataOnlyId(nodeId));
-
     public static NodeAction Load(NodeOperation operation, INodeData node) => new NodeAction(operation, node);
     //public static NodeAction RemoveCulture(Guid id, int lcid) => new(NodeOperation.Update, NodeData.CreateEmptyDerivedNode(id, lcid)); // updating with a derived node will cause removal of culture
     private NodeAction(NodeOperation operation, INodeData node)

@@ -1,5 +1,6 @@
 ﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
 using Relatude.DB.Transactions;
@@ -8,6 +9,7 @@ using System.Collections;
 using System.Linq.Expressions;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.Nodes;
+
 public partial class Transaction {
     internal TransactionData _transactionData;
     public readonly NodeStore Store;
@@ -582,6 +584,37 @@ public partial class Transaction {
         return this;
     }
 
+    public Transaction CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) {
+        _transactionData.CreateRevision(nodeId, revisionId, state);
+        return this;
+    }
+    public Transaction CreateRevision(int nodeId, Guid revisionId, RevisionType state) {
+        _transactionData.CreateRevision(nodeId, revisionId, state);
+        return this;
+    }
+    public Transaction InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, object content, string cultureCode) {
+        var nodeData = Store.Mapper.CreateNodeDataFromObject(content, null);
+        _transactionData.InsertRevision(nodeId, revisionId, state, nodeData, cultureCode);
+        return this;
+    }
+    public Transaction DeleteRevision(Guid nodeId, Guid revisionId) {
+        _transactionData.DeleteRevision(nodeId, revisionId);
+        return this;
+    }
+    public Transaction DeleteRevision(int nodeId, Guid revisionId) {
+        _transactionData.DeleteRevision(nodeId, revisionId);
+        return this;
+    }
+    public Transaction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) {
+        _transactionData.SetRevisionState(nodeId, revisionId, state);
+        return this;
+    }
+    public Transaction SetRevisionState(int nodeId, Guid revisionId, RevisionType state) {
+        _transactionData.SetRevisionState(nodeId, revisionId, state);
+        return this;
+    }
+
+
     // helpers, to aid directionality of relations:
     int source(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? to : from;
     int target(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? from : to;
@@ -676,7 +709,6 @@ public partial class Transaction {
         return this;
     }
 
-
     public Transaction Update(object node) => UpdateOrFail(node);
     public Transaction Update(IEnumerable node) => UpdateOrFail(node);
     public Transaction UpdateOrFail(object node) {
@@ -703,9 +735,6 @@ public partial class Transaction {
         foreach (var n in node) ForceUpdate(n);
         return this;
     }
-
-
-
 
     public Transaction DeleteOrFail(Guid nodeGuid) {
         _transactionData.DeleteOrFail(nodeGuid);
