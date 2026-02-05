@@ -236,12 +236,12 @@ public class NodeStore : IDisposable {
     public IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
     public IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
     public IQueryOfNodes<T, T> Query<T>(IdKey id, QueryContext? ctx = null) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
-    public IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null) => new QueryOfNodes<T, T>(this);
-    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).WhereInIds(ids);
-    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).Where(expression);
-    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this).WhereRelates(propertyId, nodeId);
+    public IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx);
+    public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereInIds(ids);
+    public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where(expression);
+    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereRelates(propertyId, nodeId);
 
-    public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId) => Query<T>(fromId).WhereRelates<T, object>(expression, toId).Count() > 0;
+    public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, QueryContext? ctx = null) => Query<T>(fromId, ctx).WhereRelates<T, object>(expression, toId).Count() > 0;
     public Task FlushAsync() => Datastore.MaintenanceAsync(MaintenanceAction.FlushDisk);
     public Task MaintenanceAsync(MaintenanceAction options) => Datastore.MaintenanceAsync(options);
 

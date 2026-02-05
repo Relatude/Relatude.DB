@@ -26,30 +26,19 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 });
 
-static class StireCintectec {
 
-    public RelatudeDBContext Norsk = new RelatudeDBContext().Culture("no");
+app.MapGet("/Test", (RelatudeDBContext ctx) => {
 
-}
+    //var db = db.Default
 
-class NorskContext (QueryContext ctxBase) {
-    public NorskContext(QueryContext ctxBase) { }
-}
+    //var ctx = context.UserContext;
 
+    ////ctx = ctx.Culture("en").CultureFallbacks();
 
-
-app.MapGet("/Test", (RelatudeDBContext context) => {
-
-    var db = context.Database;
-
-    var ctx = context.UserContext;
-
-    //ctx = ctx.Culture("en").CultureFallbacks();
-
-    var dnAdminNo = db.NewContext(StireCintectec.Norsk);
-    var dnAdminNo=  ctx.Admin(db);
+    //var dnAdminNo = db.NewContext(StireCintectec.Norsk);
+    //var dnAdminNo=  ctx.Admin(db);
     
-    var dnAdminNo = db.NewContext<AdminContent>();
+    //var dnAdminNo = db.NewContext<AdminContent>();
 
 
 
@@ -58,13 +47,13 @@ app.MapGet("/Test", (RelatudeDBContext context) => {
 
 
 
-    var articlesAdminNo = dnAdminNo.Query<DemoArticle>().Page(0, 10).Execute();
+    //var articlesAdminNo = dnAdminNo.Query<DemoArticle>().Page(0, 10).Execute();
 
-    var articles = db.Query<DemoArticle>(ctx.Admin().Culture("no")).Page(0, 10).Execute();
+    //var articles = db.Query<DemoArticle>(ctx.Admin().Culture("no")).Page(0, 10).Execute();
 
-    var articles2 = db.Query<DemoArticle>(ctx.Culture("en")).Page(0, 10).Execute();
+    //var articles2 = db.Query<DemoArticle>(ctx.Culture("en")).Page(0, 10).Execute();
 
-    var articles2 = db.Query<DemoArticle>().Page(0, 10).Execute();
+    //var articles2 = db.Query<DemoArticle>().Page(0, 10).Execute();
 
 
 

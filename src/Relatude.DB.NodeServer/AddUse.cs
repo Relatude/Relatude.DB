@@ -8,6 +8,7 @@ public static class AddUse {
     public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
         builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
         builder.Services.AddSingleton<RelatudeDBContext>();
+        builder.Services.AddSingleton<RelatudeDB>();
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = Defaults.AdminUrlRoot,

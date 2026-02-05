@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using System.Text;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Linq;
@@ -10,7 +11,7 @@ public static class QueryOfObjects {
         query._q._sb.Append(".Select(");
         query._q._sb.Append(expression.ToQueryString(query._q._parameters));
         query._q._sb.Append(')');
-        return new QueryOfObjects<TResult>(query._q.Store, query._q._sb, query._q._parameters);
+        return new QueryOfObjects<TResult>(query._q.Store, query._q.Context, query._q._sb, query._q._parameters);
     }
     public static int Sum<TSource>(this QueryOfObjects<TSource> query, Expression<Func<TSource, int>> expression) {
         return query._q.Sum(expression).Prepare().EvaluateValue<int>();
@@ -33,11 +34,11 @@ public static class QueryOfObjects {
 }
 public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
     internal readonly QueryStringBuilder _q;
-    public QueryOfObjects(NodeStore store) {
-        _q = new QueryStringBuilder(store, typeof(T).Name);
+    public QueryOfObjects(NodeStore store, QueryContext ctx) {
+        _q = new QueryStringBuilder(store, ctx, typeof(T).Name);
     }
-    public QueryOfObjects(NodeStore store, StringBuilder sb, List<Parameter> parameters) {
-        _q = new QueryStringBuilder(store, sb, parameters);
+    public QueryOfObjects(NodeStore store, QueryContext ctx, StringBuilder sb, List<Parameter> parameters) {
+        _q = new QueryStringBuilder(store, ctx, sb, parameters);
     }
     internal QueryOfObjects(QueryStringBuilder q) {
         _q = q;
