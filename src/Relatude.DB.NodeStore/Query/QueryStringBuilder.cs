@@ -15,7 +15,7 @@ namespace Relatude.DB.Query;
 internal sealed class QueryStringBuilder {
     internal StringBuilder _sb;
     internal readonly List<Parameter> _parameters;
-    QueryContext? _ctx;
+    internal QueryContext? _ctx;
     internal QueryStringBuilder(NodeStore store, QueryContext? ctx, string sourceName, List<Parameter>? parameters = null) {
         Store = store;
         this._parameters = parameters is null ? [] : parameters;

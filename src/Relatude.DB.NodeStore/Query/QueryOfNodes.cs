@@ -1,13 +1,13 @@
 ﻿using System.Linq.Expressions;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
-using Relatude.DB.Query.Expressions;
 
 namespace Relatude.DB.Query;
+
 public static class QueryOfNodes {
     public static QueryOfObjects<TResult> Select<TSource, TInclude, TResult>(this QueryOfNodes<TSource, TInclude> query, Expression<Func<TSource, TResult>> expression) {
         query._q.Select(expression);
-        return new QueryOfObjects<TResult>(query._q.Store, query._q._sb, query._q._parameters);
+        return new QueryOfObjects<TResult>(query._q.Store, query._q._ctx, query._q._sb, query._q._parameters);
     }
     public static QueryOfObjects<TResult> Select<TSource, TInclude, TResult>(this IQueryOfNodes<TSource, TInclude> query, Expression<Func<TSource, TResult>> expression) {
         return ((QueryOfNodes<TSource, TInclude>)query).Select(expression);
@@ -81,7 +81,7 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         return this;
     }
     public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Guid> nodeTypes, bool includeDescendants = true) {
-        _q.WhereTypes(nodeTypes, includeDescendants );
+        _q.WhereTypes(nodeTypes, includeDescendants);
         return this;
     }
     public IQueryOfNodes<TNode, TInclude> WhereTypes(IEnumerable<Type> nodeTypes, bool includeDescendants = true) {
