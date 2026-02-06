@@ -24,8 +24,7 @@ public static class RelatudeDBRuntime {
 
 public class RelatudeDBContext() {
     public RelatudeDBServer Server => RelatudeDBRuntime.Server;
-    public QueryContext UserContext { get; set; } = QueryContext.Anonymous;
-    public QueryContext EditUserContext { get; set; } = QueryContext.Anonymous;
+    public QueryContext Session { get; set; } = QueryContext.Anonymous;
     public NodeStore Database => RelatudeDBRuntime.Database;
 }
 

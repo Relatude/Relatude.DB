@@ -29,15 +29,18 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
 
-    //var db = db.Default
+    // RelatudeDbRuntime - A static access to running server and default database
+    // RelatudeDbEndpointContext - A transient context for the API request, access to db user query options ( typically used in a endpoint )
+    
+    // RelatudeCmsContext - A transient context for the page or any other request to the system. Part of Relatude CMS
 
-    //var ctx = context.UserContext;
+
 
     ////ctx = ctx.Culture("en").CultureFallbacks();
 
     //var dnAdminNo = db.NewContext(StireCintectec.Norsk);
     //var dnAdminNo=  ctx.Admin(db);
-    
+
     //var dnAdminNo = db.NewContext<AdminContent>();
 
 

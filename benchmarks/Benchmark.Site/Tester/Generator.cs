@@ -47,7 +47,7 @@ public static class Generator {
         TestDocument[] documents = new TestDocument[count];
         for (int i = 0; i < count; i++) {
             var titleLength = 10 + random.Next(50);
-            var contentLength = 100 + random.Next(5000);
+            var contentLength = 100 + random.Next(50000);
             documents[i] = new TestDocument {
                 Id = Guid.NewGuid(),
                 Title = textGenerator.GenerateTitle(titleLength),
