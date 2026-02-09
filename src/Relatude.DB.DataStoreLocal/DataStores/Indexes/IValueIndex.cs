@@ -26,7 +26,7 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive);
     int CountEqual(IdSet nodeIds, T value);
     int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive);
-    IdSet Filter(IdSet nodeIds, IndexOperator op, T v, QueryContext ctx);
+    IdSet Filter(IdSet nodeIds, IndexOperator op, T v);
     IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues);
     IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges);
     int MaxCount(IndexOperator op, T value);

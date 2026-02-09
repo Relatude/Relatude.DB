@@ -42,7 +42,7 @@ internal class BooleanProperty : Property {
         if (Index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = BooleanPropertyModel.ForceValueType(facetValue.Value, out _);
-            nodeIds = Index.Filter(nodeIds, IndexOperator.Equal, v, ctx);
+            nodeIds = Index.Filter(nodeIds, IndexOperator.Equal, v);
         }
         return nodeIds;
     }

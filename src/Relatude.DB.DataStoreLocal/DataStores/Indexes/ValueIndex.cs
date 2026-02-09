@@ -251,7 +251,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         //var matches = Register.WhereValueInRange(this, from, to, true, true);
         //return Register.Intersection(nodeIds, matches).Count;
     }
-    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v, QueryContext ctx) => _sets.Filter(this, nodeIds, op, v);
+    public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) => _sets.FilterInValues(this, nodeIds, selectedValues);
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) => _sets.FilterRanges(this, nodeIds, selectedRanges);
     public IdSet FilterRangesObject(IdSet set, object from, object to) => _sets.FilterRangesObject(this, set, from, to);

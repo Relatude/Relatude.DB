@@ -134,7 +134,7 @@ namespace Relatude.DB.Query.Expressions {
         }
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -163,7 +163,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -192,7 +192,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -221,7 +221,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -250,7 +250,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -279,7 +279,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.Indexed) {
                 if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value, ctx);
+                return _property.Index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException();
             }
@@ -307,7 +307,7 @@ namespace Relatude.DB.Query.Expressions {
         }
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (_property.TryGetIndex(ctx, out var index)) {
-                return index.Filter(set, _operator, _value, ctx);
+                return index.Filter(set, _operator, _value);
             } else {
                 throw new NotImplementedException("String property is not indexed by value.");
             }
