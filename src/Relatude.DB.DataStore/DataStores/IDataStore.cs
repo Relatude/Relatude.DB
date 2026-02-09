@@ -11,43 +11,13 @@ namespace Relatude.DB.DataStores;
 
 public interface IDataStore : IDisposable {
 
-    void LogInfo(string text, string? details = null, bool replace = false);
-    void LogWarning(string text, string? details = null);
-    void LogError(string description, Exception error);
-    void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false);
-    TraceEntry[] GetSystemTrace(int skip, int take);
-    DateTime GetLatestSystemTraceTimestamp();
-    Datamodel Datamodel { get; }
-    DataStoreState State { get; }
-    DataStoreStatus GetStatus();
-    DataStoreOpeningStatus GetOpeningStatus();
-
-    long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
-    long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
-    void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null);
-    void UpdateActivityProgress(long activityId, int? percentageProgress = null);
-    void DeRegisterActivity(long activityId);
-
-    AIEngine AI { get; }
-
-    IStoreLogger Logger { get; }
-
-    TaskQueue TaskQueue { get; }
-    TaskQueue? TaskQueuePersisted { get; }
-    void EnqueueTask(TaskData task, string? jobId = null);
-    void RegisterRunner(ITaskRunner runner);
-
-    // Access controlled changes
+    // Exposed and access controlled
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
     Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null);
     Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null);
-
-    // Revisions:
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
-
-    // Access controlled queries
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
     Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null);
@@ -64,19 +34,48 @@ public interface IDataStore : IDisposable {
     Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
 
+    bool Exists(Guid id, QueryContext? ctx = null);
+    bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
+    bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null);
+    INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
+    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node, QueryContext? ctx = null);
+    int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
+    IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null);
+
+    // Exposed, but not Access Controlled
     bool TryGetNodeType(Guid id, out Guid nodeTypeId);
     Guid GetNodeType(Guid id);
     Guid GetNodeType(int id);
     Guid GetNodeType(IdKey id);
     Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids);
 
-    bool Exists(Guid id);
-    bool ExistsAndIsType(Guid id, Guid nodeTypeId);
-    bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource);
-    INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
-    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node);
-    int GetRelatedCountFromPropertyId(Guid propertyId, Guid from);
-    IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource);
+    // Internal not controlled
+    void LogInfo(string text, string? details = null, bool replace = false);
+    void LogWarning(string text, string? details = null);
+    void LogError(string description, Exception error);
+    void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false);
+    TraceEntry[] GetSystemTrace(int skip, int take);
+    DateTime GetLatestSystemTraceTimestamp();
+    Datamodel Datamodel { get; }
+    DataStoreState State { get; }
+    DataStoreStatus GetStatus();
+    DataStoreOpeningStatus GetOpeningStatus();
+    long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
+    long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null);
+    void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null);
+    void UpdateActivityProgress(long activityId, int? percentageProgress = null);
+    void DeRegisterActivity(long activityId);
+    AIEngine AI { get; }
+    IStoreLogger Logger { get; }
+    TaskQueue TaskQueue { get; }
+    TaskQueue? TaskQueuePersisted { get; }
+    void EnqueueTask(TaskData task, string? jobId = null);
+    void RegisterRunner(ITaskRunner runner);
+
+
+
+
+
 
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);
@@ -88,7 +87,6 @@ public interface IDataStore : IDisposable {
     void Close();
 
     void RefreshLock(Guid lockId);
-
     Task<Guid> RequestGlobalLockAsync(double lockDurationInMs, double maxWaitTimeInMs);
     Task<Guid> RequestLockAsync(Guid nodeId, double lockDurationInMs, double maxWaitTimeInMs);
     Task<Guid> RequestLockAsync(int nodeId, double lockDurationInMs, double maxWaitTimeInMs);
@@ -104,8 +102,6 @@ public interface IDataStore : IDisposable {
     void SetTimestamp(long timestamp);
     long Timestamp { get; }
     void Rollback(long timestamp);
-
-
     (int NodeId, string Text)[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
     (int NodeId, string Text)[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
 }

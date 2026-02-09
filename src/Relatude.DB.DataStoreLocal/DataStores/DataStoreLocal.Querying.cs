@@ -195,7 +195,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool Exists(Guid id) {
+    public bool Exists(Guid id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -208,7 +208,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool ExistsAndIsType(Guid id, Guid nodeTypeId) {
+    public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -224,7 +224,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource) {
+    public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -254,7 +254,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node) {
+    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
@@ -279,7 +279,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from) {
+    public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
@@ -295,7 +295,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource) {
+    public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -344,7 +344,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null) {
         return Task.FromResult(Query(query, parameters));
     }
-
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null) {
         throw new NotImplementedException();
     }

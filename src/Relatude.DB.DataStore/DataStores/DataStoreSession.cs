@@ -107,18 +107,19 @@ public class DataStoreSession : IDataStore {
     public Guid GetNodeType(IdKey id) => _datastore.GetNodeType(id);
     public Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids) => _datastore.GetNodeType(ids);
 
-    public bool Exists(Guid id) => _datastore.Exists(id);
-    public bool ExistsAndIsType(Guid id, Guid nodeTypeId) => _datastore.ExistsAndIsType(id, nodeTypeId);
-    public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource)
-        => _datastore.ContainsRelation(relationId, from, to, fromTargetToSource);
+    public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id);
+    public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId);
+    public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null) {
+        return _datastore.ContainsRelation(relationId, from, to, fromTargetToSource, ctx ?? Context);
+    }
     public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
         => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx ?? Context);
-    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node)
-        => _datastore.TryGetRelatedNodeFromPropertyId(propertyId, from, out node);
-    public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from)
-        => _datastore.GetRelatedCountFromPropertyId(propertyId, from);
-    public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource)
-        => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource);
+    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node, QueryContext? ctx = null)
+        => _datastore.TryGetRelatedNodeFromPropertyId(propertyId, from, out node, ctx ?? Context);
+    public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
+        => _datastore.GetRelatedCountFromPropertyId(propertyId, from, ctx ?? Context);
+    public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null)
+        => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource, ctx ?? Context);
 
     public long GetLastTimestampID() => _datastore.GetLastTimestampID();
     public Task MaintenanceAsync(MaintenanceAction actions) => _datastore.MaintenanceAsync(actions);

@@ -140,9 +140,11 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     void mapAuth(WebApplication app, Func<string, string> path) {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
-        app.MapPost(path("login"), (HttpContext context, Credentials credentials) => {
-            if (server.Authentication.AreCredentialsValid(credentials.UserName, credentials.Password)) {
-                server.Authentication.LogIn(context, credentials.Remember);
+        app.MapPost(path("login"), async (HttpContext context, Credentials c) => {
+            var requestIP = context.Connection.RemoteIpAddress + "";
+            var valid = await server.Authentication.AreCredentialsValid(c.UserName, c.Password, requestIP);
+            if (valid) {
+                server.Authentication.LogIn(context, c.Remember);
                 return new { Success = true };
             }
             return new { Success = false };

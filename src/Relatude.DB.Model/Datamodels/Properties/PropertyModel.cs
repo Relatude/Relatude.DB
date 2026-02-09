@@ -18,6 +18,7 @@ public abstract class PropertyModel {
     public Guid Id { get; set; }
     public Guid NodeType { get; set; }
     public bool Indexed { get; set; }
+    public bool CultureSensitive { get; set; } 
     public IndexStorageType IndexType { get; set; }
     public bool DisplayName { get; set; }
     public bool UniqueValues { get; set; }

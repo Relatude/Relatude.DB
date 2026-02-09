@@ -68,7 +68,16 @@ internal class StringProperty : Property, IPropertyContainsValue {
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
-    public IValueIndex<string>? Index;
+    IValueIndex<string>? Index;
+    public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)]out IValueIndex<string> index) {
+        if (Index != null) {
+            index = Index;
+            return true;
+        }else {
+            index = null;
+            return false;
+        }
+    }
     public IWordIndex? WordIndex;
     public override object ForceValueType(object value, out bool changed) {
         return StringPropertyModel.ForceValueType(value, out changed);

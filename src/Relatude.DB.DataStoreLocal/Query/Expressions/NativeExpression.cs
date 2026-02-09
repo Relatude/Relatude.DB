@@ -306,8 +306,8 @@ namespace Relatude.DB.Query.Expressions {
             _value = value;
         }
         public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.Filter(set, _operator, _value, ctx);
+            if (_property.TryGetIndex(ctx, out var index)) {
+                return index.Filter(set, _operator, _value, ctx);
             } else {
                 throw new NotImplementedException("String property is not indexed by value.");
             }
