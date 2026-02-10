@@ -15,8 +15,8 @@ internal class DateTimeProperty : ValueProperty<DateTime>, IPropertyContainsValu
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(DateTime v, IAppendStream stream) => stream.WriteDateTimeUtc(v);
-    protected override DateTime read(IReadStream stream) => stream.ReadDateTimeUtc();
+    protected override void WriteValue(DateTime v, IAppendStream stream) => stream.WriteDateTimeUtc(v);
+    protected override DateTime ReadValue(IReadStream stream) => stream.ReadDateTimeUtc();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);

@@ -13,8 +13,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             MaxValue = pm.MaxValue;
             DefaultValue = pm.DefaultValue;
         }
-        protected override void write(double v, IAppendStream stream) => stream.WriteDouble(v);
-        protected override double read(IReadStream stream) => stream.ReadDouble();
+        protected override void WriteValue(double v, IAppendStream stream) => stream.WriteDouble(v);
+        protected override double ReadValue(IReadStream stream) => stream.ReadDouble();
         public override PropertyType PropertyType => PropertyType.Double;
         public double DefaultValue;
         public override IRangeIndex? ValueIndex => Index;

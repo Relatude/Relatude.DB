@@ -5,7 +5,6 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
@@ -13,12 +12,10 @@ internal class BooleanProperty : ValueProperty<bool> {
     public BooleanProperty(BooleanPropertyModel pm, Definition def) : base(pm, def) {
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(bool v, IAppendStream stream) => stream.WriteBool(v);
-    protected override bool read(IReadStream stream) => stream.ReadBool();
+    protected override void WriteValue(bool v, IAppendStream stream) => stream.WriteBool(v);
+    protected override bool ReadValue(IReadStream stream) => stream.ReadBool();
     public bool DefaultValue;
-    public IValueIndex<bool>? Index;
     public override PropertyType PropertyType => PropertyType.Boolean;
-    public override IRangeIndex? ValueIndex => Index;
     public override object ForceValueType(object value, out bool changed) {
         return BooleanPropertyModel.ForceValueType(value, out changed);
     }
@@ -31,14 +28,6 @@ internal class BooleanProperty : ValueProperty<bool> {
         facets.AddValue(new FacetValue(false));
         facets.AddValue(new FacetValue(true));
         return facets;
-    }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        foreach (var facetValue in facets.Values) {
-            var v = BooleanPropertyModel.ForceValueType(facetValue.Value, out _);
-            nodeIds = Index.Filter(nodeIds, IndexOperator.Equal, v);
-        }
-        return nodeIds;
     }
     public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         if (Index == null) throw new NullReferenceException("Index is null. ");
@@ -59,7 +48,6 @@ internal class BooleanProperty : ValueProperty<bool> {
             _ => throw new NotSupportedException(),
         };
     }
-
     public override bool AreValuesEqual(object v1, object v2) {
         if( v1 is bool b1 && v2 is bool b2 ) return b1 == b2;
         return false;

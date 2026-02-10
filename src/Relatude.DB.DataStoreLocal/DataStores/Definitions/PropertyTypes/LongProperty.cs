@@ -13,8 +13,8 @@ internal class LongProperty : ValueProperty<long>, IPropertyContainsValue {
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(long v, IAppendStream stream) => stream.WriteLong(v);
-    protected override long read(IReadStream stream) => stream.ReadLong();
+    protected override void WriteValue(long v, IAppendStream stream) => stream.WriteLong(v);
+    protected override long ReadValue(IReadStream stream) => stream.ReadLong();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);

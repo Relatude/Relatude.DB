@@ -12,8 +12,8 @@ internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValu
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(TimeSpan v, IAppendStream stream) => stream.WriteLong(v.Ticks);
-    protected override TimeSpan read(IReadStream stream) => TimeSpan.FromTicks(stream.ReadLong());
+    protected override void WriteValue(TimeSpan v, IAppendStream stream) => stream.WriteLong(v.Ticks);
+    protected override TimeSpan ReadValue(IReadStream stream) => TimeSpan.FromTicks(stream.ReadLong());
     public override IRangeIndex? ValueIndex => Index;
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {

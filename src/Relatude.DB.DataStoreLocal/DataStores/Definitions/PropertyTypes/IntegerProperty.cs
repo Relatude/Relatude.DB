@@ -13,8 +13,8 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(int v, IAppendStream stream) => stream.WriteInt(v);
-    protected override int read(IReadStream stream) => stream.ReadInt();
+    protected override void WriteValue(int v, IAppendStream stream) => stream.WriteInt(v);
+    protected override int ReadValue(IReadStream stream) => stream.ReadInt();
     public override PropertyType PropertyType => PropertyType.Integer;
     public readonly int DefaultValue;
     public override IRangeIndex? ValueIndex => Index;

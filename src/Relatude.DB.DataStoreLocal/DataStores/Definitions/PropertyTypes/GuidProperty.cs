@@ -10,8 +10,8 @@ internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     public GuidProperty(GuidPropertyModel pm, Definition def) : base(pm, def) {
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(Guid v, IAppendStream stream) => stream.WriteGuid(v);
-    protected override Guid read(IReadStream stream) => stream.ReadGuid();
+    protected override void WriteValue(Guid v, IAppendStream stream) => stream.WriteGuid(v);
+    protected override Guid ReadValue(IReadStream stream) => stream.ReadGuid();
     public override PropertyType PropertyType => PropertyType.Long;
     public Guid DefaultValue;
     public IValueIndex<Guid>? Index;

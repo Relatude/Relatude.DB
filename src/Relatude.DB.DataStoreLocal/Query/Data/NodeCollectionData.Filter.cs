@@ -114,11 +114,20 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     case PropertyType.Float:
                         var floatValue = FloatPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeFloatProperty((FloatProperty)prop, floatValue, op);
+                    case PropertyType.Double:
+                        var doubleValue = DoublePropertyModel.ForceValueType(constEx.Value!, out _);
+                        return new OperatorExpressionNativeDoubleProperty((DoubleProperty)prop, doubleValue, op);
                     case PropertyType.String:
                         return new OperatorExpressionNativeStringProperty((StringProperty)prop, (string)constEx.Value!, op);
                     case PropertyType.DateTime:
                         var dateTimeValue = DateTimePropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeDateTimeProperty((DateTimeProperty)prop, dateTimeValue, op);
+                    case PropertyType.TimeSpan:
+                        var timeSpanValue = TimeSpanPropertyModel.ForceValueType(constEx.Value!, out _);
+                        return new OperatorExpressionNativeTimeSpanProperty((TimeSpanProperty)prop, timeSpanValue, op);
+                    case PropertyType.DateTimeOffset:
+                        var dateTimeOffsetValue = DateTimeOffsetPropertyModel.ForceValueType(constEx.Value!, out _);
+                        return new OperatorExpressionNativeDateTimeOffsetProperty((DateTimeOffsetProperty)prop, dateTimeOffsetValue, op);
                     case PropertyType.Long:
                         var longValue = LongPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeLongProperty((LongProperty)prop, longValue, op);

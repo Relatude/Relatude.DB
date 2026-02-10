@@ -16,8 +16,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
             MaxValue = pm.MaxValue;
             DefaultValue = pm.DefaultValue;
         }
-        protected override void write(decimal v, IAppendStream stream) => stream.WriteDecimal(v);
-        protected override decimal read(IReadStream stream) => stream.ReadDecimal();
+        protected override void WriteValue(decimal v, IAppendStream stream) => stream.WriteDecimal(v);
+        protected override decimal ReadValue(IReadStream stream) => stream.ReadDecimal();
 
         public override PropertyType PropertyType => PropertyType.Decimal;
         public decimal DefaultValue;

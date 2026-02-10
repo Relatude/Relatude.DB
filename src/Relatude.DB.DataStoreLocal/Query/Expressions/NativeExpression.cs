@@ -124,184 +124,11 @@ namespace Relatude.DB.Query.Expressions {
             }
         }
     }
-    internal class OperatorExpressionNativeBooleanProperty : IBooleanNativeExpression {
-        readonly bool _value;
-        readonly BooleanProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeBooleanProperty(BooleanProperty property, bool value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeIntegerProperty : IBooleanNativeExpression {
-        int _value;
-        IntegerProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeIntegerProperty(IntegerProperty property, int value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeFloatProperty : IBooleanNativeExpression {
-        float _value;
-        FloatProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeFloatProperty(FloatProperty property, float value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeDateTimeProperty : IBooleanNativeExpression {
-        DateTime _value;
-        DateTimeProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeDateTimeProperty(DateTimeProperty property, DateTime value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeDecimalProperty : IBooleanNativeExpression {
-        decimal _value;
-        DecimalProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeDecimalProperty(DecimalProperty property, decimal value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeLongProperty : IBooleanNativeExpression {
-        long _value;
-        LongProperty _property;
-        IndexOperator _operator;
-        public OperatorExpressionNativeLongProperty(LongProperty property, long value, IndexOperator op) {
-            _property = property;
-            _operator = op;
-            _value = value;
-        }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public int MaxCount(QueryContext ctx) {
-            if (_property.Indexed && _property.Index != null) {
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException();
-            }
-        }
-        public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
-        }
-        public object Evaluate(IVariables vars) => throw new NotImplementedException();
-    }
-    internal class OperatorExpressionNativeStringProperty : IBooleanNativeExpression {
-        readonly string _value;
-        readonly StringProperty _property;
+    internal abstract class OperatorExpressionNativeProperty<T> : IBooleanNativeExpression where T : notnull {
+        readonly T _value;
+        readonly ValueProperty<T> _property;
         readonly IndexOperator _operator;
-        public OperatorExpressionNativeStringProperty(StringProperty property, string value, IndexOperator op) {
+        public OperatorExpressionNativeProperty(ValueProperty<T> property, T value, IndexOperator op) {
             _property = property;
             _operator = op;
             _value = value;
@@ -309,10 +136,233 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetIndex(ctx).Filter(set, _operator, _value);
         public int MaxCount(QueryContext ctx) => _property.GetIndex(ctx).MaxCount(_operator, _value);
         public override string ToString() {
-            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToStringLiteral());
+            return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value is string s ? s.ToStringLiteral() : _value.ToString()!);
         }
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
+
+    internal class OperatorExpressionNativeBooleanProperty : OperatorExpressionNativeProperty<bool> {
+        public OperatorExpressionNativeBooleanProperty(BooleanProperty property, bool value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeIntegerProperty : OperatorExpressionNativeProperty<int> {
+        public OperatorExpressionNativeIntegerProperty(IntegerProperty property, int value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeFloatProperty : OperatorExpressionNativeProperty<float> {
+        public OperatorExpressionNativeFloatProperty(FloatProperty property, float value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeDoubleProperty : OperatorExpressionNativeProperty<double> {
+        public OperatorExpressionNativeDoubleProperty(DoubleProperty property, double value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeDateTimeProperty : OperatorExpressionNativeProperty<DateTime> {
+        public OperatorExpressionNativeDateTimeProperty(DateTimeProperty property, DateTime value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeTimeSpanProperty : OperatorExpressionNativeProperty<TimeSpan> {
+        public OperatorExpressionNativeTimeSpanProperty(TimeSpanProperty property, TimeSpan value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeDateTimeOffsetProperty : OperatorExpressionNativeProperty<DateTimeOffset> {
+        public OperatorExpressionNativeDateTimeOffsetProperty(DateTimeOffsetProperty property, DateTimeOffset value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeDecimalProperty : OperatorExpressionNativeProperty<decimal> {
+        public OperatorExpressionNativeDecimalProperty(DecimalProperty property, decimal value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeLongProperty : OperatorExpressionNativeProperty<long> {
+        public OperatorExpressionNativeLongProperty(LongProperty property, long value, IndexOperator op) : base(property, value, op) { }
+    }
+    internal class OperatorExpressionNativeStringProperty : OperatorExpressionNativeProperty<string> {
+        public OperatorExpressionNativeStringProperty(StringProperty property, string value, IndexOperator op) : base(property, value, op) { }
+    }
+
+
+    //    internal class OperatorExpressionNativeBooleanProperty : IBooleanNativeExpression {
+    //    readonly bool _value;
+    //    readonly BooleanProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeBooleanProperty(BooleanProperty property, bool value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeIntegerProperty : IBooleanNativeExpression {
+    //    int _value;
+    //    IntegerProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeIntegerProperty(IntegerProperty property, int value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed) {
+    //            if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeFloatProperty : IBooleanNativeExpression {
+    //    float _value;
+    //    FloatProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeFloatProperty(FloatProperty property, float value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed) {
+    //            if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeDateTimeProperty : IBooleanNativeExpression {
+    //    DateTime _value;
+    //    DateTimeProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeDateTimeProperty(DateTimeProperty property, DateTime value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed) {
+    //            if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeDecimalProperty : IBooleanNativeExpression {
+    //    decimal _value;
+    //    DecimalProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeDecimalProperty(DecimalProperty property, decimal value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed) {
+    //            if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeLongProperty : IBooleanNativeExpression {
+    //    long _value;
+    //    LongProperty _property;
+    //    IndexOperator _operator;
+    //    public OperatorExpressionNativeLongProperty(LongProperty property, long value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) {
+    //        if (_property.Indexed) {
+    //            if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
+    //            return _property.Index.Filter(set, _operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public int MaxCount(QueryContext ctx) {
+    //        if (_property.Indexed && _property.Index != null) {
+    //            return _property.Index.MaxCount(_operator, _value);
+    //        } else {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToString());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+    //internal class OperatorExpressionNativeStringProperty : IBooleanNativeExpression {
+    //    readonly string _value;
+    //    readonly StringProperty _property;
+    //    readonly IndexOperator _operator;
+    //    public OperatorExpressionNativeStringProperty(StringProperty property, string value, IndexOperator op) {
+    //        _property = property;
+    //        _operator = op;
+    //        _value = value;
+    //    }
+    //    public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetIndex(ctx).Filter(set, _operator, _value);
+    //    public int MaxCount(QueryContext ctx) => _property.GetIndex(ctx).MaxCount(_operator, _value);
+    //    public override string ToString() {
+    //        return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToStringLiteral());
+    //    }
+    //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    //}
+
     internal class MethodExpressionNativeSearchProperty : IBooleanNativeExpression {
         readonly string _value;
         readonly int _maxHits;

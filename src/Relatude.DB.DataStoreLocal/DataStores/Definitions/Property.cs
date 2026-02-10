@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using System.Xml.Linq;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -16,6 +15,8 @@ namespace Relatude.DB.DataStores.Definitions {
     internal abstract class ValueProperty<T> : Property where T : notnull {
         IValueIndex<T>? _index;
         Dictionary<string, IValueIndex<T>>? _indexByCulture;
+        public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
+        }
         public IValueIndex<T> GetIndex(QueryContext ctx) {
             if (Model.CultureSensitive) {
                 if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
@@ -27,19 +28,31 @@ namespace Relatude.DB.DataStores.Definitions {
                 return _index;
             }
         }
-        public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
-        }
-        protected abstract void write(T v, IAppendStream stream);
-        protected abstract T read(IReadStream stream);
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed) {
-                var indexes = IndexFactory.CreateValueIndexes<T>(store, def.Sets, this, null, write, read);
+                var indexes = IndexFactory.CreateValueIndexes<T>(store, def.Sets, this, null, WriteValue, ReadValue);
                 if(indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
                 if (Model.CultureSensitive) _index = indexes.First().Value;
                 else _indexByCulture = indexes;
                 Indexes.AddRange(indexes.Values);
             }
         }
+        protected abstract void WriteValue(T v, IAppendStream stream);
+        protected abstract T ReadValue(IReadStream stream);
+
+        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
+            var index = GetIndex(ctx);
+            foreach (var facetValue in facets.Values) {
+                var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
+                nodeIds = index.Filter(nodeIds, IndexOperator.Equal, (T)v);
+            }
+            return nodeIds;
+        }
+        public virtual IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
+            var index = GetIndex(ctx);
+            return index.FilterRangesObject(set, from, to);
+        }
+
     }
     internal abstract class Property {
         static int _idCnt = 0;
@@ -103,11 +116,6 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract object GetDefaultValue();
         public void CompressMemory() {
             foreach (var item in Indexes) item.CompressMemory();
-        }
-        public virtual IRangeIndex? ValueIndex { get { return null; } }
-        public virtual IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
-            if (ValueIndex is null) throw new NotSupportedException("This property does not support range filtering. ");
-            return ValueIndex.FilterRangesObject(set, from, to);
         }
         public virtual IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
             throw new NotSupportedException("This property does not support filtering by multiple values. ");

@@ -5,18 +5,17 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset>, IPropertyContainsValue {
+internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
     public DateTimeOffsetProperty(DateTimeOffsetPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    protected override void write(DateTimeOffset v, IAppendStream stream) => stream.WriteDateTimeOffset(v);
-    protected override DateTimeOffset read(IReadStream stream) => stream.ReadDateTimeOffset();
+    protected override void WriteValue(DateTimeOffset v, IAppendStream stream) => stream.WriteDateTimeOffset(v);
+    protected override DateTimeOffset ReadValue(IReadStream stream) => stream.ReadDateTimeOffset();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);

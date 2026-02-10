@@ -2,6 +2,7 @@
 using System.Globalization;
 
 namespace Relatude.DB.Datamodels.Properties;
+
 public interface IPropertyModelUniqueContraints {
     public bool UniqueValues { get; set; }
 }
@@ -18,7 +19,7 @@ public abstract class PropertyModel {
     public Guid Id { get; set; }
     public Guid NodeType { get; set; }
     public bool Indexed { get; set; }
-    public bool CultureSensitive { get; set; } 
+    public bool CultureSensitive { get; set; }
     public IndexStorageType IndexType { get; set; }
     public bool DisplayName { get; set; }
     public bool UniqueValues { get; set; }
@@ -91,4 +92,28 @@ public abstract class PropertyModel {
     public virtual string? GetTextIndex(object value) => null;
     public virtual string? GetSemanticIndex(object value) => GetTextIndex(value);
 
+    public static T ForceValueAnyType<T>(object value, PropertyType propertyType, out bool changed) where T : notnull {
+        switch (propertyType) {
+            case PropertyType.Boolean: return (T)(object)BooleanPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Integer: return (T)(object)IntegerPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.String: return (T)(object)StringPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.StringArray: return (T)(object)StringArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Double: return (T)(object)DoublePropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Float: return (T)(object)FloatPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Decimal: return (T)(object)DecimalPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.DateTime: return (T)(object)DateTimePropertyModel.ForceValueType(value, out changed);
+            case PropertyType.TimeSpan: return (T)(object)TimeSpanPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Guid: return (T)(object)GuidPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Long: return (T)(object)LongPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.ByteArray: return (T)(object)ByteArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.File: return (T)(object)FilePropertyModel.ForceValueType(value, out changed);
+            case PropertyType.FloatArray: return (T)(object)FloatArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Relation:
+            case PropertyType.Any:
+            default:
+                throw new NotImplementedException("ForceValueType is not implemented for property type " + propertyType);
+        }
+
+    }
 }

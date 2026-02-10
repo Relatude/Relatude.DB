@@ -35,8 +35,8 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         if (IndexedByWords) WordIndex = IndexFactory.CreateWordIndex(store, def.Sets, this);
         if (WordIndex != null) Indexes.Add(WordIndex);
     }
-    protected override void write(string v, IAppendStream stream) => stream.WriteString(v);
-    protected override string read(IReadStream stream) => stream.ReadString();
+    protected override void WriteValue(string v, IAppendStream stream) => stream.WriteString(v);
+    protected override string ReadValue(IReadStream stream) => stream.ReadString();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (_index != null) {
             sorted = _index.ReOrder(unsorted, descending);

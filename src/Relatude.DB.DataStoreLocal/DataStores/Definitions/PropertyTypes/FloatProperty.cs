@@ -14,8 +14,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             MaxValue = pm.MaxValue;
             DefaultValue = pm.DefaultValue;
         }
-        protected override void write(float v, IAppendStream stream) => stream.WriteFloat(v);
-        protected override float read(IReadStream stream) => stream.ReadFloat();
+        protected override void WriteValue(float v, IAppendStream stream) => stream.WriteFloat(v);
+        protected override float ReadValue(IReadStream stream) => stream.ReadFloat();
 
         public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
             if (Index != null) {

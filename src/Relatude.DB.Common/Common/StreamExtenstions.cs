@@ -69,6 +69,19 @@ namespace Relatude.DB.Common {
             }
         }
 
+        public static void WriteDateTimeOffset(this Stream s, DateTimeOffset v) {
+            s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
+            s.Write(BitConverter.GetBytes(v.Offset.Ticks), 0, 8);
+        }
+        public static DateTimeOffset ReadDateTimeOffset(this Stream s) {
+            byte[] b = new byte[8];
+            s.Read(b, 0, 8);
+            var ticks = BitConverter.ToInt64(b, 0);
+            s.Read(b, 0, 8);
+            var offsetTicks = BitConverter.ToInt64(b, 0);
+            return new DateTimeOffset(new DateTime(ticks), new TimeSpan(offsetTicks));
+        }
+
         public static void WriteTimeSpan(this Stream s, TimeSpan v) {
             s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
         }
