@@ -7,20 +7,14 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class LongProperty : Property, IPropertyContainsValue {
+internal class LongProperty : ValueProperty<long>, IPropertyContainsValue {
     public LongProperty(LongPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(long v, IAppendStream stream) => stream.WriteLong(v);
-    long read(IReadStream stream) => stream.ReadLong();
+    protected override void write(long v, IAppendStream stream) => stream.WriteLong(v);
+    protected override long read(IReadStream stream) => stream.ReadLong();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);

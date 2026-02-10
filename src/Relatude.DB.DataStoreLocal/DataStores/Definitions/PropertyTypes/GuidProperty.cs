@@ -6,18 +6,12 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class GuidProperty : Property, IPropertyContainsValue {
+internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     public GuidProperty(GuidPropertyModel pm, Definition def) : base(pm, def) {
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(Guid v, IAppendStream stream) => stream.WriteGuid(v);
-    Guid read(IReadStream stream) => stream.ReadGuid();
+    protected override void write(Guid v, IAppendStream stream) => stream.WriteGuid(v);
+    protected override Guid read(IReadStream stream) => stream.ReadGuid();
     public override PropertyType PropertyType => PropertyType.Long;
     public Guid DefaultValue;
     public IValueIndex<Guid>? Index;

@@ -7,20 +7,14 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class IntegerProperty : Property, IPropertyContainsValue {
+internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     public IntegerProperty(IntegerPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(int v, IAppendStream stream) => stream.WriteInt(v);
-    int read(IReadStream stream) => stream.ReadInt();
+    protected override void write(int v, IAppendStream stream) => stream.WriteInt(v);
+    protected override int read(IReadStream stream) => stream.ReadInt();
     public override PropertyType PropertyType => PropertyType.Integer;
     public readonly int DefaultValue;
     public override IRangeIndex? ValueIndex => Index;

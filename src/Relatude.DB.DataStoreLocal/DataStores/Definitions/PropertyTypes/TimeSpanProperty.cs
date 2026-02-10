@@ -1,5 +1,4 @@
-﻿using Relatude.DB.AI;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
@@ -7,20 +6,14 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class TimeSpanProperty : Property, IPropertyContainsValue {
+internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValue {
     public TimeSpanProperty(TimeSpanPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(TimeSpan v, IAppendStream stream) => stream.WriteLong(v.Ticks);
-    TimeSpan read(IReadStream stream) => TimeSpan.FromTicks(stream.ReadLong());
+    protected override void write(TimeSpan v, IAppendStream stream) => stream.WriteLong(v.Ticks);
+    protected override TimeSpan read(IReadStream stream) => TimeSpan.FromTicks(stream.ReadLong());
     public override IRangeIndex? ValueIndex => Index;
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {

@@ -9,23 +9,12 @@ using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class BooleanProperty : Property {
+internal class BooleanProperty : ValueProperty<bool> {
     public BooleanProperty(BooleanPropertyModel pm, Definition def) : base(pm, def) {
         DefaultValue = pm.DefaultValue;
     }
-    IValueIndex<bool>? _index = null;
-    Dictionary<string, IValueIndex<bool>>? _indexByCulture = null;
-    public IValueIndex<bool> GetIndex(QueryContext ctx) => (Model.CultureSensitive) ? _indexByCulture![ctx.CultureCode!] : _index!;
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            var indexes = IndexFactory.CreateValueIndexes(store, def.Sets, this, null, write, read);
-            if (Model.CultureSensitive) _index = indexes.First().Value;
-            else _indexByCulture = indexes;
-            Indexes.AddRange(indexes.Values);
-        }
-    }
-    void write(bool v, IAppendStream stream) => stream.WriteBool(v);
-    bool read(IReadStream stream) => stream.ReadBool();
+    protected override void write(bool v, IAppendStream stream) => stream.WriteBool(v);
+    protected override bool read(IReadStream stream) => stream.ReadBool();
     public bool DefaultValue;
     public IValueIndex<bool>? Index;
     public override PropertyType PropertyType => PropertyType.Boolean;

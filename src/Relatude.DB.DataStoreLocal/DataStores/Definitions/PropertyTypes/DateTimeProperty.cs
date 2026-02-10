@@ -8,20 +8,15 @@ using Relatude.DB.IO;
 using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class DateTimeProperty : Property, IPropertyContainsValue {
+
+internal class DateTimeProperty : ValueProperty<DateTime>, IPropertyContainsValue {
     public DateTimeProperty(DateTimePropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(DateTime v, IAppendStream stream) => stream.WriteDateTimeUtc(v);
-    DateTime read(IReadStream stream) => stream.ReadDateTimeUtc();
+    protected override void write(DateTime v, IAppendStream stream) => stream.WriteDateTimeUtc(v);
+    protected override DateTime read(IReadStream stream) => stream.ReadDateTimeUtc();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);

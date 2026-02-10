@@ -1,28 +1,20 @@
-﻿using Relatude.DB.AI;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
-    internal class DoubleProperty : Property {
+    internal class DoubleProperty : ValueProperty<double> {
         public DoubleProperty(DoublePropertyModel pm, Definition def) : base(pm, def) {
             MinValue = pm.MinValue;
             MaxValue = pm.MaxValue;
             DefaultValue = pm.DefaultValue;
         }
-        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-            if (Indexed) {
-                Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-                Indexes.Add(Index);
-            }
-        }
-        void write(double v, IAppendStream stream) => stream.WriteDouble(v);
-        double read(IReadStream stream) => stream.ReadDouble();
+        protected override void write(double v, IAppendStream stream) => stream.WriteDouble(v);
+        protected override double read(IReadStream stream) => stream.ReadDouble();
         public override PropertyType PropertyType => PropertyType.Double;
         public double DefaultValue;
         public override IRangeIndex? ValueIndex => Index;
