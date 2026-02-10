@@ -6,14 +6,31 @@ using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes.Trie;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using System;
+using System.Text.RegularExpressions;
 
 namespace Relatude.DB.DataStores.Indexes;
 
 internal static class IndexFactory {
     static bool useOptimizedIndexes = true;
-    public static IValueIndex<T> CreateValueIndex<T>(DataStoreLocal store, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
+    public static Dictionary<string, IValueIndex<T>> CreateValueIndexes<T>(DataStoreLocal store, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
+        Dictionary<string, IValueIndex<T>> indexes = new();
+        if (property.Model.CultureSensitive) {
+            foreach (var culture in store._nativeModelStore.Cultures) {
+                var index = CreateValueIndex<T>(store, culture.CultureCode, sets, property, subKey, writeValue, readValue);
+                indexes[culture.CultureCode] = index;
+            }
+        } else {
+            var index = CreateValueIndex<T>(store, null, sets, property, subKey, writeValue, readValue);
+            indexes[string.Empty] = index;
+        }
+        return indexes;
+    }
+    static IValueIndex<T> CreateValueIndex<T>(DataStoreLocal store, string? cultureCode, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
         var settings = store.Settings;
-        var uniqueKey = property.Id + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
+        var uniqueKey = property.Id
+            + (string.IsNullOrEmpty(cultureCode) ? "" : "_" + cultureCode)
+            + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
         var useProvider = property.Model.IndexType switch {
             IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
             IndexStorageType.Memory => false,
@@ -29,8 +46,8 @@ internal static class IndexFactory {
             var name = "Memory Value Index " + classDef.CodeName + "." + property.CodeName;
             index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, store.FileKeys, writeValue, readValue);
         }
-        if (!useOptimizedIndexes) return index;
-        return new OptimizedValueIndex<T>(index);
+        if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
+        return index;
     }
     internal static IWordIndex CreateWordIndex(DataStoreLocal store, SetRegister sets, StringProperty p) {
         var settings = store.Settings;

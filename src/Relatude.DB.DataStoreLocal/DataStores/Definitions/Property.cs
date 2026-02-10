@@ -13,6 +13,34 @@ namespace Relatude.DB.DataStores.Definitions {
     public interface IPropertyContainsValue {
         public bool ContainsValue(object value);
     }
+    internal abstract class ValueProperty<T> : Property where T : notnull {
+        IValueIndex<T>? _index;
+        Dictionary<string, IValueIndex<T>>? _indexByCulture;
+        public IValueIndex<T> GetIndex(QueryContext ctx) {
+            if (Model.CultureSensitive) {
+                if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
+                if (ctx.CultureCode is null) throw new Exception("The property " + CodeName + " is culture sensitive but the query context does not have a culture code. ");
+                if (_indexByCulture!.TryGetValue(ctx.CultureCode!, out var index)) return index;
+                throw new Exception("The property " + CodeName + " is culture sensitive but no index was found for culture code " + ctx.CultureCode + ". ");
+            } else {
+                if (_index is null) throw new Exception("The property " + CodeName + " is not culture sensitive but no index was initialized. ");
+                return _index;
+            }
+        }
+        public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
+        }
+        protected abstract void write(T v, IAppendStream stream);
+        protected abstract T read(IReadStream stream);
+        internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
+            if (Indexed) {
+                var indexes = IndexFactory.CreateValueIndexes<T>(store, def.Sets, this, null, write, read);
+                if(indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
+                if (Model.CultureSensitive) _index = indexes.First().Value;
+                else _indexByCulture = indexes;
+                Indexes.AddRange(indexes.Values);
+            }
+        }
+    }
     internal abstract class Property {
         static int _idCnt = 0;
         public int __Id_transient;  // stateless

@@ -11,7 +11,7 @@ using Relatude.DB.Transactions;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class StringProperty : Property, IPropertyContainsValue {
+internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     SetRegister _sets;
     public StringProperty(StringPropertyModel pm, Definition def) : base(pm, def) {
         _isSystemTextIndexPropertyId = pm.Id == NodeConstants.SystemTextIndexPropertyId;
@@ -27,20 +27,19 @@ internal class StringProperty : Property, IPropertyContainsValue {
         MinWordLength = pm.MinWordLength;
         MaxWordLength = pm.MaxWordLength;
         RegularExpression = pm.RegularExpression;
+        CultureSensitive = pm.CultureSensitive;
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
+        base.Initalize(store, def, config, io, ai);
         if (IndexedByWords) WordIndex = IndexFactory.CreateWordIndex(store, def.Sets, this);
-        //WordIndex = new WordIndex(def.Sets, Id + nameof(WordIndex), Id, MinWordLength, MaxWordLength, PrefixSearch, InfixSearch);
-        if (Index != null) Indexes.Add(Index);
         if (WordIndex != null) Indexes.Add(WordIndex);
     }
-    void write(string v, IAppendStream stream) => stream.WriteString(v);
-    string read(IReadStream stream) => stream.ReadString();
+    protected override void write(string v, IAppendStream stream) => stream.WriteString(v);
+    protected override string read(IReadStream stream) => stream.ReadString();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
-        if (Index != null) {
-            sorted = Index.ReOrder(unsorted, descending);
+        if (_index != null) {
+            sorted = _index.ReOrder(unsorted, descending);
             return true;
         }
         return base.TryReorder(unsorted, descending, out sorted);
@@ -51,6 +50,7 @@ internal class StringProperty : Property, IPropertyContainsValue {
     readonly public StringValueType StringType = StringValueType.AnyString;
     readonly public bool PrefixSearch;
     readonly public bool InfixSearch;
+    readonly public bool CultureSensitive;
     readonly public bool IndexedByWords;
     readonly public bool IndexedBySemantic;
     readonly public Guid PropertyIdForVectors = Guid.Empty;
@@ -68,16 +68,6 @@ internal class StringProperty : Property, IPropertyContainsValue {
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
-    IValueIndex<string>? Index;
-    public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)]out IValueIndex<string> index) {
-        if (Index != null) {
-            index = Index;
-            return true;
-        }else {
-            index = null;
-            return false;
-        }
-    }
     public IWordIndex? WordIndex;
     public override object ForceValueType(object value, out bool changed) {
         return StringPropertyModel.ForceValueType(value, out changed);
@@ -88,41 +78,41 @@ internal class StringProperty : Property, IPropertyContainsValue {
         if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");
         if (_regEx != null && !_regEx.Match(v).Success) throw new Exception("Value does not match regular expression. ");
     }
-    public override IRangeIndex? ValueIndex => Index;
+    public override IRangeIndex? ValueIndex => _index;
     public override object GetDefaultValue() => DefaultValue;
     public bool ContainsValue(object value) {
-        if (Index == null) throw new Exception("Index is null. ");
-        return Index.ContainsValue((string)value);
+        if (_index == null) throw new Exception("Index is null. ");
+        return _index.ContainsValue((string)value);
     }
     public override bool CanBeFacet() => Indexed;
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
+        if (_index == null) throw new NullReferenceException("Index is null. ");
         var facets = new Facets(Model);
         if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
         facets.IsRangeFacet = false;
         if (given != null && given.HasValues()) {
             foreach (var f in given.Values) facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
         } else {
-            var possibleValues = Index.UniqueValues;
+            var possibleValues = _index.UniqueValues;
             foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
         }
         return facets;
     }
     public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
+        if (_index == null) throw new NullReferenceException("Index is null. ");
         foreach (var facetValue in facets.Values) {
             var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
-            facetValue.Count = Index.CountEqual(nodeIds, v);
+            facetValue.Count = _index.CountEqual(nodeIds, v);
         }
     }
     public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
+        if (_index == null) throw new NullReferenceException("Index is null. ");
         List<string> selectedValues = new();
         foreach (var facetValue in facets.Values) {
             var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
             if (facetValue.Selected) selectedValues.Add(v);
         }
-        if (selectedValues.Count > 0) nodeIds = Index.FilterInValues(nodeIds, selectedValues);
+        if (selectedValues.Count > 0) nodeIds = _index.FilterInValues(nodeIds, selectedValues);
         return nodeIds;
     }
     SemanticIndex? tryGetSemanticIndex(DataStoreLocal db) {

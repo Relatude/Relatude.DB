@@ -8,21 +8,15 @@ using Relatude.DB.IO;
 using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
-internal class DateTimeOffsetProperty : Property, IPropertyContainsValue {
+
+internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset>, IPropertyContainsValue {
     public DateTimeOffsetProperty(DateTimeOffsetPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
     }
-    internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
-        }
-    }
-    void write(DateTimeOffset v, IAppendStream stream) => stream.WriteDateTimeOffset(v);
-    DateTimeOffset read(IReadStream stream) => stream.ReadDateTimeOffset();
-
+    protected override void write(DateTimeOffset v, IAppendStream stream) => stream.WriteDateTimeOffset(v);
+    protected override DateTimeOffset read(IReadStream stream) => stream.ReadDateTimeOffset();
     public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
         if (Index != null) {
             sorted = Index.ReOrder(unsorted, descending);
@@ -35,6 +29,7 @@ internal class DateTimeOffsetProperty : Property, IPropertyContainsValue {
     public DateTimeOffset DefaultValue;
     public DateTimeOffset MinValue = DateTimeOffset.MinValue;
     public DateTimeOffset MaxValue = DateTimeOffset.MaxValue;
+
     public IValueIndex<DateTimeOffset>? Index;
     public override object ForceValueType(object value, out bool changed) {
         return DateTimeOffsetPropertyModel.ForceValueType(value, out changed);

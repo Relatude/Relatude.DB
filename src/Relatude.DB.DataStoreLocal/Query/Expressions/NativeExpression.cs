@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
+using System;
 using System.Text;
 
 namespace Relatude.DB.Query.Expressions {
@@ -15,7 +16,7 @@ namespace Relatude.DB.Query.Expressions {
         /// The calculation of this value must be fast and is only an estimation.
         /// </summary>
         /// <returns>Worst case maximum number of values returned</returns>
-        public int MaxCount();
+        public int MaxCount(QueryContext ctx);
     }
     internal interface IAndOrNativeExpression : IBooleanNativeExpression {
         public List<IBooleanNativeExpression> Expressions { get; }
@@ -24,7 +25,7 @@ namespace Relatude.DB.Query.Expressions {
         public bool Value { get; } = value;
         public object? Evaluate(IVariables vars) => Value;
         public IdSet Filter(IdSet set, QueryContext ctx) => Value ? set : IdSet.Empty;
-        public int MaxCount() => Value ? int.MaxValue : 0;
+        public int MaxCount(QueryContext ctx) => Value ? int.MaxValue : 0;
     }
     internal class AndNativeExpression : IAndOrNativeExpression {
         public AndNativeExpression() {
@@ -33,7 +34,7 @@ namespace Relatude.DB.Query.Expressions {
         public List<IBooleanNativeExpression> Expressions { get; }
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (Expressions.Count < 2) throw new Exception("Too few expressions in AND statement. ");
-            var optimizedOrder = Expressions.OrderBy(e => e.MaxCount());
+            var optimizedOrder = Expressions.OrderBy(e => e.MaxCount(ctx));
             foreach (var exp in optimizedOrder) {
                 set = exp.Filter(set, ctx);
                 var after = set.Count;
@@ -41,8 +42,8 @@ namespace Relatude.DB.Query.Expressions {
             }
             return set;
         }
-        public int MaxCount() {
-            return Expressions.Min(e => e.MaxCount()); // in a and statement, the maximum count is the smallest count of the expressions
+        public int MaxCount(QueryContext ctx) {
+            return Expressions.Min(e => e.MaxCount(ctx)); // in a and statement, the maximum count is the smallest count of the expressions
         }
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
@@ -67,7 +68,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (Expressions.Count < 2) throw new Exception("Too few expressions in OR statement. ");
             var countAll = set.Count;
-            var optimizedOrder = Expressions.OrderBy(e => e.MaxCount());
+            var optimizedOrder = Expressions.OrderBy(e => e.MaxCount(ctx));
             var firstExpression = optimizedOrder.First();
             var workingSet = firstExpression.Filter(set, ctx);
             foreach (var exp in optimizedOrder.Skip(1)) {
@@ -76,8 +77,8 @@ namespace Relatude.DB.Query.Expressions {
             }
             return workingSet;
         }
-        public int MaxCount() {
-            return Expressions.Max(e => e.MaxCount()); // in a or statement, the maximum count is the largest count of the expressions
+        public int MaxCount(QueryContext ctx) {
+            return Expressions.Max(e => e.MaxCount(ctx)); // in a or statement, the maximum count is the largest count of the expressions
         }
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
@@ -113,7 +114,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotSupportedException("Id property can only be used with equal or not equal operator");
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_operator == IndexOperator.Equal) {
                 return 1;
             } else if (_operator == IndexOperator.NotEqual) {
@@ -139,7 +140,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -168,7 +169,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -197,7 +198,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -226,7 +227,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -255,7 +256,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -284,7 +285,7 @@ namespace Relatude.DB.Query.Expressions {
                 throw new NotImplementedException();
             }
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             if (_property.Indexed && _property.Index != null) {
                 return _property.Index.MaxCount(_operator, _value);
             } else {
@@ -305,21 +306,8 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            if (_property.TryGetIndex(ctx, out var index)) {
-                return index.Filter(set, _operator, _value);
-            } else {
-                throw new NotImplementedException("String property is not indexed by value.");
-            }
-        }
-        public int MaxCount() {
-            if (_property.Indexed) {
-                if (_property.Index == null) throw new NullReferenceException(nameof(_property.Index));
-                return _property.Index.MaxCount(_operator, _value);
-            } else {
-                throw new NotImplementedException("String property is not indexed by value.");
-            }
-        }
+        public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetIndex(ctx).Filter(set, _operator, _value);
+        public int MaxCount(QueryContext ctx) => _property.GetIndex(ctx).MaxCount(_operator, _value);
         public override string ToString() {
             return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value.ToStringLiteral());
         }
@@ -345,7 +333,7 @@ namespace Relatude.DB.Query.Expressions {
             //var ids = _property.SearchForIdSet(_value, ratioSemantic, orSearch, _db);
             //return _sets.Intersection(set, ids);
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             throw new NotImplementedException("Search method with max hits not implemented in native expression.");
             //if (_property.WordIndex == null) throw new NullReferenceException(nameof(_property.WordIndex));
             //return _property.SearchForIdSet(_value, ratioSemantic, false, _db).Count;
@@ -359,7 +347,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             return sets.WhereHasRelation(set, directions, relations, to, method);
         }
-        public int MaxCount() => int.MaxValue;
+        public int MaxCount(QueryContext ctx) => int.MaxValue;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class MethodExpressionNativeRange(Property prop, string from, string to) : IBooleanNativeExpression {
@@ -368,7 +356,7 @@ namespace Relatude.DB.Query.Expressions {
             var toO = prop.ForceValueType(to, out _);
             return prop.FilterRanges(set, fromO, toO, ctx);
         }
-        public int MaxCount() => 1000;
+        public int MaxCount(QueryContext ctx) => 1000;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class OperatorExpressionNativeNotPrefix : IBooleanNativeExpression {
@@ -381,7 +369,7 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             return _sets.Difference(set, _expression.Filter(set, ctx));
         }
-        public int MaxCount() {
+        public int MaxCount(QueryContext ctx) {
             return int.MaxValue;
         }
         public override string ToString() {

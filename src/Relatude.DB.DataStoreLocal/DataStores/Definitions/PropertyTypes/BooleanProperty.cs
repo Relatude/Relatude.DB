@@ -13,10 +13,15 @@ internal class BooleanProperty : Property {
     public BooleanProperty(BooleanPropertyModel pm, Definition def) : base(pm, def) {
         DefaultValue = pm.DefaultValue;
     }
+    IValueIndex<bool>? _index = null;
+    Dictionary<string, IValueIndex<bool>>? _indexByCulture = null;
+    public IValueIndex<bool> GetIndex(QueryContext ctx) => (Model.CultureSensitive) ? _indexByCulture![ctx.CultureCode!] : _index!;
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (Indexed) {
-            Index = IndexFactory.CreateValueIndex(store, def.Sets, this, null, write, read);
-            Indexes.Add(Index);
+            var indexes = IndexFactory.CreateValueIndexes(store, def.Sets, this, null, write, read);
+            if (Model.CultureSensitive) _index = indexes.First().Value;
+            else _indexByCulture = indexes;
+            Indexes.AddRange(indexes.Values);
         }
     }
     void write(bool v, IAppendStream stream) => stream.WriteBool(v);

@@ -216,6 +216,7 @@ public class NativeModelStore(DataStoreLocal store) {
     public int CountUserGroups => _userGroups.Count;
     public int CountCollections => _collections.Count;
     public int CountCultures => _cultures.Count;
+    public IEnumerable<NativeSystemCulture> Cultures => _cultures.Values;
     void deleteUser(int nodeId) {
         _users.Remove(nodeId);
     }
