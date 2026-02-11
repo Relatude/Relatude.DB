@@ -118,7 +118,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
                     _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
-                    executeAction(primitive); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
+                    executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(primitive);
                     resultingOperations[i - 1] = resultingOperation;
                 }
@@ -136,7 +136,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             // rollback with opposite actions in reverse order:
             for (var n = executed.Count - 1; n >= 0; n--) {
                 // Console.WriteLine("Rollback: " + executed[n]);
-                executeAction(executed[n].Opposite());
+                executeAction(executed[n].Opposite(), ctx);
             }
             throw;
         } finally {
@@ -156,17 +156,17 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_nodeWriteLocks.IsLocked(ra.Target, transactionLocks)) throw new ExceptionWithoutIntegrityLoss("Node with ID: " + ra.Target + " is locked and cannot have relations changed. ");
         }
     }
-    void executeAction(PrimitiveActionBase action) {
-        if (action is PrimitiveNodeAction na) executeNodeAction(na);
+    void executeAction(PrimitiveActionBase action, QueryContext ctx) {
+        if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx);
         else if (action is PrimitiveRelationAction ra) executeRelationAction(ra);
         else throw new NotImplementedException();
     }
-    void executeNodeAction(PrimitiveNodeAction action) {
+    void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx) {
         switch (action.Operation) {
             case PrimitiveOperation.Add: {
                     if (_nodes.Contains(action.Node.__Id))
                         throw new NodeConstraintException("A node with the ID: " + action.Node.__Id + "(" + action.Node.Id + ") already exists. ", action.Node.Id);
-                    if (_index.WillUniqueConstraintsBeViolated(action.Node, out var p)) {
+                    if (_index.WillUniqueConstraintsBeViolated(action.Node, ctx, out var p)) {
                         var propName = Datamodel.NodeTypes[action.Node.NodeType].ToString() + "." + p.CodeName;
                         var value = action.Node.TryGetValue(p.Id, out var v) ? v : "";
                         throw new ValueConstraintException("The value: \"" + value + "\" of " + propName + " is not unique for node with ID: " + action.Node.__Id + "(" + action.Node.Id + ")", p.Id);

@@ -1,6 +1,6 @@
-﻿using Relatude.DB.Common;
-using Relatude.DB.DataStores.Definitions.PropertyTypes;
+﻿using Relatude.DB.DataStores.Definitions.PropertyTypes;
 namespace Relatude.DB.Query.Data;
+
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource, ISearchCollection {
     public ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated) {
         var property = _def.Properties[searchPropertyId];
@@ -11,7 +11,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         if (!maxHitsEvaluated.HasValue) maxHitsEvaluated = int.MaxValue;
         if (!maxWordsEvaluated.HasValue) maxWordsEvaluated = int.MaxValue;
         if (maxHitsEvaluated < int.MaxValue) maxHitsEvaluated++; // we want to know if there are more hits than requested, so we need to evaluate one more
-        var hits = p.SearchForRankedHitData(_ids, search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, pageIndex, pageSize, maxHitsEvaluated.Value, maxWordsEvaluated.Value, _db, out var totalHits);
+        var hits = p.SearchForRankedHitData(_ids, search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, pageIndex, pageSize, maxHitsEvaluated.Value, maxWordsEvaluated.Value, _db, _ctx, out var totalHits);
         var capped = false;
         if (maxHitsEvaluated < int.MaxValue && totalHits >= maxHitsEvaluated) { // if we have more hits than requested, we know the result is capped
             totalHits = maxHitsEvaluated.Value - 1; // adjust total hits to the maximum hits evaluated
@@ -26,8 +26,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         if (minimumVectorSimilarity == null) minimumVectorSimilarity = _db._ai == null ? 0 : (float)_db._ai.Settings.GetDefaultMinimumSimilarity();
         if (orSearch == null) orSearch = false;
         if (!maxWordVariations.HasValue) maxWordVariations = int.MaxValue;
-        var searchIds = p.SearchForIdSet(search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, maxWordVariations.Value, _db);
+        var searchIds = p.SearchForIdSet(search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, maxWordVariations.Value, _db, _ctx);
         var newSet = _def.Sets.Intersection(searchIds, _ids);
-        return new NodeCollectionData(_db, _metrics, newSet, _nodeType, _includeBranches);
+        return new NodeCollectionData(_db, _ctx, _metrics, newSet, _nodeType, _includeBranches);
     }
 }

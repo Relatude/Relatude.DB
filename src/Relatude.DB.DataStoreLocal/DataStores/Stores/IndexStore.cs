@@ -15,7 +15,7 @@ internal class IndexStore : IDisposable {
     public IndexStore(Definition definition) {
         _definition = definition;
     }
-    public bool WillUniqueConstraintsBeViolated(INodeData node, [MaybeNullWhen(false)] out Property property) {
+    public bool WillUniqueConstraintsBeViolated(INodeData node, QueryContext ctx, [MaybeNullWhen(false)] out Property property) {
         foreach (var kv in node.Values) {
             var p = _definition.Properties[kv.PropertyId];
             if (p.UniqueValues) {
@@ -25,7 +25,7 @@ internal class IndexStore : IDisposable {
                     }
                 }
                 if (p is IPropertyContainsValue pc) {
-                    if (pc.ContainsValue(kv.Value)) {
+                    if (pc.ContainsValue(kv.Value, ctx)) {
                         property = p;
                         return true;
                     }

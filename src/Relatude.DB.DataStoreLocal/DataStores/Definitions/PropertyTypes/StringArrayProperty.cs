@@ -43,7 +43,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         if (Indexed) {
             var indexes = IndexFactory.CreateStringArrayIndexes(store, this, null);
             if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
-            if (Model.CultureSensitive) _index = indexes.First().Value;
+            if (!Model.CultureSensitive) _index = indexes.First().Value;
             else _indexByCulture = indexes;
             Indexes.AddRange(indexes.Values);
         }

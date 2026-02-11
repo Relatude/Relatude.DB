@@ -35,7 +35,7 @@ namespace Relatude.DB.Query.Data {
                 var set = specialSetsForSelectedFacets.TryGetValue(prop.Id, out var s) ? s : innerSet;
                 prop.CountFacets(set, facets, ctx);
             }
-            filteredSource = new NodeCollectionData(_db, _metrics, innerSet, this._nodeType, _includeBranches);
+            filteredSource = new NodeCollectionData(_db, _ctx, _metrics, innerSet, this._nodeType, _includeBranches);
             if (pageSize.HasValue) {
                 filteredSource = (NodeCollectionData)filteredSource.Page(pageIndex, pageSize.Value);
             }

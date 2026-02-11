@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Common;
+﻿using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Definitions;
@@ -22,16 +23,16 @@ internal static class IndexFactory {
         Dictionary<string, StringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
             foreach (var culture in store._nativeModelStore.Cultures) {
-                var index = CreateStringArrayIndex(store, culture.CultureCode, property, subKey);
+                var index = createStringArrayIndex(store, culture.CultureCode, property, subKey);
                 indexes[culture.CultureCode] = index;
             }
         } else {
-            var index = CreateStringArrayIndex (store, null, property, subKey);
+            var index = createStringArrayIndex(store, null, property, subKey);
             indexes[string.Empty] = index;
         }
         return indexes;
     }
-    static StringArrayIndex CreateStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
+    static StringArrayIndex createStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
         var settings = store.Settings;
         var sets = store._definition.Sets;
         var uniqueKey = GetIndexUniqueKey(property, cultureCode, subKey);
@@ -77,9 +78,25 @@ internal static class IndexFactory {
         if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
         return index;
     }
-    internal static IWordIndex CreateWordIndex(DataStoreLocal store, SetRegister sets, StringProperty p, string? subKey) {
+
+    public static Dictionary<string, IWordIndex> CreateWordIndexes(DataStoreLocal store, StringProperty property, string? subKey) {
+        Dictionary<string, IWordIndex> indexes = new();
+        var sets = store._definition.Sets;
+        if (property.Model.CultureSensitive) {
+            foreach (var culture in store._nativeModelStore.Cultures) {
+                var index = createWordIndex(store, culture.CultureCode, sets, property, subKey);
+                indexes[culture.CultureCode] = index;
+            }
+        } else {
+            var index = createWordIndex(store, null, sets, property, subKey);
+            indexes[string.Empty] = index;
+        }
+        return indexes;
+
+    }
+    static IWordIndex createWordIndex(DataStoreLocal store, string? cultureCode, SetRegister sets, StringProperty p, string? subKey) {
         var settings = store.Settings;
-        var uniqueKey = p.Id + nameof(IWordIndex);
+        var uniqueKey = GetIndexUniqueKey(p, cultureCode, subKey);
         var useProvider = ((StringPropertyModel)p.Model).TextIndexType switch {
             IndexStorageType.Default => settings.UsePersistedTextIndexesByDefault,
             IndexStorageType.Memory => false,
@@ -97,6 +114,29 @@ internal static class IndexFactory {
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);
+    }
+
+    public static Dictionary<string, SemanticIndex> CreateSemanticIndexes(DataStoreLocal store, AIEngine ai, FloatArrayProperty property, string? subKey) {
+        Dictionary<string, SemanticIndex> indexes = new();
+        var sets = store._definition.Sets;
+        if (property.Model.CultureSensitive) {
+            foreach (var culture in store._nativeModelStore.Cultures) {
+                var index = createSemanticIndex(store, ai, culture.CultureCode, sets, property, subKey);
+                indexes[culture.CultureCode] = index;
+            }
+        } else {
+            var index = createSemanticIndex(store, ai, null, sets, property, subKey);
+            indexes[string.Empty] = index;
+        }
+        return indexes;
+
+    }
+    static SemanticIndex createSemanticIndex(DataStoreLocal store, AIEngine ai, string? cultureCode, SetRegister sets, FloatArrayProperty p, string? subKey) {
+        var def = store._definition;
+        var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
+        var name = "Semantic " + classDef.CodeName + "." + p.Model.CodeName;
+        var uniqueKey = GetIndexUniqueKey(p, cultureCode, subKey);
+        return new SemanticIndex(def.Sets, uniqueKey, name, store.IOIndex, store.FileKeys, ai);
     }
 
 }

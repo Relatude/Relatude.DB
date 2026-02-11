@@ -6,6 +6,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Serialization;
 using System.Text;
 namespace Relatude.DB.Query.Data;
+
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
 
     IdSet _ids;
@@ -14,10 +15,12 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     NodeType _nodeType;
     INodeData[]? _nodes;
     Metrics _metrics;
+    QueryContext _ctx;
 
     public DataType DataType => DataType.IStoreNodeDataCollection;
-    public NodeCollectionData(DataStoreLocal db, Metrics metrics, IdSet ids, NodeType nodeType, List<IncludeBranch>? includeBranch, int? totalCount = null, int pageIndexUsed = 0, int? pageSizeUsed = null) {
+    public NodeCollectionData(DataStoreLocal db, QueryContext ctx, Metrics metrics, IdSet ids, NodeType nodeType, List<IncludeBranch>? includeBranch, int? totalCount = null, int pageIndexUsed = 0, int? pageSizeUsed = null) {
         _db = db;
+        _ctx = ctx;
         _metrics = metrics;
         _def = db._definition;
         _ids = ids;
@@ -69,22 +72,22 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             if (mask[i++]) ids.Add(id);
         }
         var newIds = IdSet.UncachableSet(ids); // It is not possible to cache the result of a filter
-        return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches, newIds.Count);
+        return new NodeCollectionData(_db, _ctx, _metrics, newIds, _nodeType, _includeBranches, newIds.Count);
     }
     public ObjectData ToObjectCollection() {
         throw new NotImplementedException();
     }
     public ICollectionData Page(int pageIndex, int pageSize) {
         var newIds = _def.Sets.Page(_ids, pageIndex, pageSize);
-        return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches, TotalCount, pageIndex, pageSize);
+        return new NodeCollectionData(_db,_ctx, _metrics, newIds, _nodeType, _includeBranches, TotalCount, pageIndex, pageSize);
     }
     public ICollectionData Skip(int skip) {
         var newIds = _def.Sets.Skip(_ids, skip);
-        return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches, TotalCount, 0, null);
+        return new NodeCollectionData(_db, _ctx, _metrics, newIds, _nodeType, _includeBranches, TotalCount, 0, null);
     }
     public ICollectionData Take(int take) {
         var newIds = _def.Sets.Take(_ids, take);
-        return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches, TotalCount, 0, take);
+        return new NodeCollectionData(_db, _ctx, _metrics, newIds, _nodeType, _includeBranches, TotalCount, 0, take);
     }
     public void BuildTypeScriptTypeInfo(StringBuilder sb) {
         throw new NotImplementedException();
@@ -94,7 +97,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     }
     public bool TryOrderByIndexes(string propertyName, bool descending) {
         var prop = _def.NodeTypes[_nodeType.Id].AllPropertiesByName[propertyName];
-        if (!prop.TryReorder(_ids, descending, out var sorted)) return false;
+        if (prop is not IValueProperty valueProperty) return false;
+        if (!valueProperty.TryReorder(_ids, descending, _ctx, out var sorted)) return false;
         _ids = sorted;
         return true;
     }

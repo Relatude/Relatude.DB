@@ -12,7 +12,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             var nativeFilter = getIndexExpression(vars, orgFilter, _def, _db);
             if (nativeFilter is not IBooleanNativeExpression exp) throw new Exception("Filter clause does not evaluate to a bool expression. ");
             var filteredIds = exp.Filter(_ids, vars.Context);
-            return new NodeCollectionData(_db, _metrics, filteredIds, _nodeType, _includeBranches);
+            return new NodeCollectionData(_db, _ctx, _metrics, filteredIds, _nodeType, _includeBranches);
         } else {
             remainingFilter = orgFilter;
             // Console.WriteLine("Filter could not be converted to native expression: " + orgFilter.ToString());
@@ -182,9 +182,9 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             if (!nc._nodeType.AllPropertiesByName.TryGetValue(rangeEx.PropertyName, out var prop)) {
                 throw new NotSupportedException(rangeEx.PropertyName + " is not a property of " + nc._nodeType.ToString());
             }
-            if (prop is not DateTimeProperty dtProp)
-                throw new NotSupportedException(rangeEx.PropertyName + " is not a DateTime value type");
-            return new MethodExpressionNativeRange(dtProp, rangeEx.From, rangeEx.To);
+            if (prop is not IValueProperty vProp)
+                throw new NotSupportedException(rangeEx.PropertyName + " does not support range queries");
+            return new MethodExpressionNativeRange(vProp, rangeEx.From, rangeEx.To);
         } else {
             throw new NotImplementedException();
         }
@@ -192,6 +192,6 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     public IStoreNodeDataCollection FilterByTypes(Guid[] types, bool includeDescendants) {
         var newIds = _def.Sets.WhereTypes(_ids, types.Select(t => _def.GetAllIdsForTypeNoAccessControl(t, includeDescendants)).ToArray());
         // access control not needed, as we are filtering down ( _ids is already filtered by access control )
-        return new NodeCollectionData(_db, _metrics, newIds, _nodeType, _includeBranches);
+        return new NodeCollectionData(_db, _ctx, _metrics, newIds, _nodeType, _includeBranches);
     }
 }

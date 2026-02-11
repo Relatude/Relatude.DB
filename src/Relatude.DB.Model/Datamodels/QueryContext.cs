@@ -18,7 +18,7 @@ public class QueryContext {
         set { _collectionIds = value?.OrderBy(id => id).ToArray(); } // ordered for equality comparison
     }
 
-    public static QueryContext Anonymous => new QueryContext(
+    public static QueryContext Anonymous => new(
         ) {
         UserId = Guid.Empty,
         CultureCode = null,

@@ -10,9 +10,17 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions {
     public interface IPropertyContainsValue {
-        public bool ContainsValue(object value, QueryContext ctx);
+        bool ContainsValue(object value, QueryContext ctx);
     }
-    internal abstract class ValueProperty<T> : Property where T : notnull {
+    public interface IProperty {
+        object ForceValueType(object value, out bool changed);
+    }
+    public interface IValueProperty: IProperty {
+        IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx);
+        bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted);
+        IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx);
+    }
+    internal abstract class ValueProperty<T> : Property, IValueProperty where T : notnull {
         IValueIndex<T>? _index;
         Dictionary<string, IValueIndex<T>>? _indexByCulture;
         public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out IValueIndex<T> index) {
@@ -48,7 +56,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (Indexed) {
                 var indexes = IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue);
                 if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
-                if (Model.CultureSensitive) _index = indexes.First().Value;
+                if (!Model.CultureSensitive) _index = indexes.First().Value;
                 else _indexByCulture = indexes;
                 Indexes.AddRange(indexes.Values);
             }
@@ -75,12 +83,14 @@ namespace Relatude.DB.DataStores.Definitions {
             }
             return nodeIds;
         }
+
         public IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
             var index = GetIndex(ctx);
             return index.FilterRangesObject(set, from, to);
         }
+
         public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-            var index= GetIndex(ctx);
+            var index = GetIndex(ctx);
             var facets = new Facets(Model);
             if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
             facets.IsRangeFacet = false;
@@ -99,11 +109,11 @@ namespace Relatude.DB.DataStores.Definitions {
                 facetValue.Count = index.CountEqual(nodeIds, v);
             }
         }
-        public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
+        public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
             return GetIndex(ctx).FilterInValues(ids, values.Cast<T>().ToList());
         }
     }
-    internal abstract class Property {
+    internal abstract class Property : IProperty {
         static int _idCnt = 0;
         public int __Id_transient;  // stateless
         public Property(PropertyModel pm, Definition def) {
@@ -164,9 +174,6 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract object GetDefaultValue();
         public void CompressMemory() {
             foreach (var item in Indexes) item.CompressMemory();
-        }
-        public virtual IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
-            throw new NotSupportedException("This property does not support filtering by multiple values. ");
         }
         public virtual object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {
             return value;

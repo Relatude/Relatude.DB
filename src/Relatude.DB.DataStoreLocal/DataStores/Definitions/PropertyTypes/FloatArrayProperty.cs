@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
     internal class FloatArrayProperty : Property {
@@ -10,14 +11,27 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public FloatArrayProperty(FloatArrayPropertyModel pm, Definition def) : base(pm, def) {
             _isSystemVectorIndexPropertyId = pm.Id == NodeConstants.SystemVectorIndexPropertyId;
         }
-        public SemanticIndex? Index { get; private set; }
+        SemanticIndex? _index;
+        Dictionary<string, SemanticIndex>? _indexByCulture;
+        public SemanticIndex GetIndex(QueryContext ctx) {
+            if (Model.CultureSensitive) {
+                if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
+                if (ctx.CultureCode is null) throw new Exception("The property " + CodeName + " is culture sensitive but the query context does not have a culture code. ");
+                if (_indexByCulture!.TryGetValue(ctx.CultureCode!, out var index)) return index;
+                throw new Exception("The property " + CodeName + " is culture sensitive but no index was found for culture code " + ctx.CultureCode + ". ");
+            } else {
+                if (_index is null) throw new Exception("The property " + CodeName + " is not culture sensitive but no index was initialized. ");
+                return _index;
+            }
+        }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed && ai != null) {
-                var defProp = def.Datamodel.Properties[Id];
-                var classDef = def.Datamodel.NodeTypes[defProp.NodeType];
-                var name = "Semantic " + classDef.CodeName + "." + CodeName;
-                Index = new SemanticIndex(def.Sets, Id.ToString(), name, store.IOIndex, store.FileKeys, ai);
-                Indexes.Add(Index);
+                var indexes = IndexFactory.CreateSemanticIndexes(store, ai, this, null);
+                if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
+                if (!Model.CultureSensitive) _index = indexes.First().Value;
+                else _indexByCulture = indexes;
+                Indexes.AddRange(indexes.Values);
+
             }
         }
         public override PropertyType PropertyType => PropertyType.FloatArray;

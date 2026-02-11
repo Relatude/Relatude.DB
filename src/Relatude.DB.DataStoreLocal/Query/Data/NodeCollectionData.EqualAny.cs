@@ -1,12 +1,16 @@
 ﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.Query.Data;
+
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
-    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values, QueryContext ctx) {
+    public IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values) {
         var property = _def.Properties[propertyId];
         IdSet idset;
-        if (property.ValueIndex == null) {
+        if (property.Indexed && property is IValueProperty vProp) {
+            idset = vProp.WhereIn(_ids, values, _ctx);
+        } else {
             // slow without index
             HashSet<int> ids = new();
             foreach (var id in _ids.Enumerate()) {
@@ -21,10 +25,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 }
             }
             idset = IdSet.UncachableSet(ids);
-        } else {
-            idset = property.WhereIn(_ids, values, ctx);
         }
-        return new NodeCollectionData(_db, _metrics, idset, _nodeType, _includeBranches);
+        return new NodeCollectionData(_db, _ctx, _metrics, idset, _nodeType, _includeBranches);
     }
     public IStoreNodeDataCollection WhereInIds(IEnumerable<Guid> values) {
         // room for optimization....
@@ -36,7 +38,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         }
         var idSet = IdSet.UncachableSet(set);  // not cachable....
         var newSet = _db._definition.Sets.Intersection(_ids, idSet);
-        return new NodeCollectionData(_db, _metrics, newSet, _nodeType, _includeBranches);
+        return new NodeCollectionData(_db, _ctx, _metrics, newSet, _nodeType, _includeBranches);
     }
 
 }

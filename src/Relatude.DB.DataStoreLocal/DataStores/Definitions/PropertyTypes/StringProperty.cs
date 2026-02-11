@@ -1,14 +1,11 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using System.Text.RegularExpressions;
-using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.Datamodels;
-using Relatude.DB.Transactions;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
 internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
@@ -29,10 +26,29 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         RegularExpression = pm.RegularExpression;
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
     }
+
+    IWordIndex? _index;
+    Dictionary<string, IWordIndex>? _indexByCulture;
+    public IWordIndex GetWordIndex(QueryContext ctx) {
+        if (Model.CultureSensitive) {
+            if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
+            if (ctx.CultureCode is null) throw new Exception("The property " + CodeName + " is culture sensitive but the query context does not have a culture code. ");
+            if (_indexByCulture!.TryGetValue(ctx.CultureCode!, out var index)) return index;
+            throw new Exception("The property " + CodeName + " is culture sensitive but no index was found for culture code " + ctx.CultureCode + ". ");
+        } else {
+            if (_index is null) throw new Exception("The property " + CodeName + " is not culture sensitive but no index was initialized. ");
+            return _index;
+        }
+    }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
+        if (IndexedByWords) {
+            var indexes = IndexFactory.CreateWordIndexes(store, this, "words");
+            if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
+            if (!Model.CultureSensitive) _index = indexes.First().Value;
+            else _indexByCulture = indexes;
+            Indexes.AddRange(indexes.Values);
+        }
         base.Initalize(store, def, config, io, ai);
-        if (IndexedByWords) WordIndex = IndexFactory.CreateWordIndex(store, def.Sets, this);
-        if (WordIndex != null) Indexes.Add(WordIndex);
     }
     protected override void WriteValue(string v, IAppendStream stream) => stream.WriteString(v);
     protected override string ReadValue(IReadStream stream) => stream.ReadString();
@@ -59,7 +75,6 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
-    public IWordIndex? WordIndex;
     public override void ValidateValue(object value) {
         var v = (string)value;
         if (v.Length > MaxLength) throw new Exception("String value is longer than maximum value allowed. ");
@@ -67,30 +82,31 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         if (_regEx != null && !_regEx.Match(v).Success) throw new Exception("Value does not match regular expression. ");
     }
     public override object GetDefaultValue() => DefaultValue;
-    SemanticIndex? tryGetSemanticIndex(DataStoreLocal db) {
+    SemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
         if (db._ai != null && IndexedBySemantic) {
             if (!db._definition.Properties.TryGetValue(this.PropertyIdForVectors, out var semProp))
                 throw new Exception("Semantic property for vectors is not defined. ");
             if (semProp is FloatArrayProperty fa) {
                 if (!fa.Indexed) throw new Exception("Semantic property " + semProp.CodeName + " is not indexed. ");
-                if (fa.Index == null) throw new NullReferenceException("Semantic index is null. ");
-                return fa.Index;
+                if (!fa.Indexed) throw new NullReferenceException("Semantic index is null. ");
+                return fa.GetIndex(ctx);
             } else {
                 throw new Exception("Property for semantic index is not a SemanticProperty. ");
             }
         }
         return null;
     }
-    public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
+    public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db, QueryContext ctx) {
+        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
+        var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
-            var wordHits = WordIndex == null ? IdSet.Empty : WordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
+            var wordHits = wordIndex == null ? IdSet.Empty : wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
             var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
             return _sets.Union(wordHits, sematicHits);
         } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
-            if (WordIndex == null) throw new NullReferenceException(nameof(WordIndex));
-            return WordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
+            if (wordIndex == null) throw new NullReferenceException(nameof(wordIndex));
+            return wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
         } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
             if (semanticIndex == null) throw new NullReferenceException(nameof(SemanticIndex));
             return semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
@@ -98,19 +114,21 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             return IdSet.Empty;
         }
     }
-    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, out int totalHits) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
+    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits) {
+        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         if (ratioSemantic > 1) ratioSemantic = 1;
         else if (ratioSemantic < 0) ratioSemantic = 0;
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
         var useWords = ratioSemantic < 0.99 && IndexedByWords;
+        
+        var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
 
         //if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
         if (useSemantic && semanticIndex == null) useSemantic = false;
 
-        //if (useWords && WordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
-        if (useWords && WordIndex == null) useWords = false;
+        //if (useWords && wordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
+        if (useWords && wordIndex == null) useWords = false;
 
         if (!useSemantic && !useWords) {
             totalHits = 0;
@@ -128,7 +146,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         var totalHitsSemantic = 0;
 
         if (useWords) {
-            wordHits = WordIndex!.SearchForRankedHitData(textSearches, 0, top, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHitsWords)
+            wordHits = wordIndex!.SearchForRankedHitData(textSearches, 0, top, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHitsWords)
                 .Where(h => baseSet.Has(h.NodeId));
         } else {
             wordHits = [];
@@ -172,12 +190,12 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     internal TextSample GetTextSample(TermSet search, string sourceText, int maxLength) {
         return new TextSample(search, sourceText, maxLength);
     }
-    internal string GetSemanticSample(string search, string sourceText, DataStoreLocal db) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
+    internal string GetSemanticSample(string search, string sourceText, DataStoreLocal db, QueryContext ctx) {
+        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         return semanticIndex!.GetSample(search, sourceText);
     }
-    internal string GetSemanticContextText(string question, string sourceText, DataStoreLocal db) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db);
+    internal string GetSemanticContextText(string question, string sourceText, DataStoreLocal db, QueryContext ctx) {
+        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         return semanticIndex!.GetContextText(question, sourceText);
     }
     internal string GetWordContextText(string question, string sourceText) {

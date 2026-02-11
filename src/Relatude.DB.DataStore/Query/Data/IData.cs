@@ -27,7 +27,7 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IStoreNodeDataCollection Relates(Guid propertyId, Guid nodeId);
     IStoreNodeDataCollection RelatesNot(Guid propertyId, Guid nodeId);
     IStoreNodeDataCollection RelatesAny(Guid propertyId, IEnumerable<Guid> nodeId);
-    IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values, QueryContext ctx);
+    IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values);
     IStoreNodeDataCollection WhereInIds(IEnumerable<Guid> values);
     IEnumerable<INodeData> NodeValues { get; }
     IEnumerable<int> NodeIds { get; }

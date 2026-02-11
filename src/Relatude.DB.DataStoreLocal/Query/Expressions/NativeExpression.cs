@@ -400,7 +400,7 @@ namespace Relatude.DB.Query.Expressions {
         public int MaxCount(QueryContext ctx) => int.MaxValue;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
-    internal class MethodExpressionNativeRange(Property prop, string from, string to) : IBooleanNativeExpression {
+    internal class MethodExpressionNativeRange(IValueProperty prop, string from, string to) : IBooleanNativeExpression {
         public IdSet Filter(IdSet set, QueryContext ctx) {
             var fromO = prop.ForceValueType(from, out _);
             var toO = prop.ForceValueType(to, out _);
