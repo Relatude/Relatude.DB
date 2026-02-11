@@ -10,12 +10,25 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions {
     public interface IPropertyContainsValue {
-        public bool ContainsValue(object value);
+        public bool ContainsValue(object value, QueryContext ctx);
     }
     internal abstract class ValueProperty<T> : Property where T : notnull {
         IValueIndex<T>? _index;
         Dictionary<string, IValueIndex<T>>? _indexByCulture;
-        public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
+        public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out IValueIndex<T> index) {
+            if (Model.CultureSensitive) {
+                if (_indexByCulture is null || ctx.CultureCode is null || !_indexByCulture.TryGetValue(ctx.CultureCode!, out index)) {
+                    index = null;
+                    return false;
+                }
+            } else {
+                if (_index is null) {
+                    index = null;
+                    return false;
+                }
+                index = _index;
+            }
+            return true;
         }
         public IValueIndex<T> GetIndex(QueryContext ctx) {
             if (Model.CultureSensitive) {
@@ -28,10 +41,13 @@ namespace Relatude.DB.DataStores.Definitions {
                 return _index;
             }
         }
+
+        public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
+        }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed) {
-                var indexes = IndexFactory.CreateValueIndexes<T>(store, def.Sets, this, null, WriteValue, ReadValue);
-                if(indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
+                var indexes = IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue);
+                if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
                 if (Model.CultureSensitive) _index = indexes.First().Value;
                 else _indexByCulture = indexes;
                 Indexes.AddRange(indexes.Values);
@@ -39,7 +55,18 @@ namespace Relatude.DB.DataStores.Definitions {
         }
         protected abstract void WriteValue(T v, IAppendStream stream);
         protected abstract T ReadValue(IReadStream stream);
-
+        public override object ForceValueType(object value, out bool changed) => PropertyModel.ForceValueAnyType<T>(value, Model.PropertyType, out changed);
+        public override bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted) {
+            if (TryGetIndex(ctx, out var index)) {
+                sorted = index.ReOrder(unsorted, descending);
+                return true;
+            }
+            return base.TryReorder(unsorted, descending, ctx, out sorted);
+        }
+        public bool ContainsValue(object value, QueryContext ctx) {
+            return GetIndex(ctx).ContainsValue((T)value);
+        }
+        public override bool CanBeFacet() => Indexed;
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             var index = GetIndex(ctx);
             foreach (var facetValue in facets.Values) {
@@ -48,11 +75,33 @@ namespace Relatude.DB.DataStores.Definitions {
             }
             return nodeIds;
         }
-        public virtual IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
+        public IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
             var index = GetIndex(ctx);
             return index.FilterRangesObject(set, from, to);
         }
-
+        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
+            var index= GetIndex(ctx);
+            var facets = new Facets(Model);
+            if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
+            facets.IsRangeFacet = false;
+            if (given != null && given.HasValues()) {
+                foreach (var f in given.Values) facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
+            } else {
+                var possibleValues = index.UniqueValues;
+                foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
+            }
+            return facets;
+        }
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
+            var index = GetIndex(ctx);
+            foreach (var facetValue in facets.Values) {
+                var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
+                facetValue.Count = index.CountEqual(nodeIds, v);
+            }
+        }
+        public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
+            return GetIndex(ctx).FilterInValues(ids, values.Cast<T>().ToList());
+        }
     }
     internal abstract class Property {
         static int _idCnt = 0;
@@ -70,7 +119,7 @@ namespace Relatude.DB.DataStores.Definitions {
             Definition = def;
         }
         public bool Indexed { get; }
-        public virtual bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
+        public virtual bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted) {
             sorted = null;
             return false;
         }
@@ -95,9 +144,8 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is FloatArrayPropertyModel far) return new FloatArrayProperty(far, def);
             throw new Exception("Unknown property type. ");
         }
-        public abstract object ForceValueType(object value, out bool changed);
         public abstract void ValidateValue(object value);
-
+        public abstract object ForceValueType(object value, out bool changed);
         public virtual bool CanBeFacet() => false;
         public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) => throw new NotSupportedException();
         public virtual IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) => throw new NotSupportedException();

@@ -14,33 +14,11 @@ internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     protected override Guid ReadValue(IReadStream stream) => stream.ReadGuid();
     public override PropertyType PropertyType => PropertyType.Long;
     public Guid DefaultValue;
-    public IValueIndex<Guid>? Index;
-    public override object ForceValueType(object value, out bool changed) {
-        return GuidPropertyModel.ForceValueType(value, out changed);
-    }
     public override void ValidateValue(object value) {
     }
-    public override IRangeIndex? ValueIndex => null;
     public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
-    public bool ContainsValue(object value) {
-        if (Index == null) throw new Exception("Index is null. ");
-        return Index.ContainsValue((Guid)value);
-    }
     public override bool CanBeFacet() => false;
-    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-        throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
-    }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-        throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
-    }
-    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-        throw new NotSupportedException("GuidProperty cannot be used as a facet. ");
-    }
-    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Property is not indexed. ");
-        return Index.FilterInValues(ids, values.Cast<Guid>().ToList());
-    }
     public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
         var v1 = GuidPropertyModel.ForceValueType(value1, out _);
         var v2 = GuidPropertyModel.ForceValueType(value2, out _);

@@ -1,10 +1,7 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
-using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
@@ -16,29 +13,9 @@ internal class BooleanProperty : ValueProperty<bool> {
     protected override bool ReadValue(IReadStream stream) => stream.ReadBool();
     public bool DefaultValue;
     public override PropertyType PropertyType => PropertyType.Boolean;
-    public override object ForceValueType(object value, out bool changed) {
-        return BooleanPropertyModel.ForceValueType(value, out changed);
-    }
     public override void ValidateValue(object value) { }
     public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
-    public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-        var facets = new Facets(Model);
-        facets.AddValue(new FacetValue(false));
-        facets.AddValue(new FacetValue(true));
-        return facets;
-    }
-    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        foreach (var facetValue in facets.Values) {
-            var v = BooleanPropertyModel.ForceValueType(facetValue.Value, out _);
-            facetValue.Count = Index.CountEqual(nodeIds, v);
-        }
-    }
-    public bool ContainsValue() {
-        throw new NotSupportedException();
-    }
     public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
         var v1 = BooleanPropertyModel.ForceValueType(value1, out _);
         var v2 = BooleanPropertyModel.ForceValueType(value2, out _);

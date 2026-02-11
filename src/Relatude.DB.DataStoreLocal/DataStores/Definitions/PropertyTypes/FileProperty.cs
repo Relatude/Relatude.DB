@@ -2,8 +2,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
@@ -26,20 +24,10 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
                 return FileValue.Empty;
             }
         }
-        public override IRangeIndex? ValueIndex => null;
         public override void ValidateValue(object value) { }
         public override object GetDefaultValue() => Array.Empty<byte>();
         public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
         public override bool CanBeFacet() => false;
-        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
-        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = FilePropertyModel.ForceValueType(v1, out _);
             var b2 = FilePropertyModel.ForceValueType(v2, out _);

@@ -17,20 +17,8 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     protected override int ReadValue(IReadStream stream) => stream.ReadInt();
     public override PropertyType PropertyType => PropertyType.Integer;
     public readonly int DefaultValue;
-    public override IRangeIndex? ValueIndex => Index;
     public readonly int MinValue = int.MinValue;
     public readonly int MaxValue = int.MaxValue;
-    public IValueIndex<int>? Index;
-    public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
-        if (Index != null) {
-            sorted = Index.ReOrder(unsorted, descending);
-            return true;
-        }
-        return base.TryReorder(unsorted, descending, out sorted);
-    }
-    public override object ForceValueType(object value, out bool changed) {
-        return IntegerPropertyModel.ForceValueType(value, out changed);
-    }
     public override void ValidateValue(object value) {
         var v = (int)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
@@ -38,78 +26,6 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     }
     public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
-    public bool ContainsValue(object value) {
-        if (Index == null) throw new Exception("Index is null. ");
-        return Index.ContainsValue((int)value);
-    }
-    public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var facets = new Facets(Model);
-        if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
-        facets.IsRangeFacet = (given != null && given.IsRangeFacet.HasValue) ? given.IsRangeFacet.HasValue : true; // default true...
-        if (given != null && given.HasValues()) {
-            foreach (var f in given.Values) {
-                if (f.Value.ToString() == "1" && (f.Value2 + "") == "0") {
-                    f.Value = Index.MinValue();
-                    f.Value2 = Index.MaxValue();
-                }
-                facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
-            }
-        } else {
-            if (facets.IsRangeFacet.Value) {
-                var v1 = Index.MinValue();
-                var v2 = Index.MaxValue();
-                var ranges = RangeGenerators.Ints.GetRanges(v1, v2, facets.RangeCount, facets.RangePowerBase, 20);
-                foreach (var r in ranges) facets.AddValue(new FacetValue(r.Item1, r.Item2, null));
-            } else {
-                var possibleValues = Index.UniqueValues;
-                foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
-            }
-        }
-        return facets;
-    }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
-        if (useRange) {
-            List<Tuple<int, int>> selectedRanges = new();
-            foreach (var facetValue in facets.Values) {
-                var from = IntegerPropertyModel.ForceValueType(facetValue.Value, out _);
-                var to = facetValue.Value2 == null ? int.MaxValue : IntegerPropertyModel.ForceValueType(facetValue.Value2, out _);
-                if (facetValue.Selected) selectedRanges.Add(new(from, to));
-            }
-            if (selectedRanges.Count > 0) nodeIds = Index.FilterRanges(nodeIds, selectedRanges);
-        } else {
-            List<int> selectedValues = new();
-            foreach (var facetValue in facets.Values) {
-                var v = IntegerPropertyModel.ForceValueType(facetValue.Value, out _);
-                if (facetValue.Selected) selectedValues.Add(v);
-            }
-            if (selectedValues.Count > 0) nodeIds = Index.FilterInValues(nodeIds, selectedValues);
-        }
-        return nodeIds;
-    }
-    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
-        if (useRange) {
-            foreach (var facetValue in facets.Values) {
-                var from = IntegerPropertyModel.ForceValueType(facetValue.Value, out _);
-                var to = facetValue.Value2 == null ? int.MaxValue : IntegerPropertyModel.ForceValueType(facetValue.Value2, out _);
-                facetValue.Count = Index.CountInRangeEqual(nodeIds, from, to, facetValue.FromInclusive, facetValue.ToInclusive);
-            }
-        } else {
-            foreach (var facetValue in facets.Values) {
-                var v = IntegerPropertyModel.ForceValueType(facetValue.Value, out _);
-                facetValue.Count = Index.CountEqual(nodeIds, v);
-            }
-        }
-    }
-    public override IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Property is not indexed. ");
-        return Index.FilterInValues(ids, values.Cast<int>().ToList());
-    }
     public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
         var v1 = IntegerPropertyModel.ForceValueType(value1, out _);
         var v2 = IntegerPropertyModel.ForceValueType(value2, out _);

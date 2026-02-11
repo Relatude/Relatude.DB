@@ -1,10 +1,5 @@
-﻿using System.Collections;
-using Relatude.DB.AI;
-using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
@@ -17,19 +12,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object ForceValueType(object value, out bool changed) {
             return ByteArrayPropertyModel.ForceValueType(value, out changed);
         }
-        public override IRangeIndex? ValueIndex => null;
         public override void ValidateValue(object value) { }
         public override object GetDefaultValue() => Array.Empty<byte>();
-        public override bool CanBeFacet() => false;
-        public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
-        public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
-        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-            throw new NotSupportedException("ByteArrayProperty cannot be used as a facet. ");
-        }
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = ByteArrayPropertyModel.ForceValueType(v1, out _);
             var b2 = ByteArrayPropertyModel.ForceValueType(v2, out _);

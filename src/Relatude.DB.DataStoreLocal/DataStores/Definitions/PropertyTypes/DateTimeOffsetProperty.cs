@@ -1,11 +1,7 @@
-﻿using Relatude.DB.AI;
-using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
 internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
@@ -16,99 +12,16 @@ internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
     }
     protected override void WriteValue(DateTimeOffset v, IAppendStream stream) => stream.WriteDateTimeOffset(v);
     protected override DateTimeOffset ReadValue(IReadStream stream) => stream.ReadDateTimeOffset();
-    public override bool TryReorder(IdSet unsorted, bool descending, [MaybeNullWhen(false)] out IdSet sorted) {
-        if (Index != null) {
-            sorted = Index.ReOrder(unsorted, descending);
-            return true;
-        }
-        return base.TryReorder(unsorted, descending, out sorted);
-    }
     public override PropertyType PropertyType => PropertyType.DateTimeOffset;
-    public override IRangeIndex? ValueIndex => Index;
     public DateTimeOffset DefaultValue;
     public DateTimeOffset MinValue = DateTimeOffset.MinValue;
     public DateTimeOffset MaxValue = DateTimeOffset.MaxValue;
-
-    public IValueIndex<DateTimeOffset>? Index;
-    public override object ForceValueType(object value, out bool changed) {
-        return DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
-    }
     public override void ValidateValue(object value) {
         var v = (DateTimeOffset)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
     public override object GetDefaultValue() => DefaultValue;
-    public bool ContainsValue(object value) {
-        if (Index == null) throw new Exception("Index is null. ");
-        return Index.ContainsValue((DateTimeOffset)value);
-    }
-    // Facets Needs improvement...
-    public override bool CanBeFacet() => Indexed;
-    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var facets = new Facets(Model);
-        if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
-        facets.IsRangeFacet = (given != null && given.IsRangeFacet.HasValue) ? given.IsRangeFacet.HasValue : true; // default true...
-        if (given != null && given.HasValues()) {
-            foreach (var f in given.Values) {
-                if (f.Value.ToString() == "1" && (f.Value2 + "") == "0") {
-                    f.Value = Index.MinValue();
-                    f.Value2 = Index.MaxValue();
-                }
-                facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
-            }
-        } else {
-            if (facets.IsRangeFacet.Value) {
-                var v1 = Index.MinValue();
-                var v2 = Index.MaxValue();
-                facets.AddValue(new FacetValue(v1, v2, null));  // data ranges not supported yet... so just take max to min...
-                //var ranges = RangeGenerators.DateTimeOffsets.GetRanges(v1, v2, facets.RangeCount, facets.RangePowerBase, 20);
-                //foreach (var r in ranges) facets.AddValue(new FacetValue(r.Item1, r.Item2, null));
-            } else {
-                var possibleValues = Index.UniqueValues;
-                foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
-            }
-        }
-        return facets;
-    }
-    public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
-        if (useRange) {
-            List<Tuple<DateTimeOffset, DateTimeOffset>> selectedRanges = new();
-            foreach (var facetValue in facets.Values) {
-                var from = DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value, out _);
-                var to = facetValue.Value2 == null ? DateTimeOffset.MaxValue : DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value2, out _);
-                if (facetValue.Selected) selectedRanges.Add(new(from, to));
-            }
-            if (selectedRanges.Count > 0) nodeIds = Index.FilterRanges(nodeIds, selectedRanges);
-        } else {
-            List<DateTimeOffset> selectedValues = new();
-            foreach (var facetValue in facets.Values) {
-                var v = DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value, out _);
-                if (facetValue.Selected) selectedValues.Add(v);
-            }
-            if (selectedValues.Count > 0) nodeIds = Index.FilterInValues(nodeIds, selectedValues);
-        }
-        return nodeIds;
-    }
-    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-        if (Index == null) throw new NullReferenceException("Index is null. ");
-        var useRange = facets.IsRangeFacet.HasValue ? facets.IsRangeFacet.Value : true; // default true...
-        if (useRange) {
-            foreach (var facetValue in facets.Values) {
-                var from = DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value, out _);
-                var to = facetValue.Value2 == null ? DateTimeOffset.MaxValue : DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value2, out _);
-                facetValue.Count = Index.CountInRangeEqual(nodeIds, from, to, facetValue.FromInclusive, facetValue.ToInclusive);
-            }
-        } else {
-            foreach (var facetValue in facets.Values) {
-                var v = DateTimeOffsetPropertyModel.ForceValueType(facetValue.Value, out _);
-                facetValue.Count = Index.CountEqual(nodeIds, v);
-            }
-        }
-    }
     public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
         var v1 = DateTimeOffsetPropertyModel.ForceValueType(value1, out _);
         var v2 = DateTimeOffsetPropertyModel.ForceValueType(value2, out _);
@@ -126,5 +39,4 @@ internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
         if (v1 is DateTimeOffset dt1 && v2 is DateTimeOffset dt2) return dt1 == dt2;
         return false;
     }
-
 }

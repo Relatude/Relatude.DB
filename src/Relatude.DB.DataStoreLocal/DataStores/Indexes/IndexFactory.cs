@@ -13,24 +13,52 @@ namespace Relatude.DB.DataStores.Indexes;
 
 internal static class IndexFactory {
     static bool useOptimizedIndexes = true;
-    public static Dictionary<string, IValueIndex<T>> CreateValueIndexes<T>(DataStoreLocal store, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
-        Dictionary<string, IValueIndex<T>> indexes = new();
+    internal static string GetIndexUniqueKey(Property property, string? cultureCode, string? subKey) {
+        return property.Id
+            + (string.IsNullOrEmpty(cultureCode) ? "" : "_" + cultureCode)
+            + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
+    }
+    public static Dictionary<string, StringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
+        Dictionary<string, StringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
             foreach (var culture in store._nativeModelStore.Cultures) {
-                var index = CreateValueIndex<T>(store, culture.CultureCode, sets, property, subKey, writeValue, readValue);
+                var index = CreateStringArrayIndex(store, culture.CultureCode, property, subKey);
                 indexes[culture.CultureCode] = index;
             }
         } else {
-            var index = CreateValueIndex<T>(store, null, sets, property, subKey, writeValue, readValue);
+            var index = CreateStringArrayIndex (store, null, property, subKey);
             indexes[string.Empty] = index;
         }
         return indexes;
     }
-    static IValueIndex<T> CreateValueIndex<T>(DataStoreLocal store, string? cultureCode, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
+    static StringArrayIndex CreateStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
         var settings = store.Settings;
-        var uniqueKey = property.Id
-            + (string.IsNullOrEmpty(cultureCode) ? "" : "_" + cultureCode)
-            + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
+        var sets = store._definition.Sets;
+        var uniqueKey = GetIndexUniqueKey(property, cultureCode, subKey);
+        StringArrayIndex index;
+        var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
+        var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
+        index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+        return index;
+    }
+
+    public static Dictionary<string, IValueIndex<T>> CreateValueIndexes<T>(DataStoreLocal store, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
+        Dictionary<string, IValueIndex<T>> indexes = new();
+        var sets = store._definition.Sets;
+        if (property.Model.CultureSensitive) {
+            foreach (var culture in store._nativeModelStore.Cultures) {
+                var index = createValueIndex<T>(store, culture.CultureCode, sets, property, subKey, writeValue, readValue);
+                indexes[culture.CultureCode] = index;
+            }
+        } else {
+            var index = createValueIndex<T>(store, null, sets, property, subKey, writeValue, readValue);
+            indexes[string.Empty] = index;
+        }
+        return indexes;
+    }
+    static IValueIndex<T> createValueIndex<T>(DataStoreLocal store, string? cultureCode, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
+        var settings = store.Settings;
+        var uniqueKey = GetIndexUniqueKey(property, cultureCode, subKey);
         var useProvider = property.Model.IndexType switch {
             IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
             IndexStorageType.Memory => false,
@@ -49,7 +77,7 @@ internal static class IndexFactory {
         if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
         return index;
     }
-    internal static IWordIndex CreateWordIndex(DataStoreLocal store, SetRegister sets, StringProperty p) {
+    internal static IWordIndex CreateWordIndex(DataStoreLocal store, SetRegister sets, StringProperty p, string? subKey) {
         var settings = store.Settings;
         var uniqueKey = p.Id + nameof(IWordIndex);
         var useProvider = ((StringPropertyModel)p.Model).TextIndexType switch {
@@ -70,4 +98,5 @@ internal static class IndexFactory {
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);
     }
+
 }
