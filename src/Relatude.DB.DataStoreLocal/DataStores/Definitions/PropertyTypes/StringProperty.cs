@@ -26,27 +26,12 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         RegularExpression = pm.RegularExpression;
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
     }
-
-    IWordIndex? _index;
-    Dictionary<string, IWordIndex>? _indexByCulture;
-    public IWordIndex GetWordIndex(QueryContext ctx) {
-        if (Model.CultureSensitive) {
-            if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
-            if (ctx.CultureCode is null) throw new Exception("The property " + CodeName + " is culture sensitive but the query context does not have a culture code. ");
-            if (_indexByCulture!.TryGetValue(ctx.CultureCode!, out var index)) return index;
-            throw new Exception("The property " + CodeName + " is culture sensitive but no index was found for culture code " + ctx.CultureCode + ". ");
-        } else {
-            if (_index is null) throw new Exception("The property " + CodeName + " is not culture sensitive but no index was initialized. ");
-            return _index;
-        }
-    }
+    IndexUtil<IWordIndex> _indexUtil = new();
+    public IWordIndex GetWordIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (IndexedByWords) {
             var indexes = IndexFactory.CreateWordIndexes(store, this, "words");
-            if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
-            if (!Model.CultureSensitive) _index = indexes.First().Value;
-            else _indexByCulture = indexes;
-            Indexes.AddRange(indexes.Values);
+            _indexUtil.Initalize(indexes, Model.CultureSensitive, Indexes);
         }
         base.Initalize(store, def, config, io, ai);
     }

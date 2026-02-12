@@ -9,43 +9,15 @@ using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
 internal class StringArrayProperty : Property, IPropertyContainsValue {
-    StringArrayIndex? _index;
-    Dictionary<string, StringArrayIndex>? _indexByCulture;
-    public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out StringArrayIndex index) {
-        if (Model.CultureSensitive) {
-            if (_indexByCulture is null || ctx.CultureCode is null || !_indexByCulture.TryGetValue(ctx.CultureCode!, out index)) {
-                index = null;
-                return false;
-            }
-        } else {
-            if (_index is null) {
-                index = null;
-                return false;
-            }
-            index = _index;
-        }
-        return true;
-    }
-    public StringArrayIndex GetIndex(QueryContext ctx) {
-        if (Model.CultureSensitive) {
-            if (_indexByCulture is null) throw new Exception("The property " + CodeName + " is culture sensitive but no indexes by culture were initialized. ");
-            if (ctx.CultureCode is null) throw new Exception("The property " + CodeName + " is culture sensitive but the query context does not have a culture code. ");
-            if (_indexByCulture!.TryGetValue(ctx.CultureCode!, out var index)) return index;
-            throw new Exception("The property " + CodeName + " is culture sensitive but no index was found for culture code " + ctx.CultureCode + ". ");
-        } else {
-            if (_index is null) throw new Exception("The property " + CodeName + " is not culture sensitive but no index was initialized. ");
-            return _index;
-        }
-    }
+    IndexUtil< StringArrayIndex> _indexUtil = new();
+    public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out StringArrayIndex index) => _indexUtil.TryGetIndex(ctx, out index);
+    public StringArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (Indexed) {
             var indexes = IndexFactory.CreateStringArrayIndexes(store, this, null);
-            if (indexes.Count == 0) throw new Exception("No indexes were created for the property " + CodeName + ". ");
-            if (!Model.CultureSensitive) _index = indexes.First().Value;
-            else _indexByCulture = indexes;
-            Indexes.AddRange(indexes.Values);
+                _indexUtil.Initalize(indexes, Model.CultureSensitive, Indexes);
         }
     }
     public override PropertyType PropertyType => PropertyType.StringArray;

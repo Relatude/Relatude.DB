@@ -1,11 +1,6 @@
-﻿using Relatude.DB.AI;
-using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Indexes;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     public IntegerProperty(IntegerPropertyModel pm, Definition def) : base(pm, def) {
