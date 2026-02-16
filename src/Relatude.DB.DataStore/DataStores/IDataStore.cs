@@ -14,25 +14,21 @@ public interface IDataStore : IDisposable {
     // Exposed and access controlled
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
-    Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
-    Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null);
-    Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null);
+
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
-    Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null);
-    Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
-    Task<INodeData> GetAsync(int id, QueryContext? ctx = null);
-    INodeData Get(Guid id, QueryContext? ctx = null);
-    INodeData Get(int id, QueryContext? ctx = null);
-    INodeData Get(IdKey id, QueryContext? ctx = null);
-    bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null);
+    Task<INodeDataOuter> GetAsync(Guid id, QueryContext? ctx = null);
+    Task<IEnumerable<INodeDataOuter>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
+    Task<INodeDataOuter> GetAsync(int id, QueryContext? ctx = null);
+    INodeDataOuter Get(Guid id, QueryContext? ctx = null);
+    INodeDataOuter Get(int id, QueryContext? ctx = null);
+    INodeDataOuter Get(IdKey id, QueryContext? ctx = null);
+    bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null);
     bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null);
     bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null);
-    IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
-    IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
-    Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
-    Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
+    IEnumerable<INodeDataOuter> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
+    IEnumerable<INodeDataOuter> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
 
     bool Exists(Guid id, QueryContext? ctx = null);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
@@ -72,7 +68,12 @@ public interface IDataStore : IDisposable {
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
 
-
+    // File handling
+    Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
+    Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null);
+    Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null);
+    Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
+    Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
 
 
 

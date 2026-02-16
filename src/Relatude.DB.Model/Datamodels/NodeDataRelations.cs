@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
-public class NodeDataWithRelations : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataWithRelations : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     INodeData _node;
     Relations _relations;
     static void throwReadOnlyError() => throw new Exception("Internal error. Should only be created with readonly inner node data. ");
@@ -10,7 +10,7 @@ public class NodeDataWithRelations : INodeData { // readonly node data with poss
         _node = nodeData;
         _relations = new();
     }
-    public void SwapNodeData(Dictionary<int, INodeData> dic) {
+    public void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
         _node = dic[_node.__Id];
         _relations.SwapNodeData(dic);
     }
@@ -73,7 +73,7 @@ public class Relations : IRelations {
     }
     public bool TryGetOneRelation(Guid propertyId, out NodeDataWithRelations? value) => _oneRelations.TryGetValue(propertyId, out value);
     public bool TryGetManyRelation(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] value) => _manyRelations.TryGetValue(propertyId, out value);
-    internal void SwapNodeData(Dictionary<int, INodeData> dic) {
+    internal void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
         foreach (var kv in _oneRelations.Items) kv.Value?.SwapNodeData(dic);
         foreach (var kv in _manyRelations.Items) {
             foreach (var v in kv.Value) v.SwapNodeData(dic);

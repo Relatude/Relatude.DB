@@ -5,16 +5,19 @@ using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data;
+
 internal class SearchQueryResultData : ISearchQueryResultData {
     DataStoreLocal _db;
     StringProperty _searchProperty;
     IEnumerable<RawSearchHit> _rawHits;
     List<SearchResultHitData>? _hits;
     Metrics _metrics;
-    public SearchQueryResultData(DataStoreLocal db,Metrics metrics, List<IncludeBranch>? includeBranches, StringProperty searchProperty, string search, IEnumerable<RawSearchHit> hits, int pageUsed, int? pageSizeUsed, int totalHits, bool capped) {
+    QueryContext _ctx;
+    public SearchQueryResultData(DataStoreLocal db, Metrics metrics, List<IncludeBranch>? includeBranches, StringProperty searchProperty, string search, IEnumerable<RawSearchHit> hits, int pageUsed, int? pageSizeUsed, int totalHits, bool capped, QueryContext ctx) {
         Search = search;
         _metrics = metrics;
         _rawHits = hits;
+        _ctx = ctx;
         PageIndexUsed = pageUsed;
         PageSizeUsed = pageSizeUsed;
         TotalCount = totalHits;
@@ -47,7 +50,7 @@ internal class SearchQueryResultData : ISearchQueryResultData {
         if (_hits != null) return;
         if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
         var ids = IdSet.UncachableSet(new FixedOrderedSet(_rawHits.Select(h => h.NodeId), metrics.NodeCount));
-        var nodes = IncludeUtil.GetNodesWithIncludes(metrics, ids, _db, _includeBranches);
+        var nodes = IncludeUtil.GetNodesWithIncludes(metrics, ids, _db, _includeBranches, _ctx);
         _hits = new List<SearchResultHitData>(_rawHits.Count());
         var nodeIdsToGet = _rawHits.Select(h => h.NodeId);
         var nodeIdsById = nodes.ToDictionary(n => n.__Id, n => n);

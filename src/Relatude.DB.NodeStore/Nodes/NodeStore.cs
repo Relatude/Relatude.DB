@@ -30,9 +30,9 @@ namespace Relatude.DB.Nodes;
 //}
 
 public class NodeStore : IDisposable {
-    public NodeStore NewContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore));
-    }
+    //public NodeStore NewContext(QueryContext ctx) {
+    //    return new NodeStore(new DataStoreSession(ctx, Datastore));
+    //}
     public readonly IDataStore Datastore;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;

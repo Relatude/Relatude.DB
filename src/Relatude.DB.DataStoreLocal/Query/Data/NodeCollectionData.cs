@@ -42,7 +42,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
 
     public IEnumerable<INodeData> NodeValues {
         get {
-            if (_nodes == null) _nodes = IncludeUtil.GetNodesWithIncludes(_metrics, _ids, _db, _includeBranches);
+            if (_nodes == null) _nodes = IncludeUtil.GetNodesWithIncludes(_metrics, _ids, _db, _includeBranches, _ctx);
             return _nodes;
         }
     }

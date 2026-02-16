@@ -13,12 +13,30 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
-    INodeDataOuter toOuter(INodeDataInner nodeDataInner, QueryContext? ctx = null) {
+    public INodeDataOuter ToOuter(INodeDataInner nodeDataInner, QueryContext? ctx) {
         ctx ??= _defaultQueryCtx;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
         return _definition.NodeTypeIndex.PickBestOuter(nodeDataInner, ctxKey, now);
     }
-    public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
+    public INodeDataOuter[] ToOuter(INodeDataInner[] nodeDataInners, QueryContext? ctx) {
+        ctx ??= _defaultQueryCtx;
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
+        var index = _definition.NodeTypeIndex;
+        var result = new INodeDataOuter[nodeDataInners.Length];
+        for (var i = 0; i < nodeDataInners.Length; i++) {
+            result[i] = index.PickBestOuter(nodeDataInners[i], ctxKey, now);
+        }
+        return result;
+    }
+    public IEnumerable<INodeDataOuter> ToOuter(IEnumerable<INodeDataInner> nodeDataInners, QueryContext? ctx = null) {
+        ctx ??= _defaultQueryCtx;
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
+        var index = _definition.NodeTypeIndex;
+        foreach (var nodeDataInner in nodeDataInners) {
+            yield return index.PickBestOuter(nodeDataInner, ctxKey, now);
+        }
+    }
+    public Task<INodeDataOuter> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -26,29 +44,29 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
-            return Task.FromResult<INodeData>(_nodes.Get(_guids.GetId(id), out _));
+            return Task.FromResult(ToOuter(_nodes.Get(_guids.GetId(id), out _), ctx));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public Task<INodeData> GetAsync(int id, QueryContext? ctx = null) {
+    public Task<INodeDataOuter> GetAsync(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return Task.FromResult<INodeData>(_nodes.Get(id, out _));
+            return Task.FromResult(ToOuter(_nodes.Get(id, out _), ctx));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public Task<IEnumerable<INodeData>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
-        return Task.FromResult(Get(__ids));
+    public Task<IEnumerable<INodeDataOuter>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
+        return Task.FromResult(Get(__ids, ctx));
     }
-    public INodeData Get(Guid id, QueryContext? ctx = null) {
+    public INodeDataOuter Get(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
@@ -56,27 +74,27 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return _nodes.Get(_guids.GetId(id), out _);
+            return ToOuter(_nodes.Get(_guids.GetId(id), out _), ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public INodeData Get(int id, QueryContext? ctx = null) {
+    public INodeDataOuter Get(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return _nodes.Get(id, out _);
+            return ToOuter(_nodes.Get(id, out _), ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public INodeData Get(IdKey id, QueryContext? ctx = null) {
-        if (id.Int == 0) return Get(id.Guid);
-        return Get(id.Int);
+    public INodeDataOuter Get(IdKey id, QueryContext? ctx = null) {
+        if (id.Int == 0) return Get(id.Guid, ctx);
+        return Get(id.Int, ctx);
     }
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId) {
         _lock.EnterReadLock();
@@ -129,7 +147,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -137,7 +155,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
             if (_guids.TryGetId(id, out var uid)) {
-                nodeData = _nodes.Get(uid, out _);
+                nodeData = ToOuter(_nodes.Get(uid, out _), ctx);
                 return true;
             }
             nodeData = null;
@@ -155,7 +173,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
             if (_nodes.TryGet(id, out var nodeDataInner, out _)) {
-                nodeData = toOuter(nodeDataInner);
+                nodeData = ToOuter(nodeDataInner, ctx);
                 return true;
             } else {
                 nodeData = null;
@@ -179,20 +197,20 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
+    public IEnumerable<INodeDataOuter> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             var result = _nodes.Get(__ids.ToArray()); // must return a copy to avoid problems with locks
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
-            return result;
+            return ToOuter(result, ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public IEnumerable<INodeData> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
+    public IEnumerable<INodeDataOuter> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -200,7 +218,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var result = _nodes.Get(ids.Select(_guids.GetId).ToArray()); // must return a copy to avoid problems with locks
             Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
             _queryActivity.Record();
-            return result;
+            return ToOuter(result, ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();

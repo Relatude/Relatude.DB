@@ -17,7 +17,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             totalHits = maxHitsEvaluated.Value - 1; // adjust total hits to the maximum hits evaluated
             capped = true; // we have more hits than requested
         }
-        return new SearchQueryResultData(_db, _metrics, _includeBranches, p, search, hits, pageIndex, pageSize, totalHits, capped);
+        return new SearchQueryResultData(_db, _metrics, _includeBranches, p, search, hits, pageIndex, pageSize, totalHits, capped, _ctx);
     }
     public IStoreNodeDataCollection FilterBySearch(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations) {
         var property = _def.Properties[searchPropertyId];

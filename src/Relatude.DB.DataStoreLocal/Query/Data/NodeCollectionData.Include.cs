@@ -21,7 +21,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     public void EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(Metrics metrics) {
         if (_nodes == null) {
             if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
-            _nodes = IncludeUtil.GetNodesWithIncludes(metrics, _ids, _db, _includeBranches);
+            _nodes = IncludeUtil.GetNodesWithIncludes(metrics, _ids, _db, _includeBranches, _ctx);
         }
     }
 }

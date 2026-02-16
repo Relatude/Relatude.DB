@@ -5,11 +5,12 @@ using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.Query.Data;
 internal static class IncludeUtil {
-    public static INodeData[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches) {
+    public static INodeDataOuter[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
         metrics.NodeCount += _ids.Count;
         if (_includeBranches == null) {
             metrics.UniqueNodeCount += _ids.Count;
-            return _db._nodes.Get(_ids.Enumerate().ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
+            var nodes = _db._nodes.Get(_ids.Enumerate().ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
+            return _db.ToOuter(nodes, ctx);
         } else {
             var idsToGet = new HashSet<int>(_ids.Enumerate());
             var nodes = new NodeDataWithRelations[_ids.Count];
@@ -19,7 +20,9 @@ internal static class IncludeUtil {
             }
             foreach (var branch in _includeBranches) branch.Reset();
             foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, _db, ref metrics.NodeCount);
-            var dic = _db._nodes.Get(idsToGet.ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk).ToDictionary(n => n.__Id); // get all nodes in one go
+            var nInner = _db._nodes.Get(idsToGet.ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
+            var nOuter = _db.ToOuter(nInner);
+            var dic = nOuter.ToDictionary(n => n.__Id); // get all nodes in one go
             metrics.UniqueNodeCount += dic.Count;
             foreach (var node in nodes) node.SwapNodeData(dic); // recursive for entire relation tree
             return nodes;
