@@ -2,23 +2,31 @@
 
 namespace Relatude.DB.Datamodels;
 
+public struct NodeIdAndRevisionId {
+    public Guid NodeId { get; }
+    public Guid RevisionId { get; }
+    public NodeIdAndRevisionId(Guid nodeId, Guid revisionId) {
+        NodeId = nodeId;
+        RevisionId = revisionId;
+    }
+}
 public class QueryContext {
-    public Guid UserId { get; set; }
-    public string? CultureCode { get; set; }
-    public bool IncludeDeleted { get; set; } = false;
-    public bool IncludeCultureFallback { get; set; } = false;
-    public bool IncludeUnpublished { get; set; } = false;
-    public bool EditView { get; set; } = false;
-    public bool IncludeHidden { get; set; } = false;
-    public bool ExcludeDecendants { get; set; } = false;
-    public DateTime? NowUtc;
+    public Guid UserId { get; private set; }
+    public string? CultureCode { get; private set; }
+    public bool IncludeDeleted { get; private set; } = false;
+    public bool IncludeCultureFallback { get; private set; } = false;
+    public bool IncludeUnpublished { get; private set; } = false;
+    public bool EditView { get; private set; } = false;
+    public bool IncludeHidden { get; private set; } = false;
+    public bool ExcludeDecendants { get; private set; } = false;
+    public DateTime? NowUtc { get; private set; }
     Guid[]? _collectionIds;
     public Guid[]? CollectionIds {
         get { return _collectionIds; }
-        set { _collectionIds = value?.OrderBy(id => id).ToArray(); } // ordered for equality comparison
+        private set { _collectionIds = value?.OrderBy(id => id).ToArray(); } // ordered for equality comparison
     }
-
-    public static QueryContext Anonymous => new(
+    public NodeIdAndRevisionId[]? SelectedRevisions { get; set; }
+    public static readonly QueryContext Anonymous = new(
         ) {
         UserId = Guid.Empty,
         CultureCode = null,
@@ -28,13 +36,10 @@ public class QueryContext {
         IncludeHidden = false,
         ExcludeDecendants = false,
         CollectionIds = null,
-        NowUtc = null
+        NowUtc = null,
+        SelectedRevisions = null
     };
-
-    //public IRevisionSwitcher? RevisionSwitcher { get; set; }
-    public static QueryContext CreateDefault() {
-        return new QueryContext();
-    }
+    public static readonly QueryContext Default = new();
     public static readonly QueryContext AllExcludingDecendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
         CultureCode = null,
@@ -44,7 +49,9 @@ public class QueryContext {
         IncludeHidden = true,
         ExcludeDecendants = true,
         CollectionIds = null,
-        NowUtc = null
+        NowUtc = null,
+        SelectedRevisions = null
+
     };
     public static QueryContext AllIncludingDescendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
@@ -66,6 +73,15 @@ public class QueryContext {
         }
         return true;
     }
+    static bool equalSelectedRevisions(NodeIdAndRevisionId[]? a, NodeIdAndRevisionId[]? b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) {
+            if (a[i].NodeId != b[i].NodeId || a[i].RevisionId != b[i].RevisionId) return false;
+        }
+        return true;
+    }
     public override bool Equals(object? obj) {
         if (obj is not QueryContext other) return false;
         return UserId == other.UserId
@@ -76,7 +92,8 @@ public class QueryContext {
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
             && equalCollectionIds(CollectionIds, other.CollectionIds)
-            && NowUtc == other.NowUtc;
+            && NowUtc == other.NowUtc
+            && equalSelectedRevisions(SelectedRevisions, other.SelectedRevisions);
     }
     public override int GetHashCode() {
         // slower but better distributed:
@@ -115,177 +132,100 @@ public class QueryContext {
             hash = (hash * 397) ^ 0;
         }
         hash = (hash * 397) ^ (NowUtc?.GetHashCode() ?? 0);
+        if (SelectedRevisions != null) {
+            foreach (var revision in SelectedRevisions) {
+                hash = (hash * 397) ^ revision.GetHashCode();
+            }
+        } else {
+            hash = (hash * 397) ^ 0;
+        }
         return hash;
     }
-    public QueryContext User(string userName) { 
+    QueryContext copy() {
+        return new QueryContext {
+            UserId = this.UserId,
+            CultureCode = this.CultureCode,
+            IncludeDeleted = this.IncludeDeleted,
+            IncludeCultureFallback = this.IncludeCultureFallback,
+            IncludeUnpublished = this.IncludeUnpublished,
+            EditView = this.EditView,
+            IncludeHidden = this.IncludeHidden,
+            ExcludeDecendants = this.ExcludeDecendants,
+            CollectionIds = this.CollectionIds,
+            NowUtc = this.NowUtc,
+            SelectedRevisions = this.SelectedRevisions
+        };
+    }
+    public QueryContext User(string userName) {
         throw new NotImplementedException();
         //var userId = UserConstants.GetUserIdByName(userName);
         //return User(userId);
     }
     public QueryContext User(Guid userId) {
         if (this.UserId == userId) return this;
-        return new QueryContext {
-            UserId = userId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.UserId = userId;
+        return copy;
     }
     public QueryContext Culture(string? cultureCode) {
         if (this.CultureCode == cultureCode) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = cultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.CultureCode = cultureCode;
+        return copy;
     }
     public QueryContext Admin() {
         if (this.UserId == NodeConstants.MasterAdminUserId) return this;
-        return new QueryContext {
-            UserId = NodeConstants.MasterAdminUserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = true,
-            IncludeCultureFallback = true,
-            IncludeUnpublished = true,
-            EditView = this.EditView,
-            IncludeHidden = true,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.UserId = NodeConstants.MasterAdminUserId;
+        return copy;
     }
     public QueryContext Hidden(bool includeHidden = true) {
         if (this.IncludeHidden == includeHidden) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = includeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.IncludeHidden = includeHidden;
+        return copy;
     }
     public QueryContext Collections(Guid[]? collectionIds) {
         if (equalCollectionIds(this.CollectionIds, collectionIds)) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = collectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.CollectionIds = collectionIds;
+        return copy;
     }
     public QueryContext Now(DateTime? nowUtc) {
         if (this.NowUtc == nowUtc) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = nowUtc
-        };
+        var copy = this.copy();
+        copy.NowUtc = nowUtc;
+        return copy;
     }
     public QueryContext EditViewMode(bool editView = true) {
         if (this.EditView == editView) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = editView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.EditView = editView;
+        return copy;
     }
     public QueryContext Unpublished(bool includeUnpublished = true) {
         if (this.IncludeUnpublished == includeUnpublished) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = includeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.IncludeUnpublished = includeUnpublished;
+        return copy;
     }
     public QueryContext Deleted(bool includeDeleted = true) {
         if (this.IncludeDeleted == includeDeleted) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = includeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.IncludeDeleted = includeDeleted;
+        return copy;        
     }
     public QueryContext Descendants(bool excludeDecendants = false) {
         if (this.ExcludeDecendants == excludeDecendants) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = this.IncludeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = excludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.ExcludeDecendants = excludeDecendants;
+        return copy;
     }
     public QueryContext CultureFallbacks(bool includeCultureFallback = true) {
         if (this.IncludeCultureFallback == includeCultureFallback) return this;
-        return new QueryContext {
-            UserId = this.UserId,
-            CultureCode = this.CultureCode,
-            IncludeDeleted = this.IncludeDeleted,
-            IncludeCultureFallback = includeCultureFallback,
-            IncludeUnpublished = this.IncludeUnpublished,
-            EditView = this.EditView,
-            IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
-            CollectionIds = this.CollectionIds,
-            NowUtc = this.NowUtc
-        };
+        var copy = this.copy();
+        copy.IncludeCultureFallback = includeCultureFallback;
+        return copy;
     }
     public override string ToString() {
         var s = $"User:{UserId} ";
@@ -298,43 +238,10 @@ public class QueryContext {
         if (ExcludeDecendants) s += "NoDescendants ";
         if (CollectionIds != null) s += $"Collections:[{string.Join(",", CollectionIds)}] ";
         if (NowUtc != null) s += $"Now:{NowUtc} ";
+        if (SelectedRevisions != null) s += $"SelectedRevisions:[{string.Join(",", SelectedRevisions.Select(r => $"{r.NodeId}:{r.RevisionId}"))}] ";
         return s;
     }
 }
-
-//public interface IRevisionSwitcher {
-//    NodeData RevisionSwitcher(NodeData selected, NodeData[] allRevisions);
-//}
-//public class PreviewSelector(Guid nodeId, int revisionId) : IRevisionSwitcher {
-//    public NodeData RevisionSwitcher(NodeData selected, NodeData[] allRevisions) {
-//        if (selected.Id == nodeId) {
-//            foreach (var r in allRevisions) {
-//                //if (r.RevisionId == revisionId) return r;
-//            }
-//        }
-//        return selected;
-//    }
-//}
-//public class NodeMeta {
-
-//    public Guid ReadAccessId { get; set; } // hard read access for nodes in any context
-//    public Guid EditViewAccessId { get; set; } // soft filter for to show or hide nodes in the edit ui
-//    public Guid EditWriteAccessId { get; set; } // control access to edit unpublished revisions and request publication/depublication
-//    public Guid PublishAccessId { get; set; } // control access to change live publish or depublish revisions
-//    public string? CultureCode { get; }
-//    public bool IsFallbackCulture { get; set; }
-
-//    public int RevisionId { get; set; }
-//    public bool IsDeleted { get; set; }
-
-//    public DateTime ChangedUtc { get; }
-//    public DateTime CreatedUtc { get; set; }
-//    public DateTime PublishedUtc { get; }
-//    public DateTime RetainedUtc { get; set; }
-//    public DateTime ReleasedUtc { get; set; }
-
-//}
-
 public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;
     public readonly bool IncludeCultureFallback;  // requires evaluating multiple versions
@@ -345,6 +252,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly Guid CultureId;
     public readonly Guid[]? CollectionIds;
     public readonly Guid[]? MembershipIds;
+    public readonly NodeIdAndRevisionId[]? SelectedRevisions;
     public bool IsMember(Guid groupId) {
         if (groupId == Guid.Empty) return true;
         if (MembershipIds == null) return false;
@@ -365,7 +273,8 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         bool editView,
         bool includeHidden,
         bool excludeDecendants,
-        SystemUserType userType
+        SystemUserType userType,
+        NodeIdAndRevisionId[]? selectedRevisions
         ) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
@@ -375,9 +284,11 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         IncludeHidden = includeHidden;
         ExcludeDecendants = excludeDecendants;
         UserType = userType;
+        SelectedRevisions = selectedRevisions;
     }
+    int _hash = 0;
     public override int GetHashCode() {
-
+        if (_hash != 0) return _hash;
         // slower but better distributed:
         //var hash = new HashCode();
         //hash.Add(CultureId);
@@ -427,9 +338,15 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         } else {
             hash = (hash * 397) ^ 0;
         }
+        if (SelectedRevisions != null) {
+            foreach (var id in SelectedRevisions) {
+                hash = (hash * 397) ^ id.GetHashCode();
+            }
+        } else {
+            hash = (hash * 397) ^ 0;
+        }
+        _hash = hash;
         return hash;
-
-
     }
     public override bool Equals(object? obj) {
         return obj is QueryContextKey other && Equals(other);

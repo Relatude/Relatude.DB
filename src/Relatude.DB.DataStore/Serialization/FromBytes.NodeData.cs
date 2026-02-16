@@ -5,7 +5,7 @@ namespace Relatude.DB.Serialization;
 
 public static partial class FromBytes {
     // NodeData
-    public static INodeData NodeData(Datamodel datamodel, Stream stream) { // Reading
+    public static INodeDataInner NodeData(Datamodel datamodel, Stream stream) { // Reading
 
         // reading header:
         var guid = stream.ReadGuid();
@@ -20,7 +20,7 @@ public static partial class FromBytes {
         return version switch {
             NodeDataStorageVersions.Legacy1 => read_Legacy_1(datamodel, stream, guid, __id, nodeTypeId),
             NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
-            NodeDataStorageVersions.RevisionContainer => read_VersionContainer(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.RevisionContainer => read_NodeDataRevisions(datamodel, stream, guid, __id, nodeTypeId),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
     }
@@ -99,6 +99,51 @@ public static partial class FromBytes {
             //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
             createdUtc, changedUtc, values);
     }
+    static NodeDataRevision read_NodeDataRevision(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
+
+        var revisionId = stream.ReadGuid();
+        var revisionType = (RevisionType)stream.ReadUInt();
+
+        var createdUtc = stream.ReadDateTime();
+        var changedUtc = stream.ReadDateTime();
+
+        // Node data meta:
+        var metaArray = stream.ReadByteArray();
+        var meta = INodeMeta.FromBytes(metaArray);
+
+        // Node data properties
+        var valueCount = stream.ReadInt();
+        if (valueCount > 10000) throw new Exception("Binary data corruption. ");
+        var values = new Properties<object>(valueCount);
+        if (!datamodel.NodeTypes.TryGetValue(nodeTypeId, out var nodeType)) {
+            nodeType = datamodel.NodeTypes[NodeConstants.BaseNodeTypeId]; // fallback if unknown
+        }
+        var allProps = nodeType.AllProperties;
+        // adding only valid props and force type if needed, adding default for missing:            
+        for (int i = 0; i < valueCount; i++) {
+            var id = stream.ReadGuid();
+            var propType = (PropertyType)stream.ReadUInt();
+            var bytes = stream.ReadByteArray();
+            var value = toPropertyValue(bytes, propType);
+            if (datamodel.Properties.TryGetValue(id, out var propDef)) {
+                if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+            }
+        }
+        // add defaults for missing props
+        if (allProps.Count > values.Count) {
+            var missing = allProps.Where(n => !values.ContainsKey(n.Key));
+            foreach (var n in missing) {
+                var propDef = datamodel.Properties[n.Key];
+                if (propDef.PropertyType != PropertyType.Relation) {
+                    values.Add(n.Key, propDef.GetDefaultValue());
+                }
+            }
+        }
+
+        var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, revisionId, revisionType);
+        if (meta != null) newNodeData._setMeta(meta!);
+        return newNodeData;
+    }
     static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
@@ -140,16 +185,12 @@ public static partial class FromBytes {
         if(meta!=null) newNodeData._setMeta(meta!);
         return newNodeData;
     }
-    static NodeDataRevisions read_VersionContainer(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
+    static NodeDataRevisions read_NodeDataRevisions(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var versionCount = stream.ReadInt();
         if (versionCount < 0 || versionCount > 10000) throw new Exception("Binary data corruption. ");
         var versions = new NodeDataRevision[versionCount];
         for (int v = 0; v < versionCount; v++) {
-            versions[v] = new (
-                read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
-                stream.ReadGuid(),
-                (RevisionType)stream.ReadInt()
-            );
+            versions[v] = read_NodeDataRevision(datamodel, stream, guid, __id, nodeTypeId);
         }
         return new (guid, __id, nodeTypeId, versions);
     }

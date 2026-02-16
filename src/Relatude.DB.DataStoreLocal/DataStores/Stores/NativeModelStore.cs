@@ -316,7 +316,8 @@ public class NativeModelStore(DataStoreLocal store) {
         array = newArray;
     }
 
-    public QueryContextKey GetQueryContextKey(QueryContext ctx) {
+    public QueryContextKey GetQueryContextKey(QueryContext ctx, out DateTime now) {
+        now = ctx.NowUtc ?? DateTime.UtcNow;
         var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
         var cultureId = culture == null ? Guid.Empty : culture.Guid;
         Guid[]? collectionIds;
@@ -352,7 +353,8 @@ public class NativeModelStore(DataStoreLocal store) {
             editView: ctx.EditView,
             includeHidden: ctx.IncludeHidden,
             excludeDecendants: ctx.ExcludeDecendants,
-            userType: userType
+            userType: userType,
+            selectedRevisions: ctx.SelectedRevisions
         );
     }
 }

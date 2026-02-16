@@ -1,24 +1,23 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes.Trie;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using System;
-using System.Text.RegularExpressions;
 
 namespace Relatude.DB.DataStores.Indexes;
 
 internal static class IndexFactory {
     static bool useOptimizedIndexes = true;
-    internal static string GetIndexUniqueKey(Property property, string? cultureCode, string? subKey) {
+
+    internal static string getUniqueKey(Property property, string? cultureCode, string? subKey) {
         return property.Id
             + (string.IsNullOrEmpty(cultureCode) ? "" : "_" + cultureCode)
             + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
     }
+    
     public static Dictionary<string, StringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
         Dictionary<string, StringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
@@ -35,7 +34,7 @@ internal static class IndexFactory {
     static StringArrayIndex createStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
         var settings = store.Settings;
         var sets = store._definition.Sets;
-        var uniqueKey = GetIndexUniqueKey(property, cultureCode, subKey);
+        var uniqueKey = getUniqueKey(property, cultureCode, subKey);
         StringArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
         var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
@@ -59,7 +58,7 @@ internal static class IndexFactory {
     }
     static IValueIndex<T> createValueIndex<T>(DataStoreLocal store, string? cultureCode, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
         var settings = store.Settings;
-        var uniqueKey = GetIndexUniqueKey(property, cultureCode, subKey);
+        var uniqueKey = getUniqueKey(property, cultureCode, subKey);
         var useProvider = property.Model.IndexType switch {
             IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
             IndexStorageType.Memory => false,
@@ -96,7 +95,7 @@ internal static class IndexFactory {
     }
     static IWordIndex createWordIndex(DataStoreLocal store, string? cultureCode, SetRegister sets, StringProperty p, string? subKey) {
         var settings = store.Settings;
-        var uniqueKey = GetIndexUniqueKey(p, cultureCode, subKey);
+        var uniqueKey = getUniqueKey(p, cultureCode, subKey);
         var useProvider = ((StringPropertyModel)p.Model).TextIndexType switch {
             IndexStorageType.Default => settings.UsePersistedTextIndexesByDefault,
             IndexStorageType.Memory => false,
@@ -135,7 +134,7 @@ internal static class IndexFactory {
         var def = store._definition;
         var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
         var name = "Semantic " + classDef.CodeName + "." + p.Model.CodeName;
-        var uniqueKey = GetIndexUniqueKey(p, cultureCode, subKey);
+        var uniqueKey = getUniqueKey(p, cultureCode, subKey);
         return new SemanticIndex(def.Sets, uniqueKey, name, store.IOIndex, store.FileKeys, ai);
     }
 

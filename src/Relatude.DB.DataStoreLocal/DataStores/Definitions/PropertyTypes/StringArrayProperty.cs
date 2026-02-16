@@ -1,5 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -9,16 +8,12 @@ using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
 internal class StringArrayProperty : Property, IPropertyContainsValue {
-    IndexUtil< StringArrayIndex> _indexUtil = new();
-    public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out StringArrayIndex index) => _indexUtil.TryGetIndex(ctx, out index);
+    IndexUtil<StringArrayIndex> _indexUtil = new();
     public StringArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) {
-            var indexes = IndexFactory.CreateStringArrayIndexes(store, this, null);
-                _indexUtil.Initalize(indexes, Model.CultureSensitive, Indexes);
-        }
+        if (Indexed) _indexUtil.Initalize(IndexFactory.CreateStringArrayIndexes(store, this, null), Model.CultureSensitive, AllIndexes);
     }
     public override PropertyType PropertyType => PropertyType.StringArray;
     public override object ForceValueType(object value, out bool changed) {

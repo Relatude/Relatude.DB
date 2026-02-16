@@ -27,7 +27,7 @@ public interface IDataStore : IDisposable {
     INodeData Get(int id, QueryContext? ctx = null);
     INodeData Get(IdKey id, QueryContext? ctx = null);
     bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null);
-    bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null);
+    bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null);
     bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null);
     IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
     IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);

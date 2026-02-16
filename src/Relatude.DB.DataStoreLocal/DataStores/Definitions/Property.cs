@@ -15,39 +15,36 @@ namespace Relatude.DB.DataStores.Definitions {
     public interface IProperty {
         object ForceValueType(object value, out bool changed);
     }
-    public interface IValueProperty: IProperty {
+    public interface IValueProperty : IProperty {
         IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx);
         bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted);
         IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx);
     }
     internal abstract class ValueProperty<T> : Property, IValueProperty where T : notnull {
         IndexUtil<IValueIndex<T>> _indexUtil = new();
-        public bool TryGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out IValueIndex<T> index) => _indexUtil.TryGetIndex(ctx, out index);
-        public IValueIndex<T> GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
+        public bool TryValueGetIndex(QueryContext ctx, [MaybeNullWhen(false)] out IValueIndex<T> index) => _indexUtil.TryGetIndex(ctx, out index);
+        public IValueIndex<T> GetValueIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
         public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
         }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-            if (Indexed) {
-                var indexes = IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue);
-                _indexUtil.Initalize(indexes, Model.CultureSensitive, Indexes);
-            }
+            if (Indexed) _indexUtil.Initalize(IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue), Model.CultureSensitive, AllIndexes);
         }
         protected abstract void WriteValue(T v, IAppendStream stream);
         protected abstract T ReadValue(IReadStream stream);
         public override object ForceValueType(object value, out bool changed) => PropertyModel.ForceValueAnyType<T>(value, Model.PropertyType, out changed);
         public override bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted) {
-            if (TryGetIndex(ctx, out var index)) {
+            if (TryValueGetIndex(ctx, out var index)) {
                 sorted = index.ReOrder(unsorted, descending);
                 return true;
             }
             return base.TryReorder(unsorted, descending, ctx, out sorted);
         }
         public bool ContainsValue(object value, QueryContext ctx) {
-            return GetIndex(ctx).ContainsValue((T)value);
+            return GetValueIndex(ctx).ContainsValue((T)value);
         }
         public override bool CanBeFacet() => Indexed;
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
-            var index = GetIndex(ctx);
+            var index = GetValueIndex(ctx);
             foreach (var facetValue in facets.Values) {
                 var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
                 nodeIds = index.Filter(nodeIds, IndexOperator.Equal, (T)v);
@@ -56,12 +53,12 @@ namespace Relatude.DB.DataStores.Definitions {
         }
 
         public IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
-            var index = GetIndex(ctx);
+            var index = GetValueIndex(ctx);
             return index.FilterRangesObject(set, from, to);
         }
 
         public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
-            var index = GetIndex(ctx);
+            var index = GetValueIndex(ctx);
             var facets = new Facets(Model);
             if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
             facets.IsRangeFacet = false;
@@ -74,14 +71,14 @@ namespace Relatude.DB.DataStores.Definitions {
             return facets;
         }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
-            var index = GetIndex(ctx);
+            var index = GetValueIndex(ctx);
             foreach (var facetValue in facets.Values) {
                 var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
                 facetValue.Count = index.CountEqual(nodeIds, v);
             }
         }
         public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
-            return GetIndex(ctx).FilterInValues(ids, values.Cast<T>().ToList());
+            return GetValueIndex(ctx).FilterInValues(ids, values.Cast<T>().ToList());
         }
     }
     internal abstract class Property : IProperty {
@@ -96,7 +93,7 @@ namespace Relatude.DB.DataStores.Definitions {
             WriteAccess = pm.WriteAccess;
             Indexed = pm.Indexed || pm.UniqueValues;
             if (pm is IPropertyModelUniqueContraints pmuv) UniqueValues = pmuv.UniqueValues;
-            Indexes = [];
+            AllIndexes = [];
             Definition = def;
         }
         public bool Indexed { get; }
@@ -138,13 +135,13 @@ namespace Relatude.DB.DataStores.Definitions {
         readonly public Guid ReadAccess;
         readonly public Guid WriteAccess;
         readonly public bool UniqueValues;
-        internal List<IIndex> Indexes { get; }
+        internal List<IIndex> AllIndexes { get; }
 
         public abstract PropertyType PropertyType { get; }
 
         public abstract object GetDefaultValue();
         public void CompressMemory() {
-            foreach (var item in Indexes) item.CompressMemory();
+            foreach (var item in AllIndexes) item.CompressMemory();
         }
         public virtual object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {
             return value;

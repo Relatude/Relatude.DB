@@ -14,8 +14,11 @@ public enum NodeDataStorageVersions {
 internal class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
 }
-public interface INodeDataBase {}
-public interface INodeData: INodeDataBase {
+public interface INodeDataInner : INodeData {
+}
+public interface INodeDataOuter : INodeData {
+}
+public interface INodeData {
     Guid Id { get; set; }
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
@@ -36,13 +39,13 @@ public interface INodeData: INodeDataBase {
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
     public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
 }
-public class NodeData : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
+public abstract class NodeDataAbstract : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
     int _id;
     Guid _guid;
     Properties<object> _values;
-    public NodeData(Guid guid, int id, Guid nodeType,
+    public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values) {
         _guid = guid;
@@ -105,6 +108,12 @@ public class NodeData : INodeData {  // permanently readonly once set to readonl
     }
     public override string ToString() {
         return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
+    }
+}
+public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
+    public NodeData(Guid guid, int id, Guid nodeType,
+        DateTime createdUtc, DateTime changedUtc,
+        Properties<object> values) : base(guid, id, nodeType, createdUtc, changedUtc, values) {
     }
 }
 public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries

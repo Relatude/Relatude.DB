@@ -11,7 +11,7 @@ public static partial class ToBytes {
             nodeData(nd, datamodel, stream);
         } else if (n is NodeDataRevisions ndMeta) {
             nodeDataHeader(ndMeta, datamodel, stream);
-            nodeData_versions(ndMeta, datamodel, stream);
+            nodeDataRevisions(ndMeta, datamodel, stream);
         } else if (n is NodeDataWithRelations ndRel) {
             throw new NotImplementedException("Serialization of NodeDataWithRelations is not implemented yet. ");
         } else {
@@ -28,7 +28,7 @@ public static partial class ToBytes {
         stream.WriteUInt((uint)nodeData.__Id); // internal int ID, stored to ensure consistency. But can change accross DB instances.
         stream.WriteGuid(nodeData.NodeType); // using GUIDs for types to ensure consistency accross DB instances
     }
-    static void nodeData(NodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void nodeData(INodeData nodeData, Datamodel datamodel, Stream stream) {
 
         stream.WriteDateTime(nodeData.CreatedUtc); // could be needed dropped, but saves little space
         stream.WriteDateTime(nodeData.ChangedUtc); // needed for sync scenarios
@@ -54,13 +54,16 @@ public static partial class ToBytes {
         }
 
     }
-    static void nodeData_versions(NodeDataRevisions n, Datamodel datamodel, Stream stream) {
+    static void nodeDataRevision(NodeDataRevision version, Datamodel datamodel, Stream stream) {
+        stream.WriteGuid(version.RevisionId);
+        stream.WriteUInt((uint)version.RevisionType);
+        nodeData(version, datamodel, stream);
+    }
+    static void nodeDataRevisions(NodeDataRevisions n, Datamodel datamodel, Stream stream) {
         // Each version
         stream.WriteInt(n.Revisions.Length);
-        foreach (var version in n.Revisions) {
-            stream.WriteGuid(version.RevisionId);
-            stream.WriteUInt((uint)version.RevisionType);
-            nodeData(version.Node, datamodel, stream);
+        foreach (var rev in n.Revisions) {
+            nodeDataRevision(rev, datamodel, stream);
         }
     }
     static byte[] serializePropertyValue(object value, PropertyType propType) {

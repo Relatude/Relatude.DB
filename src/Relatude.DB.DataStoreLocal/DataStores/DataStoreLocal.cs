@@ -90,7 +90,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         ) {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
-        _defaultQueryCtx = QueryContext.CreateDefault();
+        _defaultQueryCtx = QueryContext.Default;
 
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;

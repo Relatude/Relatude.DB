@@ -11,17 +11,18 @@ public enum RevisionType {
     AwaitingBinningApproval = 6,
     PermanentlyDeleted = 99,
 }
-public class NodeDataRevision {
-    public NodeDataRevision(NodeData node, Guid versionId, RevisionType revisionType) {
-        Node = node;
-        RevisionId = versionId;
-        RevisionType = revisionType;
-    }
-    public NodeData Node { get; }
+public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public Guid RevisionId { get; }
     public RevisionType RevisionType { get; }
+    public NodeDataRevision(Guid guid, int id, Guid nodeType,
+        DateTime createdUtc, DateTime changedUtc,
+        Properties<object> values, Guid revisionId, RevisionType revisionType)
+        : base(guid, id, nodeType, createdUtc, changedUtc, values) {
+        RevisionId = revisionId;
+        RevisionType = revisionType;
+    }
 }
-public class NodeDataRevisions : INodeData {
+public class NodeDataRevisions : INodeDataInner {
     public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {
         _id = id;
         _guid = guid;

@@ -133,8 +133,8 @@ namespace Relatude.DB.Query.Expressions {
             _operator = op;
             _value = value;
         }
-        public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetIndex(ctx).Filter(set, _operator, _value);
-        public int MaxCount(QueryContext ctx) => _property.GetIndex(ctx).MaxCount(_operator, _value);
+        public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetValueIndex(ctx).Filter(set, _operator, _value);
+        public int MaxCount(QueryContext ctx) => _property.GetValueIndex(ctx).MaxCount(_operator, _value);
         public override string ToString() {
             return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value is string s ? s.ToStringLiteral() : _value.ToString()!);
         }

@@ -13,6 +13,11 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
+    INodeDataOuter toOuter(INodeDataInner nodeDataInner, QueryContext? ctx = null) {
+        ctx ??= _defaultQueryCtx;
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
+        return _definition.NodeTypeIndex.PickBestOuter(nodeDataInner, ctxKey, now);
+    }
     public Task<INodeData> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
@@ -21,7 +26,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
-            return Task.FromResult<INodeData>(_nodes.Get(_guids.GetId(id)));
+            return Task.FromResult<INodeData>(_nodes.Get(_guids.GetId(id), out _));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -34,7 +39,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return Task.FromResult<INodeData>(_nodes.Get(id));
+            return Task.FromResult<INodeData>(_nodes.Get(id, out _));
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -51,7 +56,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _queryActivity.Record();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return _nodes.Get(_guids.GetId(id));
+            return _nodes.Get(_guids.GetId(id), out _);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -63,7 +68,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return _nodes.Get(id);
+            return _nodes.Get(id, out _);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -132,7 +137,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
             if (_guids.TryGetId(id, out var uid)) {
-                nodeData = _nodes.Get(uid);
+                nodeData = _nodes.Get(uid, out _);
                 return true;
             }
             nodeData = null;
@@ -142,14 +147,20 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeData nodeData, QueryContext? ctx = null) {
+    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
-            return _nodes.TryGet(id, out nodeData, out _);
+            if (_nodes.TryGet(id, out var nodeDataInner, out _)) {
+                nodeData = toOuter(nodeDataInner);
+                return true;
+            } else {
+                nodeData = null;
+                return false;
+            }
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -272,7 +283,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 node = null;
                 return false;
             }
-            node = _nodes.Get(relatedIds.First());
+            node = _nodes.Get(relatedIds.First(), out _);
             return true;
         } finally {
             DeRegisterActivity(activityId);

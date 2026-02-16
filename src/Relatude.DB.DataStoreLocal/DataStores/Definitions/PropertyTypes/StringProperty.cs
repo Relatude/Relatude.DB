@@ -31,7 +31,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (IndexedByWords) {
             var indexes = IndexFactory.CreateWordIndexes(store, this, "words");
-            _indexUtil.Initalize(indexes, Model.CultureSensitive, Indexes);
+            _indexUtil.Initalize(indexes, Model.CultureSensitive, AllIndexes);
         }
         base.Initalize(store, def, config, io, ai);
     }
@@ -74,7 +74,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             if (semProp is FloatArrayProperty fa) {
                 if (!fa.Indexed) throw new Exception("Semantic property " + semProp.CodeName + " is not indexed. ");
                 if (!fa.Indexed) throw new NullReferenceException("Semantic index is null. ");
-                return fa.GetIndex(ctx);
+                return fa.GetSemanticIndex(ctx);
             } else {
                 throw new Exception("Property for semantic index is not a SemanticProperty. ");
             }

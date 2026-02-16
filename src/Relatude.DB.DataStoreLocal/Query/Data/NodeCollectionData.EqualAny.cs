@@ -14,7 +14,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             // slow without index
             HashSet<int> ids = new();
             foreach (var id in _ids.Enumerate()) {
-                var node = _db._nodes.Get(id);
+                var node = _db._nodes.Get(id, out _);
                 if (node.TryGetValue(propertyId, out var value)) {
                     if (_db.Logger.RecordingPropertyHits) _db.Logger.RecordPropertyHit(propertyId);
                     foreach (var v in values) {

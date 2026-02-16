@@ -58,12 +58,12 @@ internal sealed class Definition {
             p.Initalize(store, this, config, io, ai);
         }
         foreach (var t in Relations.Values) t.Initialize(this);
-        _indexes = Properties.Values.SelectMany(p => p.Indexes).ToDictionary(k => k.UniqueKey, k => k);
+        _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
     }
     internal void IndexNode(INodeData node) {
         foreach (var kv in node.Values) {
             var propDef = Properties[kv.PropertyId];
-            foreach (var index in propDef.Indexes) {
+            foreach (var index in propDef.AllIndexes) {
                 if (propDef.IsNodeRelevantForIndex(node, index)) index.Add(node.__Id, kv.Value);
             }
         }
@@ -72,7 +72,7 @@ internal sealed class Definition {
     internal void DeIndexNode(INodeData node) {
         foreach (var kv in node.Values) {
             var propDef = Properties[kv.PropertyId];
-            foreach (var index in propDef.Indexes) {
+            foreach (var index in propDef.AllIndexes) {
                 if (propDef.IsNodeRelevantForIndex(node, index)) index.Remove(node.__Id, kv.Value);
             }
         }
@@ -84,7 +84,7 @@ internal sealed class Definition {
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception> log) {
         foreach (var kv in na.Node.Values) {
             if (Properties.TryGetValue(kv.PropertyId, out var property)) {
-                foreach (var index in property.Indexes) {
+                foreach (var index in property.AllIndexes) {
                     if (transactionTimestamp <= index.PersistedTimestamp) continue;
                     try {
                         if (property.IsNodeRelevantForIndex(na.Node, index)) {
@@ -126,5 +126,9 @@ internal sealed class Definition {
         result = allPossibleProps.Select(pId => Properties[pId]).Where(p => p.CanBeFacet()).ToArray();
         _facetPropCache.Set(nodeIds.StateId, result, 1);
         return result;
+    }
+
+    internal object GetCulturePriority(Guid cultureId, Guid collectionId) {
+        throw new NotImplementedException();
     }
 }

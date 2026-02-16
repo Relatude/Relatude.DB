@@ -221,8 +221,7 @@ public class NodeTypesByIds {
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
         if (!ctx.IncludeUnpublished && !meta.AnyPublishedContentAnyDate) {
-            if (meta.ReleaseUtc.HasValue && meta.ReleaseUtc.Value > nowUtc) return false;
-            if (meta.ExpireUtc.HasValue && meta.ExpireUtc.Value <= nowUtc) return false;
+            if(!isReleased(nowUtc, meta)) return false;
         }
         if (!ctx.IncludeHidden && meta.Hidden) return false;
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
@@ -245,8 +244,7 @@ public class NodeTypesByIds {
         return true;
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
-        DateTime nowUtc = ctx.NowUtc ?? DateTime.UtcNow;
-        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx);
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);
         if (_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var ids)) {
             if (ids.IsWithinTimeConstraints(nowUtc)) return ids.AsUnmutableIdSet();
@@ -372,5 +370,51 @@ public class NodeTypesByIds {
             var count = stream.ReadInt();
             _countByType[typeId] = count;
         }
+    }
+    bool isReleased(DateTime nowUtc, INodeMeta meta) {
+        if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) return false;
+        if (meta.ExpireUtc.HasValue && nowUtc >= meta.ExpireUtc.Value) return false;
+        return true;
+    }
+    public INodeDataOuter PickBestOuter(INodeDataInner node, QueryContextKey ctxKey, DateTime nowUtc) {
+
+        // no access control, type, deteleted, as this is already taken care of in source of ids: nodesIds or relation
+        // this is just picking the best revision for the context, which is based on culture and release/expire date
+
+        if (node is INodeDataOuter nd) return nd; // no revisions, return as is
+
+        if (node is not NodeDataRevisions ndr) throw new Exception("Internal error, expected NodeDataRevisions");
+
+        // first, look for references to specified revisions: ( typically used for previewing unpublished content )
+        if (ctxKey.SelectedRevisions != null) {
+            foreach (var rev in ctxKey.SelectedRevisions) {
+                if (rev.NodeId == node.Id) {
+                    var r = ndr.Revisions.FirstOrDefault(r => r.RevisionId == rev.RevisionId);
+                    if (r != null) return r;
+                }
+            }
+        }
+
+        // then any published revision with matching culture
+        foreach (var r in ndr.Revisions) {
+            if (
+                r.RevisionType == RevisionType.Published
+                && r.Meta!.CultureId == ctxKey.CultureId
+                && isReleased(nowUtc, r.Meta)
+                ) {
+                return r;
+            }
+        }
+
+        // then any published revision with fallback culture
+        if (ctxKey.IncludeCultureFallback) {
+            var match = ndr.Revisions
+                .Where(r => r.RevisionType == RevisionType.Published && isReleased(nowUtc, r.Meta!))
+                .OrderBy(r => _definition.GetCulturePriority(r.Meta!.CultureId, r.Meta!.CollectionId))
+                .FirstOrDefault();
+            if (match != null) return match;
+        }
+
+        throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);
     }
 }

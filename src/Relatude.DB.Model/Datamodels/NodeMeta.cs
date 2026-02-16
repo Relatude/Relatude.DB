@@ -167,10 +167,10 @@ public class NodeMetaMin : INodeMeta {
     public Guid CollectionId { get; }
     public Guid ReadAccess { get; }
     public Guid EditAccess { get; }
-    public Guid EditViewAccess => EditAccess; // common
-    public Guid PublishAccess => EditAccess; // common
-    public bool Deleted => false; // common
-    public bool Hidden => false; // common
+    public Guid EditViewAccess => EditAccess; // common for all revisions and cultures
+    public Guid PublishAccess => EditAccess; // common for all revisions and cultures
+    public bool Deleted => false; // common for all revisions and cultures
+    public bool Hidden => false; // common for all revisions and cultures
     public bool AnyPublishedContentAnyDate => true;
 
     public Guid CreatedBy => Guid.Empty;
