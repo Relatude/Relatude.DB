@@ -8,7 +8,7 @@ public enum NodeMetaType : byte {
     Min = 1,
     Full = 2,
 }
-public interface INodeMeta : IEqualityComparer<INodeMeta> {
+public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
     Guid CollectionId { get; }
     Guid ReadAccess { get; }
     Guid EditAccess { get; }

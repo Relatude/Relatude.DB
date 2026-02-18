@@ -60,7 +60,7 @@ internal sealed class Definition {
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
     }
-    internal void IndexNode(INodeData node) {
+    internal void IndexNode(INodeDataInner node) {
         foreach (var kv in node.Values) {
             var propDef = Properties[kv.PropertyId];
             foreach (var index in propDef.AllIndexes) {

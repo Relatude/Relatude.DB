@@ -33,8 +33,8 @@ public interface IDataStore : IDisposable {
     bool Exists(Guid id, QueryContext? ctx = null);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
     bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null);
-    INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
-    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node, QueryContext? ctx = null);
+    INodeDataOuter[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
+    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataOuter node, QueryContext? ctx = null);
     int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
     IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null);
 

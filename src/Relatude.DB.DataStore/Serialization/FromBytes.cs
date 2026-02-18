@@ -12,28 +12,28 @@ namespace Relatude.DB.Serialization {
     public static partial class FromBytes {
 
         // Actions
-        public static List<ActionBase> ActionBaseList(Datamodel datamodel, Stream stream) {
-            var length = stream.ReadInt();
-            var actions = new List<ActionBase>(length);
-            for (int i = 0; i < length; i++) actions.Add(ActionBase(datamodel, stream, out _, out _));
-            return actions;
-        }
-        public static ActionBase ActionBase(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmenLength) {
-            var target = (ActionTarget)stream.ReadOneByte();
-            if (target == ActionTarget.Node) return nodeAction(datamodel, stream, out nodeSegmentRelativeOffset, out nodeSegmenLength);
-            nodeSegmentRelativeOffset = 0; nodeSegmenLength = 0; // not relevant for relations
-            if (target == ActionTarget.Relation) return relationAction(stream);
-            throw new NotImplementedException();
-        }
-        static NodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
-            var operation = (NodeOperation)stream.ReadOneByte();
-            nodeSegmentRelativeOffset = stream.Position;
-            var nodeData = NodeData(datamodel, stream);
-            long length = stream.Position - nodeSegmentRelativeOffset;
-            if (length > int.MaxValue) throw new Exception("Node data exceeds max size of 4GB");
-            nodeSegmentLength = (int)length;
-            return NodeAction.Load(operation, nodeData);
-        }
+        //public static List<ActionBase> ActionBaseList(Datamodel datamodel, Stream stream) {
+        //    var length = stream.ReadInt();
+        //    var actions = new List<ActionBase>(length);
+        //    for (int i = 0; i < length; i++) actions.Add(ActionBase(datamodel, stream, out _, out _));
+        //    return actions;
+        //}
+        //public static ActionBase ActionBase(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmenLength) {
+        //    var target = (ActionTarget)stream.ReadOneByte();
+        //    if (target == ActionTarget.Node) return nodeAction(datamodel, stream, out nodeSegmentRelativeOffset, out nodeSegmenLength);
+        //    nodeSegmentRelativeOffset = 0; nodeSegmenLength = 0; // not relevant for relations
+        //    if (target == ActionTarget.Relation) return relationAction(stream);
+        //    throw new NotImplementedException();
+        //}
+        //static NodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
+        //    var operation = (NodeOperation)stream.ReadOneByte();
+        //    nodeSegmentRelativeOffset = stream.Position;
+        //    var nodeData = NodeData(datamodel, stream);
+        //    long length = stream.Position - nodeSegmentRelativeOffset;
+        //    if (length > int.MaxValue) throw new Exception("Node data exceeds max size of 4GB");
+        //    nodeSegmentLength = (int)length;
+        //    return NodeAction.Load(operation, nodeData);
+        //}
         static RelationAction relationAction(Stream stream) {
             var operation = (RelationOperation)stream.ReadOneByte();
             var relationId = stream.ReadGuid();

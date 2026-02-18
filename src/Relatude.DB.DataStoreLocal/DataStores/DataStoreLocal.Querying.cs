@@ -266,7 +266,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
+    public INodeDataOuter[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
@@ -277,13 +277,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (!_guids.TryGetId(from, out var fromId)) return [];
             var relation = _definition.Relations[relProp.RelationId];
             var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
-            return _nodes.Get(relatedIds.ToArray());
+            return ToOuter(_nodes.Get(relatedIds.ToArray()), ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
     }
-    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeData node, QueryContext? ctx = null) {
+    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataOuter node, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
         _lock.EnterReadLock();
@@ -301,7 +301,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 node = null;
                 return false;
             }
-            node = _nodes.Get(relatedIds.First(), out _);
+            node = ToOuter(_nodes.Get(relatedIds.First(), out _), ctx);
             return true;
         } finally {
             DeRegisterActivity(activityId);

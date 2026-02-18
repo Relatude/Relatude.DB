@@ -8,6 +8,15 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
+    public INodeDataInner ToInner(INodeDataOuter nodeDataOuter) {
+        // Ie if the node type has revisions, then we need to return a nodeData with all the revisions
+        var hasRevisions = _definition.NodeTypeIndex.HasRevisions(nodeDataOuter.__Id); 
+        if (nodeDataOuter is NodeData nd) {
+            
+        }
+    }
+    //public INodeDataInner Update(NodeDataRevision nodeData) {
+    //}
 
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));

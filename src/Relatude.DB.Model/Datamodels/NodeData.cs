@@ -116,7 +116,7 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         Properties<object> values) : base(guid, id, nodeType, createdUtc, changedUtc, values) {
     }
 }
-public class NodeDataOnlyId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyId(Guid gid) => _gid = gid;
     public NodeDataOnlyId(int id) => _id = id;
     Guid _gid;
@@ -151,7 +151,7 @@ public class NodeDataOnlyId : INodeData { // readonly node data with possibility
     public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
 }
-public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
@@ -181,7 +181,7 @@ public class NodeDataOnlyTypeAndId : INodeData { // readonly node data with poss
     public INodeData Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
 }
-public class NodeDataOnlyTypeAndGuid : INodeData { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndGuid(Guid id, Guid typeId) {
         _id = id;
         _nodeType = typeId;

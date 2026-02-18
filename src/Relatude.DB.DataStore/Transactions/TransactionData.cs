@@ -18,13 +18,13 @@ public class TransactionData {
     public void Add(ActionBase action) => Actions.Add(action);
 
     //public void RemoveCulture(Guid nodeGuid, int lcid) => Add(NodeAction.RemoveCulture(nodeGuid, lcid));
-    public void InsertOrFail(INodeData node) => Add(NodeAction.InsertOrFail(node));
-    public void InsertIfNotExists(INodeData node) => Add(NodeAction.InsertIfNotExists(node));
-    public void ForceUpdateNode(INodeData node) => Add(NodeAction.ForceUpdate(node));
-    public void UpdateIfExists(INodeData node) => Add(NodeAction.UpdateIfExists(node));
-    public void UpdateOrFail(INodeData node) => Add(NodeAction.UpdateOrFail(node));
-    public void ForceUpsert(INodeData node) => Add(NodeAction.ForceUpsert(node));
-    public void Upsert(INodeData node) => Add(NodeAction.Upsert(node));
+    public void InsertOrFail(INodeDataOuter node) => Add(NodeAction.InsertOrFail(node));
+    public void InsertIfNotExists(INodeDataOuter node) => Add(NodeAction.InsertIfNotExists(node));
+    public void ForceUpdateNode(INodeDataOuter node) => Add(NodeAction.ForceUpdate(node));
+    public void UpdateIfExists(INodeDataOuter node) => Add(NodeAction.UpdateIfExists(node));
+    public void UpdateOrFail(INodeDataOuter node) => Add(NodeAction.UpdateOrFail(node));
+    public void ForceUpsert(INodeDataOuter node) => Add(NodeAction.ForceUpsert(node));
+    public void Upsert(INodeDataOuter node) => Add(NodeAction.Upsert(node));
 
     public void DeleteOrFail(int nodeId) => Add(NodeAction.DeleteOrFail(nodeId));
     public void DeleteOrFail(Guid nodeGuid) => Add(NodeAction.DeleteOrFail(nodeGuid));

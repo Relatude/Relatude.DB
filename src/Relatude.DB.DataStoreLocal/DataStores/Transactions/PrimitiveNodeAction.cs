@@ -5,11 +5,11 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions
 {
     public class PrimitiveNodeAction : PrimitiveActionBase {
-        public PrimitiveNodeAction(PrimitiveOperation operation, INodeData node)
+        public PrimitiveNodeAction(PrimitiveOperation operation, INodeDataInner node)
             : base(PrimitiveActionTarget.Node) {
             Operation = operation; Node = node;
         }
-        public INodeData Node { get; set; }
+        public INodeDataInner Node { get; set; }
         public NodeSegment? Segment { get; set; }
         public override PrimitiveNodeAction Opposite() {
             return Operation switch {

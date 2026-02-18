@@ -18,30 +18,30 @@ public enum NodeOperation : byte {
     ReIndex, // triggers a re-index of the node, ignored if the node does not exist
 }
 public class NodeAction : ActionBase {
-    public static NodeAction InsertOrFail(INodeData node) => new(NodeOperation.InsertOrFail, node);
-    public static NodeAction InsertIfNotExists(INodeData node) => new(NodeOperation.InsertIfNotExists, node);
+    public static NodeAction InsertOrFail(INodeDataOuter node) => new(NodeOperation.InsertOrFail, node);
+    public static NodeAction InsertIfNotExists(INodeDataOuter node) => new(NodeOperation.InsertIfNotExists, node);
     public static NodeAction DeleteIfExists(int id) => new(NodeOperation.DeleteIfExists, new NodeDataOnlyId(id));
     public static NodeAction DeleteIfExists(Guid id) => new(NodeOperation.DeleteIfExists, new NodeDataOnlyId(id));
     public static NodeAction DeleteOrFail(int id) => new(NodeOperation.DeleteOrFail, new NodeDataOnlyId(id));
     public static NodeAction DeleteOrFail(Guid id) => new(NodeOperation.DeleteOrFail, new NodeDataOnlyId(id));
-    public static NodeAction UpdateIfExists(INodeData node) => new(NodeOperation.UpdateIfExists, node);
-    public static NodeAction UpdateOrFail(INodeData node) => new(NodeOperation.UpdateOrFail, node);
-    public static NodeAction ForceUpdate(INodeData node) => new(NodeOperation.ForceUpdate, node);
-    public static NodeAction Upsert(INodeData node) => new(NodeOperation.Upsert, node);
-    public static NodeAction ForceUpsert(INodeData node) => new(NodeOperation.ForceUpsert, node);
+    public static NodeAction UpdateIfExists(INodeDataOuter node) => new(NodeOperation.UpdateIfExists, node);
+    public static NodeAction UpdateOrFail(INodeDataOuter node) => new(NodeOperation.UpdateOrFail, node);
+    public static NodeAction ForceUpdate(INodeDataOuter node) => new(NodeOperation.ForceUpdate, node);
+    public static NodeAction Upsert(INodeDataOuter node) => new(NodeOperation.Upsert, node);
+    public static NodeAction ForceUpsert(INodeDataOuter node) => new(NodeOperation.ForceUpsert, node);
     public static NodeAction ChangeType(int id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndId(id, typeId));
     public static NodeAction ChangeType(Guid id, Guid typeId) => new(NodeOperation.ChangeType, new NodeDataOnlyTypeAndGuid(id, typeId));
     public static NodeAction ReIndex(int id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
     public static NodeAction ReIndex(Guid id) => new(NodeOperation.ReIndex, new NodeDataOnlyId(id));
-    public static NodeAction Load(NodeOperation operation, INodeData node) => new NodeAction(operation, node);
+    public static NodeAction Load(NodeOperation operation, INodeDataOuter node) => new NodeAction(operation, node);
     //public static NodeAction RemoveCulture(Guid id, int lcid) => new(NodeOperation.Update, NodeData.CreateEmptyDerivedNode(id, lcid)); // updating with a derived node will cause removal of culture
-    private NodeAction(NodeOperation operation, INodeData node)
+    private NodeAction(NodeOperation operation, INodeDataOuter node)
         : base(ActionTarget.Node) {
         Operation = operation;
         Node = node;
     }
     public NodeOperation Operation { get; set; }
-    public INodeData Node { get; set; }
+    public INodeDataOuter Node { get; set; }
     public override string ToString() => OperationName() + " " + Node.ToString();
     public override string OperationName() => "NodeAction." + Operation.ToString();
     public override string ToString(Datamodel dm) => ToString();

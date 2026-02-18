@@ -37,7 +37,7 @@ internal static class ActionFactory {
             }
         }
     }
-    static void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeData node) {
+    static void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeDataInner node) {
         if (node.Id == Guid.Empty) {
             if (node.__Id == 0) { // both emtpy, so create new for both
                 node.Id = Guid.NewGuid();
@@ -74,13 +74,13 @@ internal static class ActionFactory {
     static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
-                    var node = nodeAction.Node;
+                    if(nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeAction.Node); // will eventually throw if node with id already exists
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, node); // will eventually throw if node with id already exists
                 }
                 break;
             case NodeOperation.InsertIfNotExists: {

@@ -14,11 +14,11 @@ public interface IRelationProperty {
 }
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet);
+    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet);
 }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeData[]? nodeDatas);
+    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas);
 }
 public interface IOneProperty<T> : IOneProperty {
 }
@@ -29,9 +29,9 @@ public class OneProperty<T>() : IOneProperty<T> {
     Guid parentId;
     int parent__Id;
     Guid propertyId;
-    INodeData? nodeData;
+    INodeDataOuter? nodeData;
     bool? isSet = false;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeData? nodeData, bool? isSet) {
+    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet) {
         this.store = store;
         this.parent__Id = parent__Id;
         this.parentId = parentId;
@@ -88,8 +88,8 @@ public class ManyProperty<T>() : IManyProperty<T> {
     int parent__Id;
     Guid parentId;
     Guid propertyId;
-    INodeData[]? nodeDatas;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeData[]? nodeDatas) {
+    INodeDataOuter[]? nodeDatas;
+    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas) {
         this.store = store;
         this.parent__Id = parent__Id;
         this.parentId = parentId;

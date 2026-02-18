@@ -1,5 +1,4 @@
 ﻿
-
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
@@ -179,7 +178,7 @@ class nodeMetasByNodeId {
         }
     }
 }
-public class NodeTypesByIds {
+internal class NodeTypesByIds {
     readonly Definition _definition;
     uint shortIdCounter = 0;
     readonly Dictionary<uint, metaAndType> _metaById = new();
@@ -192,6 +191,11 @@ public class NodeTypesByIds {
         _definition = definition;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
+    }
+    bool isReleased(DateTime nowUtc, INodeMeta meta) {
+        if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) return false;
+        if (meta.ExpireUtc.HasValue && nowUtc >= meta.ExpireUtc.Value) return false;
+        return true;
     }
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
         var ids = new idSet(nowUtc);
@@ -284,7 +288,7 @@ public class NodeTypesByIds {
             log("Error registering node action during state load: " + na, ex);
         }
     }
-    public void Index(INodeData node) {
+    public void Index(INodeDataInner node) {
         if (node is not NodeData && node is not NodeDataRevision) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type
@@ -331,51 +335,7 @@ public class NodeTypesByIds {
             throw new Exception("Internal error. Attempting to deindex node of type that has no count registered: " + node.NodeType);
         }
     }
-    static int formatVersion = 1000;
-    public void SaveState(IAppendStream stream) {
-        stream.WriteInt(formatVersion);
-        stream.WriteUInt(shortIdCounter);
-        stream.WriteInt(_metaById.Count);
-        foreach (var kv in _metaById) {
-            stream.WriteUInt(kv.Key);
-            stream.WriteByteArray(INodeMeta.ToBytes(kv.Value.Meta));
-            stream.WriteGuid(kv.Value.TypeId);
-        }
-        _metaIdsByNodeId.WriteToStream(stream);
-        stream.WriteInt(_countByType.Count);
-        foreach (var kv in _countByType) {
-            stream.WriteGuid(kv.Key);
-            stream.WriteInt(kv.Value);
-        }
-    }
-    public void ReadState(IReadStream stream) {
-        var version = stream.ReadInt();
-        if (version != formatVersion) throw new Exception("Incompatible format version for NodeIds store: " + version);
-        shortIdCounter = stream.ReadUInt();
-        var metaCount = stream.ReadInt();
-        for (int i = 0; i < metaCount; i++) {
-            var shortId = stream.ReadUInt();
-            var metaBytes = stream.ReadByteArray();
-            var meta = INodeMeta.FromBytes(metaBytes);
-            if (meta == null) meta = INodeMeta.Empty;
-            var typeId = stream.ReadGuid();
-            var mt = new metaAndType(meta, typeId);
-            _metaById[shortId] = mt;
-            _idByMeta[mt] = shortId;
-        }
-        _metaIdsByNodeId.ReadFromStream(stream);
-        var countByTypeCount = stream.ReadInt();
-        for (int i = 0; i < countByTypeCount; i++) {
-            var typeId = stream.ReadGuid();
-            var count = stream.ReadInt();
-            _countByType[typeId] = count;
-        }
-    }
-    bool isReleased(DateTime nowUtc, INodeMeta meta) {
-        if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) return false;
-        if (meta.ExpireUtc.HasValue && nowUtc >= meta.ExpireUtc.Value) return false;
-        return true;
-    }
+
     public INodeDataOuter PickBestOuter(INodeDataInner node, QueryContextKey ctxKey, DateTime nowUtc) {
 
         // no access control, type, deteleted, as this is already taken care of in source of ids: nodesIds or relation
@@ -417,4 +377,45 @@ public class NodeTypesByIds {
 
         throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);
     }
+    static int formatVersion = 1000;
+    public void SaveState(IAppendStream stream) {
+        stream.WriteInt(formatVersion);
+        stream.WriteUInt(shortIdCounter);
+        stream.WriteInt(_metaById.Count);
+        foreach (var kv in _metaById) {
+            stream.WriteUInt(kv.Key);
+            stream.WriteByteArray(INodeMeta.ToBytes(kv.Value.Meta));
+            stream.WriteGuid(kv.Value.TypeId);
+        }
+        _metaIdsByNodeId.WriteToStream(stream);
+        stream.WriteInt(_countByType.Count);
+        foreach (var kv in _countByType) {
+            stream.WriteGuid(kv.Key);
+            stream.WriteInt(kv.Value);
+        }
+    }
+    public void ReadState(IReadStream stream) {
+        var version = stream.ReadInt();
+        if (version != formatVersion) throw new Exception("Incompatible format version for NodeIds store: " + version);
+        shortIdCounter = stream.ReadUInt();
+        var metaCount = stream.ReadInt();
+        for (int i = 0; i < metaCount; i++) {
+            var shortId = stream.ReadUInt();
+            var metaBytes = stream.ReadByteArray();
+            var meta = INodeMeta.FromBytes(metaBytes);
+            if (meta == null) meta = INodeMeta.Empty;
+            var typeId = stream.ReadGuid();
+            var mt = new metaAndType(meta, typeId);
+            _metaById[shortId] = mt;
+            _idByMeta[mt] = shortId;
+        }
+        _metaIdsByNodeId.ReadFromStream(stream);
+        var countByTypeCount = stream.ReadInt();
+        for (int i = 0; i < countByTypeCount; i++) {
+            var typeId = stream.ReadGuid();
+            var count = stream.ReadInt();
+            _countByType[typeId] = count;
+        }
+    }
+
 }

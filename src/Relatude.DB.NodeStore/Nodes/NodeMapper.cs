@@ -85,13 +85,13 @@ public class NodeMapper {
         }
         return mapper!;
     }
-    public object CreateObjectFromNodeData(INodeData nodeData) {
+    public object CreateObjectFromNodeData(INodeDataOuter nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
         return mapper.NodeDataToObject(nodeData, _store);
     }
-    public T CreateObjectFromNodeData<T>(INodeData nodeData) {
+    public T CreateObjectFromNodeData<T>(INodeDataOuter nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }

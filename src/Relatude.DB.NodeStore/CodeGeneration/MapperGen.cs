@@ -3,8 +3,6 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
 using System.Text;
 using Relatude.DB.Nodes;
-using System.Xml.Linq;
-
 
 namespace Relatude.DB.CodeGeneration;
 
@@ -37,7 +35,7 @@ internal static class MapperGen {
     static void generate_CreateNodeDataFromObject(StringBuilder sb, NodeTypeModel nodeDef, Datamodel datamodel) {
         var nsp = nodeDef.Namespace ?? string.Empty;
         var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
-        sb.Append("public " + typeof(INodeData).Namespace + "." + nameof(INodeData) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
+        sb.Append("public " + typeof(INodeDataOuter).Namespace + "." + nameof(INodeDataOuter) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
         sb.AppendLine(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related){");
         var noneRelProps = nodeDef.AllProperties.Values.Where(p => !p.Private && p.PropertyType != PropertyType.Relation);
         sb.AppendLine("var values = new " + typeof(Properties<>).FullName!.Replace("`1", "") + "<object>(" + noneRelProps.Count() + ");");
@@ -102,10 +100,10 @@ internal static class MapperGen {
     }
     static void generate_NodeDataToObject(StringBuilder sb, NodeTypeModel nodeDef, Datamodel dm) {
         sb.Append("public object " + nameof(IValueMapper.NodeDataToObject) + "(");
-        sb.Append(typeof(INodeData).Namespace + "." + nameof(INodeData) + " nodeData, ");
+        sb.Append(typeof(INodeDataOuter).Namespace + "." + nameof(INodeDataOuter) + " nodeData, ");
         sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
         sb.AppendLine("){");
-        sb.AppendLine("var relations = nodeData." + nameof(INodeData.Relations) + ";");
+        sb.AppendLine("var relations = nodeData." + nameof(INodeDataOuter.Relations) + ";");
         if (nodeDef.IsInterface) {
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? ("__" + nodeDef.CodeName) : (nsp + ".__" + nodeDef.CodeName);
@@ -117,17 +115,17 @@ internal static class MapperGen {
             if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty)) {
                 sb.Append("obj." + nodeDef.NameOfPublicIdProperty + " = ");
                 switch (nodeDef.DataTypeOfPublicId) {
-                    case DataTypePublicId.Guid: sb.AppendLine("nodeData." + nameof(INodeData.Id) + ";"); break;
-                    case DataTypePublicId.String: sb.AppendLine("nodeData." + nameof(INodeData.Id) + ".ToString();"); break;
+                    case DataTypePublicId.Guid: sb.AppendLine("nodeData." + nameof(INodeDataOuter.Id) + ";"); break;
+                    case DataTypePublicId.String: sb.AppendLine("nodeData." + nameof(INodeDataOuter.Id) + ".ToString();"); break;
                     default: throw new Exception("Unknown datatype of public id: " + nodeDef.DataTypeOfPublicId);
                 }
             }
             if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty)) {
                 sb.Append("obj." + nodeDef.NameOfInternalIdProperty + " = ");
                 switch (nodeDef.DataTypeOfInternalId) {
-                    case DataTypeInternalId.Int: sb.AppendLine("(int)nodeData." + nameof(INodeData.__Id) + ";"); break;
-                    case DataTypeInternalId.Long: sb.AppendLine("(long)nodeData." + nameof(INodeData.__Id) + ";"); break;
-                    case DataTypeInternalId.String: sb.AppendLine("nodeData." + nameof(INodeData.__Id) + ".ToString();"); break;
+                    case DataTypeInternalId.Int: sb.AppendLine("(int)nodeData." + nameof(INodeDataOuter.__Id) + ";"); break;
+                    case DataTypeInternalId.Long: sb.AppendLine("(long)nodeData." + nameof(INodeDataOuter.__Id) + ";"); break;
+                    case DataTypeInternalId.String: sb.AppendLine("nodeData." + nameof(INodeDataOuter.__Id) + ".ToString();"); break;
                     default: throw new Exception("Unknown datatype of public id: " + nodeDef.DataTypeOfPublicId);
                 }
             }
@@ -135,8 +133,8 @@ internal static class MapperGen {
                 if (!string.IsNullOrEmpty(name))
                     sb.AppendLine("obj." + name + " = nodeData." + prop + ";");
             }
-            h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeData.CreatedUtc));
-            h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeData.ChangedUtc));
+            h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeDataOuter.CreatedUtc));
+            h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeDataOuter.ChangedUtc));
         }
         if (!nodeDef.IsInterface) {
             foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Private)) {
@@ -158,11 +156,11 @@ internal static class MapperGen {
                             if (rp.IsMany) {
                                 sb.Append(nameof(IManyProperty.Initialize));
                                 var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + CodeUtils.GuidName(p.Id);
-                                sb.AppendLine("(store, nodeData." + nameof(INodeData.__Id) + ", nodeData." + nameof(INodeData.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ");");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ");");
                             } else {
                                 sb.Append(nameof(IOneProperty.Initialize));
                                 var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + CodeUtils.GuidName(p.Id);
-                                sb.AppendLine("(store, nodeData." + nameof(INodeData.__Id) + ", nodeData." + nameof(INodeData.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
                             }
                             sb.AppendLine("");
                         }
@@ -171,10 +169,10 @@ internal static class MapperGen {
                             sb.Append("obj." + p.CodeName + ".");
                             if (rp.IsMany) {
                                 sb.Append(nameof(IManyProperty.Initialize));
-                                sb.AppendLine("(store, nodeData." + nameof(INodeData.__Id) + ", nodeData." + nameof(INodeData.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
                             } else {
                                 sb.Append(nameof(IOneProperty.Initialize));
-                                sb.AppendLine("(store, nodeData." + nameof(INodeData.__Id) + ", nodeData." + nameof(INodeData.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null);");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null);");
                             }
                             sb.AppendLine("");
                         }
@@ -202,10 +200,10 @@ internal static class MapperGen {
                     } else { // non-native one relation
                         sb.Append("if(relations." + nameof(IRelations.TryGetOneRelation) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ") && v" + CodeUtils.GuidName(p.Id) + "!=null) ");
                         sb.Append("obj." + p.CodeName + " = ");
-                        sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeData).Namespace + "." + nameof(INodeData) + ")v" + CodeUtils.GuidName(p.Id) + ");");
+                        sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeDataOuter).Namespace + "." + nameof(INodeDataOuter) + ")v" + CodeUtils.GuidName(p.Id) + ");");
                     }
                 } else {
-                    sb.Append("if(nodeData." + nameof(INodeData.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
+                    sb.Append("if(nodeData." + nameof(INodeDataOuter.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
                     if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
                     sb.AppendLine(";");
                     sb.Append("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");

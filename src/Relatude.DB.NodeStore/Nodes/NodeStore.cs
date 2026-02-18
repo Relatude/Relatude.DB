@@ -291,7 +291,7 @@ public class NodeStore : IDisposable {
         node = default;
         return false;
     }
-    public T Get<T>(INodeData nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData);
+    public T Get<T>(INodeDataOuter nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData);
     public IEnumerable<T> GetRelatedNodes<T>(Guid propertyId, Guid nodeId) { // used by mapper internally
         throw new NotImplementedException("GetRelated with propertyId is not implemented in NodeStore.");
     }
