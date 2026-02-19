@@ -113,6 +113,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal long GetNoPrimitiveActionsSinceStartup() {
         return Interlocked.Read(ref _noPrimitiveActionsSinceStartup);
     }
+    ActionConverter _converter = new();
     List<PrimitiveActionBase> executeActions(TransactionData transaction, HashSet<Guid>? lockExcemptions, bool transformValues,
         ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, QueryContext ctx) {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
@@ -124,7 +125,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
                 UpdateActivityProgress(activityId, 100 * i++ / count);
-                foreach (var primitive in ActionFactory.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
+                foreach (var primitive in _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
                     _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
                     executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )

@@ -3,15 +3,16 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions;
 
-internal static class ActionFactory {
-    static ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
-    public static PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
+internal class ActionConverter {
+    ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
+    public PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
         _lastResultingOperation = ResultingOperation.None; // default
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
+            NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -22,7 +23,7 @@ internal static class ActionFactory {
             throw new ExceptionWithoutIntegrityLoss("Failed to " + complexAction.ToString(db.Datamodel) + err.Message, err);
         }
     }
-    static void ensureIdAndGuid(DataStoreLocal db, INodeData node) {
+    void ensureIdAndGuid(DataStoreLocal db, INodeData node) {
         if (node.Id == Guid.Empty) {
             if (node.__Id == 0) { // both emtpy
                 throw new Exception("Missing ID given. ");
@@ -37,7 +38,7 @@ internal static class ActionFactory {
             }
         }
     }
-    static void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeDataInner node) {
+    void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeDataInner node) {
         if (node.Id == Guid.Empty) {
             if (node.__Id == 0) { // both emtpy, so create new for both
                 node.Id = Guid.NewGuid();
@@ -53,7 +54,7 @@ internal static class ActionFactory {
             }
         }
     }
-    static int getIdAndVerifyIdAndGuidIfGuidIsGiven(DataStoreLocal db, NodeAction nodeAction) {
+    int getIdAndVerifyIdAndGuidIfGuidIsGiven(DataStoreLocal db, NodeAction nodeAction) {
         var id = nodeAction.Node.__Id;
         var guid = nodeAction.Node.Id;
         if (guid == Guid.Empty && id == 0) throw new Exception("Both ID and GUID are empty, cannot perform action. ");
@@ -64,17 +65,24 @@ internal static class ActionFactory {
         }
         return id;
     }
-    static bool nodeExists(DataStoreLocal db, INodeData node) {
+    bool nodeExists(DataStoreLocal db, INodeData node) {
         int id = 0;
         if (node.Id != Guid.Empty) db._guids.TryGetId(node.Id, out id);
         else if (node.__Id != 0) id = node.__Id;
         if (id == 0) return false;
         return db._nodes.Contains(id);
     }
-    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
+    bool tryDetermineRevisionId(INodeData newNode, INodeData oldNode, Datamodel definition, out int revisionId) {
+        // first look for revision id in Node;
+        // first from revisionId property
+        // then by using the QueryContextLanguage.
+        // This requires there is a revision for the culture and that there only is one?
+        throw new NotImplementedException("Node revisions are not yet implemented in DataStoreLocal. ");
+    }
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
-                    if(nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
+                    if (nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
@@ -127,6 +135,11 @@ internal static class ActionFactory {
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) {// is new
                         throw new Exception("Node with id " + node.Id + " does not exist, cannot update. Use InsertIfNotExists or Upsert instead. ");
                     } else {
+                        var areRevisionsRelevant = oldNode is NodeDataRevisions revs;
+                        var canRevisionIdBeDetermined = tryDetermineRevisionId(node, oldNode, db._definition, out var revisionId);
+                        // if so, how to find relevant revision
+                        // then, update this revision and run side effects (updating other cultures)
+
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
@@ -237,7 +250,7 @@ internal static class ActionFactory {
                 throw new NotImplementedException();
         }
     }
-    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, RelationAction a, List<KeyValuePair<TaskData, string?>> newTasks) {
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, RelationAction a, List<KeyValuePair<TaskData, string?>> newTasks) {
         if (a.Operation == RelationOperation.Add) {
             var source = a.Source > default(int) ? a.Source : db._guids.GetId(a.SourceGuid);
             var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
@@ -298,7 +311,7 @@ internal static class ActionFactory {
             throw new NotImplementedException();
         }
     }
-    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
         List<int> uints = [];
         if (a.NodeIds != null) uints.AddRange(a.NodeIds);
         if (a.NodeGuids != null) uints.AddRange(a.NodeGuids.Select(db._guids.GetId));
@@ -383,7 +396,7 @@ internal static class ActionFactory {
             }
         }
     }
-    static IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyValidation a, List<KeyValuePair<TaskData, string?>> newTasks) {
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyValidation a, List<KeyValuePair<TaskData, string?>> newTasks) {
         List<int> uints = [];
         if (a.NodeIds != null) uints.AddRange(a.NodeIds);
         if (a.NodeGuids != null) uints.AddRange(a.NodeGuids.Select(db._guids.GetId));
@@ -396,5 +409,8 @@ internal static class ActionFactory {
             }
         }
         yield break;
+    }
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks) {
+        throw new NotImplementedException("NodeRevisionAction is not yet implemented in DataStoreLocal. ");
     }
 }
