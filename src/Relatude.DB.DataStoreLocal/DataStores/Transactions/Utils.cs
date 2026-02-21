@@ -7,6 +7,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Tasks.TextIndexing;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions;
+
 internal static class Utils {
     public static void ForceTypeValidateValuesAndCopyMissing(Definition definition, INodeData node, INodeData? oldNode, bool transformValues) {
         // should optimize this method, it is called for every node
@@ -98,5 +99,39 @@ internal static class Utils {
             if (!propDef.AreValuesEqual(kv.Value, oldValue)) return true; // value different            
         }
         return false;
+    }
+    internal static INodeDataInner CopyAndUpdateRevision(NodeDataRevisions existingNode, INodeDataOuter changedNode, Guid revisionId, RevisionType revisionType, NodeTypeModel typeDef) {
+
+        // copy entire object, to ensure it is indepenent of node in cache
+        var copy = existingNode.CopyRevisions();
+
+        // update with the new revision
+        NodeDataRevision? newRev = null;
+        for (var i = 0; i < copy.Revisions.Length; i++) {
+            if (copy.Revisions[i].RevisionId == revisionId) {
+                newRev = changedNode.CopyAsNodeDataRevision(revisionId, revisionType, copy.Revisions[i].Meta!);
+                copy.Revisions[i] = newRev;
+                break;
+            }
+        }
+        if (newRev == null) throw new("Revision with id " + revisionId + " not found in old node with id " + existingNode.Id);
+
+        if (revisionType == RevisionType.Published) {
+            // ensure culture insenensitive properties are copied to the new revision
+            foreach (var rev in copy.Revisions) {
+                if (rev.RevisionType == RevisionType.Published && rev.RevisionId != newRev.RevisionId) {
+                    foreach (var prop in typeDef.AllProperties.Values) {
+                        if (!prop.CultureSensitive) {
+                            if (newRev.TryGetValue(prop.Id, out var newValue)) {
+                                rev.AddOrUpdate(prop.Id, newValue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return copy;
+
     }
 }

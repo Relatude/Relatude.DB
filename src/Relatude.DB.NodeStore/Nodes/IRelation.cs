@@ -45,7 +45,7 @@ public class OneProperty<T>() : IOneProperty<T> {
         if (TryGet(out T? value)) return value;
         throw new Exception($"Relation {store?.Datastore.Datamodel.Properties[propertyId].CodeName} is not set and empty. ");
     }
-    bool tryGet([MaybeNullWhen(false)] out INodeData value) {
+    bool tryGet([MaybeNullWhen(false)] out INodeDataOuter value) {
         if (isSet.HasValue) {
             if (isSet.Value) {
                 value = nodeData!; // _node is guaranteed to be not null if _isSet is true
@@ -64,7 +64,7 @@ public class OneProperty<T>() : IOneProperty<T> {
         return false;
     }
     public bool TryGet([MaybeNullWhen(false)] out T value) {
-        if (tryGet(out INodeData? nodeData)) {
+        if (tryGet(out INodeDataOuter? nodeData)) {
             value = store.Get<T>(nodeData);
             return true;
         }

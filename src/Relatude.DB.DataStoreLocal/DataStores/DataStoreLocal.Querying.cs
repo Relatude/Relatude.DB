@@ -28,7 +28,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return result;
     }
-    public IEnumerable<INodeDataOuter> ToOuter(IEnumerable<INodeDataInner> nodeDataInners, QueryContext? ctx = null) {
+    public IEnumerable<INodeDataOuter> ToOuter(IEnumerable<INodeDataInner> nodeDataInners, QueryContext? ctx) {
         ctx ??= _defaultQueryCtx;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
         var index = _definition.NodeTypeIndex;

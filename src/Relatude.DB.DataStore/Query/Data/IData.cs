@@ -29,7 +29,7 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IStoreNodeDataCollection RelatesAny(Guid propertyId, IEnumerable<Guid> nodeId);
     IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values);
     IStoreNodeDataCollection WhereInIds(IEnumerable<Guid> values);
-    IEnumerable<INodeData> NodeValues { get; }
+    IEnumerable<INodeDataOuter> NodeValues { get; }
     IEnumerable<int> NodeIds { get; }
     IEnumerable<Guid> NodeGuids { get; }
     ObjectData ToObjectCollection();
@@ -53,7 +53,7 @@ public interface ISearchCollection : IStoreNodeDataCollection {
 }
 public interface IStoreNodeData {
     IDataStore Store { get; }
-    INodeData NodeData { get; }
+    INodeDataOuter NodeData { get; }
     object? GetValue(string propertyName);
     ObjectData ToObjectData();
 }

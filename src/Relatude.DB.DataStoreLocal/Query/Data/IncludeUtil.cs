@@ -21,7 +21,7 @@ internal static class IncludeUtil {
             foreach (var branch in _includeBranches) branch.Reset();
             foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, _db, ref metrics.NodeCount);
             var nInner = _db._nodes.Get(idsToGet.ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
-            var nOuter = _db.ToOuter(nInner);
+            var nOuter = _db.ToOuter(nInner, ctx);
             var dic = nOuter.ToDictionary(n => n.__Id); // get all nodes in one go
             metrics.UniqueNodeCount += dic.Count;
             foreach (var node in nodes) node.SwapNodeData(dic); // recursive for entire relation tree

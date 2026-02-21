@@ -21,6 +21,16 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         RevisionId = revisionId;
         RevisionType = revisionType;
     }
+    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType);
+        rev._setMeta(meta);
+        return rev;
+    }
+    public NodeDataRevision CopyRevision() {
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType);
+        rev._setMeta(Meta!);
+        return rev;
+    }
 }
 public class NodeDataRevisions : INodeDataInner {
     public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {
@@ -39,7 +49,13 @@ public class NodeDataRevisions : INodeDataInner {
     public INodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
-    public INodeData Copy() => throw new NA();
+    public INodeDataInner Copy() => CopyRevisions();
+    public NodeDataRevisions CopyRevisions() {
+        var revs = new NodeDataRevision[Revisions.Length];
+        for (int i = 0; i < Revisions.Length; i++) revs[i] = Revisions[i].CopyRevision();
+        var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
+        return data;
+    }
 
     public IEnumerable<PropertyEntry<object>> Values => throw new NA();
     public bool ReadOnly => true;
@@ -52,4 +68,5 @@ public class NodeDataRevisions : INodeDataInner {
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
+
 }

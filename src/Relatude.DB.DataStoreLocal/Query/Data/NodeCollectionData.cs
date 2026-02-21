@@ -13,7 +13,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     DataStoreLocal _db;
     Definition _def;
     NodeType _nodeType;
-    INodeData[]? _nodes;
+    INodeDataOuter[]? _nodes;
     Metrics _metrics;
     QueryContext _ctx;
 
@@ -35,12 +35,12 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         get {
             var allpropertyIdsByName = _def.Datamodel.NodeTypes[_nodeType.Id].AllPropertyIdsByName;
             foreach (var node in NodeValues) {
-                yield return new NodeObjectData(_db, node, _def, allpropertyIdsByName);
+                yield return new NodeObjectData(_db, node, _def, allpropertyIdsByName, _ctx);
             }
         }
     }
 
-    public IEnumerable<INodeData> NodeValues {
+    public IEnumerable<INodeDataOuter> NodeValues {
         get {
             if (_nodes == null) _nodes = IncludeUtil.GetNodesWithIncludes(_metrics, _ids, _db, _includeBranches, _ctx);
             return _nodes;
@@ -112,7 +112,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         _ids = IdSet.UncachableSet(orderedSet);
         //if(_includeBranches!=null) foreach(var b in _includeBranches) b.Reset();
         if (_nodes != null) {
-            var newNodeDatas = new INodeData[_nodes.Length];
+            var newNodeDatas = new INodeDataOuter[_nodes.Length];
             i = 0;
             foreach (var pos in newPos) newNodeDatas[i++] = _nodes[pos];
             _nodes = newNodeDatas;

@@ -6,20 +6,23 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Query.Data;
+
 internal class NodeObjectData : IStoreNodeData {
     public double DurationMs { get; set; }
-    INodeData _nodeData;
+    INodeDataOuter _nodeData;
     Definition _def;
     Dictionary<string, Guid> _allPropertiesByName;
     DataStoreLocal _db;
+    QueryContext _ctx;
     public IDataStore Store { get => _db; }
-    public NodeObjectData(DataStoreLocal db, INodeData nodeData, Definition def, Dictionary<string, Guid> allPropertiesByName) {
+    public NodeObjectData(DataStoreLocal db, INodeDataOuter nodeData, Definition def, Dictionary<string, Guid> allPropertiesByName, QueryContext ctx) {
         _db = db;
         _nodeData = nodeData;
         _allPropertiesByName = allPropertiesByName;
+        _ctx = ctx;
         _def = def;
     }
-    public INodeData NodeData { get => _nodeData; }
+    public INodeDataOuter NodeData { get => _nodeData; }
     public int Count() {
         throw new NotImplementedException();
     }
@@ -57,10 +60,11 @@ internal class NodeObjectData : IStoreNodeData {
     object? getRelated(RelationPropertyModel relProp) {
         var relation = _def.Relations[relProp.RelationId];
         var ids = relation.GetRelated(_nodeData.__Id, relProp.FromTargetToSource).ToArray();
-        var tos = _db._nodes.Get(ids).Select(n => new NodeDataWithRelations(n)).ToArray(); // heavy operation
+        var tosInner = _db._nodes.Get(ids); // heavy operation
+        var tos = _db.ToOuter(tosInner, _ctx).Select(n => new NodeDataWithRelations(n)).ToArray();
         var nodeTypes = _def.Datamodel.NodeTypes;
         var result = new NodeObjectData[tos.Length];
-        for (var n = 0; n < tos.Length; n++) result[n] = new NodeObjectData(_db, tos[n], _def, _allPropertiesByName);
+        for (var n = 0; n < tos.Length; n++) result[n] = new NodeObjectData(_db, tos[n], _def, _allPropertiesByName, _ctx);
         if (relProp.IsMany) return result;
         if (tos.Length == 0) return null;
         if (tos.Length == 1) return result[0];

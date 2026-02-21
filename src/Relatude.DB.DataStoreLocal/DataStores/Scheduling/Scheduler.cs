@@ -6,13 +6,14 @@ using Relatude.DB.Tasks;
 
 namespace Relatude.DB.DataStores.Scheduling;
 
-internal class Scheduler(DataStoreLocal _db) {
-    SettingsLocal _s => _db.Settings;
+internal class Scheduler {
+    DataStoreLocal _db;
+    SettingsLocal _s;
     Timer? _autoFlushTimer; // timer for auto flushing disk
     Timer? _taskDequeueTimer; // timer only for dequeuing index tasks
     Timer? _taskDequeuePersistedTimer; // timer only for dequeuing persisted index tasks
     Timer? _backgroundTaskTimer;  // general background grouping a number of background tasks ( auto state file save, backup, cache purge etc )
-    Timer? _metricRecorder;
+    Timer? _metricRecorder;  // timer for recording metrics, separated to be able to run more often and not be delayed by other background tasks
 
     OnlyOneThreadRunning _autoFlushTaskRunningFlag = new(); // flag to ensure only one thread is running auto flush at a time
     OnlyOneThreadRunning _dequeIndexTaskRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
@@ -27,11 +28,39 @@ internal class Scheduler(DataStoreLocal _db) {
     int startupDelayMs = 2000; // delay before starting any timer. allowing system to start up and initialize properly before background tasks start running
     int timerStartupDelta = 323; // delta between different timers, so they do not all run at exactly the same time
     int defaultAutoFlushPulseIntervalMs = 1000; // default interval for auto flushing disk, if no setting is provided
-    int taskQueuePulseIntervalMs = 1000; // default interval for checking for new tasks and the time allowed for building a batch of tasks
+    int taskQueuePulseIntervalMs; // interval for checking for new tasks and the time allowed for building a batch of tasks
     int backgroundTasksPulseIntervalMs = 60000; // backup if due and delete old, cache purge, save log stats, flush logs etc. run every minute, not needed to run too often
     int metricRecorderPulseIntervalMs = 1000; // record metrics every second
     TimeSpan _intervalOfDeletingExpiredTasks = TimeSpan.FromMinutes(5); // interval for running delete expired tasks, default is 5 minutes
 
+    int taskQueueMaxRuntimeMs;
+    int taskQueuePauseLimitDbActionsPerSec;
+
+    const int _throttleDefault = 50; // 0-100
+    int _throttle = -1;
+
+    public Scheduler(DataStoreLocal db) {
+        _db = db;
+        _s = _db.Settings;
+        ResetTaskQueuesThrottle();
+    }
+
+    public void ResetTaskQueuesThrottle() => ThrottleTaskQueue(_throttleDefault);
+    public int GetTaskQueuesThrottle() {
+        return _throttle;
+    }
+    public void ThrottleTaskQueue(int throttlePercentage) { // 0-100;
+        if (_throttle == throttlePercentage) return;
+        if (throttlePercentage < 0) throttlePercentage = 0;
+        else if (throttlePercentage > 100) throttlePercentage = 100;
+        _throttle = throttlePercentage;
+        double factor = _throttle / 100d; // min 0, max 1
+        taskQueueMaxRuntimeMs = (int)(10000d * (1d - factor)); // from 10s to 0s, 50% => 5s
+        taskQueuePauseLimitDbActionsPerSec = (int)(factor * 100) ^ 2; // from 0 to 40,000, 50% => 2,500
+        taskQueuePulseIntervalMs = 100 + (int)(5000 * (1d - factor)); // from 5100ms to 100ms, 50% => 2,550ms
+        _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);
+        _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);
+    }
     //Timer _test = new Timer(_ => {
     //    Console.WriteLine("Transactions last 10 sec:" + _db._transactionActivity.EstimateLast10Seconds().To1000N() + ", Queries last 10 sec:" + _db._queryActivity.EstimateLast10Seconds().To1000N());
     //}, null, 10, 500); // just to have a timer for testing purposes
@@ -103,18 +132,17 @@ internal class Scheduler(DataStoreLocal _db) {
         var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfTaskDequeue;
         _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
-        if (actionsPerSecondSinceLastDequeue > 500) { // requires a constant interval between runs to be meaningful
-            // wait a longer since there is a lot of activity
+        if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
+            // postpone background tasks if db is busy
             _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
             _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
             return;
         }
         deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
-        dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db);
+        dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db, taskQueueMaxRuntimeMs);
         _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
     }
-
     long _actionCountAtCompletionOfPersistedTaskDequeue;
     void dequeuePersistedTaskQueues(object? state) {
         if (_db.State != DataStoreState.Open) return;
@@ -122,15 +150,15 @@ internal class Scheduler(DataStoreLocal _db) {
         var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfPersistedTaskDequeue;
         _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
-        if (actionsPerSecondSinceLastDequeue > 500) { // requires a constant interval between runs to be meaningful
-            // wait a longer since there is a lot of activity
+        if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
+            // postpone background tasks if db is busy:
             _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
             _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
             return;
         }
-        if (_db.TaskQueuePersisted != null) {
+        if (_db.TaskQueuePersisted != null) {  // it will be null if persisted queue is not enabled, ( all tasks will then be run by non persisted queue )
             deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
-            dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db);
+            dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db, taskQueueMaxRuntimeMs);
         }
         _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
@@ -151,7 +179,7 @@ internal class Scheduler(DataStoreLocal _db) {
         if (restartedBatches > 0) db.LogInfo("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
         if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
-    static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db) {
+    static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db, int maxRunTime) {
         if (oneThread.IsRunning_IfNotSetFlagToRunning()) return;
         long activityId = -1;
         try {
@@ -161,13 +189,13 @@ internal class Scheduler(DataStoreLocal _db) {
             bool abort() => db.State != DataStoreState.Open;
             var tasks = new List<Task<BatchTaskResult[]>>();
             activityId = db.RegisterActvity(DataStoreActivityCategory.RunningTask, "Running tasks", 0);
-            BatchTaskResult[] result = queue.ExecuteTasksAsync(10000, abort, activityId).Result;
+            BatchTaskResult[] result = queue.ExecuteTasksAsync(maxRunTime, abort, activityId).Result;
             var ms = sw.Elapsed.TotalMilliseconds;
             if (result.Length == 0) return; // no tasks executed
             var failed = result.Count(r => r.Error != null);
             var taskTotalCount = result.Sum(r => r.TaskCount);
             var taskFailedCount = result.Where(r => r.Error != null).Sum(r => r.TaskCount);
-            var logType=failed>0?SystemLogEntryType.Error:SystemLogEntryType.Info;
+            var logType = failed > 0 ? SystemLogEntryType.Error : SystemLogEntryType.Info;
             db.Log(logType, "TaskQueue: " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
                 (failed > 0 ? (taskFailedCount + " tasks in " + failed + " batches failed! ") : ""));
             foreach (var r in result) if (r.Error != null) db.LogError(r.TaskTypeName + " failed", r.Error!);

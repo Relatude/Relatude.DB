@@ -115,7 +115,7 @@ public class NodeMapper {
     public bool TryGetIdUInt(object node, out int id) {
         return getNodeValueMapper(node.GetType(), out _).TryGetIdUInt(node, out id);
     }
-    public INodeData CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection) {
+    public INodeDataOuter CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection) {
         return getNodeValueMapper(node.GetType(), out _).CreateNodeDataFromObject(node, relatedCollection);
     }
     public Guid GetRelationId<T>() => GetRelationId(typeof(T));

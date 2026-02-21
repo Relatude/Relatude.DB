@@ -2,10 +2,10 @@
 namespace Relatude.DB.Datamodels;
 
 public class NodeDataWithRelations : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
-    INodeData _node;
+    INodeDataOuter _node;
     Relations _relations;
     static void throwReadOnlyError() => throw new Exception("Internal error. Should only be created with readonly inner node data. ");
-    public NodeDataWithRelations(INodeData nodeData) {
+    public NodeDataWithRelations(INodeDataOuter nodeData) {
         if (!nodeData.ReadOnly) throwReadOnlyError();
         _node = nodeData;
         _relations = new();
@@ -13,6 +13,10 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
         _node = dic[_node.__Id];
         _relations.SwapNodeData(dic);
+    }
+    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
+        if (_node is INodeDataOuter outer) return outer.CopyAsNodeDataRevision(revisionId, revisionType, meta);
+        throw new Exception("Node data is not outer. ");
     }
     public Guid Id { get => _node.Id; set => throwReadOnlyError(); }
     public int __Id { get => _node.__Id; set => throwReadOnlyError(); }
@@ -27,7 +31,7 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public int ValueCount => _node.ValueCount;
     public bool ReadOnly => _node.ReadOnly;
     public IRelations Relations => _relations;
-    public INodeData Copy() => throw new NA();
+    public INodeDataInner Copy() => throw new NA();
     public void Add(Guid propertyId, object value) => throwReadOnlyError();
     public void AddOrUpdate(Guid propertyId, object value) => throwReadOnlyError();
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();
