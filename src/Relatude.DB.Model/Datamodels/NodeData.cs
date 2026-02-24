@@ -30,7 +30,7 @@ public interface INodeData {
     IEnumerable<PropertyEntry<object>> Values { get; }
     bool ReadOnly { get; }
     IRelations Relations { get; }
-    INodeDataInner Copy();
+    INodeDataInner CopyAndChangeMeta(INodeMeta meta);
     int ValueCount { get; }
     void Add(Guid propertyId, object value);
     void AddOrUpdate(Guid propertyId, object value);
@@ -38,14 +38,14 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
-    public static int BaseSize = 1000;  // approximate base size of node data without properties for cache size estimation
+    public static int BaseSize = 1000;  // approximate min size of node data without properties for cache size estimation
 }
 public abstract class NodeDataAbstract : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
     int _id;
     Guid _guid;
-    protected Properties<object> _values;
+    public Properties<object> _values;
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values) {
@@ -73,7 +73,16 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public Guid NodeType { get; }
     public virtual INodeMeta? Meta { get; private set; }
-    public void _setMeta(INodeMeta meta) => Meta = meta;
+    public virtual INodeDataInner CopyAndChangeMeta(INodeMeta meta) {
+        var copy = copyNodeData();
+        copy.Meta = meta;
+        return copy;
+    }
+    NodeData copyNodeData() {
+        return new NodeData(Id, __Id, NodeType,
+            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
+            CreatedUtc, ChangedUtc, new(_values));
+    }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
@@ -97,11 +106,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         if (!_readOnly) _readOnly = true;
     }
     public IRelations Relations => emptyRelations;
-    public INodeDataInner Copy() {
-        return new NodeData(Id, __Id, NodeType,
-            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
-            CreatedUtc, ChangedUtc, new(_values));
-    }
+    public INodeDataInner Copy() => copyNodeData();
     public NodeData CopyWithNewNodeType(Guid nodeTypeId) {
         return new NodeData(Id, __Id, nodeTypeId,
             //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
@@ -117,7 +122,7 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         Properties<object> values) : base(guid, id, nodeType, createdUtc, changedUtc, values) {
     }
     public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
-        var rev=new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType);
         rev._setMeta(meta);
         return rev;
     }

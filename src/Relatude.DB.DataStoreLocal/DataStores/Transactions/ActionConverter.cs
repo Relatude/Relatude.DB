@@ -12,7 +12,7 @@ internal class ActionConverter {
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
-            NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, newTasks),
+            NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -142,7 +142,7 @@ internal class ActionConverter {
                         }
                     } else {
                         var performUpdate = nodeAction.Operation switch {
-                            NodeOperation.UpdateIfExists 
+                            NodeOperation.UpdateIfExists
                             or NodeOperation.UpdateOrFail => Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition),
                             NodeOperation.ForceUpdate => true,
                             _ => throw new NotImplementedException(),
@@ -161,7 +161,7 @@ internal class ActionConverter {
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
-                                if (node is not INodeDataInner nodeInner) throw new Exception("NodeAction with operation ForceUpdate requires node to be of type INodeDataInner. ");
+                                if (node is not INodeDataInner nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
                                 Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
@@ -392,7 +392,50 @@ internal class ActionConverter {
         }
         yield break;
     }
-    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks) {
-        throw new NotImplementedException("NodeRevisionAction is not yet implemented in DataStoreLocal. ");
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+        int nodeId = db._guids.ValidateAndReturnIntId(a.NodeIdKey);
+        Guid revisionId = a.RevisionId;
+        if(!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");        
+        switch (a.Operation) {
+            case NodeRevisionOperation.UpdateMeta:
+                if (copyOfExisting is NodeDataRevisions revs) {
+                    var rev = revs.Revisions.FirstOrDefault(r => r.RevisionId == revisionId);
+                    if(rev == null) throw new Exception("Revision with id " + revisionId + " does not exist, cannot update meta. ");
+                    rev.CopyAndChangeMeta(a.Meta!);
+                    Utils.CopyCommonMetaToAllRevisions(revs, a.Meta!);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, copyOfExisting);
+                } else if(copyOfExisting is NodeData nd) { 
+                    nd._setMeta(a.Meta!);
+                    
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, copyOfExisting);
+                }
+                break;
+            case NodeRevisionOperation.UpsertRevision: // insert or update revision
+
+                break;
+            case NodeRevisionOperation.DeleteRevision:
+                break;
+            default:
+                break;
+        }
+        //switch (a.Operation) {
+        //    case NodeRevisionOperation.UpsertRevision:
+        //        if (n is not NodeDataRevisions revs) {
+        //            if(n is not NodeData nd) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot upsert revision. ");
+        //            // converting node data to revisions:
+        //            var rev = new NodeDataRevision(n.Id, n.__Id, n.NodeType, n.CreatedUtc, n.ChangedUtc, new(nd._values), revisionId, RevisionType.Published);
+        //            rev._setMeta(n.Meta);
+        //            revs = new(n.Id, n.__Id, n.NodeType, [rev]);                    
+        //        }
+        //        break;
+        //    case NodeRevisionOperation.DeleteRevision:
+        //        break;
+        //    case NodeRevisionOperation.SetRevisionState:
+        //        break;
+        //    default:
+        //        break;
+        //}
     }
 }

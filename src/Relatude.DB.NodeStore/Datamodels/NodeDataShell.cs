@@ -1,9 +1,4 @@
 ﻿using Relatude.DB.Nodes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Relatude.DB.Datamodels;
 public interface INodeShellAccess {
@@ -11,11 +6,11 @@ public interface INodeShellAccess {
 }
 public class NodeDataShell {
     List<Guid>? changed;
-    public INodeData NodeData;
+    public INodeDataOuter NodeData;
     bool _copyBeforeUpdate;
     public NodeStore Store;
     Datamodel _dm;
-    public NodeDataShell(NodeStore store, NodeData nodeData, bool copyBeforeUpdate) {
+    public NodeDataShell(NodeStore store, INodeDataOuter nodeData, bool copyBeforeUpdate) {
         NodeData = nodeData;
         _dm = store.Datastore.Datamodel;
         Store = store;
@@ -29,7 +24,7 @@ public class NodeDataShell {
     public void SetValue(Guid propertyId, object newValue) {
         if (_copyBeforeUpdate) {
             _copyBeforeUpdate = false;
-            NodeData = NodeData.Copy();
+            NodeData = NodeData.Copy() as INodeDataOuter ?? throw new Exception("Copy did not return INodeDataOuter");
         }
         NodeData.AddOrUpdate(propertyId, newValue);
         changed ??= [];

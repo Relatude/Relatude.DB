@@ -24,6 +24,8 @@ public partial class NodeTypeModel { // with default values
     public Guid Id { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
+    public bool AnonymousReadAccessByDefault { get; set; } = false;
+    public bool AnonymousWriteAccessByDefault { get; set; } = false;
     public ModelType ModelType { get; set; }
 
     public bool DefaultAdminAccess { get; set; }

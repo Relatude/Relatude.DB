@@ -134,4 +134,11 @@ internal static class Utils {
         return copy;
 
     }
+
+    internal static void CopyCommonMetaToAllRevisions(NodeDataRevisions revs, INodeMeta nodeMeta) {
+        throw new NotImplementedException();
+        foreach (var rev in revs.Revisions) {
+        }
+    }
 }
+

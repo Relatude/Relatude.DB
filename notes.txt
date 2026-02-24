@@ -1,0 +1,20 @@
+
+Rules for Meta data
+
+Default QueryContext filter:
+- Anonymous user
+- No Collection specified
+- Hide Hidden
+- Only show published items or items with no Meta data
+- Culture is set, by default to US, hard coded ( ensure culture method )
+- By default, no culture fallbakcs
+
+Results with Default Meta ( Meta.Empty ):
+- Included in all culture contexts, both with and without fallbacks filter
+- If access empty, then fallback to type default which is either anonymous or admin
+
+New content:
+When no Meta Data is specified, leave as null
+
+MetaData can only be changed by Revision Actions
+

@@ -5,4 +5,6 @@ public readonly struct IdKey {
     public IdKey(int integer) => Int = integer;
     public Guid Guid { get; }
     public int Int { get; }
+    public bool HasGuid => Guid != Guid.Empty;
+    public bool HasInt => Int != 0;
 }

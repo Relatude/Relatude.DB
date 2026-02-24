@@ -584,35 +584,35 @@ public partial class Transaction {
         return this;
     }
 
-    public Transaction CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) {
-        _transactionData.CreateRevision(nodeId, revisionId, state);
-        return this;
-    }
-    public Transaction CreateRevision(int nodeId, Guid revisionId, RevisionType state) {
-        _transactionData.CreateRevision(nodeId, revisionId, state);
-        return this;
-    }
-    public Transaction InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, object content, string cultureCode) {
-        var nodeData = Store.Mapper.CreateNodeDataFromObject(content, null);
-        _transactionData.InsertRevision(nodeId, revisionId, state, nodeData, cultureCode);
-        return this;
-    }
-    public Transaction DeleteRevision(Guid nodeId, Guid revisionId) {
-        _transactionData.DeleteRevision(nodeId, revisionId);
-        return this;
-    }
-    public Transaction DeleteRevision(int nodeId, Guid revisionId) {
-        _transactionData.DeleteRevision(nodeId, revisionId);
-        return this;
-    }
-    public Transaction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) {
-        _transactionData.SetRevisionState(nodeId, revisionId, state);
-        return this;
-    }
-    public Transaction SetRevisionState(int nodeId, Guid revisionId, RevisionType state) {
-        _transactionData.SetRevisionState(nodeId, revisionId, state);
-        return this;
-    }
+    //public Transaction CreateRevision(Guid nodeId, Guid revisionId, RevisionType state) {
+    //    _transactionData.CreateRevision(nodeId, revisionId, state);
+    //    return this;
+    //}
+    //public Transaction CreateRevision(int nodeId, Guid revisionId, RevisionType state) {
+    //    _transactionData.CreateRevision(nodeId, revisionId, state);
+    //    return this;
+    //}
+    //public Transaction InsertRevision(Guid nodeId, Guid revisionId, RevisionType state, object content, string cultureCode) {
+    //    var nodeData = Store.Mapper.CreateNodeDataFromObject(content, null);
+    //    _transactionData.InsertRevision(nodeId, revisionId, state, nodeData, cultureCode);
+    //    return this;
+    //}
+    //public Transaction DeleteRevision(Guid nodeId, Guid revisionId) {
+    //    _transactionData.DeleteRevision(nodeId, revisionId);
+    //    return this;
+    //}
+    //public Transaction DeleteRevision(int nodeId, Guid revisionId) {
+    //    _transactionData.DeleteRevision(nodeId, revisionId);
+    //    return this;
+    //}
+    //public Transaction SetRevisionState(Guid nodeId, Guid revisionId, RevisionType state) {
+    //    _transactionData.SetRevisionState(nodeId, revisionId, state);
+    //    return this;
+    //}
+    //public Transaction SetRevisionState(int nodeId, Guid revisionId, RevisionType state) {
+    //    _transactionData.SetRevisionState(nodeId, revisionId, state);
+    //    return this;
+    //}
 
 
     // helpers, to aid directionality of relations:

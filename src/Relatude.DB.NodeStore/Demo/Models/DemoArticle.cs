@@ -1,9 +1,12 @@
 ﻿
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
+
 public class DemoArticle {
+
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
@@ -17,6 +20,7 @@ public class DemoArticle {
     public Tree.Children Children { get; set; } = new();
 
 }
+
 
 public class Tree : OneToMany<DemoArticle, DemoArticle> {
     public class Parent : One { }

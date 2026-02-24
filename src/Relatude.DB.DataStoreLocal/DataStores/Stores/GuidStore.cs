@@ -119,7 +119,7 @@ namespace Relatude.DB.DataStores.Stores {
                 if (action is PrimitiveNodeAction na) {
                     ValidateCombinationOfIdAndGuid(na.Node.__Id, na.Node.Id);
                     switch (na.Operation) {
-                        case PrimitiveOperation.Add:  Add(na.Node.__Id, na.Node.Id); break;
+                        case PrimitiveOperation.Add: Add(na.Node.__Id, na.Node.Id); break;
                         case PrimitiveOperation.Remove: Remove(na.Node.__Id, na.Node.Id); break;
                         default: throw new NotImplementedException();
                     }
@@ -146,6 +146,23 @@ namespace Relatude.DB.DataStores.Stores {
                     _newIds.Add(new IdPair(id, guid));
                 }
                 return guid;
+            }
+        }
+        public int ValidateAndReturnIntId(IdKey key) {
+            lock (_lock) {
+                if (key.HasInt && key.HasInt) {
+                    ValidateCombinationOfIdAndGuid(key.Int, key.Guid);
+                    return key.Int;
+                }
+                if (key.HasInt) {
+                    if (!_guids.ContainsKey(key.Int)) throw new InvalidOperationException("Unknown id: " + key.Int + ". ");
+                    return key.Int;
+                }
+                if (key.HasGuid) {
+                    if (!_ids.TryGetValue(key.Guid, out var id)) throw new InvalidOperationException("Unknown guid: " + key.Guid + ". ");
+                    return id;
+                }
+                throw new InvalidOperationException("Unable to validate id key. ");
             }
         }
         public int GetId(Guid guid) {
@@ -207,6 +224,10 @@ namespace Relatude.DB.DataStores.Stores {
             lock (_lock) {
                 return "ID count: " + _ids.Count.To1000N() + "\n";
             }
+        }
+
+        internal int GetId(IdKey nodeIdKey) {
+            throw new NotImplementedException();
         }
     }
 }
