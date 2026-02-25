@@ -398,18 +398,16 @@ internal class ActionConverter {
         if(!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");        
         switch (a.Operation) {
             case NodeRevisionOperation.UpdateMeta:
-                if (copyOfExisting is NodeDataRevisions revs) {
+                if (existingNode is NodeDataRevisions revs) {
                     var rev = revs.Revisions.FirstOrDefault(r => r.RevisionId == revisionId);
                     if(rev == null) throw new Exception("Revision with id " + revisionId + " does not exist, cannot update meta. ");
-                    rev.CopyAndChangeMeta(a.Meta!);
-                    Utils.CopyCommonMetaToAllRevisions(revs, a.Meta!);
+                    var changedRevs = revs.CopyAndChangeMeta(a.Meta!, revisionId);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, copyOfExisting);
-                } else if(copyOfExisting is NodeData nd) { 
-                    nd._setMeta(a.Meta!);
-                    
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRevs);
+                } else if(existingNode is NodeData nd) {
+                    var changedRev = nd.CopyAndChangeMeta(a.Meta!);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, copyOfExisting);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRev);
                 }
                 break;
             case NodeRevisionOperation.UpsertRevision: // insert or update revision

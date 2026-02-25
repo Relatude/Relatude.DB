@@ -21,14 +21,19 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         RevisionId = revisionId;
         RevisionType = revisionType;
     }
+    public NodeDataRevision(Guid guid, int id, Guid nodeType,
+    DateTime createdUtc, DateTime changedUtc,
+    Properties<object> values, Guid revisionId, RevisionType revisionType, INodeMeta meta)
+    : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
+        RevisionId = revisionId;
+        RevisionType = revisionType;
+    }
     public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType);
-        rev._setMeta(meta);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType, meta);
         return rev;
     }
     public NodeDataRevision CopyRevision() {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType);
-        rev._setMeta(Meta!);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType, Meta);
         return rev;
     }
 }
@@ -53,6 +58,20 @@ public class NodeDataRevisions : INodeDataInner {
     public NodeDataRevisions CopyRevisions() {
         var revs = new NodeDataRevision[Revisions.Length];
         for (int i = 0; i < Revisions.Length; i++) revs[i] = Revisions[i].CopyRevision();
+        var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
+        return data;
+    }
+    public NodeDataRevisions CopyAndChangeMeta(INodeMeta meta, Guid revisionId) {
+        var revs = new NodeDataRevision[Revisions.Length];
+        for (int i = 0; i < Revisions.Length; i++) {
+            INodeMeta rMeta;
+            if (Revisions[i].RevisionId == revisionId) {
+                rMeta = Revisions[i];
+            } else { 
+                rMeta = Revisions[i].Meta!;
+            }
+            revs[i] = Revisions[i].CopyAsNodeDataRevision(revisionId, Revisions[i].RevisionType, rMeta);
+        }
         var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
         return data;
     }

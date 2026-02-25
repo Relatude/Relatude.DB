@@ -135,10 +135,5 @@ internal static class Utils {
 
     }
 
-    internal static void CopyCommonMetaToAllRevisions(NodeDataRevisions revs, INodeMeta nodeMeta) {
-        throw new NotImplementedException();
-        foreach (var rev in revs.Revisions) {
-        }
-    }
 }
 

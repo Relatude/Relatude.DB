@@ -14,7 +14,7 @@ public enum NodeDataStorageVersions {
 internal class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
 }
-public interface INodeDataInner : INodeData {
+public interface INodeDataInner : INodeData {    
 }
 public interface INodeDataOuter : INodeData {
     NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta);
@@ -30,7 +30,6 @@ public interface INodeData {
     IEnumerable<PropertyEntry<object>> Values { get; }
     bool ReadOnly { get; }
     IRelations Relations { get; }
-    INodeDataInner CopyAndChangeMeta(INodeMeta meta);
     int ValueCount { get; }
     void Add(Guid propertyId, object value);
     void AddOrUpdate(Guid propertyId, object value);
@@ -57,6 +56,17 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         //_values = new(values);
         _values = values;
     }
+    public NodeDataAbstract(Guid guid, int id, Guid nodeType,
+        DateTime createdUtc, DateTime changedUtc,
+        Properties<object> values, INodeMeta? meta) {
+        _guid = guid;
+        _id = id;
+        NodeType = nodeType;
+        CreatedUtc = createdUtc;
+        ChangedUtc = changedUtc;
+        Meta = meta;
+        _values = values;
+    }
     public int __Id {
         get => _id;
         set {
@@ -72,7 +82,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         }
     }
     public Guid NodeType { get; }
-    public virtual INodeMeta? Meta { get; private set; }
+    public virtual INodeMeta? Meta { get; }
     public virtual INodeDataInner CopyAndChangeMeta(INodeMeta meta) {
         var copy = copyNodeData();
         copy.Meta = meta;
@@ -122,8 +132,7 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         Properties<object> values) : base(guid, id, nodeType, createdUtc, changedUtc, values) {
     }
     public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType);
-        rev._setMeta(meta);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType, meta);
         return rev;
     }
 }
