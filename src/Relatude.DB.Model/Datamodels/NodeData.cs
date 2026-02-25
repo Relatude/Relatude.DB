@@ -18,7 +18,7 @@ public interface INodeDataInner : INodeData {
     INodeDataInner Copy();
 }
 public interface INodeDataOuter : INodeData {
-    NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta);
+    //NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta);
     INodeDataOuter CopyOuter();
 }
 public interface INodeData {
@@ -83,7 +83,6 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         }
     }
     public Guid NodeType { get; }
-    public virtual INodeMeta? Meta { get; } //    public abstract INodeDataInner CopyAndChangeMeta(INodeMeta? meta);
     public virtual INodeMeta? Meta { get; }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
@@ -174,16 +173,6 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public INodeDataInner Copy() => throw new NA();
     public INodeDataOuter CopyOuter() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
-    public virtual INodeDataInner CopyAndChangeMeta(INodeMeta? meta) {
-        return new NodeData(Id, __Id, NodeType,
-            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
-            CreatedUtc, ChangedUtc, new(_values));
-    }
-    NodeData copyNodeData() {
-        return new NodeData(Id, __Id, NodeType,
-            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
-            CreatedUtc, ChangedUtc, new(_values));
-    }
 }
 public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {

@@ -14,21 +14,6 @@ public enum RevisionType {
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public Guid RevisionId { get; }
     public RevisionType RevisionType { get; }
-    //public NodeDataRevision(Guid guid, int id, Guid nodeType,
-    //    DateTime createdUtc, DateTime changedUtc,
-    //    Properties<object> values, Guid revisionId, RevisionType revisionType)
-    //    : base(guid, id, nodeType, createdUtc, changedUtc, values) {
-    //    RevisionId = revisionId;
-    //    RevisionType = revisionType;
-    //}
-    public NodeDataRevision(Guid guid, int id, Guid nodeType,
-    DateTime createdUtc, DateTime changedUtc, 
-        DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, Guid revisionId, RevisionType revisionType)
-        : base(guid, id, nodeType, createdUtc, changedUtc, values) {
-        RevisionId = revisionId;
-        RevisionType = revisionType;
-    }
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
     Properties<object> values, Guid revisionId, RevisionType revisionType, INodeMeta? meta)
@@ -36,15 +21,11 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         RevisionId = revisionId;
         RevisionType = revisionType;
     }
-    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta? meta) {
-    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta? meta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType, meta);
+    public NodeDataRevision CopyAndChangeMeta( INodeMeta? meta) {
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType, meta);
         return rev;
     }
-    public NodeDataRevision CopyRevision() {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType, Meta);
-        return rev;
-    }
+    public NodeDataRevision CopyRevision() => CopyAndChangeMeta(Meta);
     public INodeDataOuter CopyOuter() => CopyRevision();
 }
 public class NodeDataRevisions : INodeDataInner {
@@ -71,7 +52,8 @@ public class NodeDataRevisions : INodeDataInner {
         var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
         return data;
     }
-    public NodeDataRevisions CopyAndChangeMeta(INodeMeta? meta, Guid revisionId) {
+    public NodeDataRevisions CopyAndChangeMetaOfOneRevision(INodeMeta? meta, Guid revisionId) {
+        // updates meta of one revision and copies common meta props to other revs
         var revs = new NodeDataRevision[Revisions.Length];
         bool revisionIdFound = false;
         for (int i = 0; i < Revisions.Length; i++) {
@@ -82,7 +64,7 @@ public class NodeDataRevisions : INodeDataInner {
             } else {
                 rMeta = INodeMeta.DeriveCombinedMeta(Revisions[i].Meta, Revisions[i].Meta);
             }
-            revs[i] = Revisions[i].CopyAsReturnAsNodeDataRevision(revisionId, Revisions[i].RevisionType, rMeta);
+            revs[i] = Revisions[i].CopyAndChangeMeta(rMeta);
         }
         if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
         var data = new NodeDataRevisions(Id, __Id, NodeType, revs);

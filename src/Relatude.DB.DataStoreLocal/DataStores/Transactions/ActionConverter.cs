@@ -399,7 +399,7 @@ internal class ActionConverter {
         switch (a.Operation) {
             case NodeRevisionOperation.UpdateMeta:
                 if (existingNode is NodeDataRevisions revs) {
-                    var changedRevs = revs.CopyAndChangeMeta(a.Meta, revisionId);
+                    var changedRevs = revs.CopyAndChangeMetaOfOneRevision(a.Meta, revisionId);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRevs);
                 } else if(existingNode is NodeData nd) {
