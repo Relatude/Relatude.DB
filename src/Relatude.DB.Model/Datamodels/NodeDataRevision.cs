@@ -23,12 +23,12 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     }
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, Guid revisionId, RevisionType revisionType, INodeMeta meta)
+    Properties<object> values, Guid revisionId, RevisionType revisionType, INodeMeta? meta)
     : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
         RevisionId = revisionId;
         RevisionType = revisionType;
     }
-    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
+    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta? meta) {
         var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType, meta);
         return rev;
     }
@@ -61,17 +61,20 @@ public class NodeDataRevisions : INodeDataInner {
         var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
         return data;
     }
-    public NodeDataRevisions CopyAndChangeMeta(INodeMeta meta, Guid revisionId) {
+    public NodeDataRevisions CopyAndChangeMeta(INodeMeta? meta, Guid revisionId) {
         var revs = new NodeDataRevision[Revisions.Length];
+        bool revisionIdFound = false;
         for (int i = 0; i < Revisions.Length; i++) {
-            INodeMeta rMeta;
+            INodeMeta? rMeta;
             if (Revisions[i].RevisionId == revisionId) {
-                rMeta = Revisions[i];
-            } else { 
-                rMeta = Revisions[i].Meta!;
+                revisionIdFound = true;
+                rMeta = meta;
+            } else {
+                rMeta = INodeMeta.DeriveCombinedMeta(Revisions[i].Meta, Revisions[i].Meta);
             }
             revs[i] = Revisions[i].CopyAsNodeDataRevision(revisionId, Revisions[i].RevisionType, rMeta);
         }
+        if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
         var data = new NodeDataRevisions(Id, __Id, NodeType, revs);
         return data;
     }

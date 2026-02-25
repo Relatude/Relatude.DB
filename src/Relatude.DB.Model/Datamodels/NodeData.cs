@@ -53,7 +53,6 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         NodeType = nodeType;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
-        //_values = new(values);
         _values = values;
     }
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
@@ -83,16 +82,6 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public Guid NodeType { get; }
     public virtual INodeMeta? Meta { get; }
-    public virtual INodeDataInner CopyAndChangeMeta(INodeMeta meta) {
-        var copy = copyNodeData();
-        copy.Meta = meta;
-        return copy;
-    }
-    NodeData copyNodeData() {
-        return new NodeData(Id, __Id, NodeType,
-            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
-            CreatedUtc, ChangedUtc, new(_values));
-    }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
@@ -171,6 +160,16 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
     public INodeDataInner Copy() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
+    public virtual INodeDataInner CopyAndChangeMeta(INodeMeta? meta) {
+        return new NodeData(Id, __Id, NodeType,
+            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
+            CreatedUtc, ChangedUtc, new(_values));
+    }
+    NodeData copyNodeData() {
+        return new NodeData(Id, __Id, NodeType,
+            //CollectionId, LCID, DerivedFromLCID, ReadAccess, WriteAccess,
+            CreatedUtc, ChangedUtc, new(_values));
+    }
 }
 public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {

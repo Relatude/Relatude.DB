@@ -399,13 +399,11 @@ internal class ActionConverter {
         switch (a.Operation) {
             case NodeRevisionOperation.UpdateMeta:
                 if (existingNode is NodeDataRevisions revs) {
-                    var rev = revs.Revisions.FirstOrDefault(r => r.RevisionId == revisionId);
-                    if(rev == null) throw new Exception("Revision with id " + revisionId + " does not exist, cannot update meta. ");
-                    var changedRevs = revs.CopyAndChangeMeta(a.Meta!, revisionId);
+                    var changedRevs = revs.CopyAndChangeMeta(a.Meta, revisionId);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRevs);
                 } else if(existingNode is NodeData nd) {
-                    var changedRev = nd.CopyAndChangeMeta(a.Meta!);
+                    var changedRev = nd.CopyAndChangeMeta(a.Meta);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRev);
                 }

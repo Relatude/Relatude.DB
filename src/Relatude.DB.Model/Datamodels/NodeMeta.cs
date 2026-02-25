@@ -1,5 +1,4 @@
-﻿using Microsoft.CodeAnalysis;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
 
@@ -9,20 +8,79 @@ public enum NodeMetaType : byte {
     Full = 2,
 }
 public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
-    Guid CollectionId { get; }
-    Guid ReadAccess { get; }
-    Guid EditAccess { get; }
-    Guid EditViewAccess { get; }
-    Guid PublishAccess { get; }
-    bool Deleted { get; }
-    bool Hidden { get; }
-    bool AnyPublishedContentAnyDate { get; }
-    Guid CreatedBy { get; }
+    Guid CollectionId { get; } // common for all cultures
+    Guid ReadAccess { get; }  // common for all cultures
+    Guid EditAccess { get; }  // common for all cultures
+    Guid EditViewAccess { get; }  // common for all cultures
+    Guid PublishAccess { get; }  // common for all cultures
+    bool Deleted { get; } // common for all cultures
+    bool Hidden { get; } // common for all cultures
+    bool AnyPublishedContentAnyDate { get; } // common for all cultures
+    Guid CreatedBy { get; } 
     Guid ChangedBy { get; }
     Guid CultureId { get; }
-    DateTime? ReleaseUtc { get; }
+    DateTime? ReleaseUtc { get; } 
     DateTime? ExpireUtc { get; }
-    public static INodeMeta Empty { get; } = new NodeMetaEmpty();
+    
+    public static INodeMeta? DeriveCombinedMeta(INodeMeta? original, INodeMeta? newRev) {
+        if (original == null && newRev == null) return null;
+        var meta = new NodeMetaFull(
+
+            // take common props from newRev
+            collectionId: newRev?.CollectionId ?? Empty.CollectionId,
+            readAccess: newRev?.ReadAccess ?? Empty.ReadAccess,
+            editAccess: newRev?.EditAccess ?? Empty.EditAccess,
+            editViewAccess: newRev?.EditViewAccess ?? Empty.EditViewAccess,
+            publishAccess: newRev?.PublishAccess ?? Empty.PublishAccess,
+            deleted: newRev?.Deleted ?? Empty.Deleted,
+            hidden: newRev?.Hidden ?? Empty.Hidden,
+            // keep revision specific properties 
+            anyPublishedContentAnyDate: original?.AnyPublishedContentAnyDate ?? Empty.AnyPublishedContentAnyDate,
+            createdBy: original?.CreatedBy ?? Empty.CreatedBy,
+            changedBy: original?.ChangedBy ?? Empty.ChangedBy,
+            cultureId: original?.CultureId ?? Empty.CultureId,
+            releaseUtc: original?.ReleaseUtc ?? Empty.ReleaseUtc,
+            expireUtc: original?.ExpireUtc ?? Empty.ExpireUtc
+
+        );
+        if (CanBeMin(meta)) return new NodeMetaMin(
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess
+        );
+        if (CanBeEmptyOrNull(meta)) return null; // null and empty are treated as the same, set to null to save space
+        return meta;
+    }
+    public static bool CanBeEmptyOrNull(INodeMeta meta) {
+        return meta.CollectionId == Guid.Empty
+            && meta.ReadAccess == Guid.Empty
+            && meta.EditAccess == Guid.Empty
+            && meta.EditViewAccess == Guid.Empty
+            && meta.PublishAccess == Guid.Empty
+            && !meta.Deleted
+            && !meta.Hidden
+            && meta.AnyPublishedContentAnyDate
+            && meta.CreatedBy == Guid.Empty
+            && meta.ChangedBy == Guid.Empty
+            && meta.CultureId == Guid.Empty
+            && meta.ReleaseUtc == null
+            && meta.ExpireUtc == null;
+    }
+    public static bool CanBeMin(INodeMeta meta) {
+        return meta.EditViewAccess == meta.EditAccess
+            && meta.PublishAccess == meta.EditAccess
+            && !meta.Deleted
+            && !meta.Hidden
+            && meta.AnyPublishedContentAnyDate
+            && meta.CreatedBy == Guid.Empty
+            && meta.ChangedBy == Guid.Empty
+            && meta.CultureId == Guid.Empty
+            && meta.ReleaseUtc == null
+            && meta.ExpireUtc == null;
+    }
+
+
+    public static readonly INodeMeta Empty = new NodeMetaEmpty();
     public static byte[] ToBytes(INodeMeta? meta) {
         if (meta == null || meta is NodeMetaEmpty) {
             return [(byte)NodeMetaType.Empty];
@@ -135,10 +193,10 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         return hash.ToHashCode();
     }
 }
-public class NodeMetaEmpty : INodeMeta {
-    public Guid CollectionId { get; } = Guid.Empty;
-    public Guid ReadAccess { get; } = Guid.Empty;
-    public Guid EditAccess { get; } = Guid.Empty;
+class NodeMetaEmpty : INodeMeta {
+    public Guid CollectionId  => Guid.Empty;
+    public Guid ReadAccess => Guid.Empty;
+    public Guid EditAccess => Guid.Empty;
     public Guid EditViewAccess => Guid.Empty;
     public Guid PublishAccess => Guid.Empty;
     public bool Deleted => false;
