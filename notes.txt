@@ -18,3 +18,6 @@ When no Meta Data is specified, leave as null
 
 MetaData can only be changed by Revision Actions
 
+MetaData for NodeData can be null, "empty", "min", or "full"
+MetaData for NodeDataRevision is always "full", and is never null
+MetaData for NodeDataRevisions is NA, and we use MetaData of first revision 
