@@ -128,7 +128,7 @@ public class NodeMapper {
     public T CreateObjectFromType<T>(Guid guid) {
         var typeId = GetNodeTypeId(typeof(T));
         var nowUtc = DateTime.UtcNow;
-        var nodeData = new NodeData(guid, 0, typeId, nowUtc, nowUtc, new Properties<object>(10));
+        var nodeData = new NodeData(guid, 0, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
         return CreateObjectFromNodeData<T>(nodeData);
     }
 }

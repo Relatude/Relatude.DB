@@ -24,7 +24,7 @@ public class NodeDataShell {
     public void SetValue(Guid propertyId, object newValue) {
         if (_copyBeforeUpdate) {
             _copyBeforeUpdate = false;
-            NodeData = NodeData.Copy() as INodeDataOuter ?? throw new Exception("Copy did not return INodeDataOuter");
+            NodeData = NodeData.CopyOuter() as INodeDataOuter ?? throw new Exception("Copy did not return INodeDataOuter");
         }
         NodeData.AddOrUpdate(propertyId, newValue);
         changed ??= [];

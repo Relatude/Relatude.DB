@@ -109,7 +109,7 @@ internal static class Utils {
         NodeDataRevision? newRev = null;
         for (var i = 0; i < copy.Revisions.Length; i++) {
             if (copy.Revisions[i].RevisionId == revisionId) {
-                newRev = changedNode.CopyAsNodeDataRevision(revisionId, revisionType, copy.Revisions[i].Meta!);
+                newRev = changedNode.CopyAsReturnAsNodeDataRevision(revisionId, revisionType, copy.Revisions[i].Meta!);
                 copy.Revisions[i] = newRev;
                 break;
             }

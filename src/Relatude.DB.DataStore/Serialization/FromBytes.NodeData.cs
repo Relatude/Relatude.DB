@@ -61,9 +61,7 @@ public static partial class FromBytes {
                 }
             }
         }
-        return new NodeData(guid, __id, nodeTypeId,
-            //collectionId, lcid, derivedFromLCID, readAccess, writeAccess, 
-            createdUtc, changedUtc, values);
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null);
     }
     static NodeData read_Legacy_1(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
@@ -95,9 +93,7 @@ public static partial class FromBytes {
                 }
             }
         }
-        return new NodeData(guid, __id, nodeTypeId,
-            //Guid.Empty, 0, 0, Guid.Empty, Guid.Empty, 
-            createdUtc, changedUtc, values);
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null);
     }
     static NodeDataRevision read_NodeDataRevision(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
 
@@ -140,8 +136,7 @@ public static partial class FromBytes {
             }
         }
 
-        var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, revisionId, revisionType);
-        if (meta != null) newNodeData._setMeta(meta!);
+        var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, revisionId, revisionType, meta);
         return newNodeData;
     }
     static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
@@ -181,9 +176,7 @@ public static partial class FromBytes {
             }
         }
 
-        var newNodeData = new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values);
-        if(meta!=null) newNodeData._setMeta(meta!);
-        return newNodeData;
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, meta);
     }
     static NodeDataRevisions read_NodeDataRevisions(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var versionCount = stream.ReadInt();

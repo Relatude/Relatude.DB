@@ -14,8 +14,8 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
         _node = dic[_node.__Id];
         _relations.SwapNodeData(dic);
     }
-    public NodeDataRevision CopyAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
-        if (_node is INodeDataOuter outer) return outer.CopyAsNodeDataRevision(revisionId, revisionType, meta);
+    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
+        if (_node is INodeDataOuter outer) return outer.CopyAsReturnAsNodeDataRevision(revisionId, revisionType, meta);
         throw new Exception("Node data is not outer. ");
     }
     public Guid Id { get => _node.Id; set => throwReadOnlyError(); }
@@ -32,6 +32,7 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public bool ReadOnly => _node.ReadOnly;
     public IRelations Relations => _relations;
     public INodeDataInner Copy() => throw new NA();
+    public INodeDataOuter CopyOuter() => throw new NA();
     public void Add(Guid propertyId, object value) => throwReadOnlyError();
     public void AddOrUpdate(Guid propertyId, object value) => throwReadOnlyError();
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();

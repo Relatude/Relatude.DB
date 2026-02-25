@@ -212,7 +212,7 @@ internal class ActionConverter {
                     if (!db._nodes.TryGet(uid, out var oldNode, out _)) {
                         throw new Exception("Node with id " + idNode.Id + " does not exist, cannot change type. ");
                     } else {
-                        var newNode = ((NodeData)oldNode).CopyWithNewNodeType(idNode.NodeType);
+                        var newNode = ((NodeData)oldNode).CopyAndChangeNodeType(idNode.NodeType);
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
                         if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
@@ -418,22 +418,5 @@ internal class ActionConverter {
             default:
                 break;
         }
-        //switch (a.Operation) {
-        //    case NodeRevisionOperation.UpsertRevision:
-        //        if (n is not NodeDataRevisions revs) {
-        //            if(n is not NodeData nd) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot upsert revision. ");
-        //            // converting node data to revisions:
-        //            var rev = new NodeDataRevision(n.Id, n.__Id, n.NodeType, n.CreatedUtc, n.ChangedUtc, new(nd._values), revisionId, RevisionType.Published);
-        //            rev._setMeta(n.Meta);
-        //            revs = new(n.Id, n.__Id, n.NodeType, [rev]);                    
-        //        }
-        //        break;
-        //    case NodeRevisionOperation.DeleteRevision:
-        //        break;
-        //    case NodeRevisionOperation.SetRevisionState:
-        //        break;
-        //    default:
-        //        break;
-        //}
     }
 }

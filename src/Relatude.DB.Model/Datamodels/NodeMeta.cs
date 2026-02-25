@@ -1,5 +1,4 @@
-﻿using Microsoft.CodeAnalysis;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
 
@@ -109,7 +108,8 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             && x.ReleaseUtc == y.ReleaseUtc
             && x.ExpireUtc == y.ExpireUtc;
     }
-    internal static int GetIHashCode([DisallowNull] INodeMeta obj) {
+    internal static int GetIHashCode([DisallowNull] INodeMeta obj, ref int lastHash) {
+        if (lastHash != 0) return lastHash;
         HashCode hash = new();
 
         // cannot do below line, as object with same values but different types would have different hashcodes:
@@ -132,7 +132,8 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         hash.Add(obj.CultureId);
         hash.Add(obj.ReleaseUtc);
         hash.Add(obj.ExpireUtc);
-        return hash.ToHashCode();
+        lastHash = hash.ToHashCode();
+        return lastHash;
     }
 }
 public class NodeMetaEmpty : INodeMeta {
@@ -180,7 +181,8 @@ public class NodeMetaMin : INodeMeta {
     public DateTime? ReleaseUtc => null;
     public DateTime? ExpireUtc => null;
     public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
-    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj);
+    int _lastHash = 0;
+    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj, ref _lastHash);
 }
 public class NodeMetaFull : INodeMeta {
     public Guid CollectionId { get; }
@@ -216,5 +218,6 @@ public class NodeMetaFull : INodeMeta {
     }
 
     public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
-    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj);
+    int _lastHash = 0;
+    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj, ref _lastHash);
 }
