@@ -149,15 +149,22 @@ internal class ActionConverter {
                         };
                         if (performUpdate) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
-                            yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
-                            if (oldNode is NodeDataRevisions revsNode) { // revison handling is relevant
-                                var canRevisionIdBeDetermined = tryDetermineRevisionId(node, oldNode, db.Datamodel, out var revisionId);
-                                if (!canRevisionIdBeDetermined) throw new Exception("Cannot determine revision to update. ");
-                                var oldRevNode = revsNode.Revisions.FirstOrDefault(r => r.RevisionId == revisionId);
-                                if (oldRevNode == null) throw new Exception("Revision with id " + revisionId + " does not exist, cannot update. ");
-                                Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldRevNode, transformValues);
-                                var typeDef = db.Datamodel.NodeTypes[node.NodeType];
-                                var newNode = Utils.CopyAndUpdateRevision(revsNode, node, revisionId, oldRevNode.RevisionType, typeDef);
+                            yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
+                            if (oldNode is NodeDataRevisions revsNode) { // revison handling is relevant, revision must already exists:
+                                if( node is not NodeDataRevision nodeRev) throw new Exception("Cannot determine revision to update. ");
+                                NodeDataRevision? oldRevNode = null;
+                                int posOldRev = -1;
+                                for (int i = 0;i< revsNode.Revisions.Length; i++) {
+                                    if (revsNode.Revisions[i].RevisionId == nodeRev.RevisionId) {
+                                        oldRevNode = revsNode.Revisions[i];
+                                        posOldRev++;
+                                        break;
+                                    }
+                                }
+                                if (oldRevNode == null) throw new Exception("Revision with id " + nodeRev.RevisionId + " does not exist, cannot update. ");
+                                var typeDef = db._definition.NodeTypes[node.NodeType];
+                                Utils.ForceTypeValidateValuesAndCopyMissing(typeDef, node, oldRevNode, transformValues);
+                                var newNode = Utils.CopyAndSetValuePropertiesNotMeta(revsNode, nodeRev, oldRevNode, posOldRev, typeDef);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {

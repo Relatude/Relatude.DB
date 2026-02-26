@@ -17,6 +17,13 @@ internal static class Utils {
         if (!definition.NodeTypes.TryGetValue(node.NodeType, out var nodeType)) {
             throw new("Node with id " + node.Id + " is of unknown type: " + node.NodeType + ". ");
         }
+        ForceTypeValidateValuesAndCopyMissing(nodeType, node, oldNode, transformValues);
+    }
+    public static void ForceTypeValidateValuesAndCopyMissing(NodeType nodeType, INodeData node, INodeData? oldNode, bool transformValues) {
+        // should optimize this method, it is called for every node
+        // 1 ready all relevant properties for the node type ( and exclude relations and text index)
+        // 2 avoid looking up property for each value, use the property id as key
+        // 3 do a better diff, combine both "forceValue" and "add if missing" in one loop
         var allProps = nodeType.AllProperties;
 
         // forcing type and validating value on given properties in node
@@ -100,30 +107,28 @@ internal static class Utils {
         }
         return false;
     }
-    internal static INodeDataInner CopyAndUpdateRevision(NodeDataRevisions existingNode, INodeDataOuter changedNode, Guid revisionId, RevisionType revisionType, NodeTypeModel typeDef) {
+    internal static INodeDataInner CopyAndSetValuePropertiesNotMeta(NodeDataRevisions nodeRevs, NodeDataRevision rev, NodeDataRevision oldRev, int posOldRev, NodeType typeDef) {
 
         // copy entire object, to ensure it is indepenent of node in cache
-        var copy = existingNode.CopyRevisions();
+        nodeRevs = nodeRevs.CopyRevisions();
 
-        // update with the new revision
-        NodeDataRevision? newRev = null;
-        for (var i = 0; i < copy.Revisions.Length; i++) {
-            if (copy.Revisions[i].RevisionId == revisionId) {
-                newRev = changedNode.CopyAsReturnAsNodeDataRevision(revisionId, revisionType, copy.Revisions[i].Meta!);
-                copy.Revisions[i] = newRev;
-                break;
-            }
+        if(rev.RevisionType != oldRev.RevisionType) {
+            throw new Exception("Unexpected revision type change. Old revision type: " + oldRev.RevisionType + ", new revision type: " + rev.RevisionType);
         }
-        if (newRev == null) throw new("Revision with id " + revisionId + " not found in old node with id " + existingNode.Id);
 
-        if (revisionType == RevisionType.Published) {
+        // update revision
+        nodeRevs.Revisions[posOldRev] = rev;
+
+        // copy culture insensitve properties to other published revision, if any
+        if (oldRev.RevisionType == RevisionType.Published) {
             // ensure culture insenensitive properties are copied to the new revision
-            foreach (var rev in copy.Revisions) {
-                if (rev.RevisionType == RevisionType.Published && rev.RevisionId != newRev.RevisionId) {
-                    foreach (var prop in typeDef.AllProperties.Values) {
+            foreach (var other in nodeRevs.Revisions) {
+                if (other.RevisionType == RevisionType.Published && other.RevisionId != rev.RevisionId) {
+                    // other revision that is published, copy culture insensitive properties:
+                    foreach (var prop in typeDef.Model.AllProperties.Values) {
                         if (!prop.CultureSensitive) {
-                            if (newRev.TryGetValue(prop.Id, out var newValue)) {
-                                rev.AddOrUpdate(prop.Id, newValue);
+                            if (rev.TryGetValue(prop.Id, out var newValue)) {
+                                other.AddOrUpdate(prop.Id, newValue);
                             }
                         }
                     }
@@ -131,7 +136,7 @@ internal static class Utils {
             }
         }
 
-        return copy;
+        return nodeRevs;
 
     }
 

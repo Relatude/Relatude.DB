@@ -21,3 +21,13 @@ MetaData can only be changed by Revision Actions
 MetaData for NodeData can be null, "empty", "min", or "full"
 MetaData for NodeDataRevision is always "full", and is never null
 MetaData for NodeDataRevisions is NA, and we use MetaData of first revision 
+---
+
+Remember to ensure node data objects put in cache are immutable!!! Also for interface models!
+
+Test interfaces Native Models
+Think about revisionId when updating and inserting
+
+Default culture?
+
+Write testst
