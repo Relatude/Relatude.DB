@@ -286,6 +286,12 @@ internal static class BuildUtils {
         return false;
     }
     static bool isSystemPropertyThenAssignIt(NodeTypeModel c, MemberInfo pInfo, Type valueType) {
+
+        if (valueType == typeof(NodeMeta)) {
+            c.NameOfMetaProperty = pInfo.Name;
+            return true;
+        }
+
         if (hasAttr<ChangedUtcPropertyAttribute>(pInfo)) {
             if (valueType == typeof(DateTime)) {
                 c.NameOfChangedUtcProperty = pInfo.Name;

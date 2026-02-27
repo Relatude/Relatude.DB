@@ -143,6 +143,11 @@ internal static class CodeUtils {
     public static bool IsFirstClassUsingName_NameOfCreatedUtcProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfCreatedUtcProperty!, nodeDef, datamodel, n => n.NameOfCreatedUtcProperty!);
     }
+    public static bool IsFirstClassUsingName_NameOfMetaProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
+        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfMetaProperty!, nodeDef, datamodel, n => n.NameOfMetaProperty!);
+    }
+
+
     static bool isFirstClassInParentsThatUseThisName(string propName, NodeTypeModel nodeDef, Datamodel datamodel, Func<NodeTypeModel, string> getPropName) {
         if (nodeDef.Parents.Count == 0) return true;
         foreach (var parentId in nodeDef.Parents) {

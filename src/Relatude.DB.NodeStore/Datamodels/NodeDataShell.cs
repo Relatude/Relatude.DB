@@ -24,15 +24,16 @@ public class NodeDataShell {
     public void SetValue(Guid propertyId, object newValue) {
         if (_copyBeforeUpdate) {
             _copyBeforeUpdate = false;
-            NodeData = NodeData.CopyOuter() as INodeDataOuter ?? throw new Exception("Copy did not return INodeDataOuter");
+            NodeData = NodeData.CopyOuter();
         }
         NodeData.AddOrUpdate(propertyId, newValue);
         changed ??= [];
         if (!changed.Contains(propertyId)) changed.Add(propertyId);
     }
-    public bool HasChanged() => changed != null && changed.Count > 0;
-    public IEnumerable<Guid> GetChangedProperties() {
-        if (changed == null) return [];
-        return changed;
-    }
+    // TODO - ChangeTracking etc..
+    //public bool HasChanged() => changed != null && changed.Count > 0;
+    //public IEnumerable<Guid> GetChangedProperties() {
+    //    if (changed == null) return [];
+    //    return changed;
+    //}
 }

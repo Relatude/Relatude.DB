@@ -143,7 +143,7 @@ internal class ActionConverter {
                     } else {
                         var performUpdate = nodeAction.Operation switch {
                             NodeOperation.UpdateIfExists
-                            or NodeOperation.UpdateOrFail => Utils.AreDifferentIgnoringGeneratedProps(node, oldNode, db._definition),
+                            or NodeOperation.UpdateOrFail => Utils.AreDifferentIgnoringGeneratedPropsAndMeta(node, oldNode, db._definition),
                             NodeOperation.ForceUpdate => true,
                             _ => throw new NotImplementedException(),
                         };
@@ -415,7 +415,7 @@ internal class ActionConverter {
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRev);
                 }
                 break;
-            case NodeRevisionOperation.UpsertRevision: // insert or update revision
+            case NodeRevisionOperation.CreateRevision: // insert or update revision
 
                 break;
             case NodeRevisionOperation.DeleteRevision:

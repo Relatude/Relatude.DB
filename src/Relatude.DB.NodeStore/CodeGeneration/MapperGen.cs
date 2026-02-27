@@ -1,8 +1,9 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 using System.Text;
-using Relatude.DB.Nodes;
+using System.Xml.Linq;
 
 namespace Relatude.DB.CodeGeneration;
 
@@ -86,6 +87,7 @@ internal static class MapperGen {
         sb.Append("gid, uid, " + CodeUtils.GuidName(nodeDef.Id));
         //sb.Append(", collectionId, lcid, derivedFromLCID, readAccess, writeAccess, ");
         sb.Append(", createdUtc, changedUtc, values");
+        sb.Append(", null");
         sb.AppendLine(");");
 
         sb.AppendLine("if(related!=null){");
@@ -135,6 +137,11 @@ internal static class MapperGen {
             }
             h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeDataOuter.CreatedUtc));
             h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeDataOuter.ChangedUtc));
+
+            if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
+                sb.AppendLine("obj." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(nodeData);");
+            }
+
         }
         if (!nodeDef.IsInterface) {
             foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Private)) {

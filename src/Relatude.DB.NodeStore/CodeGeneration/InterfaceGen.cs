@@ -32,10 +32,14 @@ internal static class InterfaceGen {
         // constructor:
         sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell){");
         sb.AppendLine("    this." + shellName + " = shell;");
+        
+        if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
+            sb.AppendLine("    this." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(shell.NodeData);");
+        }
         sb.AppendLine("}");
 
         // system properties:
-        if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty) && CodeUtils.IsFirstClassUsingName_NameOfPublicIdProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty)) {
             string typeName = nodeDef.DataTypeOfPublicId switch {
                 DataTypePublicId.Guid => "Guid",
                 DataTypePublicId.String => "string",
@@ -46,22 +50,25 @@ internal static class InterfaceGen {
             sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.Id) + " = value; } ");
             sb.AppendLine(" }");
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty) && CodeUtils.IsFirstClassUsingName_NameOfInternalIdProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfInternalIdProperty)) {
             sb.AppendLine("public int " + nodeDef.NameOfInternalIdProperty + "{ ");
             sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.__Id) + "; } ");
             sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.__Id) + " = value; } ");
             sb.AppendLine(" }");
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfCreatedUtcProperty) && CodeUtils.IsFirstClassUsingName_NameOfCreatedUtcProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
+            sb.AppendLine("public " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + " " + nodeDef.NameOfMetaProperty + "{ get; }");
+        }
+        if (!string.IsNullOrEmpty(nodeDef.NameOfCreatedUtcProperty)) {
             sb.AppendLine("public DateTime " + nodeDef.NameOfCreatedUtcProperty + "{ ");
             sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.CreatedUtc) + "; } ");
-            sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.CreatedUtc) + " = value; } ");
+            // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.CreatedUtc) + " = value; } ");
             sb.AppendLine(" }");
         }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfChangedUtcProperty) && CodeUtils.IsFirstClassUsingName_NameOfChangedUtcProperty(nodeDef, datamodel)) {
+        if (!string.IsNullOrEmpty(nodeDef.NameOfChangedUtcProperty)) {
             sb.AppendLine("public DateTime " + nodeDef.NameOfChangedUtcProperty + "{ ");
             sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + "; } ");
-            sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + " = value; } ");
+            // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + " = value; } ");
             sb.AppendLine(" }");
         }
 

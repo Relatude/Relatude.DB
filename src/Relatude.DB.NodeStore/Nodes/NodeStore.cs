@@ -218,6 +218,12 @@ public class NodeStore : IDisposable {
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
     public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
+    public TransactionResult UpdateMeta(Guid id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult UpdateMeta(int id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult DeleteRevision(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult DeleteRevision(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult UpsertRevision(Guid id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpsertRevision()
+
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
     public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
     public void ChangeType<T>(object node, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(node), flushToDisk);

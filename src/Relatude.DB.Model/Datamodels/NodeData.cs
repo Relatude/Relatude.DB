@@ -18,7 +18,8 @@ public interface INodeDataInner : INodeData {
     INodeDataInner Copy();
 }
 public interface INodeDataOuter : INodeData {
-    //NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta);
+    Guid RevisionId { get; }
+    RevisionType RevisionType { get; }
     INodeDataOuter CopyOuter();
 }
 public interface INodeData {
@@ -46,6 +47,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     bool _readOnly;
     int _id;
     Guid _guid;
+    string? _displayName;
     public Properties<object> _values;
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
@@ -111,7 +113,8 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values),Meta);
     }
     public override string ToString() {
-        return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
+        return _displayName ?? Id.ToString();
+        //return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
 }
 public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
@@ -119,6 +122,8 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
     //    DateTime createdUtc, DateTime changedUtc,
     //    Properties<object> values) : base(guid, id, nodeType, createdUtc, changedUtc, values) {
     //}
+    public Guid RevisionId => Guid.Empty;
+    public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values, INodeMeta? meta) : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
@@ -150,6 +155,8 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     }
     int _id;
     public int __Id { get => _id; set => throw new NA(); }
+    public Guid RevisionId => throw new NA();
+    public RevisionType RevisionType => throw new NA();
     public Guid NodeType => throw new NA();
     public INodeMeta? Meta => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
@@ -183,6 +190,8 @@ public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with
     public int __Id { get => _id; set => throw new NA(); }
     Guid _nodeType;
     public Guid Id { get => throw new NA(); set => throw new NA(); }
+    public Guid RevisionId => throw new NA();
+    public RevisionType RevisionType => throw new NA();
     public Guid NodeType { get => _nodeType; set => throw new NA(); }
     public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) => throw new NA();
     public INodeMeta? Meta => throw new NA();
@@ -216,6 +225,8 @@ public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data wi
     public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) => throw new NA();
     Guid _nodeType;
     public Guid Id { get => _id; set => throw new NA(); }
+    public Guid RevisionId => throw new NA();
+    public RevisionType RevisionType => throw new NA();
     public Guid NodeType { get => _nodeType; set => throw new NA(); }
     public INodeMeta? Meta => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }

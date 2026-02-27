@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 namespace Relatude.DB.Datamodels;
+
 public partial class Datamodel {
     // Calculated:
     public Dictionary<Guid, PropertyModel> Properties = new();
@@ -21,7 +22,7 @@ public partial class Datamodel {
 
             // ensuring textindex if semantic index:            
             foreach (var n in NodeTypes.Values) if (n.SemanticIndex.HasValue && n.SemanticIndex.Value)
-                    n.TextIndex = true;
+                n.TextIndex = true;
 
             // making sure every type inherits from INode
             foreach (var t in NodeTypes.Values) {
@@ -78,12 +79,13 @@ public partial class Datamodel {
             nodeType.NameOfPublicIdProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfPublicIdProperty);
             nodeType.NameOfInternalIdProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfInternalIdProperty);
             nodeType.NameOfChangedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfChangedUtcProperty);
-            nodeType.NameOfCollectionProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfCollectionProperty);
-            nodeType.NameOfDerivedFromLCID = getBestSystemPropNameInParents(nodeType, n => n.NameOfDerivedFromLCID);
-            nodeType.NameOfIsDerivedProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfIsDerivedProperty);
-            nodeType.NameOfLCIDProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfLCIDProperty);
-            nodeType.NameOfReadAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfReadAccessProperty);
-            nodeType.NameOfWriteAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfWriteAccessProperty);
+            nodeType.NameOfMetaProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfMetaProperty);
+            //    nodeType.NameOfCollectionProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfCollectionProperty);
+            //    nodeType.NameOfDerivedFromLCID = getBestSystemPropNameInParents(nodeType, n => n.NameOfDerivedFromLCID);
+            //    nodeType.NameOfIsDerivedProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfIsDerivedProperty);
+            //    nodeType.NameOfLCIDProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfLCIDProperty);
+            //    nodeType.NameOfReadAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfReadAccessProperty);
+            //    nodeType.NameOfWriteAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfWriteAccessProperty);
         }
     }
     DataTypeInternalId? getBestInternalIdPropTypeInParents(NodeTypeModel nodeType) {

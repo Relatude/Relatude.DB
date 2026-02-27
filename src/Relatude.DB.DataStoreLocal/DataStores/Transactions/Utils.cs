@@ -84,7 +84,7 @@ internal static class Utils {
         if (!textIndex && !vectorIndex) return; // no indexing needed
         newTasks.Add(new(new IndexTask(nodeId, textIndex, vectorIndex), null));
     }
-    public static bool AreDifferentIgnoringGeneratedProps(INodeData node1, INodeData node2, Definition dm) {
+    public static bool AreDifferentIgnoringGeneratedPropsAndMeta(INodeData node1, INodeData node2, Definition dm) {
         if (node1.Id != node2.Id || node1.__Id != node2.__Id) return true;
         //if (node1.CreatedUtc != node2.CreatedUtc) return true;
         //if (node1.ChangedUtc != node2.ChangedUtc) return true;
@@ -109,7 +109,7 @@ internal static class Utils {
     }
     internal static INodeDataInner CopyAndSetValuePropertiesNotMeta(NodeDataRevisions nodeRevs, NodeDataRevision rev, NodeDataRevision oldRev, int posOldRev, NodeType typeDef) {
 
-        // copy entire object, to ensure it is indepenent of node in cache
+        // copy entire object, to ensure it is indepenent
         nodeRevs = nodeRevs.CopyRevisions();
 
         if(rev.RevisionType != oldRev.RevisionType) {

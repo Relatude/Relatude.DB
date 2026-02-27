@@ -29,9 +29,18 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
 
+    var u = ctx.Database.Create<DemoArticle>();
+    
+    ctx.Database.Insert(u);
+
+    var db = ctx.Database;
+    db.UPSER
+    
+
+
     // RelatudeDbRuntime - A static access to running server and default database
     // RelatudeDbEndpointContext - A transient context for the API request, access to db user query options ( typically used in a endpoint )
-    
+
     // RelatudeCmsContext - A transient context for the page or any other request to the system. Part of Relatude CMS
 
 

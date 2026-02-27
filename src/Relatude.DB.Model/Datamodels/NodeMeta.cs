@@ -7,6 +7,39 @@ public enum NodeMetaType : byte {
     Min = 1,
     Full = 2,
 }
+public class NodeMeta {
+    INodeMeta _meta;
+    NodeMeta() {
+        _meta = INodeMeta.Empty;
+        DisplayName = string.Empty;
+        RevisionId = Guid.Empty;
+        RevisionType = RevisionType.Published;
+    }
+    public NodeMeta(INodeDataOuter node) {
+        _meta = node.Meta ?? INodeMeta.Empty;
+        DisplayName = node.ToString()!;
+        RevisionId = node.RevisionId;
+        RevisionType = node.RevisionType;
+    }
+
+    public static NodeMeta Empty { get; } = new NodeMeta();
+    public RevisionType RevisionType { get; }
+    public Guid RevisionId { get; }
+    public string DisplayName { get; }
+    public Guid CollectionId => _meta.CollectionId;
+    public Guid ReadAccess => _meta.ReadAccess;
+    public Guid EditAccess => _meta.EditAccess;
+    public Guid EditViewAccess => _meta.EditViewAccess;
+    public Guid PublishAccess => _meta.PublishAccess;
+    public bool Deleted => _meta.Deleted;
+    public bool Hidden => _meta.Hidden;
+    public bool AnyPublishedContentAnyDate => _meta.AnyPublishedContentAnyDate;
+    public Guid CreatedBy => _meta.CreatedBy;
+    public Guid ChangedBy => _meta.ChangedBy;
+    public Guid CultureId => _meta.CultureId;
+    public DateTime? ReleaseUtc => _meta.ReleaseUtc;
+    public DateTime? ExpireUtc => _meta.ExpireUtc;
+}
 public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
     Guid CollectionId { get; } // common for all cultures
     Guid ReadAccess { get; }  // common for all cultures
@@ -16,12 +49,12 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     bool Deleted { get; } // common for all cultures
     bool Hidden { get; } // common for all cultures
     bool AnyPublishedContentAnyDate { get; } // common for all cultures
-    Guid CreatedBy { get; } 
+    Guid CreatedBy { get; }
     Guid ChangedBy { get; }
     Guid CultureId { get; }
-    DateTime? ReleaseUtc { get; } 
+    DateTime? ReleaseUtc { get; }
     DateTime? ExpireUtc { get; }
-    
+
     public static INodeMeta? DeriveCombinedMeta(INodeMeta? original, INodeMeta? newRev) {
         if (original == null && newRev == null) return null;
         var meta = new NodeMetaFull(
@@ -196,7 +229,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     }
 }
 class NodeMetaEmpty : INodeMeta {
-    public Guid CollectionId  => Guid.Empty;
+    public Guid CollectionId => Guid.Empty;
     public Guid ReadAccess => Guid.Empty;
     public Guid EditAccess => Guid.Empty;
     public Guid EditViewAccess => Guid.Empty;

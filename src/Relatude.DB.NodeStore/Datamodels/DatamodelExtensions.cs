@@ -65,6 +65,8 @@ public static class DatamodelExtensions {
     }
     static void getReferencedTypes(Type t, HashSet<Type> types) {
         if (types.Contains(t)) return;
+        if (t == typeof(NodeMeta)) 
+            return; // ignore special class
         types.Add(t);
         foreach (var m in t.GetMembers()) {
             var type = m is FieldInfo f ? f.FieldType : m is PropertyInfo p ? p.PropertyType : null;
