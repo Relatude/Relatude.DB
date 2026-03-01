@@ -6,6 +6,7 @@ using Relatude.DB.DataStores.Indexes.Trie.TrieNet._Ukkonen;
 using Relatude.DB.Tasks;
 using Relatude.DB.Tasks.TextIndexing;
 using Relatude.DB.Transactions;
+using System.Xml.Linq;
 namespace Relatude.DB.DataStores.Transactions;
 
 internal static class Utils {
@@ -107,27 +108,33 @@ internal static class Utils {
         }
         return false;
     }
-    internal static INodeDataInner CopyAndSetValuePropertiesNotMeta(NodeDataRevisions nodeRevs, NodeDataRevision rev, NodeDataRevision oldRev, int posOldRev, NodeType typeDef) {
+    internal static NodeDataRevisions CreateNewRevisionsNodeWithUpdatedValues(NodeDataRevisions orginialMainNode, NodeDataRevision newRev, NodeType typeDef, bool transformValues) {
+
+        // find old revision
+        var indexOldRev = orginialMainNode.Revisions.ToList().FindIndex(r => r.RevisionId == newRev.RevisionId);
+        if (indexOldRev == -1) throw new Exception("Revision with id " + newRev.RevisionId + " does not exist, cannot update. ");
+        var oldRev = orginialMainNode.Revisions[indexOldRev];
+        Utils.ForceTypeValidateValuesAndCopyMissing(typeDef, newRev, oldRev, transformValues); // Fixing values in new data
 
         // copy entire object, to ensure it is indepenent
-        nodeRevs = nodeRevs.CopyRevisions();
+        orginialMainNode = orginialMainNode.CopyRevisions();
 
-        if(rev.RevisionType != oldRev.RevisionType) {
-            throw new Exception("Unexpected revision type change. Old revision type: " + oldRev.RevisionType + ", new revision type: " + rev.RevisionType);
+        if(newRev.RevisionType != oldRev.RevisionType) {
+            throw new Exception("Unexpected revision type change. Old revision type: " + oldRev.RevisionType + ", new revision type: " + newRev.RevisionType);
         }
 
         // update revision
-        nodeRevs.Revisions[posOldRev] = rev;
+        orginialMainNode.Revisions[indexOldRev] = newRev;
 
         // copy culture insensitve properties to other published revision, if any
         if (oldRev.RevisionType == RevisionType.Published) {
             // ensure culture insenensitive properties are copied to the new revision
-            foreach (var other in nodeRevs.Revisions) {
-                if (other.RevisionType == RevisionType.Published && other.RevisionId != rev.RevisionId) {
+            foreach (var other in orginialMainNode.Revisions) {
+                if (other.RevisionType == RevisionType.Published && other.RevisionId != newRev.RevisionId) {
                     // other revision that is published, copy culture insensitive properties:
                     foreach (var prop in typeDef.Model.AllProperties.Values) {
                         if (!prop.CultureSensitive) {
-                            if (rev.TryGetValue(prop.Id, out var newValue)) {
+                            if (newRev.TryGetValue(prop.Id, out var newValue)) {
                                 other.AddOrUpdate(prop.Id, newValue);
                             }
                         }
@@ -136,8 +143,26 @@ internal static class Utils {
             }
         }
 
-        return nodeRevs;
+        return orginialMainNode;
 
+    }
+    internal static NodeDataRevisions CopyRevisionNodeAndChangeMeta(NodeDataRevisions revsNode, INodeMeta? meta, Guid revisionId) {
+        // updates meta of one revision and copies common meta props to other revs
+        var revs = new NodeDataRevision[revsNode.Revisions.Length];
+        bool revisionIdFound = false;
+        for (int i = 0; i < revsNode.Revisions.Length; i++) {
+            INodeMeta? rMeta;
+            if (revsNode.Revisions[i].RevisionId == revisionId) {
+                revisionIdFound = true;
+                rMeta = meta;
+            } else {
+                rMeta = INodeMeta.DeriveCombinedMeta(revsNode.Revisions[i].Meta, revsNode.Revisions[i].Meta);
+            }
+            revs[i] = revsNode.Revisions[i].CopyAndChangeMeta(rMeta);
+        }
+        if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
+        var data = new NodeDataRevisions(revsNode.Id, revsNode.__Id, revsNode.NodeType, revs);
+        return data;
     }
 
 }

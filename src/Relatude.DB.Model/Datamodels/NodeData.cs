@@ -47,7 +47,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     bool _readOnly;
     int _id;
     Guid _guid;
-    string? _displayName;
+    //string? _displayName;
     public Properties<object> _values;
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
@@ -113,7 +113,8 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values),Meta);
     }
     public override string ToString() {
-        return _displayName ?? Id.ToString();
+        return Id.ToString();
+        //return _displayName ?? Id.ToString();
         //return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
 }
@@ -128,7 +129,7 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         DateTime createdUtc, DateTime changedUtc,
         Properties<object> values, INodeMeta? meta) : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
     }
-    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) {
+    public NodeDataRevision CopyAndConvertToNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta? meta) {
         var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), revisionId, revisionType, meta);
         return rev;
     }

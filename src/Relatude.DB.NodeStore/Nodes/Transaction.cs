@@ -600,12 +600,12 @@ public partial class Transaction {
         _transactionData.DeleteRevision(nodeId, revisionId);
         return this;
     }
-    public Transaction UpsertRevision(INodeData node, Guid revisionId) {
-        _transactionData.UpsertRevision(node, revisionId);
+    public Transaction CreateRevision(Guid nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null) {
+        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, revisionType, cultureId);
         return this;
     }
-    public Transaction UpsertRevision(Guid nodeId, INodeData node, Guid revisionId) {
-        _transactionData.UpsertRevision(nodeId, node, revisionId);
+    public Transaction CreateRevision(int nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null) {
+        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, revisionType, cultureId);
         return this;
     }
 

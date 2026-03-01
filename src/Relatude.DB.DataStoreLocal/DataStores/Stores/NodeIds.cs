@@ -224,7 +224,7 @@ internal class NodeTypesByIds {
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
-        if (!ctx.IncludeUnpublished && !meta.AnyPublishedContentAnyDate) {
+        if (!ctx.IncludeUnpublished) {
             if(!isReleased(nowUtc, meta)) return false;
         }
         if (!ctx.IncludeHidden && meta.Hidden) return false;

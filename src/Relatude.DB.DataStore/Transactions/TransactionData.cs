@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Transactions;
+
 public class TransactionData {
     public TransactionData() {
         Actions = [];
@@ -74,12 +75,12 @@ public class TransactionData {
     public void ValidateProperty(Guid[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, nodeIds, null, propetyId, value));
     public void ValidateProperty(int[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, null, nodeIds, propetyId, value));
 
-    public void UpdateMeta(Guid nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new (nodeId), revisionId, meta));
-    public void UpdateMeta(int nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new (nodeId), revisionId, meta));
-    public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new (nodeId), revisionId));
-    public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new (nodeId), revisionId)); 
-    public void UpsertRevision(INodeData node, Guid revisionId) => Add(NodeRevisionAction.UpsertRevision(node, revisionId));
-    public void UpsertRevision(Guid nodeId, INodeData node, Guid revisionId) => Add(NodeRevisionAction.UpsertRevision(node, revisionId));
+    public void UpdateMeta(Guid nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAndMetaAction.UpdateMeta(new(nodeId), revisionId, meta));
+    public void UpdateMeta(int nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAndMetaAction.UpdateMeta(new(nodeId), revisionId, meta));
+    public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAndMetaAction.DeleteRevision(new(nodeId), revisionId));
+    public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAndMetaAction.DeleteRevision(new(nodeId), revisionId));
+    public void CreateRevision(Guid nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId) => Add(NodeRevisionAndMetaAction.CreateRevision(new(nodeId), revisionId, sourceRevisionId, revisionType, cultureId));
+    public void CreateRevision(int nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId) => Add(NodeRevisionAndMetaAction.CreateRevision(new(nodeId), revisionId, sourceRevisionId, revisionType, cultureId));
 
     public void SetRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = DateTime.UtcNow });
     public void SetRelation(Guid relationId, int source, int target, DateTime dtUtc) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = dtUtc });

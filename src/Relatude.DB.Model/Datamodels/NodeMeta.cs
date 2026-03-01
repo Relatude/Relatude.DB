@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
 
@@ -23,8 +24,10 @@ public class NodeMeta {
     }
 
     public static NodeMeta Empty { get; } = new NodeMeta();
+
     public RevisionType RevisionType { get; }
     public Guid RevisionId { get; }
+
     public string DisplayName { get; }
     public Guid CollectionId => _meta.CollectionId;
     public Guid ReadAccess => _meta.ReadAccess;
@@ -33,12 +36,15 @@ public class NodeMeta {
     public Guid PublishAccess => _meta.PublishAccess;
     public bool Deleted => _meta.Deleted;
     public bool Hidden => _meta.Hidden;
-    public bool AnyPublishedContentAnyDate => _meta.AnyPublishedContentAnyDate;
     public Guid CreatedBy => _meta.CreatedBy;
     public Guid ChangedBy => _meta.ChangedBy;
     public Guid CultureId => _meta.CultureId;
     public DateTime? ReleaseUtc => _meta.ReleaseUtc;
     public DateTime? ExpireUtc => _meta.ExpireUtc;
+
+    public int GetHashCode([DisallowNull] INodeMeta obj) {
+        throw new NotImplementedException();
+    }
 }
 public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
     Guid CollectionId { get; } // common for all cultures
@@ -48,12 +54,54 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     Guid PublishAccess { get; }  // common for all cultures
     bool Deleted { get; } // common for all cultures
     bool Hidden { get; } // common for all cultures
-    bool AnyPublishedContentAnyDate { get; } // common for all cultures
     Guid CreatedBy { get; }
     Guid ChangedBy { get; }
     Guid CultureId { get; }
     DateTime? ReleaseUtc { get; }
     DateTime? ExpireUtc { get; }
+
+
+    public static INodeMeta? ChangeCulture(INodeMeta? meta, Guid cultureId) {
+        if (meta == null) { 
+            if(cultureId == Guid.Empty) return null; // null and empty are treated as the same, return null to save space
+            return new NodeMetaFull(
+                collectionId: Guid.Empty,
+                readAccess: Guid.Empty,
+                editAccess: Guid.Empty,
+                editViewAccess: Guid.Empty,
+                publishAccess: Guid.Empty,
+                deleted: false,
+                hidden: false,
+                createdBy: Guid.Empty,
+                changedBy: Guid.Empty,
+                cultureId: cultureId, // change culture
+                releaseUtc: null,
+                expireUtc: null
+            );
+        }
+        if (meta.CultureId == cultureId) return meta; // no change needed
+        var metaWithNewCulture = new NodeMetaFull(
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess,
+            editViewAccess: meta.EditViewAccess,
+            publishAccess: meta.PublishAccess,
+            deleted: meta.Deleted,
+            hidden: meta.Hidden,
+            createdBy: meta.CreatedBy,
+            changedBy: meta.ChangedBy,
+            cultureId: cultureId, // change culture
+            releaseUtc: meta.ReleaseUtc,
+            expireUtc: meta.ExpireUtc
+        );
+        if (CanBeMin(metaWithNewCulture)) return new NodeMetaMin(
+            collectionId: metaWithNewCulture.CollectionId,
+            readAccess: metaWithNewCulture.ReadAccess,
+            editAccess: metaWithNewCulture.EditAccess
+        );
+        if (CanBeEmptyOrNull(metaWithNewCulture)) return null; // null and empty are treated as the same, set to null to save space
+        return metaWithNewCulture;
+    }
 
     public static INodeMeta? DeriveCombinedMeta(INodeMeta? original, INodeMeta? newRev) {
         if (original == null && newRev == null) return null;
@@ -68,7 +116,6 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             deleted: newRev?.Deleted ?? Empty.Deleted,
             hidden: newRev?.Hidden ?? Empty.Hidden,
             // keep revision specific properties 
-            anyPublishedContentAnyDate: original?.AnyPublishedContentAnyDate ?? Empty.AnyPublishedContentAnyDate,
             createdBy: original?.CreatedBy ?? Empty.CreatedBy,
             changedBy: original?.ChangedBy ?? Empty.ChangedBy,
             cultureId: original?.CultureId ?? Empty.CultureId,
@@ -92,7 +139,6 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             && meta.PublishAccess == Guid.Empty
             && !meta.Deleted
             && !meta.Hidden
-            && meta.AnyPublishedContentAnyDate
             && meta.CreatedBy == Guid.Empty
             && meta.ChangedBy == Guid.Empty
             && meta.CultureId == Guid.Empty
@@ -104,14 +150,12 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             && meta.PublishAccess == meta.EditAccess
             && !meta.Deleted
             && !meta.Hidden
-            && meta.AnyPublishedContentAnyDate
             && meta.CreatedBy == Guid.Empty
             && meta.ChangedBy == Guid.Empty
             && meta.CultureId == Guid.Empty
             && meta.ReleaseUtc == null
             && meta.ExpireUtc == null;
     }
-
 
     public static readonly INodeMeta Empty = new NodeMetaEmpty();
     public static byte[] ToBytes(INodeMeta? meta) {
@@ -125,7 +169,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             meta.EditAccess.TryWriteBytes(buffer.Slice(33, 16));
             return buffer.ToArray();
         } else if (meta is NodeMetaFull) {
-            Span<byte> buffer = stackalloc byte[1 + 16 * 7 + 1 * 3 + 8 * 2];
+            Span<byte> buffer = stackalloc byte[1 + 16 * 7 + 2 + 8 * 2];
             buffer[0] = (byte)NodeMetaType.Full;
             meta.CollectionId.TryWriteBytes(buffer.Slice(1, 16));
             meta.ReadAccess.TryWriteBytes(buffer.Slice(17, 16));
@@ -134,14 +178,11 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             meta.PublishAccess.TryWriteBytes(buffer.Slice(65, 16));
             buffer[81] = (byte)(meta.Deleted ? 1 : 0);
             buffer[82] = (byte)(meta.Hidden ? 1 : 0);
-            buffer[83] = (byte)(meta.AnyPublishedContentAnyDate ? 1 : 0);
-            meta.CreatedBy.TryWriteBytes(buffer.Slice(84, 16));
-            meta.ChangedBy.TryWriteBytes(buffer.Slice(100, 16));
-            meta.CultureId.TryWriteBytes(buffer.Slice(116, 16));
-            long releaseTicks = meta.ReleaseUtc?.Ticks ?? 0;
-            long expireTicks = meta.ExpireUtc?.Ticks ?? 0;
-            BitConverter.TryWriteBytes(buffer.Slice(132, 8), releaseTicks);
-            BitConverter.TryWriteBytes(buffer.Slice(140, 8), expireTicks);
+            meta.CreatedBy.TryWriteBytes(buffer.Slice(83, 16));
+            meta.ChangedBy.TryWriteBytes(buffer.Slice(99, 16));
+            meta.CultureId.TryWriteBytes(buffer.Slice(115, 16));
+            BitConverter.TryWriteBytes(buffer.Slice(131, 8), meta.ReleaseUtc?.ToBinary() ?? 0);
+            BitConverter.TryWriteBytes(buffer.Slice(139, 8), meta.ExpireUtc?.ToBinary() ?? 0);
             return buffer.ToArray();
         } else {
             throw new InvalidOperationException("Unknown INodeMeta implementation.");
@@ -164,15 +205,14 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             Guid publishAccess = new Guid(new ReadOnlySpan<byte>(data, 65, 16));
             bool deleted = data[81] != 0;
             bool hidden = data[82] != 0;
-            bool anyPublishedContentAnyDate = data[83] != 0;
-            Guid createdBy = new Guid(new ReadOnlySpan<byte>(data, 84, 16));
-            Guid changedBy = new Guid(new ReadOnlySpan<byte>(data, 100, 16));
-            Guid cultureId = new Guid(new ReadOnlySpan<byte>(data, 116, 16));
-            long releaseTicks = BitConverter.ToInt64(data, 132);
-            long expireTicks = BitConverter.ToInt64(data, 140);
-            DateTime? releaseUtc = releaseTicks == 0 ? null : new DateTime(releaseTicks, DateTimeKind.Utc);
-            DateTime? expireUtc = expireTicks == 0 ? null : new DateTime(expireTicks, DateTimeKind.Utc);
-            return new NodeMetaFull(collectionId, readAccess, editAccess, editViewAccess, publishAccess, deleted, hidden, anyPublishedContentAnyDate, createdBy, changedBy, cultureId, releaseUtc, expireUtc);
+            Guid createdBy = new Guid(new ReadOnlySpan<byte>(data, 83, 16));
+            Guid changedBy = new Guid(new ReadOnlySpan<byte>(data, 99, 16));
+            Guid cultureId = new Guid(new ReadOnlySpan<byte>(data, 115, 16));
+            long releaseBinary = BitConverter.ToInt64(data, 131);
+            long expireBinary = BitConverter.ToInt64(data, 139);
+            DateTime? releaseUtc = releaseBinary != 0 ? DateTime.FromBinary(releaseBinary) : null;
+            DateTime? expireUtc = expireBinary != 0 ? DateTime.FromBinary(expireBinary) : null;
+            return new NodeMetaFull(collectionId, readAccess, editAccess, editViewAccess, publishAccess, deleted, hidden, createdBy, changedBy, cultureId, releaseUtc, expireUtc);
         } else {
             throw new InvalidOperationException("Unknown INodeMeta type in byte array.");
         }
@@ -193,7 +233,6 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             && x.PublishAccess == y.PublishAccess
             && x.Deleted == y.Deleted
             && x.Hidden == y.Hidden
-            && x.AnyPublishedContentAnyDate == y.AnyPublishedContentAnyDate
             && x.CreatedBy == y.CreatedBy
             && x.ChangedBy == y.ChangedBy
             && x.CultureId == y.CultureId
@@ -218,7 +257,6 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         hash.Add(obj.PublishAccess);
         hash.Add(obj.Deleted);
         hash.Add(obj.Hidden);
-        hash.Add(obj.AnyPublishedContentAnyDate);
         hash.Add(obj.CreatedBy);
         hash.Add(obj.ChangedBy);
         hash.Add(obj.CultureId);
@@ -236,7 +274,6 @@ class NodeMetaEmpty : INodeMeta {
     public Guid PublishAccess => Guid.Empty;
     public bool Deleted => false;
     public bool Hidden => false;
-    public bool AnyPublishedContentAnyDate => true;
     public Guid CreatedBy => Guid.Empty;
     public Guid ChangedBy => Guid.Empty;
     public Guid CultureId => Guid.Empty;
@@ -264,7 +301,6 @@ public class NodeMetaMin : INodeMeta {
     public Guid PublishAccess => EditAccess; // common for all revisions and cultures
     public bool Deleted => false; // common for all revisions and cultures
     public bool Hidden => false; // common for all revisions and cultures
-    public bool AnyPublishedContentAnyDate => true;
 
     public Guid CreatedBy => Guid.Empty;
     public Guid ChangedBy => Guid.Empty;
@@ -284,7 +320,6 @@ public class NodeMetaFull : INodeMeta {
     public Guid PublishAccess { get; }
     public bool Deleted { get; }
     public bool Hidden { get; }
-    public bool AnyPublishedContentAnyDate { get; }
 
     public Guid CreatedBy { get; } // specific
     public Guid ChangedBy { get; } // specific
@@ -293,7 +328,7 @@ public class NodeMetaFull : INodeMeta {
     public DateTime? ReleaseUtc { get; } // specific
     public DateTime? ExpireUtc { get; } // specific
 
-    public NodeMetaFull(Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, bool anyPublishedContentAnyDate, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
+    public NodeMetaFull(Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
         CollectionId = collectionId;
         ReadAccess = readAccess;
         EditAccess = editAccess;
@@ -301,7 +336,6 @@ public class NodeMetaFull : INodeMeta {
         PublishAccess = publishAccess;
         Deleted = deleted;
         Hidden = hidden;
-        AnyPublishedContentAnyDate = anyPublishedContentAnyDate;
         CreatedBy = createdBy;
         ChangedBy = changedBy;
         CultureId = cultureId;

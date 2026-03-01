@@ -1,6 +1,8 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Transactions;
 
 internal class ActionConverter {
@@ -12,7 +14,7 @@ internal class ActionConverter {
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
-            NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
+            NodeRevisionAndMetaAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -151,20 +153,9 @@ internal class ActionConverter {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                             if (oldNode is NodeDataRevisions revsNode) { // revison handling is relevant, revision must already exists:
-                                if( node is not NodeDataRevision nodeRev) throw new Exception("Cannot determine revision to update. ");
-                                NodeDataRevision? oldRevNode = null;
-                                int posOldRev = -1;
-                                for (int i = 0;i< revsNode.Revisions.Length; i++) {
-                                    if (revsNode.Revisions[i].RevisionId == nodeRev.RevisionId) {
-                                        oldRevNode = revsNode.Revisions[i];
-                                        posOldRev++;
-                                        break;
-                                    }
-                                }
-                                if (oldRevNode == null) throw new Exception("Revision with id " + nodeRev.RevisionId + " does not exist, cannot update. ");
-                                var typeDef = db._definition.NodeTypes[node.NodeType];
-                                Utils.ForceTypeValidateValuesAndCopyMissing(typeDef, node, oldRevNode, transformValues);
-                                var newNode = Utils.CopyAndSetValuePropertiesNotMeta(revsNode, nodeRev, oldRevNode, posOldRev, typeDef);
+                                if (node is not NodeDataRevision nodeRev) throw new Exception("Cannot determine revision to update. ");
+                                var typeDef = db._definition.NodeTypes[oldNode.NodeType];
+                                var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
@@ -399,26 +390,77 @@ internal class ActionConverter {
         }
         yield break;
     }
-    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAndMetaAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
         int nodeId = db._guids.ValidateAndReturnIntId(a.NodeIdKey);
         Guid revisionId = a.RevisionId;
-        if(!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");        
+        if (!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");
         switch (a.Operation) {
-            case NodeRevisionOperation.UpdateMeta:
-                if (existingNode is NodeDataRevisions revs) {
-                    var changedRevs = revs.CopyAndChangeMetaOfOneRevision(a.Meta, revisionId);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRevs);
-                } else if(existingNode is NodeData nd) {
-                    var changedRev = nd.CopyAndChangeMeta(a.Meta);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, changedRev);
+            case NodeRevisionOperation.EnableRevisions: {
+                    if (existingNode is NodeData nd) {
+                        var rev = nd.CopyAndConvertToNodeDataRevision(a.RevisionId, RevisionType.Published, nd.Meta);
+                        var newNode = new NodeDataRevisions(nd.Id, nd.__Id, nd.NodeType, [rev]);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    } else if (existingNode is NodeDataRevisions) {
+                        throw new Exception("Cannot enable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeData. ");
+                    }
                 }
                 break;
-            case NodeRevisionOperation.CreateRevision: // insert or update revision
-
+            case NodeRevisionOperation.DisableRevisions: {
+                    if (existingNode is NodeDataRevisions revs) {
+                        var revisionToKeep = revs.Revisions.FirstOrDefault(r => r.RevisionId == revisionId);
+                        if (revisionToKeep == null) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot disable revisions. ");
+                        var newNode = revisionToKeep.CopyAndReturnAsNodeData();
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    } else if (existingNode is NodeData) {
+                        throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
+                    }
+                }
                 break;
-            case NodeRevisionOperation.DeleteRevision:
+            case NodeRevisionOperation.UpdateMeta: {
+                    if (existingNode is NodeDataRevisions revsNode) {
+                        var newNode = Utils.CopyRevisionNodeAndChangeMeta(revsNode, a.Meta, revisionId);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    } else if (existingNode is NodeData nd) {
+                        var newNode = nd.CopyAndChangeMeta(a.Meta);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    }
+                }
+                break;
+            case NodeRevisionOperation.CreateRevision: {
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot create revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to create a revision. ");
+                    var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.SourceRevisionId);
+                    if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");
+                    var cultureId = a.CultureId ?? sourceRevision.Meta?.CultureId ?? null;
+                    INodeMeta? newMeta;
+                    if (cultureId.HasValue) {
+                        newMeta = INodeMeta.ChangeCulture(sourceRevision.Meta, cultureId.Value);
+                    } else {
+                        // if no culture is given and there is no culture in the source revision, 
+                        newMeta = null;
+                    }
+                    NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionInfo(newMeta, a.SourceRevisionId!.Value, a.RevisionType!.Value);
+                    var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
+                    Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
+                    newRevs[^1] = newRev;
+                    var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                }
+                break;
+            case NodeRevisionOperation.DeleteRevision: {
+                    if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot delete revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to delete a revision. ");
+                    var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == revisionId);
+                    if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot delete revision. ");
+                    if (revs.Revisions.Length == 1) throw new Exception("Cannot delete the last revision for node with id " + a.NodeIdKey + ". ");
+                    var newRevs = revs.Revisions.Where((r, i) => i != posOfRevToDelete).ToArray();
+                    var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                }
                 break;
             default:
                 break;

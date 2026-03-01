@@ -34,7 +34,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx) => {
     ctx.Database.Insert(u);
 
     var db = ctx.Database;
-    db.UPSER
+    //db.UPSER
     
 
 
