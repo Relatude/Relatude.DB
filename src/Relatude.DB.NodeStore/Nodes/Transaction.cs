@@ -584,6 +584,23 @@ public partial class Transaction {
         return this;
     }
 
+
+    public Transaction EnableRevisions(Guid nodeId, Guid revisionId, RevisionType revisionType) { 
+        _transactionData.EnableRevisions(nodeId, revisionId, revisionType);
+        return this;
+    }
+    public Transaction EnableRevisions(int nodeId, Guid revisionId, RevisionType revisionType) {
+        _transactionData.EnableRevisions(nodeId, revisionId, revisionType);
+        return this;
+    }
+    public Transaction DisableRevisions(Guid nodeId, Guid revisionIdToKeep) {
+        _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
+        return this;
+    }
+    public Transaction DisableRevisions(int nodeId, Guid revisionIdToKeep) {
+        _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
+        return this;
+    }
     public Transaction UpdateMeta(Guid nodeId, Guid revisionId, INodeMeta meta) {
         _transactionData.UpdateMeta(nodeId, revisionId, meta);
         return this;

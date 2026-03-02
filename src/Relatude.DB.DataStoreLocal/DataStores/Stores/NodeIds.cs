@@ -288,7 +288,7 @@ internal class NodeTypesByIds {
             log("Error registering node action during state load: " + na, ex);
         }
     }
-    public void Index(INodeDataInner node) {
+    public void Index(INodeData node) {
         if (node is not NodeData && node is not NodeDataRevision) {
             throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
             // must be root node data type, not a sub version or id type

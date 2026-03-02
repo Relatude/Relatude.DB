@@ -16,6 +16,15 @@ internal class IndexStore : IDisposable {
         _definition = definition;
     }
     public bool WillUniqueConstraintsBeViolated(INodeData node, QueryContext ctx, [MaybeNullWhen(false)] out Property property) {
+        if (node is NodeDataRevisions revs) { 
+            foreach(var rev in revs.Revisions) {
+                if (WillUniqueConstraintsBeViolated(rev, ctx, out property)) {
+                    return true;
+                }
+            }
+            property = null;
+            return false;
+        }
         foreach (var kv in node.Values) {
             var p = _definition.Properties[kv.PropertyId];
             if (p.UniqueValues) {

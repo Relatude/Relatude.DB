@@ -9,6 +9,7 @@ using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores.Definitions;
+
 internal sealed class Definition {
     internal Definition(SetRegister sets, Datamodel datamodel, DataStoreLocal store) {
         Datamodel = datamodel;
@@ -60,23 +61,84 @@ internal sealed class Definition {
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
     }
-    internal void IndexNode(INodeDataInner node) {
-        foreach (var kv in node.Values) {
-            var propDef = Properties[kv.PropertyId];
-            foreach (var index in propDef.AllIndexes) {
-                if (propDef.IsNodeRelevantForIndex(node, index)) index.Add(node.__Id, kv.Value);
+    internal void IndexNode(INodeData node) {
+        if (node is NodeDataRevisions ndr) {
+            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
+            foreach (var rev in ndr.Revisions) {
+                if (rev.RevisionType == RevisionType.Published) {
+                    foreach (var kv in rev.Values) {
+                        var propDef = Properties[kv.PropertyId];
+                        bool shouldIndex = true;
+                        if (!propDef.Model.CultureSensitive) {  // only once for all revisions
+                            if (!indexedProps.Contains(propDef.Id)) {
+                                indexedProps.Add(propDef.Id);
+                            } else {
+                                shouldIndex = false;
+                            }
+                        }
+                        if (shouldIndex) {
+                            foreach (var index in propDef.AllIndexes) {
+                                if (propDef.IsNodeRelevantForIndex(rev, index)) index.Add(rev.__Id, kv.Value);
+                            }
+                        }
+                    }
+                }
+                _nodeTypeIndex.Index(rev);
             }
+        } else if (node is NodeData nd) {
+            foreach (var kv in nd.Values) {
+                var propDef = Properties[kv.PropertyId];
+                foreach (var index in propDef.AllIndexes) {
+                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Add(nd.__Id, kv.Value);
+                }
+                _nodeTypeIndex.Index(nd);
+            }
+        } else {
+            throw new Exception("Unknown node data type");
         }
-        _nodeTypeIndex.Index(node);
     }
     internal void DeIndexNode(INodeData node) {
-        foreach (var kv in node.Values) {
-            var propDef = Properties[kv.PropertyId];
-            foreach (var index in propDef.AllIndexes) {
-                if (propDef.IsNodeRelevantForIndex(node, index)) index.Remove(node.__Id, kv.Value);
+        if (node is NodeDataRevisions ndr) {
+            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
+            foreach (var rev in ndr.Revisions) {
+                if (rev.RevisionType == RevisionType.Published) {
+                    foreach (var kv in rev.Values) {
+                        var propDef = Properties[kv.PropertyId];
+                        bool shouldIndex = true;
+                        if (!propDef.Model.CultureSensitive) {  // only once for all revisions
+                            if (!indexedProps.Contains(propDef.Id)) {
+                                indexedProps.Add(propDef.Id);
+                            } else {
+                                shouldIndex = false;
+                            }
+                        }
+                        if (shouldIndex) {
+                            foreach (var index in propDef.AllIndexes) {
+                                if (propDef.IsNodeRelevantForIndex(rev, index)) index.Remove(rev.__Id, kv.Value);
+                            }
+                        }
+                    }
+                }
+                _nodeTypeIndex.DeIndex(rev);
             }
+        } else if (node is NodeData nd) {
+            foreach (var kv in nd.Values) {
+                var propDef = Properties[kv.PropertyId];
+                foreach (var index in propDef.AllIndexes) {
+                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Remove(nd.__Id, kv.Value);
+                }
+                _nodeTypeIndex.DeIndex(nd);
+            }
+        } else {
+            throw new Exception("Unknown node data type");
         }
-        _nodeTypeIndex.DeIndex(node);
+        //foreach (var kv in node.Values) {
+        //    var propDef = Properties[kv.PropertyId];
+        //    foreach (var index in propDef.AllIndexes) {
+        //        if (propDef.IsNodeRelevantForIndex(node, index)) index.Remove(node.__Id, kv.Value);
+        //    }
+        //}
+        //_nodeTypeIndex.DeIndex(node);
     }
     public bool TryGetIndex(string indexUniqueKey, [MaybeNullWhen(false)] out IIndex index) {
         return _indexes.TryGetValue(indexUniqueKey, out index);

@@ -218,6 +218,10 @@ public class NodeStore : IDisposable {
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
     public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
+    public TransactionResult EnableRevisions(Guid id, Guid revisionId, RevisionType revisionType, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, revisionType), flushToDisk);
+    public TransactionResult EnableRevisions(int id, Guid revisionId, RevisionType revisionType, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, revisionType), flushToDisk);
+    public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
     public TransactionResult UpdateMeta(Guid id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
     public TransactionResult UpdateMeta(int id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
     public TransactionResult DeleteRevision(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);

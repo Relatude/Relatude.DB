@@ -28,14 +28,14 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
-
     var u = ctx.Database.Create<DemoArticle>();
-    
     ctx.Database.Insert(u);
-
     var db = ctx.Database;
+    var rId = Guid.NewGuid();
+    db.EnableRevisions(u.Id, rId, RevisionType.Published);
+    db.CreateRevision(u.Id, rId, rId, RevisionType.Preliminary);
     //db.UPSER
-    
+
 
 
     // RelatudeDbRuntime - A static access to running server and default database

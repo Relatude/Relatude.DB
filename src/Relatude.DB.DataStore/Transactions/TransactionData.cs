@@ -75,6 +75,10 @@ public class TransactionData {
     public void ValidateProperty(Guid[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, nodeIds, null, propetyId, value));
     public void ValidateProperty(int[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, null, nodeIds, propetyId, value));
 
+    public void EnableRevisions(Guid nodeId, Guid revisionId, RevisionType revisionType) => Add(NodeRevisionAndMetaAction.EnableRevisions(new(nodeId), revisionId, revisionType));
+    public void EnableRevisions(int nodeId, Guid revisionId, RevisionType revisionType) => Add(NodeRevisionAndMetaAction.EnableRevisions(new(nodeId), revisionId, revisionType));
+    public void DisableRevisions(Guid nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAndMetaAction.DisableRevisions(new(nodeId), revisionIdToKeep));
+    public void DisableRevisions(int nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAndMetaAction.DisableRevisions(new(nodeId), revisionIdToKeep));
     public void UpdateMeta(Guid nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAndMetaAction.UpdateMeta(new(nodeId), revisionId, meta));
     public void UpdateMeta(int nodeId, Guid revisionId, INodeMeta meta) => Add(NodeRevisionAndMetaAction.UpdateMeta(new(nodeId), revisionId, meta));
     public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAndMetaAction.DeleteRevision(new(nodeId), revisionId));

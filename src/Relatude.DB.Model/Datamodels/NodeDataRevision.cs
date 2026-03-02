@@ -70,7 +70,9 @@ public class NodeDataRevisions : INodeDataInner {
     public void Add(Guid propertyId, object value) => throw new NA();
     public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
     public bool Contains(Guid propertyId) => throw new NA();
-    public void EnsureReadOnly() => throw new NA();
+    public void EnsureReadOnly() { 
+        foreach (var revs in Revisions) revs.EnsureReadOnly();
+    }
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
