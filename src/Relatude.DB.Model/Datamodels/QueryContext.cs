@@ -4,8 +4,8 @@ namespace Relatude.DB.Datamodels;
 
 public struct NodeIdAndRevisionId {
     public Guid NodeId { get; }
-    public Guid RevisionId { get; }
-    public NodeIdAndRevisionId(Guid nodeId, Guid revisionId) {
+    public int RevisionId { get; }
+    public NodeIdAndRevisionId(Guid nodeId, int revisionId) {
         NodeId = nodeId;
         RevisionId = revisionId;
     }

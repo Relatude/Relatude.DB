@@ -1,28 +1,53 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
-public enum RevisionType {
-    Binned = 0,
-    Archived = 1,
-    Preliminary = 2,
-    Published = 3,
-    AwaitingPublicationApproval = 4,
-    AwaitingArchiveApproval = 5,
-    AwaitingBinningApproval = 6,
-    PermanentlyDeleted = 99,
+public enum RevisionType : int {
+    AwaitingPublicationApproval = -2, // id from -20000000 => -29999999
+    AwaitingArchiveApproval = -3, // id from -30000000 => -39999999
+    AwaitingDeleteApproval = -4, // id from -40000000 => -49999999
+
+    Preliminary = -1, // id from -10000000->-19999999
+
+    Published = 0, // id always 0. Only one per culture! and only one indexed
+
+    PublishOverride = 1, // id from 10000000->19999999 - used for AB testing, campaigns, etc.
+    Archived = 2, // id from 20000000->29999999
+
+    Binned = 3, // id from 30000000->39999999
 }
+public static class RevisionUtil {
+    public static RevisionType GetRevisionType(int revisionId) {
+
+        // is it big enough to have a digit in the place of 10 millions?
+        var noDigitsOfRevisionId = revisionId == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(revisionId)) + 1);
+        if (revisionId != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionId}. Revision ID must have at most 8 digits.");
+
+        // get the digit in the place of 10 millions, which determines the revision type
+        var isNegative = revisionId < 0;
+        var digit = Math.Abs(revisionId);
+        while (digit >= 10) digit /= 10;
+        if (isNegative) digit = -digit;
+
+        // check if the digit corresponds to a defined RevisionType
+        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionId}. No corresponding RevisionType found.");
+
+        return (RevisionType)digit;
+    }
+    public static void Validate(int revisionId) {
+        GetRevisionType(revisionId);
+    }
+}
+
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
-    public Guid RevisionId { get; }
-    public RevisionType RevisionType { get; }
+    public int RevisionId => Meta?.RevisionId ?? 0;
+    public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, Guid revisionId, RevisionType revisionType, INodeMeta? meta)
+    Properties<object> values, INodeMeta? meta)
     : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
-        RevisionId = revisionId;
-        RevisionType = revisionType;
     }
-    public NodeDataRevision CopyAndChangeMeta( INodeMeta? meta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), RevisionId, RevisionType, meta);
+    public NodeDataRevision CopyAndChangeMeta(INodeMeta? meta) {
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
         return rev;
     }
     public NodeDataRevision CopyRevision() => CopyAndChangeMeta(Meta);
@@ -33,7 +58,7 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         return data;
     }
 
-    public NodeDataRevision CopyAndChangeMetaAndRevisionInfo(INodeMeta? newMeta, Guid newRevisionId, RevisionType newRevisionType) {
+    public NodeDataRevision CopyAndChangeMetaAndRevisionInfo(INodeMeta? newMeta, int newRevisionId) {
         var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newRevisionId, newRevisionType, newMeta);
         return rev;
     }
@@ -83,7 +108,7 @@ public class NodeDataRevisions : INodeDataInner {
     public void Add(Guid propertyId, object value) => throw new NA();
     public void AddOrUpdate(Guid propertyId, object value) => throw new NA();
     public bool Contains(Guid propertyId) => throw new NA();
-    public void EnsureReadOnly() { 
+    public void EnsureReadOnly() {
         foreach (var revs in Revisions) revs.EnsureReadOnly();
     }
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
