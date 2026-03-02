@@ -10,8 +10,8 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
         _node = nodeData;
         _relations = new();
     }
-    public Guid RevisionId { get => _node.RevisionId; set => throwReadOnlyError(); }
-    public RevisionType RevisionType { get => _node.RevisionType; set => throwReadOnlyError(); }
+    public int RevisionId { get => _node.RevisionId; }
+    public RevisionType RevisionType { get => _node.RevisionType; }
 
     public void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
         _node = dic[_node.__Id];

@@ -39,6 +39,7 @@ public static class RevisionUtil {
 }
 
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
+    public Guid CultureId => Meta?.CultureId ?? Guid.Empty;
     public int RevisionId => Meta?.RevisionId ?? 0;
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
@@ -58,8 +59,8 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         return data;
     }
 
-    public NodeDataRevision CopyAndChangeMetaAndRevisionInfo(INodeMeta? newMeta, int newRevisionId) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newRevisionId, newRevisionType, newMeta);
+    public NodeDataRevision CopyAndChangeMetaAndRevisionInfo(INodeMeta? newMeta) {
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta);
         return rev;
     }
 }
@@ -68,16 +69,17 @@ public class NodeDataRevisions : INodeDataInner {
         _id = id;
         _guid = guid;
         NodeType = typeId;
-
-        // ensure revision id is unique across all revisions
-        var areRevisionsUnique = revisions.Select(r => r.RevisionId).Distinct().Count() == revisions.Length;
-        if (!areRevisionsUnique) throw new ArgumentException("Revisions must have unique revision IDs.");
-
+        
         // ensure the there only exists at max one published revision for each culture:
         var publishedRevisions = revisions.Where(r => r.RevisionType == RevisionType.Published);
         var publishedRevisionsByCulture = publishedRevisions.GroupBy(r => r.Meta?.CultureId);
         var hasMultiplePublishedRevisionsForSameCulture = publishedRevisionsByCulture.Any(g => g.Count() > 1);
         if (hasMultiplePublishedRevisionsForSameCulture) throw new ArgumentException("There can only be one published revision for each culture. ");
+
+        // ensure revision id is unique across for each culture:
+        var revisionsByCulture = revisions.GroupBy(r => r.Meta?.CultureId);
+        var hasDuplicateRevisionIdsForSameCulture = revisionsByCulture.Any(g => g.Select(r => r.RevisionId).GroupBy(id => id).Any(g2 => g2.Count() > 1));
+        if (hasDuplicateRevisionIdsForSameCulture) throw new ArgumentException("Revision IDs must be unique for each culture. ");
 
         // TODO: optimize the above checks for better perfomance
 

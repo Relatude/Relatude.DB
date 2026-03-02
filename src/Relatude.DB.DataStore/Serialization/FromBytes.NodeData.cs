@@ -97,9 +97,6 @@ public static partial class FromBytes {
     }
     static NodeDataRevision read_NodeDataRevision(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
 
-        var revisionId = stream.ReadGuid();
-        var revisionType = (RevisionType)stream.ReadUInt();
-
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
 
@@ -136,7 +133,7 @@ public static partial class FromBytes {
             }
         }
 
-        var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, revisionId, revisionType, meta);
+        var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, meta);
         return newNodeData;
     }
     static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {

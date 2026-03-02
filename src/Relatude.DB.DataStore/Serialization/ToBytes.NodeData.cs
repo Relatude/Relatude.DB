@@ -54,17 +54,14 @@ public static partial class ToBytes {
         }
 
     }
-    static void nodeDataRevision(NodeDataRevision version, Datamodel datamodel, Stream stream) {
-        stream.WriteGuid(version.RevisionId);
-        stream.WriteUInt((uint)version.RevisionType);
-        nodeData(version, datamodel, stream);
-    }
     static void nodeDataRevisions(NodeDataRevisions n, Datamodel datamodel, Stream stream) {
-        // Each version
         stream.WriteInt(n.Revisions.Length);
         foreach (var rev in n.Revisions) {
             nodeDataRevision(rev, datamodel, stream);
         }
+    }
+    static void nodeDataRevision(NodeDataRevision version, Datamodel datamodel, Stream stream) {
+        nodeData(version, datamodel, stream);
     }
     static byte[] serializePropertyValue(object value, PropertyType propType) {
         return propType switch {

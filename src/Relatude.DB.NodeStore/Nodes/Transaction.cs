@@ -585,44 +585,44 @@ public partial class Transaction {
     }
 
 
-    public Transaction EnableRevisions(Guid nodeId, Guid revisionId, RevisionType revisionType) { 
-        _transactionData.EnableRevisions(nodeId, revisionId, revisionType);
+    public Transaction EnableRevisions(Guid nodeId, int revisionId, Guid? cultureId = null) {
+        _transactionData.EnableRevisions(nodeId, revisionId, cultureId);
         return this;
     }
-    public Transaction EnableRevisions(int nodeId, Guid revisionId, RevisionType revisionType) {
-        _transactionData.EnableRevisions(nodeId, revisionId, revisionType);
+    public Transaction EnableRevisions(int nodeId, int revisionId, Guid? cultureId = null) {
+        _transactionData.EnableRevisions(nodeId, revisionId, cultureId);
         return this;
     }
-    public Transaction DisableRevisions(Guid nodeId, Guid revisionIdToKeep) {
-        _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
+    public Transaction DisableRevisions(Guid nodeId, int revisionIdToKeep, Guid? cultureIdToKeep = null) {
+        _transactionData.DisableRevisions(nodeId, revisionIdToKeep, cultureIdToKeep);
         return this;
     }
-    public Transaction DisableRevisions(int nodeId, Guid revisionIdToKeep) {
-        _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
+    public Transaction DisableRevisions(int nodeId, int revisionIdToKeep, Guid? cultureIdToKeep = null) {
+        _transactionData.DisableRevisions(nodeId, revisionIdToKeep, cultureIdToKeep);
         return this;
     }
-    public Transaction UpdateMeta(Guid nodeId, Guid revisionId, INodeMeta meta) {
+    public Transaction UpdateMeta(Guid nodeId, int revisionId, INodeMeta meta) {
         _transactionData.UpdateMeta(nodeId, revisionId, meta);
         return this;
     }
-    public Transaction UpdateMeta(int nodeId, Guid revisionId, INodeMeta meta) {
+    public Transaction UpdateMeta(int nodeId, int revisionId, INodeMeta meta) {
         _transactionData.UpdateMeta(nodeId, revisionId, meta);
         return this;
     }
-    public Transaction DeleteRevision(Guid nodeId, Guid revisionId) {
-        _transactionData.DeleteRevision(nodeId, revisionId);
+    public Transaction DeleteRevision(Guid nodeId, int revisionId, Guid? cultureId = null) {
+        _transactionData.DeleteRevision(nodeId, revisionId, cultureId);
         return this;
     }
-    public Transaction DeleteRevision(int nodeId, Guid revisionId) {
-        _transactionData.DeleteRevision(nodeId, revisionId);
+    public Transaction DeleteRevision(int nodeId, int revisionId, Guid? cultureId = null) {
+        _transactionData.DeleteRevision(nodeId, revisionId, cultureId);
         return this;
     }
-    public Transaction CreateRevision(Guid nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null) {
-        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, revisionType, cultureId);
+    public Transaction CreateRevision(Guid nodeId, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? sourceCultureId = null) {
+        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, cultureId, sourceCultureId);
         return this;
     }
-    public Transaction CreateRevision(int nodeId, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null) {
-        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, revisionType, cultureId);
+    public Transaction CreateRevision(int nodeId, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? sourceCultureId = null) {
+        _transactionData.CreateRevision(nodeId, revisionId, sourceRevisionId, cultureId, sourceCultureId);
         return this;
     }
 

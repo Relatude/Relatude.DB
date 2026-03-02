@@ -109,6 +109,49 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         if (CanBeEmptyOrNull(metaWithNewCulture)) return null; // null and empty are treated as the same, set to null to save space
         return metaWithNewCulture;
     }
+    public static INodeMeta? ChangeRevision(INodeMeta? meta, int revisionId) {
+        if (meta == null) {
+            if(revisionId == 0) return null; // null and empty are treated as the same, return null to save space
+            return new NodeMetaFull(
+                revisionId: revisionId,
+                collectionId: Guid.Empty,
+                readAccess: Guid.Empty,
+                editAccess: Guid.Empty,
+                editViewAccess: Guid.Empty,
+                publishAccess: Guid.Empty,
+                deleted: false,
+                hidden: false,
+                createdBy: Guid.Empty,
+                changedBy: Guid.Empty,
+                cultureId: Guid.Empty,
+                releaseUtc: null,
+                expireUtc: null
+            );
+        }
+        if (meta.RevisionId == revisionId) return meta; // no change needed
+        var metaWithNewRevision = new NodeMetaFull(
+            revisionId: revisionId, // change revision
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess,
+            editViewAccess: meta.EditViewAccess,
+            publishAccess: meta.PublishAccess,
+            deleted: meta.Deleted,
+            hidden: meta.Hidden,
+            createdBy: meta.CreatedBy,
+            changedBy: meta.ChangedBy,
+            cultureId: meta.CultureId,
+            releaseUtc: meta.ReleaseUtc,
+            expireUtc: meta.ExpireUtc
+        );
+        if (CanBeMin(metaWithNewRevision)) return new NodeMetaMin(
+            collectionId: metaWithNewRevision.CollectionId,
+            readAccess: metaWithNewRevision.ReadAccess,
+            editAccess: metaWithNewRevision.EditAccess
+        );
+        if (CanBeEmptyOrNull(metaWithNewRevision)) return null; // null and empty are treated as the same, set to null to save space
+        return metaWithNewRevision;
+    }
 
     public static INodeMeta? DeriveCombinedMeta(INodeMeta? original, INodeMeta? newRev) {
         if (original == null && newRev == null) return null;

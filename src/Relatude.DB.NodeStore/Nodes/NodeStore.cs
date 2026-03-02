@@ -218,16 +218,19 @@ public class NodeStore : IDisposable {
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
     public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
-    public TransactionResult EnableRevisions(Guid id, Guid revisionId, RevisionType revisionType, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, revisionType), flushToDisk);
-    public TransactionResult EnableRevisions(int id, Guid revisionId, RevisionType revisionType, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, revisionType), flushToDisk);
-    public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult UpdateMeta(Guid id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
-    public TransactionResult UpdateMeta(int id, Guid revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
-    public TransactionResult DeleteRevision(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
-    public TransactionResult DeleteRevision(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
-    public TransactionResult CreateRevision(Guid id, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, revisionType, cultureId), flushToDisk);
-    public TransactionResult CreateRevision(int id, Guid revisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, revisionType, cultureId), flushToDisk);
+    public TransactionResult EnableRevisions(Guid id, int revisionId, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, cultureId), flushToDisk);
+    public TransactionResult EnableRevisions(int id, int revisionId, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, cultureId), flushToDisk);
+    public TransactionResult DisableRevisions(Guid id, int revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult DisableRevisions(int id, int revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult UpdateMeta(Guid id, int revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult UpdateMeta(int id, int revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult DeleteRevision(Guid id, int revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult DeleteRevision(int id, int revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult CreateRevision(Guid id, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? cultureIdSource = null, bool flushToDisk = false) 
+        => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, cultureId, cultureIdSource), flushToDisk);
+    public TransactionResult CreateRevision(int id, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? cultureIdSource = null, bool flushToDisk = false) 
+        => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, cultureId, cultureIdSource), flushToDisk);
+
 
 
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
@@ -240,7 +243,7 @@ public class NodeStore : IDisposable {
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
     public IQueryOfNodes<object, object> Query(QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx);
     public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
-    public IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this,ctx, typeName);
+    public IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, typeName);
 
     public Task<object?> EvaluateForJsonAsync(string query, List<Parameter> parameters, QueryContext? ctx = null) {
         return new QueryStringBuilder(this, ctx, query, parameters).Prepare().EvaluateForJsonAsync();

@@ -146,13 +146,16 @@ internal static class Utils {
         return orginialMainNode;
 
     }
-    internal static NodeDataRevisions CopyRevisionNodeAndChangeMeta(NodeDataRevisions revsNode, INodeMeta? meta, Guid revisionId) {
+    internal static NodeDataRevisions CopyRevisionNodeAndChangeMeta(NodeDataRevisions revsNode, INodeMeta? meta, int revisionId, Guid cultureId) {
         // updates meta of one revision and copies common meta props to other revs
         var revs = new NodeDataRevision[revsNode.Revisions.Length];
         bool revisionIdFound = false;
+        if(meta==null || meta.CultureId!= cultureId) {
+            throw new ArgumentException("Meta must have the same culture id as the one provided in argument");
+        }
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
             INodeMeta? rMeta;
-            if (revsNode.Revisions[i].RevisionId == revisionId) {
+            if (revsNode.Revisions[i].RevisionId == revisionId && cultureId == revsNode.Revisions[i].CultureId) {
                 revisionIdFound = true;
                 rMeta = meta;
             } else {

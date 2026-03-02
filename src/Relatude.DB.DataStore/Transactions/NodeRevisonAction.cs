@@ -11,33 +11,36 @@ public enum NodeRevisionOperation : byte {
 }
 public class NodeRevisionAndMetaAction : ActionBase {
 
-    public static NodeRevisionAndMetaAction UpdateMeta(IdKey key, Guid revisionId, INodeMeta meta)
+    public static NodeRevisionAndMetaAction UpdateMeta(IdKey key, int revisionId, INodeMeta? meta)
         => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, meta, null, null);
-    public static NodeRevisionAndMetaAction DeleteRevision(IdKey key, Guid revisionId)
-        => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null);
-    public static NodeRevisionAndMetaAction EnableRevisions(IdKey key, Guid revisionId, RevisionType revisionType)
-        => new(NodeRevisionOperation.EnableRevisions, key, revisionId, null, null, null, null);
-    public static NodeRevisionAndMetaAction DisableRevisions(IdKey key, Guid revisionIdToKeep)
-        => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null);
-    public static NodeRevisionAndMetaAction CreateRevision(IdKey key, Guid newRevisionId, Guid sourceRevisionId, RevisionType revisionType, Guid? cultureId)
-        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId, sourceRevisionId, null, revisionType, cultureId);
+    public static NodeRevisionAndMetaAction DeleteRevision(IdKey key, int revisionId, Guid? cultureId)
+        => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, cultureId, null);
+    public static NodeRevisionAndMetaAction EnableRevisions(IdKey key, int revisionId, Guid? cultureId)
+        => new(NodeRevisionOperation.EnableRevisions, key, revisionId, null, null, cultureId, null);
+    public static NodeRevisionAndMetaAction DisableRevisions(IdKey key, int revisionIdToKeep, Guid? cultureIdToKeep)
+        => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null,cultureIdToKeep, null);
+    public static NodeRevisionAndMetaAction CreateRevision(IdKey key, int newRevisionId, int sourceRevisionId, Guid? cultureId, Guid? sourceCultureId)
+        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId, sourceRevisionId, null, cultureId, sourceCultureId);
 
-    private NodeRevisionAndMetaAction(NodeRevisionOperation operation, IdKey idKey, Guid revisionId, Guid? sourceRevisionId, INodeMeta? meta, RevisionType? revisionType, Guid? cultureId)
+    private NodeRevisionAndMetaAction(NodeRevisionOperation operation, IdKey idKey, int revisionId, int? sourceRevisionId, INodeMeta? meta, Guid? cultureId, Guid? sourceCultureId)
         : base(ActionTarget.NodeRevision) {
         Operation = operation;
         NodeIdKey = idKey;
         RevisionId = revisionId;
         SourceRevisionId = sourceRevisionId;
-        RevisionType = revisionType;
         CultureId = cultureId;
         Meta = meta;
+        SourceCultureId = sourceCultureId;
     }
     public NodeRevisionOperation Operation { get; }
     public IdKey NodeIdKey { get; }
     public INodeMeta? Meta { get; }
-    public Guid RevisionId { get; }
-    public Guid? SourceRevisionId { get; }
+    
+    public int RevisionId { get; }
     public Guid? CultureId { get; }
+    
+    public int? SourceRevisionId { get; }
+    public Guid? SourceCultureId { get; }
     public RevisionType? RevisionType { get; }
     public override string ToString() => Operation.ToString().Decamelize();
     public override string OperationName() => "NodeRevisionAction." + Operation.ToString();
