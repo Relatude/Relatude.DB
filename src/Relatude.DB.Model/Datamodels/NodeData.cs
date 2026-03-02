@@ -68,7 +68,11 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
         _values = values;
-        Meta = meta;
+        if (meta != null && meta == INodeMeta.Empty) {
+            Meta = null; // avoid storing empty meta, as it is the most common case and saves some memory
+        } else {
+            Meta = meta;
+        }
     }
     public int __Id {
         get => _id;
@@ -110,7 +114,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public IRelations Relations => emptyRelations;
     public NodeData CopyAndChangeNodeType(Guid nodeTypeId) {
-        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values),Meta);
+        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
     public override string ToString() {
         return Id.ToString();

@@ -7,10 +7,10 @@ namespace Relatude.DB.Serialization;
 public static partial class ToBytes {
     public static void NodeData(INodeData n, Datamodel datamodel, Stream stream) { // Storing
         if (n is NodeData nd) {
-            nodeDataHeader(nd, datamodel, stream);
+            nodeDataHeader(nd, datamodel, NodeDataStorageVersions.NodeData, stream);
             nodeData(nd, datamodel, stream);
         } else if (n is NodeDataRevisions ndMeta) {
-            nodeDataHeader(ndMeta, datamodel, stream);
+            nodeDataHeader(ndMeta, datamodel, NodeDataStorageVersions.RevisionContainer, stream);
             nodeDataRevisions(ndMeta, datamodel, stream);
         } else if (n is NodeDataWithRelations ndRel) {
             throw new NotImplementedException("Serialization of NodeDataWithRelations is not implemented yet. ");
@@ -18,11 +18,11 @@ public static partial class ToBytes {
             throw new NotSupportedException("Node data of type " + n.GetType().FullName + " does not support serialization. ");
         }
     }
-    static void nodeDataHeader(INodeData nodeData, Datamodel datamodel, Stream stream) {
+    static void nodeDataHeader(INodeData nodeData, Datamodel datamodel, NodeDataStorageVersions version, Stream stream) {
         // Header, Id and format version
         stream.WriteGuid(nodeData.Id); // using GUIDs for IDs to ensure consistency accross DB instances
         stream.WriteUInt(0); // indicating newer format version, so legacy readers can skip
-        stream.WriteInt((int)NodeDataStorageVersions.NodeData);
+        stream.WriteInt((int)version);
 
         // Node data core data
         stream.WriteUInt((uint)nodeData.__Id); // internal int ID, stored to ensure consistency. But can change accross DB instances.

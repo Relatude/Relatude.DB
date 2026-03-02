@@ -45,6 +45,9 @@ public class NodeMeta {
     public int GetHashCode([DisallowNull] INodeMeta obj) {
         throw new NotImplementedException();
     }
+    public override bool Equals(object? obj) {
+        throw new NotImplementedException();
+    }
 }
 public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
     Guid CollectionId { get; } // common for all cultures
@@ -59,7 +62,6 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     Guid CultureId { get; }
     DateTime? ReleaseUtc { get; }
     DateTime? ExpireUtc { get; }
-
 
     public static INodeMeta? ChangeCulture(INodeMeta? meta, Guid cultureId) {
         if (meta == null) { 

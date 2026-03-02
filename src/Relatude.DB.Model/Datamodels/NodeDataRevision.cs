@@ -43,6 +43,19 @@ public class NodeDataRevisions : INodeDataInner {
         _id = id;
         _guid = guid;
         NodeType = typeId;
+
+        // ensure revision id is unique across all revisions
+        var areRevisionsUnique = revisions.Select(r => r.RevisionId).Distinct().Count() == revisions.Length;
+        if (!areRevisionsUnique) throw new ArgumentException("Revisions must have unique revision IDs.");
+
+        // ensure the there only exists at max one published revision for each culture:
+        var publishedRevisions = revisions.Where(r => r.RevisionType == RevisionType.Published);
+        var publishedRevisionsByCulture = publishedRevisions.GroupBy(r => r.Meta?.CultureId);
+        var hasMultiplePublishedRevisionsForSameCulture = publishedRevisionsByCulture.Any(g => g.Count() > 1);
+        if (hasMultiplePublishedRevisionsForSameCulture) throw new ArgumentException("There can only be one published revision for each culture. ");
+
+        // TODO: optimize the above checks for better perfomance
+
         Revisions = revisions;
     }
     int _id;

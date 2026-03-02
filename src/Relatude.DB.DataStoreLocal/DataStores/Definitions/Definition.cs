@@ -91,8 +91,8 @@ internal sealed class Definition {
                 foreach (var index in propDef.AllIndexes) {
                     if (propDef.IsNodeRelevantForIndex(nd, index)) index.Add(nd.__Id, kv.Value);
                 }
-                _nodeTypeIndex.Index(nd);
             }
+            _nodeTypeIndex.Index(nd);
         } else {
             throw new Exception("Unknown node data type");
         }
@@ -127,43 +127,74 @@ internal sealed class Definition {
                 foreach (var index in propDef.AllIndexes) {
                     if (propDef.IsNodeRelevantForIndex(nd, index)) index.Remove(nd.__Id, kv.Value);
                 }
-                _nodeTypeIndex.DeIndex(nd);
             }
+            _nodeTypeIndex.DeIndex(nd);
         } else {
             throw new Exception("Unknown node data type");
         }
-        //foreach (var kv in node.Values) {
-        //    var propDef = Properties[kv.PropertyId];
-        //    foreach (var index in propDef.AllIndexes) {
-        //        if (propDef.IsNodeRelevantForIndex(node, index)) index.Remove(node.__Id, kv.Value);
-        //    }
-        //}
-        //_nodeTypeIndex.DeIndex(node);
     }
     public bool TryGetIndex(string indexUniqueKey, [MaybeNullWhen(false)] out IIndex index) {
         return _indexes.TryGetValue(indexUniqueKey, out index);
     }
-    public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception> log) {
-        foreach (var kv in na.Node.Values) {
-            if (Properties.TryGetValue(kv.PropertyId, out var property)) {
-                foreach (var index in property.AllIndexes) {
-                    if (transactionTimestamp <= index.PersistedTimestamp) continue;
-                    try {
-                        if (property.IsNodeRelevantForIndex(na.Node, index)) {
-                            switch (na.Operation) {
-                                case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(na.Node.__Id, kv.Value); break;
-                                case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(na.Node.__Id, kv.Value); break;
-                                default: throw new NotImplementedException();
+    public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction action, bool throwOnErrors, Action<string, Exception> log) {
+        if (action.Node is NodeDataRevisions ndr) {
+            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
+            foreach (var rev in ndr.Revisions) {
+                foreach (var kv in rev.Values) {
+                    if (Properties.TryGetValue(kv.PropertyId, out var property)) {
+                        bool shouldIndex = true;
+                        if (!property.Model.CultureSensitive) {  // only once for all revisions
+                            if (!indexedProps.Contains(property.Id)) {
+                                indexedProps.Add(property.Id);
+                            } else {
+                                shouldIndex = false;
                             }
                         }
-                    } catch (Exception err) {
-                        var msg = "Error during state load. " + err.Message;
-                        log(msg, err);
-                        if (throwOnErrors) throw new Exception(msg, err);
+                        if (shouldIndex) {
+                            foreach (var index in property.AllIndexes) {
+                                if (transactionTimestamp <= index.PersistedTimestamp) continue;
+                                try {
+                                    if (property.IsNodeRelevantForIndex(rev, index)) {
+                                        switch (action.Operation) {
+                                            case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(rev.__Id, kv.Value); break;
+                                            case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(rev.__Id, kv.Value); break;
+                                            default: throw new NotImplementedException();
+                                        }
+                                    }
+                                } catch (Exception err) {
+                                    var msg = "Error during state load. " + err.Message;
+                                    log(msg, err);
+                                    if (throwOnErrors) throw new Exception(msg, err);
+                                }
+                            }
+                        }
+                    } else {
+                        // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
                     }
                 }
-            } else {
-                // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
+            }
+        } else if (action.Node is NodeData nd) {
+            foreach (var kv in nd.Values) {
+                if (Properties.TryGetValue(kv.PropertyId, out var property)) {
+                    foreach (var index in property.AllIndexes) {
+                        if (transactionTimestamp <= index.PersistedTimestamp) continue;
+                        try {
+                            if (property.IsNodeRelevantForIndex(nd, index)) {
+                                switch (action.Operation) {
+                                    case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(nd.__Id, kv.Value); break;
+                                    case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(nd.__Id, kv.Value); break;
+                                    default: throw new NotImplementedException();
+                                }
+                            }
+                        } catch (Exception err) {
+                            var msg = "Error during state load. " + err.Message;
+                            log(msg, err);
+                            if (throwOnErrors) throw new Exception(msg, err);
+                        }
+                    }
+                } else {
+                    // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
+                }
             }
         }
     }

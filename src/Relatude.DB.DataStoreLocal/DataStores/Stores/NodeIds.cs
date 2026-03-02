@@ -110,6 +110,7 @@ class nodeMetasByNodeId {
         return false;
     }
     public void Add(int nodeId, uint metaId) {
+        Console.WriteLine("Adding metaId " + metaId + " to nodeId " + nodeId);
         if (_single.ContainsKey(nodeId)) {
             // move to multiple:
             var existingMetaId = _single[nodeId];
@@ -122,6 +123,7 @@ class nodeMetasByNodeId {
         }
     }
     public void Remove(int nodeId, uint metaId) {
+        Console.WriteLine("Removing metaId " + metaId + " from nodeId " + nodeId);
         if (_single.TryGetValue(nodeId, out var existingMetaId)) {
             if (existingMetaId == metaId) {
                 _single.Remove(nodeId);
@@ -219,13 +221,13 @@ internal class NodeTypesByIds {
             if (typeId != ctxTypeId) return false;
         } else {
             var ctxTypeDef = _definition.NodeTypes[ctxTypeId].Model;
-            if (!ctxTypeDef.ThisAndDescendingTypes.ContainsKey(typeId)) 
+            if (!ctxTypeDef.ThisAndDescendingTypes.ContainsKey(typeId))
                 return false;
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
         if (!ctx.IncludeUnpublished) {
-            if(!isReleased(nowUtc, meta)) return false;
+            if (!isReleased(nowUtc, meta)) return false;
         }
         if (!ctx.IncludeHidden && meta.Hidden) return false;
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
@@ -279,20 +281,30 @@ internal class NodeTypesByIds {
     public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> log) {
         try {
             if (na.Operation == PrimitiveOperation.Add) {
-                Index(na.Node);
+                if (na.Node is NodeData nd) Index(nd);
+                else if (na.Node is NodeDataRevisions ndr) { 
+                    foreach( var rev in ndr.Revisions) {
+                        Index(rev);
+                    }
+                }
+                else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             } else if (na.Operation == PrimitiveOperation.Remove) {
-                DeIndex(na.Node);
+                if (na.Node is NodeData nd) DeIndex(nd);
+                else if (na.Node is NodeDataRevisions ndr) {
+                    foreach( var rev in ndr.Revisions) {
+                        DeIndex(rev);
+                    }
+                }
+                else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             }
         } catch (Exception ex) {
             if (throwOnErrors) throw;
             log("Error registering node action during state load: " + na, ex);
         }
     }
-    public void Index(INodeData node) {
-        if (node is not NodeData && node is not NodeDataRevision) {
-            throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
-            // must be root node data type, not a sub version or id type
-        }
+    public void Index(NodeDataRevision node) => index(node);
+    public void Index(NodeData node) => index(node);
+    void index(INodeData node) {
         metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
@@ -314,11 +326,9 @@ internal class NodeTypesByIds {
             _countByType[node.NodeType] = 1;
         }
     }
-    public void DeIndex(INodeData node) {
-        if (node is not NodeData && node is not NodeDataRevision) {
-            throw new Exception("Internal error. Attempting to deindex unsupported node data type: " + node.GetType().FullName);
-            // must be root node data type, not a sub version or id type
-        }
+    public void DeIndex(NodeDataRevision node) => deIndex(node);
+    public void DeIndex(NodeData node) => deIndex(node);
+    void deIndex(INodeData node) {
         var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
         _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {

@@ -33,7 +33,10 @@ app.MapGet("/Test", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var rId = Guid.NewGuid();
     db.EnableRevisions(u.Id, rId, RevisionType.Published);
-    db.CreateRevision(u.Id, rId, rId, RevisionType.Preliminary);
+    var rId2 = Guid.NewGuid();
+    db.CreateRevision(u.Id, rId2, rId, RevisionType.Preliminary);
+    db.DisableRevisions(u.Id, rId2);
+    //db.CreateRevision(u.Id, Guid.NewGuid(), rId, RevisionType.Published);
     //db.UPSER
 
 
