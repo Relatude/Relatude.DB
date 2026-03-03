@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Microsoft.CodeAnalysis.FlowAnalysis;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using System.ComponentModel.DataAnnotations;
@@ -407,8 +408,9 @@ internal class ActionConverter {
                 break;
             case NodeRevisionOperation.DisableRevisions: {
                     if (existingNode is NodeDataRevisions revs) {
-                        var revisionToKeep = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.RevisionId && r.CultureId == a.CultureId);
-                        if (revisionToKeep == null) throw new Exception("Revision with id " + a.RevisionId + " and culture id " + a.CultureId + " does not exist, cannot disable revisions. ");
+                        var cultureId = a.CultureId ?? Guid.Empty;
+                        var revisionToKeep = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.RevisionId && r.CultureId == cultureId);
+                        if (revisionToKeep == null) throw new Exception("Revision with id " + a.RevisionId + " and culture id " + cultureId + " does not exist, cannot disable revisions. ");
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                         var newNode = revisionToKeep.CopyAndReturnAsNodeData();
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
@@ -435,9 +437,9 @@ internal class ActionConverter {
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot create revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to create a revision. ");
                     if (a.SourceRevisionId == null) throw new Exception("SourceRevisionId must be given to create a new revision. ");
                     if (a.SourceRevisionId == a.RevisionId) throw new Exception("SourceRevisionId cannot be the same as the new revision id. ");
-                    var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.SourceRevisionId);
-                    if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");
-                    if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
+                    var sourceCultureId = a.SourceCultureId ?? Guid.Empty;
+                    var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.SourceRevisionId && r.CultureId == sourceCultureId);
+                    if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " and culture id " + sourceCultureId + " does not exist, cannot create revision. ");
                     var cultureId = a.CultureId ?? sourceRevision.Meta?.CultureId ?? null;
                     INodeMeta? newMeta;
                     if (cultureId.HasValue) {
@@ -457,8 +459,9 @@ internal class ActionConverter {
                 break;
             case NodeRevisionOperation.DeleteRevision: {
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot delete revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to delete a revision. ");
-                    var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId && r.CultureId == a.CultureId);
-                    if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot delete revision. ");
+                    var cultureId = a.CultureId ?? Guid.Empty;
+                    var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId && r.CultureId == cultureId);
+                    if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " and culture id " + cultureId + " does not exist, cannot delete revision. ");
                     if (revs.Revisions.Length == 1) throw new Exception("Cannot delete the last revision for node with id " + a.NodeIdKey + ". ");
                     var newRevs = revs.Revisions.Where((r, i) => i != posOfRevToDelete).ToArray();
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);

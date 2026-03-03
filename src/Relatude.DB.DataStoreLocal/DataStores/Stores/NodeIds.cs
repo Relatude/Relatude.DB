@@ -324,9 +324,7 @@ internal class NodeTypesByIds {
             _countByType[node.NodeType] = 1;
         }
     }
-    public void DeIndex(NodeDataRevision node) => deIndex(node);
-    public void DeIndex(NodeData node) => deIndex(node);
-    void deIndex(INodeData node) {
+    public void DeIndex(INodeData node) {
         var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
         _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {

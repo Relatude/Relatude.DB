@@ -41,7 +41,7 @@ public class NodeRevisionAndMetaAction : ActionBase {
     
     public int? SourceRevisionId { get; }
     public Guid? SourceCultureId { get; }
-    public RevisionType? RevisionType { get; }
+    //public RevisionType? RevisionType { get; }
     public override string ToString() => Operation.ToString().Decamelize();
     public override string OperationName() => "NodeRevisionAction." + Operation.ToString();
     public override string ToString(Datamodel dm) => ToString();
