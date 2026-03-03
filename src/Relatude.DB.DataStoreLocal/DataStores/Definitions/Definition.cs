@@ -62,7 +62,15 @@ internal sealed class Definition {
         _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
     }
     internal void IndexNode(INodeData node) {
-        if (node is NodeDataRevisions ndr) {
+        if (node is NodeData nd) {
+            foreach (var kv in nd.Values) {
+                var propDef = Properties[kv.PropertyId];
+                foreach (var index in propDef.AllIndexes) {
+                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Add(nd.__Id, kv.Value);
+                }
+            }
+            _nodeTypeIndex.Index(nd);
+        } else if (node is NodeDataRevisions ndr) {
             HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
             foreach (var rev in ndr.Revisions) {
                 if (rev.RevisionType == RevisionType.Published) {
@@ -85,20 +93,20 @@ internal sealed class Definition {
                 }
                 _nodeTypeIndex.Index(rev);
             }
-        } else if (node is NodeData nd) {
-            foreach (var kv in nd.Values) {
-                var propDef = Properties[kv.PropertyId];
-                foreach (var index in propDef.AllIndexes) {
-                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Add(nd.__Id, kv.Value);
-                }
-            }
-            _nodeTypeIndex.Index(nd);
         } else {
             throw new Exception("Unknown node data type");
         }
     }
     internal void DeIndexNode(INodeData node) {
-        if (node is NodeDataRevisions ndr) {
+        if (node is NodeData nd) {
+            foreach (var kv in nd.Values) {
+                var propDef = Properties[kv.PropertyId];
+                foreach (var index in propDef.AllIndexes) {
+                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Remove(nd.__Id, kv.Value);
+                }
+            }
+            _nodeTypeIndex.DeIndex(nd);
+        } else if (node is NodeDataRevisions ndr) {
             HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
             foreach (var rev in ndr.Revisions) {
                 if (rev.RevisionType == RevisionType.Published) {
@@ -121,14 +129,6 @@ internal sealed class Definition {
                 }
                 _nodeTypeIndex.DeIndex(rev);
             }
-        } else if (node is NodeData nd) {
-            foreach (var kv in nd.Values) {
-                var propDef = Properties[kv.PropertyId];
-                foreach (var index in propDef.AllIndexes) {
-                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Remove(nd.__Id, kv.Value);
-                }
-            }
-            _nodeTypeIndex.DeIndex(nd);
         } else {
             throw new Exception("Unknown node data type");
         }

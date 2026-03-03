@@ -20,6 +20,8 @@ public interface IPersistedIndexStore : IDisposable {
         }
     }
     void StartTransaction();
+    void CancelTransaction();
+    void FullCleanUpOnBadError();
     void CommitTransaction(long timestamp);
     long GetTotalDiskSpace();
     void OptimizeDisk();

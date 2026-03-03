@@ -143,6 +143,19 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (_transaction != null) throw new InvalidOperationException("Transaction already started");
         _transaction = _connection.BeginTransaction();
     }
+    public void CancelTransaction() {
+        if (_transaction == null) throw new InvalidOperationException("Transaction not started");
+        _transaction.Rollback();
+        _transaction.Dispose(); // is this needed?...
+        _transaction = null;
+    }
+    public void FullCleanUpOnBadError() {
+        if (_transaction != null) {
+            try { _transaction.Rollback(); } catch { }
+            try {_transaction.Dispose(); } catch { }
+            _transaction = null;
+        }
+    }
     public void CommitTransaction(long timestamp) {
         if (_transaction == null) throw new InvalidOperationException("Transaction not started");
         foreach (var i in _idxs.Values) setTimestamp(i.Id, timestamp);

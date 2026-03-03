@@ -302,9 +302,7 @@ internal class NodeTypesByIds {
             log("Error registering node action during state load: " + na, ex);
         }
     }
-    public void Index(NodeDataRevision node) => index(node);
-    public void Index(NodeData node) => index(node);
-    void index(INodeData node) {
+    public void Index(INodeData node) {
         metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");

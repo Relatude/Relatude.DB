@@ -37,17 +37,11 @@ public partial class NodeTypeModel { // with default values
 
     public string? NameOfPublicIdProperty { get; set; }
     public string? NameOfInternalIdProperty { get; set; }
-    public DataTypePublicId? DataTypeOfPublicId { get; set; }//= DataTypePublicId.Guid;
-    public DataTypeInternalId? DataTypeOfInternalId { get; set; }// = DataTypeInternalId.Int;
+    public DataTypePublicId? DataTypeOfPublicId { get; set; }
+    public DataTypeInternalId? DataTypeOfInternalId { get; set; }
 
     public string? NameOfMetaProperty { get; set; }
 
-    //public string? NameOfCollectionProperty { get; set; }
-    //public string? NameOfLCIDProperty { get; set; }
-    //public string? NameOfDerivedFromLCID { get; set; }
-    //public string? NameOfIsDerivedProperty { get; set; }
-    //public string? NameOfReadAccessProperty { get; set; }
-    //public string? NameOfWriteAccessProperty { get; set; }
     public string? NameOfCreatedUtcProperty { get; set; }
     public string? NameOfChangedUtcProperty { get; set; }
 

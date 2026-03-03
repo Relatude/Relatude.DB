@@ -61,9 +61,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
+            PersistedIndexStore?.CancelTransaction();
             LogError("Transaction Error. ", err);
             throw;
         } catch (Exception err) {
+            PersistedIndexStore?.FullCleanUpOnBadError();
             throw createCriticalErrorAndSetDbToErrorState("Critical Transaction Error. ", err, transaction);
         } finally {
             _lock.ExitWriteLock();
