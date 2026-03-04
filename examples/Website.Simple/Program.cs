@@ -2,6 +2,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
+using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB();
@@ -28,14 +29,27 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
-    //var u = ctx.Database.Create<DemoArticle>();
-    //ctx.Database.Insert(u);
-    //var db = ctx.Database;
-    //db.EnableRevisions(u.Id, (int)RevisionType.Preliminary);
-    //var rId2 = Guid.NewGuid();
-    //db.CreateRevision(u.Id, (int)RevisionType.Preliminary - 1, (int)RevisionType.Preliminary);
-    //db.CreateRevision(u.Id, (int)RevisionType.Published, (int)RevisionType.Preliminary);
-    //db.DisableRevisions(u.Id, (int)RevisionType.Preliminary);
+    var db = ctx.Database;
+    var sw = Stopwatch.StartNew();
+
+    var article = db.Create<DemoArticle>();
+    db.Insert(article);
+    var rId = Guid.NewGuid();
+    db.EnableRevisions(article.Id, rId);
+    var rId2 = Guid.NewGuid();
+    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
+    for (int i = 0; i < 100; i++) {
+        var rId3 = Guid.NewGuid();
+        db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
+    }
+    //db.DisableRevisions(article.Id, rId);
+
+    var noObjects = ctx.Database.Count();//.Query<DemoArticle>().Count();
+    sw.Stop();
+
+    var revisions=db.GetRevisions<DemoArticle>(article.Id);
+
+    return "Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0");
 
 
 

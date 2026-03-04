@@ -370,10 +370,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         return result;
 
     }
-    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null) {
-        return Task.FromResult(Query(query, parameters));
+    public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
+        return Task.FromResult(Query(query, parameters, ctx));
     }
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null) {
-        throw new NotImplementedException();
+        _lock.EnterReadLock();
+        try {
+            var nodeData = _nodes.Get(_guids.GetId(nodeId), out _);
+            if (nodeData is NodeDataRevisions revs) {
+                return revs.Revisions;
+            } else {
+                throw new Exception("Node data is of unknown type.");
+            }
+        } finally {
+            _lock.ExitReadLock();
+        }
     }
 }

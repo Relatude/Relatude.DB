@@ -9,8 +9,15 @@ public enum NodeMetaType : byte {
     Min = 1,
     Full = 2,
 }
-
-public class NodeMeta {
+public struct NodeAndMeta<T> {
+    public NodeAndMeta(T node, INodeMeta meta) {
+        Node = node;
+        Meta = meta;
+    }
+    public T Node { get; }
+    public INodeMeta Meta { get; }
+}
+    public class NodeMeta {
     public readonly INodeMeta InnerMeta;
     NodeMeta() {
         InnerMeta = INodeMeta.Empty;

@@ -302,7 +302,7 @@ internal class NodeTypesByIds {
     }
     public void Index(INodeData node) {
         metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
-        Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
+        //Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
             shortId = shortIdCounter++;
@@ -324,7 +324,7 @@ internal class NodeTypesByIds {
         }
     }
     public void DeIndex(INodeData node) {
-        Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
+        //Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
         var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
         _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {

@@ -16,8 +16,8 @@ public interface IDataStore : IDisposable {
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
 
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
-    object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
-    Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null);
+    object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
+    Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
     Task<INodeDataOuter> GetAsync(Guid id, QueryContext? ctx = null);
     Task<IEnumerable<INodeDataOuter>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
     Task<INodeDataOuter> GetAsync(int id, QueryContext? ctx = null);
@@ -74,9 +74,6 @@ public interface IDataStore : IDisposable {
     Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null);
     Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
-
-
-
 
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);

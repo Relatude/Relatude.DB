@@ -218,8 +218,8 @@ public class NodeStore : IDisposable {
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
     public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
-    public TransactionResult EnableRevisions(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
-    public TransactionResult EnableRevisions(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
+    public TransactionResult EnableRevisions(Guid id, Guid? revisionId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
+    public TransactionResult EnableRevisions(int id, Guid? revisionId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
     public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
     public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
     public TransactionResult UpdateMeta(Guid id, Guid revisionId, NodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
@@ -230,7 +230,10 @@ public class NodeStore : IDisposable {
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
     public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId = null, Guid? cultureId = null, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
-
+    public NodeAndMeta<T>[] GetRevisions<T>(Guid id) {
+        var revisions = Datastore.GetRevisions(id);
+        return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r), r.Meta ?? INodeMeta.Empty)).ToArray();
+    }
 
 
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
