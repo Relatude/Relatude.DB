@@ -110,7 +110,7 @@ class nodeMetasByNodeId {
         return false;
     }
     public void Add(int nodeId, uint metaId) {
-        Console.WriteLine("Adding metaId " + metaId + " to nodeId " + nodeId);
+        // Console.WriteLine("Adding metaId " + metaId + " to nodeId " + nodeId);
         if (_single.ContainsKey(nodeId)) {
             // move to multiple:
             var existingMetaId = _single[nodeId];
@@ -123,7 +123,7 @@ class nodeMetasByNodeId {
         }
     }
     public void Remove(int nodeId, uint metaId) {
-        Console.WriteLine("Removing metaId " + metaId + " from nodeId " + nodeId);
+        // Console.WriteLine("Removing metaId " + metaId + " from nodeId " + nodeId);
         if (_single.TryGetValue(nodeId, out var existingMetaId)) {
             if (existingMetaId == metaId) {
                 _single.Remove(nodeId);
@@ -282,20 +282,18 @@ internal class NodeTypesByIds {
         try {
             if (na.Operation == PrimitiveOperation.Add) {
                 if (na.Node is NodeData nd) Index(nd);
-                else if (na.Node is NodeDataRevisions ndr) { 
-                    foreach( var rev in ndr.Revisions) {
+                else if (na.Node is NodeDataRevisions ndr) {
+                    foreach (var rev in ndr.Revisions) {
                         Index(rev);
                     }
-                }
-                else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
+                } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             } else if (na.Operation == PrimitiveOperation.Remove) {
                 if (na.Node is NodeData nd) DeIndex(nd);
                 else if (na.Node is NodeDataRevisions ndr) {
-                    foreach( var rev in ndr.Revisions) {
+                    foreach (var rev in ndr.Revisions) {
                         DeIndex(rev);
                     }
-                }
-                else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
+                } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             }
         } catch (Exception ex) {
             if (throwOnErrors) throw;
@@ -304,6 +302,7 @@ internal class NodeTypesByIds {
     }
     public void Index(INodeData node) {
         metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
+        Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
             shortId = shortIdCounter++;
@@ -325,6 +324,7 @@ internal class NodeTypesByIds {
         }
     }
     public void DeIndex(INodeData node) {
+        Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
         var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
         _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
@@ -355,7 +355,7 @@ internal class NodeTypesByIds {
         if (ctxKey.SelectedRevisions != null) {
             foreach (var rev in ctxKey.SelectedRevisions) {
                 if (rev.NodeId == node.Id) {
-                    var r = ndr.Revisions.FirstOrDefault(r => r.RevisionId == rev.RevisionId);
+                    var r = ndr.Revisions.FirstOrDefault(r => r.RevisionKey == rev.RevisionId);
                     if (r != null) return r;
                 }
             }

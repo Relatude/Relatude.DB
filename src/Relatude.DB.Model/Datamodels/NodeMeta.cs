@@ -11,34 +11,39 @@ public enum NodeMetaType : byte {
 }
 
 public class NodeMeta {
-    INodeMeta _meta;
+    public readonly INodeMeta InnerMeta;
     NodeMeta() {
-        _meta = INodeMeta.Empty;
+        InnerMeta = INodeMeta.Empty;
         DisplayName = string.Empty;
     }
     public NodeMeta(INodeDataOuter node) {
-        _meta = node.Meta ?? INodeMeta.Empty;
+        InnerMeta = node.Meta ?? INodeMeta.Empty;
+        RevisionId= node is NodeDataRevision rev ? rev.RevisionGuid : Guid.Empty;
         DisplayName = node.ToString()!;
     }
 
     public static NodeMeta Empty { get; } = new NodeMeta();
     public string DisplayName { get; }
+    public Guid RevisionId { get; }
 
-    public RevisionType RevisionType => _meta.RevisionType;
-    public int RevisionId => _meta.RevisionId;
+    public RevisionType RevisionType => InnerMeta.RevisionType;
 
-    public Guid CollectionId => _meta.CollectionId;
-    public Guid ReadAccess => _meta.ReadAccess;
-    public Guid EditAccess => _meta.EditAccess;
-    public Guid EditViewAccess => _meta.EditViewAccess;
-    public Guid PublishAccess => _meta.PublishAccess;
-    public bool Deleted => _meta.Deleted;
-    public bool Hidden => _meta.Hidden;
-    public Guid CreatedBy => _meta.CreatedBy;
-    public Guid ChangedBy => _meta.ChangedBy;
-    public Guid CultureId => _meta.CultureId;
-    public DateTime? ReleaseUtc => _meta.ReleaseUtc;
-    public DateTime? ExpireUtc => _meta.ExpireUtc;
+    // not exposing revision key as it is an internal implementation detail,
+    // it can be the same for different cultures
+    // public int RevisionKey => _meta.RevisionKey; 
+
+    public Guid CollectionId => InnerMeta.CollectionId;
+    public Guid ReadAccess => InnerMeta.ReadAccess;
+    public Guid EditAccess => InnerMeta.EditAccess;
+    public Guid EditViewAccess => InnerMeta.EditViewAccess;
+    public Guid PublishAccess => InnerMeta.PublishAccess;
+    public bool Deleted => InnerMeta.Deleted;
+    public bool Hidden => InnerMeta.Hidden;
+    public Guid CreatedBy => InnerMeta.CreatedBy;
+    public Guid ChangedBy => InnerMeta.ChangedBy;
+    public Guid CultureId => InnerMeta.CultureId;
+    public DateTime? ReleaseUtc => InnerMeta.ReleaseUtc;
+    public DateTime? ExpireUtc => InnerMeta.ExpireUtc;
 
     public int GetHashCode([DisallowNull] INodeMeta obj) {
         throw new NotImplementedException();
@@ -50,8 +55,8 @@ public class NodeMeta {
         return base.GetHashCode();
     }
 }
-public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
-    int RevisionId { get; }
+public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
+    int RevisionKey { get; }
     RevisionType RevisionType { get; }
     Guid CollectionId { get; } // common for all cultures
     Guid ReadAccess { get; }  // common for all cultures
@@ -70,7 +75,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         if (meta == null) {
             if (cultureId == Guid.Empty) return null; // null and empty are treated as the same, return null to save space
             return new NodeMetaFull(
-                revisionId: 0,
+                revisionKey: 0,
                 collectionId: Guid.Empty,
                 readAccess: Guid.Empty,
                 editAccess: Guid.Empty,
@@ -87,7 +92,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         }
         if (meta.CultureId == cultureId) return meta; // no change needed
         var metaWithNewCulture = new NodeMetaFull(
-            revisionId: meta.RevisionId,
+            revisionKey: meta.RevisionKey,
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
             editAccess: meta.EditAccess,
@@ -111,9 +116,9 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     }
     public static INodeMeta? ChangeRevision(INodeMeta? meta, int revisionId) {
         if (meta == null) {
-            if(revisionId == 0) return null; // null and empty are treated as the same, return null to save space
+            if (revisionId == 0) return null; // null and empty are treated as the same, return null to save space
             return new NodeMetaFull(
-                revisionId: revisionId,
+                revisionKey: revisionId,
                 collectionId: Guid.Empty,
                 readAccess: Guid.Empty,
                 editAccess: Guid.Empty,
@@ -128,9 +133,9 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
                 expireUtc: null
             );
         }
-        if (meta.RevisionId == revisionId) return meta; // no change needed
+        if (meta.RevisionKey == revisionId) return meta; // no change needed
         var metaWithNewRevision = new NodeMetaFull(
-            revisionId: revisionId, // change revision
+            revisionKey: revisionId, // change revision
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
             editAccess: meta.EditAccess,
@@ -167,7 +172,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             hidden: newRev?.Hidden ?? Empty.Hidden,
 
             // keep revision specific properties             
-            revisionId: original?.RevisionId ?? Empty.RevisionId,
+            revisionKey: original?.RevisionKey ?? Empty.RevisionKey,
             createdBy: original?.CreatedBy ?? Empty.CreatedBy,
             changedBy: original?.ChangedBy ?? Empty.ChangedBy,
             cultureId: original?.CultureId ?? Empty.CultureId,
@@ -184,7 +189,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
         return meta;
     }
     public static bool CanBeEmptyOrNull(INodeMeta meta) {
-        return meta.RevisionId == 0
+        return meta.RevisionKey == 0
             && meta.CollectionId == Guid.Empty
             && meta.ReadAccess == Guid.Empty
             && meta.EditAccess == Guid.Empty
@@ -199,7 +204,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             && meta.ExpireUtc == null;
     }
     public static bool CanBeMin(INodeMeta meta) {
-        return meta.RevisionId == 0
+        return meta.RevisionKey == 0
             && meta.EditViewAccess == meta.EditAccess
             && meta.PublishAccess == meta.EditAccess
             && !meta.Deleted
@@ -230,7 +235,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
             byte[] data = new byte[1 + 4 + 16 * 6 + 1 + 1 + 16 * 3 + 8 * 2]; // type + int + 6 GUIDs + 2 bools + 3 GUIDs + 2 DateTimes
             data[0] = (byte)NodeMetaType.Full;
             Span<byte> span = data.AsSpan(1); // skip the first byte for type
-            BitConverter.TryWriteBytes(span.Slice(0, 4), meta.RevisionId);
+            BitConverter.TryWriteBytes(span.Slice(0, 4), meta.RevisionKey);
             meta.CollectionId.TryWriteBytes(span.Slice(4, 16));
             meta.ReadAccess.TryWriteBytes(span.Slice(20, 16));
             meta.EditAccess.TryWriteBytes(span.Slice(36, 16));
@@ -302,7 +307,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
                 && x.EditAccess == y.EditAccess;
         }
         return
-            x.RevisionId == y.RevisionId
+            x.RevisionKey == y.RevisionKey
             && x.CollectionId == y.CollectionId
             && x.ReadAccess == y.ReadAccess
             && x.EditAccess == y.EditAccess
@@ -322,7 +327,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
 
         // cannot do below line, as object with same values but different types would have different hashcodes:
         // if (obj is NodeMetaEmpty) return 0; 
-        hash.Add(obj.RevisionId);
+        hash.Add(obj.RevisionKey);
         hash.Add(obj.CollectionId);
         hash.Add(obj.ReadAccess);
         hash.Add(obj.EditAccess);
@@ -344,7 +349,7 @@ public interface INodeMeta : IEqualityComparer<INodeMeta> { // Without revision 
     }
 }
 class NodeMetaEmpty : INodeMeta {
-    public int RevisionId => 0;
+    public int RevisionKey => 0;
     public RevisionType RevisionType => RevisionType.Published;
     public Guid CollectionId => Guid.Empty;
     public Guid ReadAccess => Guid.Empty;
@@ -358,10 +363,14 @@ class NodeMetaEmpty : INodeMeta {
     public Guid CultureId => Guid.Empty;
     public DateTime? ReleaseUtc => null;
     public DateTime? ExpireUtc => null;
-    public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
+    public override bool Equals(object? obj) {
+        if (obj is INodeMeta meta) return INodeMeta.IEquals(this, meta);
+        return base.Equals(obj);
+    }
     static int _hashCode = INodeMeta.Empty.GetHashCode(); // precompute hashcode for empty
-    public int GetHashCode([DisallowNull] INodeMeta obj) => _hashCode;
+    public override int GetHashCode() => _hashCode;
     public byte[] ToBytes() => [];
+    public bool Equals(INodeMeta? other) => INodeMeta.IEquals(this, other);
 }
 public class NodeMetaMin : INodeMeta {
     public NodeMetaMin(
@@ -373,7 +382,7 @@ public class NodeMetaMin : INodeMeta {
         ReadAccess = readAccess;
         EditAccess = editAccess;
     }
-    public int RevisionId => 0;
+    public int RevisionKey => 0;
     public RevisionType RevisionType => RevisionType.Published;
     public Guid CollectionId { get; }
     public Guid ReadAccess { get; }
@@ -389,12 +398,18 @@ public class NodeMetaMin : INodeMeta {
 
     public DateTime? ReleaseUtc => null;
     public DateTime? ExpireUtc => null;
-    public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
+    public override bool Equals(object? obj) {
+        if (obj is INodeMeta meta) return INodeMeta.IEquals(this, meta);
+        return base.Equals(obj);
+    }
+    public bool Equals(INodeMeta? other) => INodeMeta.IEquals(this, other);
     int _lastHash = 0;
-    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj, ref _lastHash);
+    public override int GetHashCode() {
+        return INodeMeta.GetIHashCode(this, ref _lastHash);
+    }
 }
 public class NodeMetaFull : INodeMeta {
-    public int RevisionId { get; }
+    public int RevisionKey { get; }
     public RevisionType RevisionType { get; }
     public Guid CollectionId { get; }
     public Guid ReadAccess { get; }
@@ -411,9 +426,9 @@ public class NodeMetaFull : INodeMeta {
     public DateTime? ReleaseUtc { get; } // specific
     public DateTime? ExpireUtc { get; } // specific
 
-    public NodeMetaFull(int revisionId, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
-        RevisionId = revisionId;
-        RevisionType = RevisionUtil.GetRevisionType(revisionId);
+    public NodeMetaFull(int revisionKey, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
+        RevisionKey = revisionKey;
+        RevisionType = RevisionUtil.GetRevisionType(revisionKey);
         CollectionId = collectionId;
         ReadAccess = readAccess;
         EditAccess = editAccess;
@@ -428,7 +443,13 @@ public class NodeMetaFull : INodeMeta {
         ExpireUtc = expireUtc;
     }
 
-    public bool Equals(INodeMeta? x, INodeMeta? y) => INodeMeta.IEquals(x, y);
+    public override bool Equals(object? obj) {
+        if (obj is INodeMeta meta) return INodeMeta.IEquals(this, meta);
+        return base.Equals(obj);
+    }
+    public bool Equals(INodeMeta? other) => INodeMeta.IEquals(this, other);
     int _lastHash = 0;
-    public int GetHashCode([DisallowNull] INodeMeta obj) => INodeMeta.GetIHashCode(obj, ref _lastHash);
+    public override int GetHashCode() {
+        return INodeMeta.GetIHashCode(this, ref _lastHash);
+    }
 }

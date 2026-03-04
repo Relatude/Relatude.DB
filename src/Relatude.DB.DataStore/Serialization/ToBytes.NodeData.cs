@@ -61,6 +61,7 @@ public static partial class ToBytes {
         }
     }
     static void nodeDataRevision(NodeDataRevision version, Datamodel datamodel, Stream stream) {
+        stream.WriteGuid(version.RevisionGuid);
         nodeData(version, datamodel, stream);
     }
     static byte[] serializePropertyValue(object value, PropertyType propType) {

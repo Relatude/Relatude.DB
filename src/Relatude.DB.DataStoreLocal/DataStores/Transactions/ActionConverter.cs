@@ -15,7 +15,7 @@ internal class ActionConverter {
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
-            NodeRevisionAndMetaAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
+            NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -300,7 +300,7 @@ internal class ActionConverter {
             uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value, ctx).Enumerate());
         }
         // ignore nodes that does not exist, copy to avoid changing original node in case of error:
-        var nodesInner = db._nodes.Get([.. uints.Where(db._nodes.Contains)]).Select(n => n.Copy());
+        var nodesInner = db._nodes.Get([.. uints.Where(db._nodes.Contains)]).Select(n => n.CopyInner());
         var nodesOuter = db.ToOuter(nodesInner, ctx);
         foreach (var node in nodesOuter) {
             switch (a.Operation) {
@@ -391,13 +391,13 @@ internal class ActionConverter {
         }
         yield break;
     }
-    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAndMetaAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
         int nodeId = db._guids.ValidateAndReturnIntId(a.NodeIdKey);
         if (!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");
         switch (a.Operation) {
             case NodeRevisionOperation.EnableRevisions: {
                     if (existingNode is NodeData nd) {
-                        var rev = nd.CopyAndConvertToNodeDataRevision(INodeMeta.ChangeRevision(nd.Meta, a.RevisionId));
+                        var rev = nd.CopyAndConvertToNodeDataRevision(INodeMeta.ChangeRevision(nd.Meta, a.RevisionId, a.RevisionId));
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                         var newNode = new NodeDataRevisions(nd.Id, nd.__Id, nd.NodeType, [rev]);
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
@@ -409,10 +409,10 @@ internal class ActionConverter {
             case NodeRevisionOperation.DisableRevisions: {
                     if (existingNode is NodeDataRevisions revs) {
                         var cultureId = a.CultureId ?? Guid.Empty;
-                        var revisionToKeep = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.RevisionId && r.CultureId == cultureId);
+                        var revisionToKeep = revs.Revisions.FirstOrDefault(r => r.RevisionKey == a.RevisionId && r.CultureId == cultureId);
                         if (revisionToKeep == null) throw new Exception("Revision with id " + a.RevisionId + " and culture id " + cultureId + " does not exist, cannot disable revisions. ");
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                        var newNode = revisionToKeep.CopyAndReturnAsNodeData();
+                        var newNode = revisionToKeep.CopyAndConvertToNodeData();
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     } else if (existingNode is NodeData) {
                         throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
@@ -438,7 +438,7 @@ internal class ActionConverter {
                     if (a.SourceRevisionId == null) throw new Exception("SourceRevisionId must be given to create a new revision. ");
                     if (a.SourceRevisionId == a.RevisionId) throw new Exception("SourceRevisionId cannot be the same as the new revision id. ");
                     var sourceCultureId = a.SourceCultureId ?? Guid.Empty;
-                    var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == a.SourceRevisionId && r.CultureId == sourceCultureId);
+                    var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionKey == a.SourceRevisionId && r.CultureId == sourceCultureId);
                     if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " and culture id " + sourceCultureId + " does not exist, cannot create revision. ");
                     var cultureId = a.CultureId ?? sourceRevision.Meta?.CultureId ?? null;
                     INodeMeta? newMeta;
@@ -449,7 +449,7 @@ internal class ActionConverter {
                         newMeta = null;
                     }
                     newMeta = INodeMeta.ChangeRevision(newMeta, a.RevisionId);
-                    NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionInfo(newMeta);
+                    NodeDataRevision newRev = sourceRevision.CopyAndChangeMeta(newMeta, a.RevisionId);
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
                     Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
                     newRevs[^1] = newRev;
@@ -460,7 +460,7 @@ internal class ActionConverter {
             case NodeRevisionOperation.DeleteRevision: {
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot delete revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to delete a revision. ");
                     var cultureId = a.CultureId ?? Guid.Empty;
-                    var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId && r.CultureId == cultureId);
+                    var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionKey == a.RevisionId && r.CultureId == cultureId);
                     if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " and culture id " + cultureId + " does not exist, cannot delete revision. ");
                     if (revs.Revisions.Length == 1) throw new Exception("Cannot delete the last revision for node with id " + a.NodeIdKey + ". ");
                     var newRevs = revs.Revisions.Where((r, i) => i != posOfRevToDelete).ToArray();

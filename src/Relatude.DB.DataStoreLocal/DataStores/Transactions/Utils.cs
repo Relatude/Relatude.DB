@@ -111,8 +111,8 @@ internal static class Utils {
     internal static NodeDataRevisions CreateNewRevisionsNodeWithUpdatedValues(NodeDataRevisions orginialMainNode, NodeDataRevision newRev, NodeType typeDef, bool transformValues) {
 
         // find old revision
-        var indexOldRev = orginialMainNode.Revisions.ToList().FindIndex(r => r.RevisionId == newRev.RevisionId);
-        if (indexOldRev == -1) throw new Exception("Revision with id " + newRev.RevisionId + " does not exist, cannot update. ");
+        var indexOldRev = orginialMainNode.Revisions.ToList().FindIndex(r => r.RevisionKey == newRev.RevisionKey);
+        if (indexOldRev == -1) throw new Exception("Revision with id " + newRev.RevisionKey + " does not exist, cannot update. ");
         var oldRev = orginialMainNode.Revisions[indexOldRev];
         Utils.ForceTypeValidateValuesAndCopyMissing(typeDef, newRev, oldRev, transformValues); // Fixing values in new data
 
@@ -130,7 +130,7 @@ internal static class Utils {
         if (oldRev.RevisionType == RevisionType.Published) {
             // ensure culture insenensitive properties are copied to the new revision
             foreach (var other in orginialMainNode.Revisions) {
-                if (other.RevisionType == RevisionType.Published && other.RevisionId != newRev.RevisionId) {
+                if (other.RevisionType == RevisionType.Published && other.RevisionKey != newRev.RevisionKey) {
                     // other revision that is published, copy culture insensitive properties:
                     foreach (var prop in typeDef.Model.AllProperties.Values) {
                         if (!prop.CultureSensitive) {
@@ -154,14 +154,15 @@ internal static class Utils {
             throw new ArgumentException("Meta must have the same culture id as the one provided in argument");
         }
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
+            var rev = revsNode.Revisions[i];
             INodeMeta? rMeta;
-            if (revsNode.Revisions[i].RevisionId == revisionId && cultureId == revsNode.Revisions[i].CultureId) {
+            if (rev.RevisionKey == revisionId && cultureId == rev.CultureId) {
                 revisionIdFound = true;
                 rMeta = meta;
             } else {
-                rMeta = INodeMeta.DeriveCombinedMeta(revsNode.Revisions[i].Meta, revsNode.Revisions[i].Meta);
+                rMeta = INodeMeta.DeriveCombinedMeta(rev.Meta, meta);
             }
-            revs[i] = revsNode.Revisions[i].CopyAndChangeMeta(rMeta);
+            revs[i] = revsNode.Revisions[i].CopyAndChangeMeta(rMeta, rev.RevisionGuid);
         }
         if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
         var data = new NodeDataRevisions(revsNode.Id, revsNode.__Id, revsNode.NodeType, revs);

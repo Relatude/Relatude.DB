@@ -40,36 +40,33 @@ public static class RevisionUtil {
 
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public Guid CultureId => Meta?.CultureId ?? Guid.Empty;
-    public int RevisionId => Meta?.RevisionId ?? 0;
+    public int RevisionKey => Meta?.RevisionKey ?? 0; // used for internal meta dictionary to save memory, the meta must be unique for each revisions
+    public Guid RevisionGuid { get; } // used for external references to revisions
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, INodeMeta? meta)
+    Properties<object> values, INodeMeta? meta, Guid revisionGuid)
     : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
+        RevisionGuid = revisionGuid;
     }
-    public NodeDataRevision CopyAndChangeMeta(INodeMeta? meta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
-        return rev;
+    public NodeDataRevision CopyAndChangeMeta(INodeMeta? newMeta, Guid revisionGuid) {
+        return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
     }
-    public NodeDataRevision CopyRevision() => CopyAndChangeMeta(Meta);
+    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionGuid);
     public INodeDataOuter CopyOuter() => CopyRevision();
 
-    public NodeData CopyAndReturnAsNodeData() {
+    public NodeData CopyAndConvertToNodeData() {
         var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
         return data;
     }
 
-    public NodeDataRevision CopyAndChangeMetaAndRevisionInfo(INodeMeta? newMeta) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta);
-        return rev;
-    }
 }
 public class NodeDataRevisions : INodeDataInner {
     public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {
         _id = id;
         _guid = guid;
         NodeType = typeId;
-        
+
         // ensure the there only exists at max one published revision for each culture:
         var publishedRevisions = revisions.Where(r => r.RevisionType == RevisionType.Published);
         var publishedRevisionsByCulture = publishedRevisions.GroupBy(r => r.Meta?.CultureId);
@@ -78,8 +75,13 @@ public class NodeDataRevisions : INodeDataInner {
 
         // ensure revision id is unique across for each culture:
         var revisionsByCulture = revisions.GroupBy(r => r.Meta?.CultureId);
-        var hasDuplicateRevisionIdsForSameCulture = revisionsByCulture.Any(g => g.Select(r => r.RevisionId).GroupBy(id => id).Any(g2 => g2.Count() > 1));
+        var hasDuplicateRevisionIdsForSameCulture = revisionsByCulture.Any(g => g.Select(r => r.RevisionKey).GroupBy(id => id).Any(g2 => g2.Count() > 1));
         if (hasDuplicateRevisionIdsForSameCulture) throw new ArgumentException("Revision IDs must be unique for each culture. ");
+
+        // ensure revision guid is unique across all revisions:
+        var hasDuplicateRevisionGuids = revisions.GroupBy(r => r.RevisionGuid).Any(g => g.Count() > 1);
+        if (hasDuplicateRevisionGuids) throw new ArgumentException("Revision GUIDs must be unique across all revisions. ");
+
 
         // TODO: optimize the above checks for better perfomance
 
@@ -95,7 +97,7 @@ public class NodeDataRevisions : INodeDataInner {
     public INodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
-    public INodeDataInner Copy() => CopyRevisions();
+    public INodeDataInner CopyInner() => CopyRevisions();
     public NodeDataRevisions CopyRevisions() {
         var revs = new NodeDataRevision[Revisions.Length];
         for (int i = 0; i < Revisions.Length; i++) revs[i] = Revisions[i].CopyRevision();
