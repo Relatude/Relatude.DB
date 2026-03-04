@@ -28,14 +28,23 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
-    var u = ctx.Database.Create<DemoArticle>();
-    ctx.Database.Insert(u);
-    var db = ctx.Database;
-    db.EnableRevisions(u.Id, (int)RevisionType.Preliminary);
-    var rId2 = Guid.NewGuid();
-    db.CreateRevision(u.Id, (int)RevisionType.Preliminary - 1, (int)RevisionType.Preliminary);
-    db.CreateRevision(u.Id, (int)RevisionType.Published, (int)RevisionType.Preliminary);
-    db.DisableRevisions(u.Id, (int)RevisionType.Preliminary);
+    //var u = ctx.Database.Create<DemoArticle>();
+    //ctx.Database.Insert(u);
+    //var db = ctx.Database;
+    //db.EnableRevisions(u.Id, (int)RevisionType.Preliminary);
+    //var rId2 = Guid.NewGuid();
+    //db.CreateRevision(u.Id, (int)RevisionType.Preliminary - 1, (int)RevisionType.Preliminary);
+    //db.CreateRevision(u.Id, (int)RevisionType.Published, (int)RevisionType.Preliminary);
+    //db.DisableRevisions(u.Id, (int)RevisionType.Preliminary);
+
+
+
+
+
+
+
+
+
     //db.CreateRevision(u.Id, Guid.NewGuid(), rId, RevisionType.Published);
     //db.UPSER
 

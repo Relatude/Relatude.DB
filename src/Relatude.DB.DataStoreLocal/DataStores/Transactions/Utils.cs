@@ -119,7 +119,7 @@ internal static class Utils {
         // copy entire object, to ensure it is indepenent
         orginialMainNode = orginialMainNode.CopyRevisions();
 
-        if(newRev.RevisionType != oldRev.RevisionType) {
+        if (newRev.RevisionType != oldRev.RevisionType) {
             throw new Exception("Unexpected revision type change. Old revision type: " + oldRev.RevisionType + ", new revision type: " + newRev.RevisionType);
         }
 
@@ -146,23 +146,24 @@ internal static class Utils {
         return orginialMainNode;
 
     }
-    internal static NodeDataRevisions CopyRevisionNodeAndChangeMeta(NodeDataRevisions revsNode, INodeMeta? meta, int revisionId, Guid cultureId) {
+    internal static NodeDataRevisions CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(NodeDataRevisions revsNode, INodeMeta? givenMeta, Guid revisionId) {
+        // all but revision type and culture can be updated with this action
+
         // updates meta of one revision and copies common meta props to other revs
         var revs = new NodeDataRevision[revsNode.Revisions.Length];
-        bool revisionIdFound = false;
-        if(meta==null || meta.CultureId!= cultureId) {
-            throw new ArgumentException("Meta must have the same culture id as the one provided in argument");
-        }
+        bool revisionIdFound = false;        
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
             var rev = revsNode.Revisions[i];
-            INodeMeta? rMeta;
-            if (rev.RevisionKey == revisionId && cultureId == rev.CultureId) {
+            INodeMeta? resultingMeta;
+            if (rev.RevisionId == revisionId) {
                 revisionIdFound = true;
-                rMeta = meta;
+                if(rev.CultureId!= givenMeta!.CultureId) throw new Exception("CultureId cannot be changed with this action. Revision culture: " + rev.CultureId + ", given meta culture: " + givenMeta.CultureId);
+                // we ignore revision type and revision key from given meta
+                resultingMeta = INodeMeta.CopyAndSetRevisionTypeAndKey(givenMeta, rev.RevisionType, rev.RevisionKey);
             } else {
-                rMeta = INodeMeta.DeriveCombinedMeta(rev.Meta, meta);
+                resultingMeta = INodeMeta.DeriveCombinedMeta(rev.Meta, givenMeta);
             }
-            revs[i] = revsNode.Revisions[i].CopyAndChangeMeta(rMeta, rev.RevisionGuid);
+            revs[i] = revsNode.Revisions[i].CopyAndChangeMetaAndRevisionId(resultingMeta, rev.RevisionId);
         }
         if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
         var data = new NodeDataRevisions(revsNode.Id, revsNode.__Id, revsNode.NodeType, revs);

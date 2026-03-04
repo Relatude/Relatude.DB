@@ -2,57 +2,60 @@
 namespace Relatude.DB.Datamodels;
 
 public enum RevisionType : int {
-    AwaitingPublicationApproval = -2, // id from -20000000 => -29999999
-    AwaitingArchiveApproval = -3, // id from -30000000 => -39999999
-    AwaitingDeleteApproval = -4, // id from -40000000 => -49999999
-
-    Preliminary = -1, // id from -10000000->-19999999
-
     Published = 0, // id always 0. Only one per culture! and only one indexed
-
     PublishOverride = 1, // id from 10000000->19999999 - used for AB testing, campaigns, etc.
     Archived = 2, // id from 20000000->29999999
-
     Binned = 3, // id from 30000000->39999999
+    Preliminary = 4, // id from 40000000->49999999 - not published, but can be used for preview, staging, etc.
+    AwaitingPublicationApproval = 5, // id from 50000000->59999999 - not published, waiting for approval to be published
+    AwaitingArchiveApproval = 6, // id from 60000000->69999999 - published, but waiting for approval to be archived
+    AwaitingDeleteApproval = 7 // id from 70000000->79999999 - not published, waiting for approval to be deleted
 }
 public static class RevisionUtil {
-    public static RevisionType GetRevisionType(int revisionId) {
+
+    public static int CreateNewRevisionKey(RevisionType keyType, NodeDataRevision[] existingRevs) {
+        var keysOfSameType = existingRevs.Select(r => r.RevisionKey).Where(k => GetRevisionTypeFromKey(k) == keyType).ToArray();
+        int newKey = (int)keyType * 10000000; // start of the range for the given revision type
+        if (keysOfSameType.Length == 0) return newKey;
+        while (keysOfSameType.Contains(newKey)) newKey++; // find the next available key in the range for the given revision type
+        return newKey;
+    }
+
+    public static RevisionType GetRevisionTypeFromKey(int revisionKey) {
 
         // is it big enough to have a digit in the place of 10 millions?
-        var noDigitsOfRevisionId = revisionId == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(revisionId)) + 1);
-        if (revisionId != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionId}. Revision ID must have at most 8 digits.");
+        var noDigitsOfRevisionId = revisionKey == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(revisionKey)) + 1);
+        if (revisionKey != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionKey}. Revision ID must have at most 8 digits.");
 
         // get the digit in the place of 10 millions, which determines the revision type
-        var isNegative = revisionId < 0;
-        var digit = Math.Abs(revisionId);
+        var digit = revisionKey;
         while (digit >= 10) digit /= 10;
-        if (isNegative) digit = -digit;
 
         // check if the digit corresponds to a defined RevisionType
-        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionId}. No corresponding RevisionType found.");
+        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionKey}. No corresponding RevisionType found.");
 
         return (RevisionType)digit;
     }
     public static void Validate(int revisionId) {
-        GetRevisionType(revisionId);
+        GetRevisionTypeFromKey(revisionId);
     }
 }
 
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public Guid CultureId => Meta?.CultureId ?? Guid.Empty;
     public int RevisionKey => Meta?.RevisionKey ?? 0; // used for internal meta dictionary to save memory, the meta must be unique for each revisions
-    public Guid RevisionGuid { get; } // used for external references to revisions
+    public Guid RevisionId { get; } // used for external references to revisions
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, INodeMeta? meta, Guid revisionGuid)
+    Properties<object> values, INodeMeta? meta, Guid revisionId)
     : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
-        RevisionGuid = revisionGuid;
+        RevisionId = revisionId;
     }
-    public NodeDataRevision CopyAndChangeMeta(INodeMeta? newMeta, Guid revisionGuid) {
+    public NodeDataRevision CopyAndChangeMetaAndRevisionId(INodeMeta? newMeta, Guid revisionGuid) {
         return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
     }
-    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionGuid);
+    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
     public INodeDataOuter CopyOuter() => CopyRevision();
 
     public NodeData CopyAndConvertToNodeData() {
@@ -73,13 +76,12 @@ public class NodeDataRevisions : INodeDataInner {
         var hasMultiplePublishedRevisionsForSameCulture = publishedRevisionsByCulture.Any(g => g.Count() > 1);
         if (hasMultiplePublishedRevisionsForSameCulture) throw new ArgumentException("There can only be one published revision for each culture. ");
 
-        // ensure revision id is unique across for each culture:
-        var revisionsByCulture = revisions.GroupBy(r => r.Meta?.CultureId);
-        var hasDuplicateRevisionIdsForSameCulture = revisionsByCulture.Any(g => g.Select(r => r.RevisionKey).GroupBy(id => id).Any(g2 => g2.Count() > 1));
-        if (hasDuplicateRevisionIdsForSameCulture) throw new ArgumentException("Revision IDs must be unique for each culture. ");
+        // ensure revision key is unique across all revisions:
+        var hasDuplicateRevisionKeys = revisions.GroupBy(r => r.RevisionKey).Any(g => g.Count() > 1);
+        if (hasDuplicateRevisionKeys) throw new ArgumentException("Revision keys must be unique across all revisions. ");
 
         // ensure revision guid is unique across all revisions:
-        var hasDuplicateRevisionGuids = revisions.GroupBy(r => r.RevisionGuid).Any(g => g.Count() > 1);
+        var hasDuplicateRevisionGuids = revisions.GroupBy(r => r.RevisionId).Any(g => g.Count() > 1);
         if (hasDuplicateRevisionGuids) throw new ArgumentException("Revision GUIDs must be unique across all revisions. ");
 
 

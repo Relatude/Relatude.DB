@@ -18,7 +18,7 @@ public class NodeMeta {
     }
     public NodeMeta(INodeDataOuter node) {
         InnerMeta = node.Meta ?? INodeMeta.Empty;
-        RevisionId= node is NodeDataRevision rev ? rev.RevisionGuid : Guid.Empty;
+        RevisionId = node is NodeDataRevision rev ? rev.RevisionId : Guid.Empty;
         DisplayName = node.ToString()!;
     }
 
@@ -91,7 +91,7 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             );
         }
         if (meta.CultureId == cultureId) return meta; // no change needed
-        var metaWithNewCulture = new NodeMetaFull(
+        return MinimizeIfPossible(new NodeMetaFull(
             revisionKey: meta.RevisionKey,
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
@@ -105,14 +105,7 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             cultureId: cultureId, // change culture
             releaseUtc: meta.ReleaseUtc,
             expireUtc: meta.ExpireUtc
-        );
-        if (CanBeMin(metaWithNewCulture)) return new NodeMetaMin(
-            collectionId: metaWithNewCulture.CollectionId,
-            readAccess: metaWithNewCulture.ReadAccess,
-            editAccess: metaWithNewCulture.EditAccess
-        );
-        if (CanBeEmptyOrNull(metaWithNewCulture)) return null; // null and empty are treated as the same, set to null to save space
-        return metaWithNewCulture;
+        ));
     }
     public static INodeMeta? ChangeRevision(INodeMeta? meta, int revisionId) {
         if (meta == null) {
@@ -134,7 +127,7 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             );
         }
         if (meta.RevisionKey == revisionId) return meta; // no change needed
-        var metaWithNewRevision = new NodeMetaFull(
+        return MinimizeIfPossible(new NodeMetaFull(
             revisionKey: revisionId, // change revision
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
@@ -148,20 +141,12 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             cultureId: meta.CultureId,
             releaseUtc: meta.ReleaseUtc,
             expireUtc: meta.ExpireUtc
-        );
-        if (CanBeMin(metaWithNewRevision)) return new NodeMetaMin(
-            collectionId: metaWithNewRevision.CollectionId,
-            readAccess: metaWithNewRevision.ReadAccess,
-            editAccess: metaWithNewRevision.EditAccess
-        );
-        if (CanBeEmptyOrNull(metaWithNewRevision)) return null; // null and empty are treated as the same, set to null to save space
-        return metaWithNewRevision;
+        ));
     }
 
     public static INodeMeta? DeriveCombinedMeta(INodeMeta? original, INodeMeta? newRev) {
         if (original == null && newRev == null) return null;
-        var meta = new NodeMetaFull(
-
+        return MinimizeIfPossible(new NodeMetaFull(
             // take common props from newRev
             collectionId: newRev?.CollectionId ?? Empty.CollectionId,
             readAccess: newRev?.ReadAccess ?? Empty.ReadAccess,
@@ -178,17 +163,9 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             cultureId: original?.CultureId ?? Empty.CultureId,
             releaseUtc: original?.ReleaseUtc ?? Empty.ReleaseUtc,
             expireUtc: original?.ExpireUtc ?? Empty.ExpireUtc
-
-        );
-        if (CanBeMin(meta)) return new NodeMetaMin(
-            collectionId: meta.CollectionId,
-            readAccess: meta.ReadAccess,
-            editAccess: meta.EditAccess
-        );
-        if (CanBeEmptyOrNull(meta)) return null; // null and empty are treated as the same, set to null to save space
-        return meta;
+        ));
     }
-    public static bool CanBeEmptyOrNull(INodeMeta meta) {
+    static bool CanBeEmptyOrNull(INodeMeta meta) {
         return meta.RevisionKey == 0
             && meta.CollectionId == Guid.Empty
             && meta.ReadAccess == Guid.Empty
@@ -203,7 +180,7 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
             && meta.ReleaseUtc == null
             && meta.ExpireUtc == null;
     }
-    public static bool CanBeMin(INodeMeta meta) {
+    static bool CanBeMin(INodeMeta meta) {
         return meta.RevisionKey == 0
             && meta.EditViewAccess == meta.EditAccess
             && meta.PublishAccess == meta.EditAccess
@@ -347,6 +324,33 @@ public interface INodeMeta : IEquatable<INodeMeta> { // Without revision ID, so 
         lastHash = hash.ToHashCode();
         return lastHash;
     }
+    public static INodeMeta? MinimizeIfPossible(INodeMeta? meta) {
+        if (meta == null) return null;
+        if (CanBeEmptyOrNull(meta)) return null; // null and empty are treated as the same, set to null to save space
+        if (CanBeMin(meta)) return new NodeMetaMin(
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess
+        );
+        return meta;
+    }
+    public static INodeMeta? CopyAndSetRevisionTypeAndKey(INodeMeta meta, RevisionType revisionType, int revisionKey) {
+        return MinimizeIfPossible(new NodeMetaFull(
+            revisionKey: revisionKey,
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess,
+            editViewAccess: meta.EditViewAccess,
+            publishAccess: meta.PublishAccess,
+            deleted: meta.Deleted,
+            hidden: meta.Hidden,
+            createdBy: meta.CreatedBy,
+            changedBy: meta.ChangedBy,
+            cultureId: meta.CultureId,
+            releaseUtc: meta.ReleaseUtc,
+            expireUtc: meta.ExpireUtc
+        ));
+    }
 }
 class NodeMetaEmpty : INodeMeta {
     public int RevisionKey => 0;
@@ -428,7 +432,7 @@ public class NodeMetaFull : INodeMeta {
 
     public NodeMetaFull(int revisionKey, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
         RevisionKey = revisionKey;
-        RevisionType = RevisionUtil.GetRevisionType(revisionKey);
+        RevisionType = RevisionUtil.GetRevisionTypeFromKey(revisionKey);
         CollectionId = collectionId;
         ReadAccess = readAccess;
         EditAccess = editAccess;

@@ -218,18 +218,18 @@ public class NodeStore : IDisposable {
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
     public TransactionResult ReIndex(int id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
 
-    public TransactionResult EnableRevisions(Guid id, int revisionId, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, cultureId), flushToDisk);
-    public TransactionResult EnableRevisions(int id, int revisionId, Guid? cultureId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId, cultureId), flushToDisk);
-    public TransactionResult DisableRevisions(Guid id, int revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult DisableRevisions(int id, int revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult UpdateMeta(Guid id, int revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
-    public TransactionResult UpdateMeta(int id, int revisionId, INodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
-    public TransactionResult DeleteRevision(Guid id, int revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
-    public TransactionResult DeleteRevision(int id, int revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
-    public TransactionResult CreateRevision(Guid id, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? cultureIdSource = null, bool flushToDisk = false) 
-        => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, cultureId, cultureIdSource), flushToDisk);
-    public TransactionResult CreateRevision(int id, int revisionId, int sourceRevisionId, Guid? cultureId = null, Guid? cultureIdSource = null, bool flushToDisk = false) 
-        => Execute(new Transaction(this).CreateRevision(id, revisionId, sourceRevisionId, cultureId, cultureIdSource), flushToDisk);
+    public TransactionResult EnableRevisions(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
+    public TransactionResult EnableRevisions(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
+    public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult UpdateMeta(Guid id, Guid revisionId, NodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult UpdateMeta(int id, Guid revisionId, NodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+    public TransactionResult DeleteRevision(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult DeleteRevision(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
+    public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId = null, Guid? cultureId = null, bool flushToDisk = false)
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
+    public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId = null, Guid? cultureId = null, bool flushToDisk = false)
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
 
 
 

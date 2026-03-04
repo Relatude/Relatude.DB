@@ -75,16 +75,16 @@ public class TransactionData {
     public void ValidateProperty(Guid[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, nodeIds, null, propetyId, value));
     public void ValidateProperty(int[] nodeIds, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, null, nodeIds, propetyId, value));
 
-    public void EnableRevisions(Guid nodeId, int revisionId, Guid? cultureId) => Add(NodeRevisionAction.EnableRevisions(new(nodeId), revisionId, cultureId));
-    public void EnableRevisions(int nodeId, int revisionId, Guid? cultureId) => Add(NodeRevisionAction.EnableRevisions(new(nodeId), revisionId, cultureId));
-    public void DisableRevisions(Guid nodeId, int revisionIdToKeep, Guid? cultureId) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep, cultureId));
-    public void DisableRevisions(int nodeId, int revisionIdToKeep, Guid? cultureId) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep, cultureId));
-    public void UpdateMeta(Guid nodeId, int revisionId, INodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
-    public void UpdateMeta(int nodeId, int revisionId, INodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
-    public void DeleteRevision(Guid nodeId, int revisionId, Guid? cultureId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId, cultureId));
-    public void DeleteRevision(int nodeId, int revisionId, Guid? cultureId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId, cultureId));
-    public void CreateRevision(Guid nodeId, int revisionId, int sourceRevisionId, Guid? cultureId, Guid? sourceCultureId ) => Add(NodeRevisionAction.CreateRevision(new(nodeId), revisionId, sourceRevisionId, cultureId, sourceCultureId));
-    public void CreateRevision(int nodeId, int revisionId, int sourceRevisionId, Guid? cultureId, Guid? sourceCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), revisionId, sourceRevisionId, cultureId, sourceCultureId));
+    public void EnableRevisions(Guid nodeId, Guid? revisionId) => Add(NodeRevisionAction.EnableRevisions(new(nodeId), revisionId));
+    public void EnableRevisions(int nodeId, Guid? revisionId) => Add(NodeRevisionAction.EnableRevisions(new(nodeId), revisionId));
+    public void DisableRevisions(Guid nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep));
+    public void DisableRevisions(int nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep));
+    public void UpdateMeta(Guid nodeId, Guid revisionId, NodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
+    public void UpdateMeta(int nodeId, Guid revisionId, NodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
+    public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId));
+    public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId));
+    public void CreateRevision(Guid nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, Guid? newCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureId));
+    public void CreateRevision(int nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, Guid? newCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureId));
 
     public void SetRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = DateTime.UtcNow });
     public void SetRelation(Guid relationId, int source, int target, DateTime dtUtc) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = dtUtc });
