@@ -234,7 +234,10 @@ public class NodeStore : IDisposable {
         var revisions = Datastore.GetRevisions(id);
         return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r), r.Meta ?? INodeMeta.Empty)).ToArray();
     }
-
+    public TransactionResult ChangeRevisionType(Guid id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
+    public TransactionResult ChangeRevisionType(int id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
+    public TransactionResult ChangeRevisionCulture(Guid id, Guid revisionId, Guid newCultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureId), flushToDisk);
+    public TransactionResult ChangeRevisionCulture(int id, Guid revisionId, Guid newCultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureId), flushToDisk);
 
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
     public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);

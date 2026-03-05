@@ -625,7 +625,22 @@ public partial class Transaction {
         _transactionData.CreateRevision(nodeId, sourceRevisionId, revisionType, newRevisionId, cultureId);
         return this;
     }
-
+    public Transaction ChangeRevisionType(Guid nodeId, Guid revisionId, RevisionType newRevisionType) {
+        _transactionData.ChangeRevisionType(nodeId, revisionId, newRevisionType);
+        return this;
+    }
+    public Transaction ChangeRevisionType(int nodeId, Guid revisionId, RevisionType newRevisionType) {
+        _transactionData.ChangeRevisionType(nodeId, revisionId, newRevisionType);
+        return this;
+    }
+    public Transaction ChangeRevisionCulture(Guid nodeId, Guid revisionId, Guid newCultureId) {
+        _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureId);
+        return this;
+    }
+    public Transaction ChangeRevisionCulture(int nodeId, Guid revisionId, Guid newCultureId) {
+        _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureId);
+        return this;
+    }
 
     // helpers, to aid directionality of relations:
     int source(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? to : from;

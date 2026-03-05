@@ -85,6 +85,10 @@ public class TransactionData {
     public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId));
     public void CreateRevision(Guid nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, Guid? newCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureId));
     public void CreateRevision(int nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, Guid? newCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureId));
+    public void ChangeRevisionType(Guid nodeId, Guid revisionId, RevisionType newRevisionType) => Add(NodeRevisionAction.ChangeRevisionType(new(nodeId), revisionId, newRevisionType));
+    public void ChangeRevisionType(int nodeId, Guid revisionId, RevisionType newRevisionType) => Add(NodeRevisionAction.ChangeRevisionType(new(nodeId), revisionId, newRevisionType));
+    public void ChangeRevisionCulture(Guid nodeId, Guid revisionId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), revisionId, newCultureId));
+    public void ChangeRevisionCulture(int nodeId, Guid revisionId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), revisionId, newCultureId));
 
     public void SetRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = DateTime.UtcNow });
     public void SetRelation(Guid relationId, int source, int target, DateTime dtUtc) => Add(new RelationAction(RelationOperation.Set, relationId) { Source = source, Target = target, ChangeUtc = dtUtc });

@@ -23,7 +23,6 @@ public class NodeRevisionAction : ActionBase {
         => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null);
     public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, Guid? cultureId)
         => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, cultureId);
-
     public static NodeRevisionAction ChangeRevisionType(IdKey key, Guid revisionId, RevisionType newRevisionType)
         => new(NodeRevisionOperation.ChangeRevisionType, key, revisionId, newRevisionType, null, null, null);
     public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, Guid newCultureId)
