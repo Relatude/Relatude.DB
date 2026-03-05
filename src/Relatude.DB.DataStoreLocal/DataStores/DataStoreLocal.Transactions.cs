@@ -41,7 +41,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             return result;
         }
     }
-
     TransactionResult execute_outer(TransactionData transaction, bool transformValues, bool flushToDisk, QueryContext ctx, out int primitiveActionCount) {
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk, activityId); // outside write lock to reduce time lock is held
@@ -116,14 +115,31 @@ public sealed partial class DataStoreLocal : IDataStore {
             var i = 0;
             var count = transaction.Actions.Count;
             foreach (var action in transaction.Actions) {
+
                 UpdateActivityProgress(activityId, 100 * i++ / count);
-                foreach (var primitive in _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
+                var enumerator = _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation).GetEnumerator();
+                while (true) {
+                    try {
+                        if (!enumerator.MoveNext()) break;
+                    } catch (Exception err) {
+                        throw new ExceptionWithoutIntegrityLoss("Failed to convert action. " + err.Message, err);
+                    }
+                    var primitive = enumerator.Current;
                     _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
                     executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(primitive);
                     resultingOperations[i - 1] = resultingOperation;
                 }
+
+                //foreach (var primitive in _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
+                //    _transactionActionActivity.Record();
+                //    if (anyLocks) validateLocks(primitive, lockExcemptions);
+                //    executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
+                //    executed.Add(primitive);
+                //    resultingOperations[i - 1] = resultingOperation;
+                //}
+
             }
             _guids.CommitNewIds();
             if (transaction.InnerCallbackBeforeCommitting != null) {

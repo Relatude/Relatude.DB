@@ -1,14 +1,11 @@
-﻿using Microsoft.CodeAnalysis.FlowAnalysis;
+﻿using Relatude.DB.Tasks;
 using Relatude.DB.Datamodels;
-using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
-using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Transactions;
 
 internal class ActionConverter {
     ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
-    public PrimitiveActionBase[] Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
+    public IEnumerable<PrimitiveActionBase> Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
         _lastResultingOperation = ResultingOperation.None; // default
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
@@ -19,12 +16,7 @@ internal class ActionConverter {
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
-        try {
-            return src.ToArray(); // force conversion of action first, then return the array
-        } catch (Exception err) {
-            // converting an action should never change data, so a failed should not cause any integrity loss:
-            throw new ExceptionWithoutIntegrityLoss("Failed to " + complexAction.ToString(db.Datamodel) + ". " + err.Message, err);
-        }
+        return src;
     }
     void ensureIdAndGuid(DataStoreLocal db, INodeData node) {
         if (node.Id == Guid.Empty) {
@@ -444,7 +436,8 @@ internal class ActionConverter {
                         if (sourceRevisionId == null) sourceRevisionId = Guid.NewGuid();
                         var enableAction = NodeRevisionAction.EnableRevisions(a.NodeIdKey, sourceRevisionId);
                         foreach (var subAction in toPrimitiveActions(db, enableAction, transformValues, key, newTasks)) yield return subAction;
-                        existingNode = db._nodes.Get(nodeId, out _).CopyInner(); // get the newly created revisions node
+                        existingNode = db._nodes.Get(nodeId, out _); // get the newly created revisions node
+                        existingNode = existingNode.CopyInner();
                         revs = existingNode as NodeDataRevisions ?? throw new Exception("Failed to enable revisions for node with id " + a.NodeIdKey + ", cannot create revision. ");
                     }
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
@@ -468,9 +461,49 @@ internal class ActionConverter {
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot delete revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to delete a revision. ");
                     if (a.RevisionId == null) throw new Exception("RevisionId must be given to delete a revision. ");
                     var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId);
+                    if (posOfRevToDelete == -1 && forgivingRevisionActions) yield break; // if forgiving, ignore if revision to delete does not exist
                     if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot delete revision. ");
                     if (revs.Revisions.Length == 1) throw new Exception("Cannot delete the last revision for node with id " + a.NodeIdKey + ". ");
                     var newRevs = revs.Revisions.Where((r, i) => i != posOfRevToDelete).ToArray();
+                    var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                }
+                break;
+            case NodeRevisionOperation.ChangeRevisionType: {
+                    if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot change revision type for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to change revision type. ");
+                    if (a.RevisionId == null) throw new Exception("RevisionId must be given to change revision type. ");
+                    var posOfRevToChange = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId);
+                    if (posOfRevToChange == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot change revision type. ");
+                    var revToChange = revs.Revisions[posOfRevToChange];
+                    if (a.RevisionType == null) throw new Exception("RevisionType must be given to change revision type. ");
+                    if (revToChange.RevisionType == a.RevisionType.Value) yield break; // nothing to do if revision type is the same    
+                    var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
+                    var newMeta = INodeMeta.ChangeRevision(revToChange.Meta, newKey);
+                    var newRev = revToChange.CopyAndChangeMeta(newMeta);
+                    var newRevs = revs.Revisions.ToArray();
+                    newRevs[posOfRevToChange] = newRev;
+                    var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
+                    if (a.RevisionType.Value == RevisionType.Published) { // if changing to published, copy culture specific values to culture invariant props if relevant
+                        var typeDef = db._definition.NodeTypes[revs.NodeType];
+                        Utils.UpdateCultureInsensitiveValues(typeDef, newNode, a.RevisionId.Value); // does not copy node, changes values in place so node must be new and not referenced other places
+                    }
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                }
+                break;
+            case NodeRevisionOperation.ChangeRevisionCulture: {
+                    if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot change revision culture for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to change revision culture. ");
+                    if (a.RevisionId == null) throw new Exception("RevisionId must be given to change revision culture. ");
+                    var posOfRevToChange = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId);
+                    if (posOfRevToChange == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot change revision culture. ");
+                    var revToChange = revs.Revisions[posOfRevToChange];
+                    if (a.CultureId == null) throw new Exception("CultureId must be given to change revision culture. ");
+                    if (revToChange.CultureId == a.CultureId.Value) yield break; // nothing to do if culture is the same
+                    var newMeta = INodeMeta.ChangeCulture(revToChange.Meta, a.CultureId.Value);
+                    var newRev = revToChange.CopyAndChangeMeta(newMeta);
+                    var newRevs = revs.Revisions.ToArray();
+                    newRevs[posOfRevToChange] = newRev;
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);

@@ -151,13 +151,13 @@ internal static class Utils {
 
         // updates meta of one revision and copies common meta props to other revs
         var revs = new NodeDataRevision[revsNode.Revisions.Length];
-        bool revisionIdFound = false;        
+        bool revisionIdFound = false;
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
             var rev = revsNode.Revisions[i];
             INodeMeta? resultingMeta;
             if (rev.RevisionId == revisionId) {
                 revisionIdFound = true;
-                if(rev.CultureId!= givenMeta!.CultureId) throw new Exception("CultureId cannot be changed with this action. Revision culture: " + rev.CultureId + ", given meta culture: " + givenMeta.CultureId);
+                if (rev.CultureId != givenMeta!.CultureId) throw new Exception("CultureId cannot be changed with this action. Revision culture: " + rev.CultureId + ", given meta culture: " + givenMeta.CultureId);
                 // we ignore revision type and revision key from given meta
                 resultingMeta = INodeMeta.CopyAndSetRevisionTypeAndKey(givenMeta, rev.RevisionType, rev.RevisionKey);
             } else {
@@ -170,5 +170,26 @@ internal static class Utils {
         return data;
     }
 
+    internal static void UpdateCultureInsensitiveValues(NodeType typeDef, NodeDataRevisions newNode, Guid masterRevisionId) {
+
+        var masterRev = newNode.Revisions.FirstOrDefault(r => r.RevisionId == masterRevisionId);
+        if (masterRev == null) throw new Exception("Master revision with id " + masterRevisionId + " not found in revisions. ");
+        if (masterRev.RevisionType != RevisionType.Published) return;  // revision will not affect other revisions, as it is not published
+
+        // inlineUpdate, does not copy!!!
+        foreach (var other in newNode.Revisions) {
+            if (other.RevisionType == RevisionType.Published && other.RevisionId != masterRevisionId) {
+                // other revision that is published, copy culture insensitive properties:
+                foreach (var prop in typeDef.Model.AllProperties.Values) {
+                    if (!prop.CultureSensitive) {
+                        if (masterRev.TryGetValue(prop.Id, out var newValue)) {
+                            other.AddOrUpdate(prop.Id, newValue);
+                        }
+                    }
+                }
+            }
+        }
+
+    }
 }
 

@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Stores;
 // threadsafe, excect when loading and using method "_NotThreadsafe"
 internal sealed class NodeStore {
     object _lock = new();
-    static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
+    readonly static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
     readonly ReadSegmentsFunc _read;
     readonly Cache<int, INodeDataInner> _cache; // threadsafe
     readonly Dictionary<int, NodeSegment> _segments;  // NOT threadsafe, main store of all valid nodes
@@ -110,7 +110,7 @@ internal sealed class NodeStore {
             _cache.Set(node.__Id, node, 0);
         }
     }
-    public void Remove(INodeData node, out NodeSegment segmentInfoRemoved) {
+    public void Remove(INodeDataInner node, out NodeSegment segmentInfoRemoved) {
         lock (_lock) {
             segmentInfoRemoved = _segments[node.__Id];
             _segments.Remove(node.__Id);

@@ -27,30 +27,32 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 });
 
-
+bool hasRun = false;
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var sw = Stopwatch.StartNew();
+    if (!hasRun) {
+        hasRun = true;
 
-    var article = db.Create<DemoArticle>();
-    db.Insert(article);
-    var rId = Guid.NewGuid();
-    //db.EnableRevisions(article.Id, rId);
-    //db.EnableRevisions(article.Id, rId);
-    //var rId2 = Guid.NewGuid();
-    db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
-    //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
-    //for (int i = 0; i < 100; i++) {
-    //    var rId3 = Guid.NewGuid();
-    //    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
-    //}
-    //db.DisableRevisions(article.Id, rId);
+        var article = db.Create<DemoArticle>();
+        db.Insert(article);
+        var rId = Guid.NewGuid();
+        db.EnableRevisions(article.Id, rId);
+        db.EnableRevisions(article.Id, rId);
+        //var rId2 = Guid.NewGuid();
+        db.CreateRevision(article.Id, rId, RevisionType.Published);
+        //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
+        //for (int i = 0; i < 100; i++) {
+        //    var rId3 = Guid.NewGuid();
+        //    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
+        //}
+        //db.DisableRevisions(article.Id, rId);
 
-    var noObjects = ctx.Database.Count();//.Query<DemoArticle>().Count();
-    sw.Stop();
+        sw.Stop();
 
-    var revisions=db.GetRevisions<DemoArticle>(article.Id);
-
+        var revisions = db.GetRevisions<DemoArticle>(article.Id);
+    }
+    var noObjects = db.Count();//.Query<DemoArticle>().Count();
     return "Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0");
 
 

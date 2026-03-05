@@ -55,6 +55,9 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public NodeDataRevision CopyAndChangeMetaAndRevisionId(INodeMeta? newMeta, Guid revisionGuid) {
         return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
     }
+    public NodeDataRevision CopyAndChangeMeta(INodeMeta? newMeta) {
+        return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId);
+    }
     public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
     public INodeDataOuter CopyOuter() => CopyRevision();
 
