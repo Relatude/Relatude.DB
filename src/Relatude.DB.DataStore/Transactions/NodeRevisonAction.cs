@@ -49,7 +49,7 @@ public class NodeRevisionAction : ActionBase {
     public Guid? SourceRevisionId { get; }
     public Guid? SourceCultureId { get; }
     public RevisionType? RevisionType { get; }
-    public override string ToString() => Operation.ToString().Decamelize();
+    public override string ToString() => Operation.ToString().Decamelize(false);
     public override string OperationName() => "NodeRevisionAction." + Operation.ToString();
     public override string ToString(Datamodel dm) => ToString();
 }

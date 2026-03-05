@@ -35,13 +35,15 @@ app.MapGet("/Test", (RelatudeDBContext ctx) => {
     var article = db.Create<DemoArticle>();
     db.Insert(article);
     var rId = Guid.NewGuid();
-    db.EnableRevisions(article.Id, rId);
-    var rId2 = Guid.NewGuid();
-    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
-    for (int i = 0; i < 100; i++) {
-        var rId3 = Guid.NewGuid();
-        db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
-    }
+    //db.EnableRevisions(article.Id, rId);
+    //db.EnableRevisions(article.Id, rId);
+    //var rId2 = Guid.NewGuid();
+    db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+    //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
+    //for (int i = 0; i < 100; i++) {
+    //    var rId3 = Guid.NewGuid();
+    //    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
+    //}
     //db.DisableRevisions(article.Id, rId);
 
     var noObjects = ctx.Database.Count();//.Query<DemoArticle>().Count();

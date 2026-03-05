@@ -25,14 +25,14 @@ public static class RevisionUtil {
 
         // is it big enough to have a digit in the place of 10 millions?
         var noDigitsOfRevisionId = revisionKey == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(revisionKey)) + 1);
-        if (revisionKey != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionKey}. Revision ID must have at most 8 digits.");
+        if (revisionKey != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionKey}. Revision ID must have at most 8 digits. ");
 
         // get the digit in the place of 10 millions, which determines the revision type
         var digit = revisionKey;
         while (digit >= 10) digit /= 10;
 
         // check if the digit corresponds to a defined RevisionType
-        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionKey}. No corresponding RevisionType found.");
+        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionKey}. No corresponding RevisionType found. ");
 
         return (RevisionType)digit;
     }
