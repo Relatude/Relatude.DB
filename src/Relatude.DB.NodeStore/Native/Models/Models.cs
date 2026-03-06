@@ -25,6 +25,7 @@ public interface ISystemCollection {
 [Node(Id = NodeConstants.BaseCultureIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemCulture {
     Guid Id { get; set; }
+    [StringProperty(UniqueValues = true)]
     string CultureCode { get; set; }
     string NativeName { get; set; }
     string EnglishName { get; set; }

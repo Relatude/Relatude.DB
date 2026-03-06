@@ -89,6 +89,17 @@ public class NodeStore : IDisposable {
         t.Execute();
         return Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
+    public T CreateAndInsert<T>(Action<T>? setProperties = null) where T : notnull {
+        var node = Mapper.NewObjectFromType<T>();
+        var t = CreateTransaction();
+        t.Insert(node);
+        if (setProperties != null) {
+            setProperties.Invoke(node);
+            t.Update(node);
+        }
+        t.Execute();
+        return Get<T>(Mapper.GetIdGuidOrCreate(node!));
+    }
 
     public TransactionResult Insert(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
     public TransactionResult Insert(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
@@ -230,6 +241,11 @@ public class NodeStore : IDisposable {
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
     public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId = null, Guid? cultureId = null, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureId), flushToDisk);
+    public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? cultureCode, bool flushToDisk = false)
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureCode), flushToDisk);
+    public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? cultureCode, bool flushToDisk = false)
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureCode), flushToDisk);
+
     public NodeAndMeta<T>[] GetRevisions<T>(Guid id) {
         var revisions = Datastore.GetRevisions(id);
         return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r), r.Meta ?? INodeMeta.Empty)).ToArray();
@@ -238,6 +254,8 @@ public class NodeStore : IDisposable {
     public TransactionResult ChangeRevisionType(int id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
     public TransactionResult ChangeRevisionCulture(Guid id, Guid revisionId, Guid newCultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureId), flushToDisk);
     public TransactionResult ChangeRevisionCulture(int id, Guid revisionId, Guid newCultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureId), flushToDisk);
+    public TransactionResult ChangeRevisionCulture(Guid id, Guid revisionId, string newCultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureCode), flushToDisk);
+    public TransactionResult ChangeRevisionCulture(int id, Guid revisionId, string newCultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureCode), flushToDisk);
 
     public void ChangeType(Guid id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);
     public void ChangeType(int id, Guid newTypeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType(id, newTypeId), flushToDisk);

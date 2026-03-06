@@ -28,17 +28,28 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 });
 
 bool hasRun = false;
+app.MapGet("/cult", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var culture = db.Create<ISystemCulture>();
+    culture.CultureCode = "en-US";
+    db.Insert(culture);
+    var c = db.CreateAndInsert<ISystemCulture>(c => {
+        c.CultureCode = "no-NO";
+    });
+
+});
 app.MapGet("/Test", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var sw = Stopwatch.StartNew();
     if (!hasRun) {
-        hasRun = true;
+        //hasRun = true;
 
         var article = db.Create<DemoArticle>();
         db.Insert(article);
         var rId = Guid.NewGuid();
         db.EnableRevisions(article.Id, rId);
         db.EnableRevisions(article.Id, rId);
+        db.ChangeRevisionCulture(article.Id, rId, "en");
         //var rId2 = Guid.NewGuid();
         db.CreateRevision(article.Id, rId, RevisionType.Published);
         //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);

@@ -1,12 +1,12 @@
 ﻿public class SettingsLocal {
 
+    public string? DefaultCultureCode { get; set; }
+
     public string? FilePrefix { get; set; }
 
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 
-    public bool EnableSimpleSystemLog { get; set; } = false;
-    public bool OnlyLogErrorsToSimpleSystemLog { get; set; } = true;
     public bool WriteSystemLogConsole { get; set; } = true;
 
     public bool DoNotCacheMapperFile { get; set; } = false;

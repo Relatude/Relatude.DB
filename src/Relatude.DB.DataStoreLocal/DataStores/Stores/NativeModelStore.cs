@@ -212,6 +212,19 @@ public class NativeModelStore(DataStoreLocal store) {
             if (throwOnErrors) throw new Exception(msg, err);
         }
     }
+
+    internal bool TryGetCultureId(string cultureCode, out Guid cultureId) {
+        foreach (var culture in _cultures.Values) {
+            if (culture.CultureCode == cultureCode) {
+                cultureId = culture.Guid;
+                return true;
+            }
+        }
+        cultureId = Guid.Empty;
+        return false;
+    }
+
+
     public int CountUsers => _users.Count;
     public int CountUserGroups => _userGroups.Count;
     public int CountCollections => _collections.Count;
@@ -357,6 +370,7 @@ public class NativeModelStore(DataStoreLocal store) {
             selectedRevisions: ctx.SelectedRevisions
         );
     }
+
 }
 public sealed class IntArrayEqualityComparer : IEqualityComparer<int[]> {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -14,21 +14,34 @@ public enum NodeRevisionOperation : byte {
 public class NodeRevisionAction : ActionBase {
 
     public static NodeRevisionAction UpdateMeta(IdKey key, Guid revisionId, NodeMeta? meta) // all but revision type and culture can be updated with this action
-        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, meta?.InnerMeta, null);
+        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, meta?.InnerMeta, null, null);
     public static NodeRevisionAction DeleteRevision(IdKey key, Guid revisionId)
-        => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null);
+        => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null, null);
     public static NodeRevisionAction EnableRevisions(IdKey key, Guid? revisionId = null)
-        => new(NodeRevisionOperation.EnableRevisions, key, revisionId, null, null, null, null);
+        => new(NodeRevisionOperation.EnableRevisions, key, revisionId, null, null, null, null, null);
     public static NodeRevisionAction DisableRevisions(IdKey key, Guid revisionIdToKeep)
-        => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null);
+        => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null, null);
     public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, Guid? cultureId)
-        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, cultureId);
+        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, cultureId, null);
+    public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? cultureCode)
+        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, null, cultureCode);
     public static NodeRevisionAction ChangeRevisionType(IdKey key, Guid revisionId, RevisionType newRevisionType)
-        => new(NodeRevisionOperation.ChangeRevisionType, key, revisionId, newRevisionType, null, null, null);
+        => new(NodeRevisionOperation.ChangeRevisionType, key, revisionId, newRevisionType, null, null, null, null);
     public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, Guid newCultureId)
-        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, newCultureId);
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, newCultureId, null);
+    public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, string? newCultureCode)
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, null, newCultureCode);
 
-    private NodeRevisionAction(NodeRevisionOperation operation, IdKey idKey, Guid? revisionId, RevisionType? revisionType, Guid? sourceRevisionId, INodeMeta? meta, Guid? cultureId)
+    private NodeRevisionAction(
+        NodeRevisionOperation operation,
+        IdKey idKey,
+        Guid? revisionId,
+        RevisionType? revisionType,
+        Guid? sourceRevisionId,
+        INodeMeta? meta,
+        Guid? cultureId,
+        string? cultureCode
+        )
         : base(ActionTarget.NodeRevision) {
         Operation = operation;
         NodeIdKey = idKey;
@@ -36,6 +49,7 @@ public class NodeRevisionAction : ActionBase {
         RevisionType = revisionType;
         SourceRevisionId = sourceRevisionId;
         CultureId = cultureId;
+        CultureCode = cultureCode;
         Meta = meta;
     }
     public NodeRevisionOperation Operation { get; }
@@ -44,6 +58,7 @@ public class NodeRevisionAction : ActionBase {
 
     public Guid? RevisionId { get; }
     public Guid? CultureId { get; }
+    public string? CultureCode { get; }
 
     public Guid? SourceRevisionId { get; }
     public Guid? SourceCultureId { get; }

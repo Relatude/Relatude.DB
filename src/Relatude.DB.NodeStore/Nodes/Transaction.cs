@@ -625,6 +625,15 @@ public partial class Transaction {
         _transactionData.CreateRevision(nodeId, sourceRevisionId, revisionType, newRevisionId, cultureId);
         return this;
     }
+    public Transaction CreateRevision(Guid nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? newCultureCode) {
+        _transactionData.CreateRevision(nodeId, sourceRevisionId, revisionType, newRevisionId, newCultureCode);
+        return this;
+    }
+    public Transaction CreateRevision(int nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? newCultureCode) {
+        _transactionData.CreateRevision(nodeId, sourceRevisionId, revisionType, newRevisionId, newCultureCode);
+        return this;
+    }
+
     public Transaction ChangeRevisionType(Guid nodeId, Guid revisionId, RevisionType newRevisionType) {
         _transactionData.ChangeRevisionType(nodeId, revisionId, newRevisionType);
         return this;
@@ -639,6 +648,14 @@ public partial class Transaction {
     }
     public Transaction ChangeRevisionCulture(int nodeId, Guid revisionId, Guid newCultureId) {
         _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureId);
+        return this;
+    }
+    public Transaction ChangeRevisionCulture(Guid nodeId, Guid revisionId, string newCultureCode) {
+        _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureCode);
+        return this;
+    }
+    public Transaction ChangeRevisionCulture(int nodeId, Guid revisionId, string newCultureCode) {
+        _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureCode);
         return this;
     }
 
