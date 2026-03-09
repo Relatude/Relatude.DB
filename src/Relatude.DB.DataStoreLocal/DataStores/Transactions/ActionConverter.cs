@@ -392,7 +392,7 @@ internal class ActionConverter {
                     if (existingNode is NodeData nd) {
                         int revisionType = (int)(a.RevisionType ?? RevisionType.Published);
                         var revisionId = a.RevisionId ?? Guid.NewGuid();
-                        var rev = nd.CopyAndConvertToNodeDataRevision(INodeMeta.ChangeRevision(nd.Meta, revisionType), revisionId);
+                        var rev = nd.CopyAndConvertToNodeDataRevision(IInnerNodeMeta.ChangeRevision(nd.Meta, revisionType), revisionId);
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                         var newNode = new NodeDataRevisions(nd.Id, nd.__Id, nd.NodeType, [rev]);
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
@@ -434,6 +434,8 @@ internal class ActionConverter {
                     Guid cultureId = Guid.Empty;
                     if (a.CultureId != null) {
                         cultureId = a.CultureId.Value;
+                    } else if (a.CultureCode == string.Empty) {
+                        cultureId = Guid.Empty;
                     } else if (a.CultureCode != null) {
                         if (!db._nativeModelStore.TryGetCultureId(a.CultureCode, out cultureId)) {
                             throw new Exception("Culture with code " + a.CultureCode + " does not exist, cannot determine culture for new revision. ");
@@ -457,7 +459,7 @@ internal class ActionConverter {
                     if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
                     int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, revs.Revisions);
-                    var newMeta = INodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
+                    var newMeta = IInnerNodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
                     Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
@@ -488,7 +490,7 @@ internal class ActionConverter {
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to change revision type. ");
                     if (revToChange.RevisionType == a.RevisionType.Value) yield break; // nothing to do if revision type is the same    
                     var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
-                    var newMeta = INodeMeta.ChangeRevision(revToChange.Meta, newKey);
+                    var newMeta = IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
                     var newRevs = revs.Revisions.ToArray();
                     newRevs[posOfRevToChange] = newRev;
@@ -511,8 +513,10 @@ internal class ActionConverter {
                     Guid cultureId = Guid.Empty;
                     if (a.CultureId == null && a.CultureCode == null) {
                         throw new Exception("Culture must be given to change revision culture. ");
-                    }else if(a.CultureId != null ) {
+                    } else if (a.CultureId != null) {
                         cultureId = a.CultureId.Value;
+                    } else if (a.CultureCode == string.Empty) {
+                        cultureId = Guid.Empty;
                     } else if (a.CultureCode != null) {
                         if (!db._nativeModelStore.TryGetCultureId(a.CultureCode, out cultureId)) {
                             throw new Exception("Culture with code " + a.CultureCode + " does not exist, cannot change revision culture. ");
@@ -520,7 +524,7 @@ internal class ActionConverter {
                     }
 
                     if (revToChange.CultureId == cultureId) yield break; // nothing to do if culture is the same
-                    var newMeta = INodeMeta.ChangeCulture(revToChange.Meta, cultureId);
+                    var newMeta = IInnerNodeMeta.ChangeCulture(revToChange.Meta, cultureId);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
                     var newRevs = revs.Revisions.ToArray();
                     newRevs[posOfRevToChange] = newRev;

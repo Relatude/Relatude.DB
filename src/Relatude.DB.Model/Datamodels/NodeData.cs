@@ -23,7 +23,7 @@ public interface INodeData {
     int __Id { get; set; }
     IdKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
-    INodeMeta? Meta { get; }
+    IInnerNodeMeta? Meta { get; }
     DateTime ChangedUtc { get; }
     DateTime CreatedUtc { get; set; }
     IEnumerable<PropertyEntry<object>> Values { get; }
@@ -57,14 +57,14 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, INodeMeta? meta) {
+        Properties<object> values, IInnerNodeMeta? meta) {
         _guid = guid;
         _id = id;
         NodeType = nodeType;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
         _values = values;
-        if (meta != null && meta == INodeMeta.Empty) {
+        if (meta != null && meta == IInnerNodeMeta.Empty) {
             Meta = null; // avoid storing empty meta, as it is the most common case and saves some memory
         } else {
             Meta = meta;
@@ -85,7 +85,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         }
     }
     public Guid NodeType { get; }
-    public virtual INodeMeta? Meta { get; }
+    public virtual IInnerNodeMeta? Meta { get; }
     public DateTime CreatedUtc { get; set; }
     public DateTime ChangedUtc { get; }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
@@ -123,13 +123,13 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
     public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, INodeMeta? meta) : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
+        Properties<object> values, IInnerNodeMeta? meta) : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
     }
-    public NodeDataRevision CopyAndConvertToNodeDataRevision(INodeMeta? meta, Guid revisionGuid) {
+    public NodeDataRevision CopyAndConvertToNodeDataRevision(IInnerNodeMeta? meta, Guid revisionGuid) {
         var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid);
         return rev;
     }
-    public INodeDataInner CopyAndChangeMeta(INodeMeta? meta) {
+    public INodeDataInner CopyAndChangeMeta(IInnerNodeMeta? meta) {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
     }
     public INodeDataInner CopyInner() {
@@ -155,14 +155,14 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public int RevisionKey => throw new NA();
     public RevisionType RevisionType => throw new NA();
     public Guid NodeType => throw new NA();
-    public INodeMeta? Meta => throw new NA();
+    public IInnerNodeMeta? Meta => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
     public DateTime ChangedUtc => throw new NA();
     public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
     public Guid ReadAccess { get => throw new NA(); set => throw new NA(); }
     public Guid WriteAccess { get => throw new NA(); set => throw new NA(); }
     public IEnumerable<PropertyEntry<object>> Values => throw new NA();
-    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) => throw new NA();
+    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, IInnerNodeMeta meta) => throw new NA();
     public int ValueCount => throw new NA();
     public bool ReadOnly => throw new NA();
     public bool IsDerived => throw new NA();
@@ -190,8 +190,8 @@ public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with
     public int RevisionKey => throw new NA();
     public RevisionType RevisionType => throw new NA();
     public Guid NodeType { get => _nodeType; set => throw new NA(); }
-    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) => throw new NA();
-    public INodeMeta? Meta => throw new NA();
+    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, IInnerNodeMeta meta) => throw new NA();
+    public IInnerNodeMeta? Meta => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
     public DateTime ChangedUtc => throw new NA();
     public Guid CollectionId { get => throw new NA(); set => throw new NA(); }
@@ -219,13 +219,13 @@ public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data wi
     }
     Guid _id;
     public int __Id { get => throw new NA(); set => throw new NA(); }
-    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, INodeMeta meta) => throw new NA();
+    public NodeDataRevision CopyAsReturnAsNodeDataRevision(Guid revisionId, RevisionType revisionType, IInnerNodeMeta meta) => throw new NA();
     Guid _nodeType;
     public Guid Id { get => _id; set => throw new NA(); }
     public int RevisionKey => throw new NA();
     public RevisionType RevisionType => throw new NA();
     public Guid NodeType { get => _nodeType; set => throw new NA(); }
-    public INodeMeta? Meta => throw new NA();
+    public IInnerNodeMeta? Meta => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
     public DateTime ChangedUtc => throw new NA();
     public Guid CollectionId { get => throw new NA(); set => throw new NA(); }

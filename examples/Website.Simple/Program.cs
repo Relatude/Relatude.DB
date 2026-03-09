@@ -38,9 +38,10 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
-app.MapGet("/Test", (RelatudeDBContext ctx) => {
+app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
     var db = ctx.Database;
     var sw = Stopwatch.StartNew();
+    var html = new System.Text.StringBuilder();
     if (!hasRun) {
         //hasRun = true;
 
@@ -48,10 +49,14 @@ app.MapGet("/Test", (RelatudeDBContext ctx) => {
         db.Insert(article);
         var rId = Guid.NewGuid();
         db.EnableRevisions(article.Id, rId);
-        db.EnableRevisions(article.Id, rId);
-        db.ChangeRevisionCulture(article.Id, rId, "en");
+        db.ChangeRevisionCulture(article.Id, rId, "");
         //var rId2 = Guid.NewGuid();
         db.CreateRevision(article.Id, rId, RevisionType.Published);
+        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+
+
         //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
         //for (int i = 0; i < 100; i++) {
         //    var rId3 = Guid.NewGuid();
@@ -62,16 +67,23 @@ app.MapGet("/Test", (RelatudeDBContext ctx) => {
         sw.Stop();
 
         var revisions = db.GetRevisions<DemoArticle>(article.Id);
+
+        // creating HTML table of revisions:
+        html.AppendLine("<table><tr><th>Revision ID</th><th>Revision Type</th><th>Culture</th></tr>");
+        foreach (var rev in revisions) {
+            html.AppendLine($"<tr><td>{rev.Meta.RevisionId}</td><td>{rev.Meta.RevisionType}</td><td>{rev.Meta.CultureId}</td></tr>");
+        }
+        html.AppendLine("</table>");
+
     }
     var noObjects = db.Count();//.Query<DemoArticle>().Count();
-    return "Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0");
+    html.AppendLine("<h1>Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0") + "</h1>");
+
+    htmlctx.Response.ContentType = "text/html";
 
 
 
-
-
-
-
+    return html.ToString();
 
 
     //db.CreateRevision(u.Id, Guid.NewGuid(), rId, RevisionType.Published);

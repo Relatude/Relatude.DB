@@ -20,7 +20,7 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public Guid Id { get => _node.Id; set => throwReadOnlyError(); }
     public int __Id { get => _node.__Id; set => throwReadOnlyError(); }
     public Guid NodeType => _node.NodeType;
-    public INodeMeta? Meta => _node.Meta;
+    public IInnerNodeMeta? Meta => _node.Meta;
     public bool IsComplex => false;
     public NodeData[] Versions => throw new Exception("Node has no versions. ");
     public DateTime CreatedUtc { get => _node.CreatedUtc; set => throwReadOnlyError(); }

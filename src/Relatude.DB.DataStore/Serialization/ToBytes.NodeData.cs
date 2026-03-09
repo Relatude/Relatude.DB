@@ -34,7 +34,7 @@ public static partial class ToBytes {
         stream.WriteDateTime(nodeData.ChangedUtc); // needed for sync scenarios
 
         // Node data meta
-        stream.WriteByteArray(INodeMeta.ToBytes(nodeData.Meta));
+        stream.WriteByteArray(IInnerNodeMeta.ToBytes(nodeData.Meta));
 
         // Node data properties
         var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;

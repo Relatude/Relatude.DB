@@ -38,7 +38,7 @@ public class NodeRevisionAction : ActionBase {
         Guid? revisionId,
         RevisionType? revisionType,
         Guid? sourceRevisionId,
-        INodeMeta? meta,
+        IInnerNodeMeta? meta,
         Guid? cultureId,
         string? cultureCode
         )
@@ -54,7 +54,7 @@ public class NodeRevisionAction : ActionBase {
     }
     public NodeRevisionOperation Operation { get; }
     public IdKey NodeIdKey { get; }
-    public INodeMeta? Meta { get; }
+    public IInnerNodeMeta? Meta { get; }
 
     public Guid? RevisionId { get; }
     public Guid? CultureId { get; }

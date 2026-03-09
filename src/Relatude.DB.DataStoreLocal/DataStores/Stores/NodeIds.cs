@@ -57,9 +57,9 @@ class idSet {
 
     }
 }
-class metaAndType(INodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
+class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
     public readonly Guid TypeId = typeId;
-    public readonly INodeMeta Meta = meta;
+    public readonly IInnerNodeMeta Meta = meta;
     public bool Equals(metaAndType? other) {
         if (other is null) return false;
         return TypeId == other.TypeId && Meta.Equals(other.Meta);
@@ -194,7 +194,7 @@ internal class NodeTypesByIds {
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
     }
-    bool isReleased(DateTime nowUtc, INodeMeta meta) {
+    bool isReleased(DateTime nowUtc, IInnerNodeMeta meta) {
         if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) return false;
         if (meta.ExpireUtc.HasValue && nowUtc >= meta.ExpireUtc.Value) return false;
         return true;
@@ -301,7 +301,7 @@ internal class NodeTypesByIds {
         }
     }
     public void Index(INodeData node) {
-        metaAndType mt = new(node.Meta ?? INodeMeta.Empty, node.NodeType);
+        metaAndType mt = new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType);
         //Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
             if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
@@ -325,7 +325,7 @@ internal class NodeTypesByIds {
     }
     public void DeIndex(INodeData node) {
         //Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
-        var shortId = _idByMeta[new(node.Meta ?? INodeMeta.Empty, node.NodeType)];
+        var shortId = _idByMeta[new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType)];
         _metaIdsByNodeId.Remove(node.__Id, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
@@ -390,7 +390,7 @@ internal class NodeTypesByIds {
         stream.WriteInt(_metaById.Count);
         foreach (var kv in _metaById) {
             stream.WriteUInt(kv.Key);
-            stream.WriteByteArray(INodeMeta.ToBytes(kv.Value.Meta));
+            stream.WriteByteArray(IInnerNodeMeta.ToBytes(kv.Value.Meta));
             stream.WriteGuid(kv.Value.TypeId);
         }
         _metaIdsByNodeId.WriteToStream(stream);
@@ -408,8 +408,8 @@ internal class NodeTypesByIds {
         for (int i = 0; i < metaCount; i++) {
             var shortId = stream.ReadUInt();
             var metaBytes = stream.ReadByteArray();
-            var meta = INodeMeta.FromBytes(metaBytes);
-            if (meta == null) meta = INodeMeta.Empty;
+            var meta = IInnerNodeMeta.FromBytes(metaBytes);
+            if (meta == null) meta = IInnerNodeMeta.Empty;
             var typeId = stream.ReadGuid();
             var mt = new metaAndType(meta, typeId);
             _metaById[shortId] = mt;

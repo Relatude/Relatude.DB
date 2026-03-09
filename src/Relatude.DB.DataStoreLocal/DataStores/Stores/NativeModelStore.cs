@@ -146,6 +146,7 @@ public class NativeModelStore(DataStoreLocal store) {
         stream.WriteVerifiedInt(_cultures.Count);
         foreach (var culture in _cultures.Values) {
             stream.WriteInt(culture.Id);
+            stream.WriteString(culture.CultureCode);
             stream.WriteIntArray(culture.Collections);
         }
     }
@@ -191,9 +192,11 @@ public class NativeModelStore(DataStoreLocal store) {
         var noCultures = stream.ReadVerifiedInt();
         for (var i = 0; i < noCultures; i++) {
             var cultureId = stream.ReadInt();
+            var cultureCode = stream.ReadString();
             var collections = stream.ReadIntArray();
             var culture = new NativeSystemCulture {
                 Id = cultureId,
+                CultureCode = cultureCode,
                 Collections = collections,
             };
             _cultures.Add(culture.Id, culture);
@@ -214,8 +217,9 @@ public class NativeModelStore(DataStoreLocal store) {
     }
 
     internal bool TryGetCultureId(string cultureCode, out Guid cultureId) {
+        // optimization possible...
         foreach (var culture in _cultures.Values) {
-            if (culture.CultureCode == cultureCode) {
+            if (string.Equals(culture.CultureCode, cultureCode, StringComparison.OrdinalIgnoreCase)) {
                 cultureId = culture.Guid;
                 return true;
             }
@@ -307,6 +311,7 @@ public class NativeModelStore(DataStoreLocal store) {
     void addCulture(INodeData node) {
         var culture = new NativeSystemCulture {
             Id = node.__Id,
+            CultureCode = node.TryGetValue(NodeConstants.NativeCulturePropertyCultureCode, out var objCultureCode) ? (string)objCultureCode : string.Empty,
         };
         _cultures.Add(node.__Id, culture);
     }

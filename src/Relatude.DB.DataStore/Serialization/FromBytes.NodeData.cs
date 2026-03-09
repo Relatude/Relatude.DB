@@ -102,7 +102,7 @@ public static partial class FromBytes {
 
         // Node data meta:
         var metaArray = stream.ReadByteArray();
-        var meta = INodeMeta.FromBytes(metaArray);
+        var meta = IInnerNodeMeta.FromBytes(metaArray);
 
         // Node data properties
         var valueCount = stream.ReadInt();
@@ -142,7 +142,7 @@ public static partial class FromBytes {
 
         // Node data meta:
         var metaArray = stream.ReadByteArray();
-        var meta = INodeMeta.FromBytes(metaArray);
+        var meta = IInnerNodeMeta.FromBytes(metaArray);
 
         // Node data properties
         var valueCount = stream.ReadInt();

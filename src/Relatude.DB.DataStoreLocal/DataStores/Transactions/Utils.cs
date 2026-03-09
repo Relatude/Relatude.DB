@@ -146,7 +146,7 @@ internal static class Utils {
         return orginialMainNode;
 
     }
-    internal static NodeDataRevisions CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(NodeDataRevisions revsNode, INodeMeta? givenMeta, Guid revisionId) {
+    internal static NodeDataRevisions CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(NodeDataRevisions revsNode, IInnerNodeMeta? givenMeta, Guid revisionId) {
         // all but revision type and culture can be updated with this action
 
         // updates meta of one revision and copies common meta props to other revs
@@ -154,14 +154,14 @@ internal static class Utils {
         bool revisionIdFound = false;
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
             var rev = revsNode.Revisions[i];
-            INodeMeta? resultingMeta;
+            IInnerNodeMeta? resultingMeta;
             if (rev.RevisionId == revisionId) {
                 revisionIdFound = true;
                 if (rev.CultureId != givenMeta!.CultureId) throw new Exception("CultureId cannot be changed with this action. Revision culture: " + rev.CultureId + ", given meta culture: " + givenMeta.CultureId);
                 // we ignore revision type and revision key from given meta
-                resultingMeta = INodeMeta.CopyAndSetRevisionTypeAndKey(givenMeta, rev.RevisionType, rev.RevisionKey);
+                resultingMeta = IInnerNodeMeta.CopyAndSetRevisionTypeAndKey(givenMeta, rev.RevisionType, rev.RevisionKey);
             } else {
-                resultingMeta = INodeMeta.DeriveCombinedMeta(rev.Meta, givenMeta);
+                resultingMeta = IInnerNodeMeta.DeriveCombinedMeta(rev.Meta, givenMeta);
             }
             revs[i] = revsNode.Revisions[i].CopyAndChangeMetaAndRevisionId(resultingMeta, rev.RevisionId);
         }

@@ -48,14 +48,14 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, INodeMeta? meta, Guid revisionId)
+    Properties<object> values, IInnerNodeMeta? meta, Guid revisionId)
     : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
         RevisionId = revisionId;
     }
-    public NodeDataRevision CopyAndChangeMetaAndRevisionId(INodeMeta? newMeta, Guid revisionGuid) {
+    public NodeDataRevision CopyAndChangeMetaAndRevisionId(IInnerNodeMeta? newMeta, Guid revisionGuid) {
         return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
     }
-    public NodeDataRevision CopyAndChangeMeta(INodeMeta? newMeta) {
+    public NodeDataRevision CopyAndChangeMeta(IInnerNodeMeta? newMeta) {
         return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId);
     }
     public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
@@ -99,7 +99,7 @@ public class NodeDataRevisions : INodeDataInner {
     Guid _guid;
     public Guid Id { get => _guid; set => throw new NA(); }
     public Guid NodeType { get; }
-    public INodeMeta? Meta => throw new NA();
+    public IInnerNodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
     public INodeDataInner CopyInner() => CopyRevisions();
