@@ -458,7 +458,7 @@ internal class ActionConverter {
                     var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == sourceRevisionId);
                     if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
-                    int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, revs.Revisions);
+                    int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions);
                     var newMeta = IInnerNodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
@@ -489,7 +489,9 @@ internal class ActionConverter {
                     var revToChange = revs.Revisions[posOfRevToChange];
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to change revision type. ");
                     if (revToChange.RevisionType == a.RevisionType.Value) yield break; // nothing to do if revision type is the same    
-                    var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
+                    Guid cultureId= Guid.Empty;
+                    if(revToChange.Meta != null) cultureId = revToChange.Meta.CultureId;
+                    var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
                     var newMeta = IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
                     var newRevs = revs.Revisions.ToArray();

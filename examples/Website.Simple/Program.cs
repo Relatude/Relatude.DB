@@ -42,41 +42,42 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
     var db = ctx.Database;
     var sw = Stopwatch.StartNew();
     var html = new System.Text.StringBuilder();
-    if (!hasRun) {
-        //hasRun = true;
 
-        var article = db.Create<DemoArticle>();
-        db.Insert(article);
-        var rId = Guid.NewGuid();
-        db.EnableRevisions(article.Id, rId);
-        db.ChangeRevisionCulture(article.Id, rId, "");
-        //var rId2 = Guid.NewGuid();
-        db.CreateRevision(article.Id, rId, RevisionType.Published);
-        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
-        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
-        db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+    var article = db.Create<DemoArticle>();
+    db.Insert(article);
+    var rId = Guid.NewGuid();
+    db.EnableRevisions(article.Id, rId);
+    db.ChangeRevisionCulture(article.Id, rId, "en-US");
+
+    //db.CreateRevision(article.Id, rId, RevisionType.Published);
+    //db.CreateRevision(article.Id, rId, RevisionType.Published);
+    db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+    db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
+    db.CreateRevision(article.Id, rId, RevisionType.Preliminary);
 
 
-        //db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId2);
-        //for (int i = 0; i < 100; i++) {
-        //    var rId3 = Guid.NewGuid();
-        //    db.CreateRevision(article.Id, rId, RevisionType.Preliminary, rId3);
-        //}
-        //db.DisableRevisions(article.Id, rId);
 
-        sw.Stop();
+    sw.Stop();
 
-        var revisions = db.GetRevisions<DemoArticle>(article.Id);
+    var revisions = db.GetRevisions<DemoArticle>(article.Id);
 
-        // creating HTML table of revisions:
-        html.AppendLine("<table><tr><th>Revision ID</th><th>Revision Type</th><th>Culture</th></tr>");
-        foreach (var rev in revisions) {
-            html.AppendLine($"<tr><td>{rev.Meta.RevisionId}</td><td>{rev.Meta.RevisionType}</td><td>{rev.Meta.CultureId}</td></tr>");
-        }
-        html.AppendLine("</table>");
-
+    // creating HTML table of revisions:
+    html.AppendLine("<table><tr>");
+    html.Append($"<th>Revision ID</th>");
+    html.Append($"<th>Revision Type</th>");
+    html.Append($"<th>Culture</th>");
+    html.Append("</tr>");
+    foreach (var rev in revisions) {
+        html.Append($"<tr>");
+        html.Append($"<td>{rev.Meta.RevisionId}</td>");
+        html.Append($"<td>{rev.Meta.RevisionType}</td>");
+        html.Append($"<td>{rev.Meta.CultureId}</td>");
+        html.Append($"<td>{rev.Meta.ChangedUtc}</td>");
+        html.Append($"</tr>");
     }
-    var noObjects = db.Count();//.Query<DemoArticle>().Count();
+    html.AppendLine("</table>");
+
+    var noObjects = db.Count();
     html.AppendLine("<h1>Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0") + "</h1>");
 
     htmlctx.Response.ContentType = "text/html";

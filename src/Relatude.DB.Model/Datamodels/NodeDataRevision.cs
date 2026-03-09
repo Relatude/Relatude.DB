@@ -13,7 +13,13 @@ public enum RevisionType : int {
 }
 public static class RevisionUtil {
 
-    public static int CreateNewRevisionKey(RevisionType keyType, NodeDataRevision[] existingRevs) {
+    public static int CreateNewRevisionKey(RevisionType keyType, Guid cultureId, NodeDataRevision[] existingRevs) {
+        if(keyType == RevisionType.Published) {
+            // ensure there is not already a published revision for the given culture
+            var hasPublishedRevisionForCulture = existingRevs.Any(r => r.RevisionType == RevisionType.Published && r.CultureId == cultureId);
+            if (hasPublishedRevisionForCulture) throw new ArgumentException($"There can only be one published revision for each culture. Culture ID: {cultureId}. ");
+            return 0; // published revision always has key 0
+        }
         var keysOfSameType = existingRevs.Select(r => r.RevisionKey).Where(k => GetRevisionTypeFromKey(k) == keyType).ToArray();
         int newKey = (int)keyType * 10000000; // start of the range for the given revision type
         if (keysOfSameType.Length == 0) return newKey;

@@ -12,7 +12,7 @@ public enum InnerNodeMetaType : byte {
 public struct NodeAndMeta<T> {
     public NodeAndMeta(T node, INodeDataOuter nodeData) {
         Node = node;
-        Meta = new (nodeData);
+        Meta = new(nodeData);
     }
     public T Node { get; }
     public NodeMeta Meta { get; }
@@ -23,13 +23,23 @@ public class NodeMeta {
         InnerMeta = IInnerNodeMeta.Empty;
         DisplayName = string.Empty;
     }
+    public static NodeMeta Empty { get; } = new NodeMeta();
     public NodeMeta(INodeDataOuter node) {
         InnerMeta = node.Meta ?? IInnerNodeMeta.Empty;
         RevisionId = node is NodeDataRevision rev ? rev.RevisionId : Guid.Empty;
+        CreatedUtc = node.CreatedUtc;
+        ChangedUtc = node.ChangedUtc;
+        NodeTypeId = node.NodeType;
         DisplayName = node.ToString()!;
+        Id = node.Id;
+        InternalId = node.__Id;
     }
 
-    public static NodeMeta Empty { get; } = new NodeMeta();
+    public Guid NodeTypeId { get; }
+    public DateTime CreatedUtc { get; }
+    public DateTime ChangedUtc { get; }
+    public int InternalId { get; }
+    public Guid Id { get; }
     public string DisplayName { get; }
     public Guid RevisionId { get; }
 
@@ -114,11 +124,11 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             expireUtc: meta.ExpireUtc
         ));
     }
-    public static IInnerNodeMeta? ChangeRevision(IInnerNodeMeta? meta, int revisionId) {
+    public static IInnerNodeMeta? ChangeRevision(IInnerNodeMeta? meta, int revisionKey) {
         if (meta == null) {
-            if (revisionId == 0) return null; // null and empty are treated as the same, return null to save space
+            if (revisionKey == 0) return null; // null and empty are treated as the same, return null to save space
             return new InnerNodeMetaFull(
-                revisionKey: revisionId,
+                revisionKey: revisionKey,
                 collectionId: Guid.Empty,
                 readAccess: Guid.Empty,
                 editAccess: Guid.Empty,
@@ -133,9 +143,9 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
                 expireUtc: null
             );
         }
-        if (meta.RevisionKey == revisionId) return meta; // no change needed
+        if (meta.RevisionKey == revisionKey) return meta; // no change needed
         return MinimizeIfPossible(new InnerNodeMetaFull(
-            revisionKey: revisionId, // change revision
+            revisionKey: revisionKey, // change revision
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
             editAccess: meta.EditAccess,

@@ -311,6 +311,7 @@ public class NativeModelStore(DataStoreLocal store) {
     void addCulture(INodeData node) {
         var culture = new NativeSystemCulture {
             Id = node.__Id,
+            Guid = node.Id,
             CultureCode = node.TryGetValue(NodeConstants.NativeCulturePropertyCultureCode, out var objCultureCode) ? (string)objCultureCode : string.Empty,
         };
         _cultures.Add(node.__Id, culture);
