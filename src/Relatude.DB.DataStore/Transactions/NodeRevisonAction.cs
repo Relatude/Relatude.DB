@@ -15,6 +15,13 @@ public class NodeRevisionAction : ActionBase {
 
     public static NodeRevisionAction UpdateMeta(IdKey key, Guid revisionId, NodeMeta? meta) // all but revision type and culture can be updated with this action
         => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, meta?.InnerMeta, null, null);
+    public static NodeRevisionAction UpdateMeta(IdKey key, NodeMeta? meta) // all but revision type and culture can be updated with this action
+        => new(NodeRevisionOperation.UpdateMeta, key, null, null, null, meta?.InnerMeta, null, null);
+    public static NodeRevisionAction UpdateMeta(IdKey key, Guid revisionId, KeyValuePair<string, object>[] metaProperties) // all but revision type and culture can be updated with this action
+        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, null, null, null, metaProperties);
+    public static NodeRevisionAction UpdateMeta(IdKey key, KeyValuePair<string, object>[] metaProperties) // all but revision type and culture can be updated with this action
+        => new(NodeRevisionOperation.UpdateMeta, key, null, null, null, null, null, null, metaProperties);
+
     public static NodeRevisionAction DeleteRevision(IdKey key, Guid revisionId)
         => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null, null);
     public static NodeRevisionAction EnableRevisions(IdKey key, Guid? revisionId = null)
@@ -40,7 +47,8 @@ public class NodeRevisionAction : ActionBase {
         Guid? sourceRevisionId,
         IInnerNodeMeta? meta,
         Guid? cultureId,
-        string? cultureCode
+        string? cultureCode,
+        KeyValuePair<string, object>[]? metaProperties = null
         )
         : base(ActionTarget.NodeRevision) {
         Operation = operation;
@@ -51,10 +59,12 @@ public class NodeRevisionAction : ActionBase {
         CultureId = cultureId;
         CultureCode = cultureCode;
         Meta = meta;
+        MetaProperties = metaProperties;
     }
     public NodeRevisionOperation Operation { get; }
     public IdKey NodeIdKey { get; }
     public IInnerNodeMeta? Meta { get; }
+    public KeyValuePair<string, object>[]? MetaProperties { get; } = null;
 
     public Guid? RevisionId { get; }
     public Guid? CultureId { get; }
