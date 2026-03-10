@@ -1,4 +1,5 @@
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
@@ -38,7 +39,7 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
-app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
+app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     try {
         var db = ctx.Database;
         var sw = Stopwatch.StartNew();
@@ -49,7 +50,6 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
         var rId = Guid.NewGuid();
         db.EnableRevisions(article.Id, rId);
         db.ChangeRevisionCulture(article.Id, rId, "en-US");
-        return "OK" + ctx.Database.Count(); 
 
         //db.CreateRevision(article.Id, rId, RevisionType.Published);
         //db.CreateRevision(article.Id, rId, RevisionType.Published);
@@ -66,8 +66,8 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
 
         //db.DisableRevisions(article.Id, r3);
 
-        db.UpdateMeta(article.Id,  nameof(NodeMeta.EditAccess), Guid.NewGuid());
-        //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
+        db.UpdateMeta(article.Id, nameof(NodeMeta.EditAccess), Guid.NewGuid());
+        db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
         //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), false);
 
         sw.Stop();
@@ -96,8 +96,16 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
         var noObjects = db.Count();
         html.AppendLine("<h1>Test completed in " + sw.ElapsedMilliseconds + " ms. Total objects: " + noObjects.ToString("N0") + "</h1>");
 
-        htmlctx.Response.ContentType = "text/html";
+        httpCtx.Response.ContentType = "text/html";
 
+        var dbNone = db.NewContext(ctx.Session.Culture(null));
+        var dbUs = db.NewContext(ctx.Session.Culture("en-US"));
+        var dbNo = db.NewContext(ctx.Session.Culture("no-NO"));
+        var dbFallbacks = db.NewContext(ctx.Session.CultureFallbacks(true).Hidden(true));
+        html .AppendLine("<br/>Count in no culture: " + dbNone.Query<DemoArticle>().Count());
+        html.AppendLine("<br/>Count in en-US: " + dbUs.Query<DemoArticle>().Count());
+        html.AppendLine("<br/>Count in no-NO: " + dbNo.Query<DemoArticle>().Count());
+        html.AppendLine("<br/>Count in fallbacks: " + dbFallbacks.Query<DemoArticle>().Count());
 
 
         return html.ToString();
