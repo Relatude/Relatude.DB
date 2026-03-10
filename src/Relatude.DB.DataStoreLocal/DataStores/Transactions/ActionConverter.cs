@@ -460,6 +460,7 @@ internal class ActionConverter {
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
                     int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions);
                     var newMeta = IInnerNodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
+                    if (a.CultureCode != null && newMeta?.CultureId != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
                     Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);

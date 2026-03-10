@@ -380,7 +380,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (nodeData is NodeDataRevisions revs) {
                 return revs.Revisions;
             } else {
-                throw new Exception("Node data is of unknown type.");
+                throw new Exception("Node does not have revisions enabled. ");
             }
         } finally {
             _lock.ExitReadLock();
