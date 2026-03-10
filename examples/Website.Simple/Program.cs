@@ -49,6 +49,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
         var rId = Guid.NewGuid();
         db.EnableRevisions(article.Id, rId);
         db.ChangeRevisionCulture(article.Id, rId, "en-US");
+        return "OK" + ctx.Database.Count(); 
 
         //db.CreateRevision(article.Id, rId, RevisionType.Published);
         //db.CreateRevision(article.Id, rId, RevisionType.Published);
@@ -62,8 +63,12 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
 
         var r3 = Guid.NewGuid();
         db.CreateRevision(article.Id, rId, RevisionType.AwaitingPublicationApproval, r3, "no-NO");
-        
-        db.DisableRevisions(article.Id, r3);
+
+        //db.DisableRevisions(article.Id, r3);
+
+        db.UpdateMeta(article.Id,  nameof(NodeMeta.EditAccess), Guid.NewGuid());
+        //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
+        //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), false);
 
         sw.Stop();
 
@@ -74,13 +79,16 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext htmlctx) => {
         html.Append($"<th>Revision ID</th>");
         html.Append($"<th>Revision Type</th>");
         html.Append($"<th>Culture</th>");
+        html.Append($"<th>EditAccess UTC</th>");
+        html.Append($"<th>Hidden</th>");
         html.Append("</tr>");
         foreach (var rev in revisions) {
             html.Append($"<tr>");
             html.Append($"<td>{rev.Meta.RevisionId}</td>");
             html.Append($"<td>{rev.Meta.RevisionType}</td>");
             html.Append($"<td>{rev.Meta.CultureId}</td>");
-            html.Append($"<td>{rev.Meta.ChangedUtc}</td>");
+            html.Append($"<td>{rev.Meta.EditAccess}</td>");
+            html.Append($"<td>{rev.Meta.Hidden}</td>");
             html.Append($"</tr>");
         }
         html.AppendLine("</table>");

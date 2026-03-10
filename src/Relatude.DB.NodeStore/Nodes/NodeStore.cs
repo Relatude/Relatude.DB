@@ -233,8 +233,17 @@ public class NodeStore : IDisposable {
     public TransactionResult EnableRevisions(int id, Guid? revisionId = null, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, revisionId), flushToDisk);
     public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
     public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult UpdateMeta(Guid id, Guid revisionId, NodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
-    public TransactionResult UpdateMeta(int id, Guid revisionId, NodeMeta meta, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, meta), flushToDisk);
+
+    public TransactionResult UpdateMeta(Guid id, Guid revisionId, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, metaProperties), flushToDisk);
+    public TransactionResult UpdateMeta(int id, Guid revisionId, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, metaProperties), flushToDisk);
+    public TransactionResult UpdateMeta(Guid id, Guid revisionId, string propertyName, object value, bool flushToDisk = false) => UpdateMeta(id, revisionId, [new(propertyName, value)], flushToDisk);
+    public TransactionResult UpdateMeta(int id, Guid revisionId, string propertyName, object value, bool flushToDisk = false) => UpdateMeta(id, revisionId, [new(propertyName, value)], flushToDisk);
+
+    public TransactionResult UpdateMeta(Guid id, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, metaProperties), flushToDisk);
+    public TransactionResult UpdateMeta(int id, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, metaProperties), flushToDisk);
+    public TransactionResult UpdateMeta(Guid id, string propertyName, object value, bool flushToDisk = false) => UpdateMeta(id, [new(propertyName, value)], flushToDisk);
+    public TransactionResult UpdateMeta(int id, string propertyName, object value, bool flushToDisk = false) => UpdateMeta(id, [new(propertyName, value)], flushToDisk);
+
     public TransactionResult DeleteRevision(Guid id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
     public TransactionResult DeleteRevision(int id, Guid revisionId, bool flushToDisk = false) => Execute(new Transaction(this).DeleteRevision(id, revisionId), flushToDisk);
     public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId = null, Guid? cultureId = null, bool flushToDisk = false)

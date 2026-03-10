@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
 public enum RevisionType : int {
@@ -14,7 +15,7 @@ public enum RevisionType : int {
 public static class RevisionUtil {
 
     public static int CreateNewRevisionKey(RevisionType keyType, Guid cultureId, NodeDataRevision[] existingRevs) {
-        if(keyType == RevisionType.Published) {
+        if (keyType == RevisionType.Published) {
             // ensure there is not already a published revision for the given culture
             var hasPublishedRevisionForCulture = existingRevs.Any(r => r.RevisionType == RevisionType.Published && r.CultureId == cultureId);
             if (hasPublishedRevisionForCulture) throw new ArgumentException($"There can only be one published revision for each culture. Culture ID: {cultureId}. ");
@@ -68,7 +69,11 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public INodeDataOuter CopyOuter() => CopyRevision();
 
     public NodeData CopyAndConvertToNodeData() {
-        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
+        var meta = Meta;
+        if (Meta != null && Meta.RevisionType != RevisionType.Published) {
+            meta = IInnerNodeMeta.ChangeRevision(Meta, 0); // when converting to NodeData, the revision type is always set to Published and revision key to 0, 
+        }
+        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
         return data;
     }
 

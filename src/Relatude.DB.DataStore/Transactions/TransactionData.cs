@@ -79,8 +79,10 @@ public class TransactionData {
     public void EnableRevisions(int nodeId, Guid? revisionId) => Add(NodeRevisionAction.EnableRevisions(new(nodeId), revisionId));
     public void DisableRevisions(Guid nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep));
     public void DisableRevisions(int nodeId, Guid revisionIdToKeep) => Add(NodeRevisionAction.DisableRevisions(new(nodeId), revisionIdToKeep));
-    public void UpdateMeta(Guid nodeId, Guid revisionId, NodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
-    public void UpdateMeta(int nodeId, Guid revisionId, NodeMeta meta) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, meta));
+    public void UpdateMeta(Guid nodeId, Guid revisionId, KeyValuePair<string, object>[] metaProperties) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, metaProperties));
+    public void UpdateMeta(int nodeId, Guid revisionId, KeyValuePair<string, object>[] metaProperties) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), revisionId, metaProperties));
+    public void UpdateMeta(Guid nodeId, KeyValuePair<string, object>[] metaProperties) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), metaProperties));
+    public void UpdateMeta(int nodeId, KeyValuePair<string, object>[] metaProperties) => Add(NodeRevisionAction.UpdateMeta(new(nodeId), metaProperties));
     public void DeleteRevision(Guid nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId));
     public void DeleteRevision(int nodeId, Guid revisionId) => Add(NodeRevisionAction.DeleteRevision(new(nodeId), revisionId));
     public void CreateRevision(Guid nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, Guid? newCultureId) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureId));

@@ -146,7 +146,7 @@ internal static class Utils {
         return orginialMainNode;
 
     }
-    internal static NodeDataRevisions CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(NodeDataRevisions revsNode, IInnerNodeMeta? givenMeta, Guid revisionId) {
+    internal static NodeDataRevisions CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(NodeDataRevisions revsNode, KeyValuePair<string, object>[] metaProperties, Guid? revisionId) {
         // all but revision type and culture can be updated with this action
 
         // updates meta of one revision and copies common meta props to other revs
@@ -155,17 +155,17 @@ internal static class Utils {
         for (int i = 0; i < revsNode.Revisions.Length; i++) {
             var rev = revsNode.Revisions[i];
             IInnerNodeMeta? resultingMeta;
-            if (rev.RevisionId == revisionId) {
+            if (rev.RevisionId == revisionId || revisionId == null) {
                 revisionIdFound = true;
-                if (rev.CultureId != givenMeta!.CultureId) throw new Exception("CultureId cannot be changed with this action. Revision culture: " + rev.CultureId + ", given meta culture: " + givenMeta.CultureId);
                 // we ignore revision type and revision key from given meta
-                resultingMeta = IInnerNodeMeta.CopyAndSetRevisionTypeAndKey(givenMeta, rev.RevisionType, rev.RevisionKey);
+                resultingMeta = IInnerNodeMeta.CopyAndUpdateButNotCultureOrRevision(rev.Meta, metaProperties);
             } else {
-                resultingMeta = IInnerNodeMeta.DeriveCombinedMeta(rev.Meta, givenMeta);
+                var temporaryMeta = IInnerNodeMeta.CopyAndUpdateButNotCultureOrRevision(rev.Meta, metaProperties);
+                resultingMeta = IInnerNodeMeta.DeriveCombinedMeta(rev.Meta, temporaryMeta);
             }
             revs[i] = revsNode.Revisions[i].CopyAndChangeMetaAndRevisionId(resultingMeta, rev.RevisionId);
         }
-        if (!revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
+        if (revisionId != null && !revisionIdFound) throw new ArgumentException($"RevisionId {revisionId} not found in revisions");
         var data = new NodeDataRevisions(revsNode.Id, revsNode.__Id, revsNode.NodeType, revs);
         return data;
     }

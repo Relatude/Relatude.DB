@@ -601,14 +601,27 @@ public partial class Transaction {
         _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
         return this;
     }
-    public Transaction UpdateMeta(Guid nodeId, Guid revisionId, NodeMeta meta) {
-        _transactionData.UpdateMeta(nodeId, revisionId, meta);
+    public Transaction UpdateMeta(Guid nodeId, Guid revisionId, KeyValuePair<string, object>[] metaProperties) {
+        _transactionData.UpdateMeta(nodeId, revisionId, metaProperties);
         return this;
     }
-    public Transaction UpdateMeta(int nodeId, Guid revisionId, NodeMeta meta) {
-        _transactionData.UpdateMeta(nodeId, revisionId, meta);
+    public Transaction UpdateMeta(int nodeId, Guid revisionId, KeyValuePair<string, object>[] metaProperties) {
+        _transactionData.UpdateMeta(nodeId, revisionId, metaProperties);
         return this;
     }
+    public Transaction UpdateMeta(Guid nodeId, KeyValuePair<string, object>[] metaProperties) {
+        _transactionData.UpdateMeta(nodeId, metaProperties);
+        return this;
+    }
+    public Transaction UpdateMeta(int nodeId, KeyValuePair<string, object>[] metaProperties) {
+        _transactionData.UpdateMeta(nodeId, metaProperties);
+        return this;
+    }
+    public Transaction UpdateMeta(Guid id, Guid revisionId, string propertyName, object value) => UpdateMeta(id, revisionId, [new(propertyName, value)]);
+    public Transaction UpdateMeta(int id, Guid revisionId, string propertyName, object value) => UpdateMeta(id, revisionId, [new(propertyName, value)]);
+    public Transaction UpdateMeta(Guid id, string propertyName, object value) => UpdateMeta(id, [new(propertyName, value)]);
+    public Transaction UpdateMeta(int id, string propertyName, object value) => UpdateMeta(id, [new(propertyName, value)]);
+
     public Transaction DeleteRevision(Guid nodeId, Guid revisionId) {
         _transactionData.DeleteRevision(nodeId, revisionId);
         return this;

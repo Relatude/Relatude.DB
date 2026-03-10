@@ -160,6 +160,28 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             expireUtc: meta.ExpireUtc
         ));
     }
+    public static InnerNodeMetaFull CopyToFull(IInnerNodeMeta? meta) {
+        if (meta == null) meta = Empty;
+        return new InnerNodeMetaFull(
+            revisionKey: meta.RevisionKey,
+            collectionId: meta.CollectionId,
+            readAccess: meta.ReadAccess,
+            editAccess: meta.EditAccess,
+            editViewAccess: meta.EditViewAccess,
+            publishAccess: meta.PublishAccess,
+            deleted: meta.Deleted,
+            hidden: meta.Hidden,
+            createdBy: meta.CreatedBy,
+            changedBy: meta.ChangedBy,
+            cultureId: meta.CultureId,
+            releaseUtc: meta.ReleaseUtc,
+            expireUtc: meta.ExpireUtc
+        );
+    }
+
+    public static IInnerNodeMeta? CopyAndUpdateButNotCultureOrRevision(IInnerNodeMeta? meta, KeyValuePair<string, object>[] kvp) {
+        return MinimizeIfPossible(CopyToFull(meta).UpdateButNotCultureOrRevision(kvp));
+    }
 
     public static IInnerNodeMeta? DeriveCombinedMeta(IInnerNodeMeta? original, IInnerNodeMeta? newRev) {
         if (original == null && newRev == null) return null;
@@ -351,9 +373,9 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
         );
         return meta;
     }
-    public static IInnerNodeMeta? CopyAndSetRevisionTypeAndKey(IInnerNodeMeta meta, RevisionType revisionType, int revisionKey) {
+    public static IInnerNodeMeta? CopyAndSetCulture(IInnerNodeMeta meta, Guid cultureId) {
         return MinimizeIfPossible(new InnerNodeMetaFull(
-            revisionKey: revisionKey,
+            revisionKey: meta.RevisionKey,
             collectionId: meta.CollectionId,
             readAccess: meta.ReadAccess,
             editAccess: meta.EditAccess,
@@ -363,7 +385,7 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             hidden: meta.Hidden,
             createdBy: meta.CreatedBy,
             changedBy: meta.ChangedBy,
-            cultureId: meta.CultureId,
+            cultureId: cultureId, // change culture
             releaseUtc: meta.ReleaseUtc,
             expireUtc: meta.ExpireUtc
         ));
@@ -430,22 +452,45 @@ public class InnerNodeMetaMin : IInnerNodeMeta {
     }
 }
 public class InnerNodeMetaFull : IInnerNodeMeta {
-    public int RevisionKey { get; }
-    public RevisionType RevisionType { get; }
-    public Guid CollectionId { get; }
-    public Guid ReadAccess { get; }
-    public Guid EditAccess { get; }
-    public Guid EditViewAccess { get; }
-    public Guid PublishAccess { get; }
-    public bool Deleted { get; }
-    public bool Hidden { get; }
+    internal IInnerNodeMeta? UpdateButNotCultureOrRevision(KeyValuePair<string, object>[] propertyValues) {
+        foreach (var kvp in propertyValues) {
+            var propertyName = kvp.Key;
+            var value = kvp.Value;
+            switch (propertyName) {
+                case nameof(IInnerNodeMeta.RevisionKey): throw new ArgumentException("Cannot update RevisionKey using this method.");
+                case nameof(IInnerNodeMeta.CollectionId): CollectionId = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.ReadAccess): ReadAccess = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.EditAccess): EditAccess = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.EditViewAccess): EditViewAccess = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.PublishAccess): PublishAccess = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.Deleted): Deleted = (bool)value!; break;
+                case nameof(IInnerNodeMeta.Hidden): Hidden = (bool)value!; break;
+                case nameof(IInnerNodeMeta.CreatedBy): CreatedBy = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.ChangedBy): ChangedBy = (Guid)value!; break;
+                case nameof(IInnerNodeMeta.CultureId): throw new ArgumentException("Cannot update CultureId using this method.");
+                case nameof(IInnerNodeMeta.ReleaseUtc): ReleaseUtc = (DateTime?)value; break;
+                case nameof(IInnerNodeMeta.ExpireUtc): ExpireUtc = (DateTime?)value; break;
+                default: throw new Exception($"Unknown property name: {propertyName}");
+            }
+        }
+        return this;
+    }
+    public int RevisionKey { get; private set; }
+    public RevisionType RevisionType { get; private set; }
+    public Guid CollectionId { get; private set; }
+    public Guid ReadAccess { get; private set; }
+    public Guid EditAccess { get; private set; }
+    public Guid EditViewAccess { get; private set; }
+    public Guid PublishAccess { get; private set; }
+    public bool Deleted { get; private set; }
+    public bool Hidden { get; private set; }
 
-    public Guid CreatedBy { get; } // specific
-    public Guid ChangedBy { get; } // specific
-    public Guid CultureId { get; } // specific
+    public Guid CreatedBy { get; private set; } // specific
+    public Guid ChangedBy { get; private set; } // specific
+    public Guid CultureId { get; private set; } // specific
 
-    public DateTime? ReleaseUtc { get; } // specific
-    public DateTime? ExpireUtc { get; } // specific
+    public DateTime? ReleaseUtc { get; private set; } // specific
+    public DateTime? ExpireUtc { get; private set; } // specific
 
     public InnerNodeMetaFull(int revisionKey, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
         RevisionKey = revisionKey;

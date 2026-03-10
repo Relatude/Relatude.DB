@@ -412,19 +412,8 @@ internal class ActionConverter {
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     } else if (existingNode is NodeData) {
                         if (!forgivingRevisionActions) throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
-                    }
-                }
-                break;
-            case NodeRevisionOperation.UpdateMeta: {  // changes all in meta except, culture, revision type/key. Also copy culture insensitive values to other props where relevant
-                    if (existingNode is NodeDataRevisions revsNode) {
-                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                        if (a.RevisionId == null) throw new Exception("RevisionId must be given to update meta of a revision, to determine which revision to update. ");
-                        var newNode = Utils.CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(revsNode, a.Meta, a.RevisionId.Value);
-                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
-                    } else if (existingNode is NodeData nd) {
-                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                        var newNode = nd.CopyAndChangeMeta(a.Meta);
-                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    } else {
+                        if (!forgivingRevisionActions) throw new Exception("Unexpected node data type for node with id " + a.NodeIdKey + " when disabling revisions. ");
                     }
                 }
                 break;
@@ -490,8 +479,8 @@ internal class ActionConverter {
                     var revToChange = revs.Revisions[posOfRevToChange];
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to change revision type. ");
                     if (revToChange.RevisionType == a.RevisionType.Value) yield break; // nothing to do if revision type is the same    
-                    Guid cultureId= Guid.Empty;
-                    if(revToChange.Meta != null) cultureId = revToChange.Meta.CultureId;
+                    Guid cultureId = Guid.Empty;
+                    if (revToChange.Meta != null) cultureId = revToChange.Meta.CultureId;
                     var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
                     var newMeta = IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
@@ -534,6 +523,21 @@ internal class ActionConverter {
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                }
+                break;
+            case NodeRevisionOperation.UpdateMeta: {  // changes all in meta except, culture, revision type/key. Also copy culture insensitive values to other props where relevant
+                    if (a.MetaProperties == null) throw new Exception("MetaProperties must be given to update meta. ");
+                    if (existingNode is NodeDataRevisions revsNode) {
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        var newNode = Utils.CopyRevisionNodeAndChangeMetaNotRevisionTypeOrCulture(revsNode, a.MetaProperties, a.RevisionId);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    } else if (existingNode is NodeData nd) {
+                        var meta = existingNode.Meta;
+                        meta = IInnerNodeMeta.CopyAndUpdateButNotCultureOrRevision(existingNode.Meta, a.MetaProperties);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        var newNode = nd.CopyAndChangeMeta(meta);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    }
                 }
                 break;
             default:

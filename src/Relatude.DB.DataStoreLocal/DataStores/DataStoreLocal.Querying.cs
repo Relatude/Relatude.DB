@@ -379,8 +379,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             var nodeData = _nodes.Get(_guids.GetId(nodeId), out _);
             if (nodeData is NodeDataRevisions revs) {
                 return revs.Revisions;
-            } else {
-                throw new Exception("Node does not have revisions enabled. ");
+            } else if (nodeData is NodeData nd) {
+                return [nd.CopyAndConvertToNodeDataRevision(nd.Meta, Guid.Empty)];
+            } else { 
+                throw new Exception("Unexpected node data type");
             }
         } finally {
             _lock.ExitReadLock();

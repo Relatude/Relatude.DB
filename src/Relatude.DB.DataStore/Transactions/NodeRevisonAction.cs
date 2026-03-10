@@ -13,14 +13,10 @@ public enum NodeRevisionOperation : byte {
 }
 public class NodeRevisionAction : ActionBase {
 
-    public static NodeRevisionAction UpdateMeta(IdKey key, Guid revisionId, NodeMeta? meta) // all but revision type and culture can be updated with this action
-        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, meta?.InnerMeta, null, null);
-    public static NodeRevisionAction UpdateMeta(IdKey key, NodeMeta? meta) // all but revision type and culture can be updated with this action
-        => new(NodeRevisionOperation.UpdateMeta, key, null, null, null, meta?.InnerMeta, null, null);
     public static NodeRevisionAction UpdateMeta(IdKey key, Guid revisionId, KeyValuePair<string, object>[] metaProperties) // all but revision type and culture can be updated with this action
-        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, null, null, null, metaProperties);
+        => new(NodeRevisionOperation.UpdateMeta, key, revisionId, null, null, null,  null, metaProperties);
     public static NodeRevisionAction UpdateMeta(IdKey key, KeyValuePair<string, object>[] metaProperties) // all but revision type and culture can be updated with this action
-        => new(NodeRevisionOperation.UpdateMeta, key, null, null, null, null, null, null, metaProperties);
+        => new(NodeRevisionOperation.UpdateMeta, key, null, null, null, null, null, metaProperties);
 
     public static NodeRevisionAction DeleteRevision(IdKey key, Guid revisionId)
         => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null, null);
@@ -29,15 +25,15 @@ public class NodeRevisionAction : ActionBase {
     public static NodeRevisionAction DisableRevisions(IdKey key, Guid revisionIdToKeep)
         => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null, null);
     public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, Guid? cultureId)
-        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, cultureId, null);
+        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, cultureId, null, null);
     public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? cultureCode)
-        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, null, cultureCode);
+        => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, null, cultureCode, null);
     public static NodeRevisionAction ChangeRevisionType(IdKey key, Guid revisionId, RevisionType newRevisionType)
         => new(NodeRevisionOperation.ChangeRevisionType, key, revisionId, newRevisionType, null, null, null, null);
     public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, Guid newCultureId)
-        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, newCultureId, null);
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, newCultureId, null, null);
     public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, string? newCultureCode)
-        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, null, newCultureCode);
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, newCultureCode, null);
 
     private NodeRevisionAction(
         NodeRevisionOperation operation,
@@ -45,10 +41,9 @@ public class NodeRevisionAction : ActionBase {
         Guid? revisionId,
         RevisionType? revisionType,
         Guid? sourceRevisionId,
-        IInnerNodeMeta? meta,
         Guid? cultureId,
         string? cultureCode,
-        KeyValuePair<string, object>[]? metaProperties = null
+        KeyValuePair<string, object>[]? metaProperties
         )
         : base(ActionTarget.NodeRevision) {
         Operation = operation;
@@ -58,12 +53,10 @@ public class NodeRevisionAction : ActionBase {
         SourceRevisionId = sourceRevisionId;
         CultureId = cultureId;
         CultureCode = cultureCode;
-        Meta = meta;
         MetaProperties = metaProperties;
     }
     public NodeRevisionOperation Operation { get; }
     public IdKey NodeIdKey { get; }
-    public IInnerNodeMeta? Meta { get; }
     public KeyValuePair<string, object>[]? MetaProperties { get; } = null;
 
     public Guid? RevisionId { get; }
