@@ -194,7 +194,8 @@ internal class NodeTypesByIds {
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
     }
-    bool isReleased(DateTime nowUtc, IInnerNodeMeta meta) {
+    bool isReleased(DateTime nowUtc, IInnerNodeMeta? meta) {
+        if (meta == null) return true;
         if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) return false;
         if (meta.ExpireUtc.HasValue && nowUtc >= meta.ExpireUtc.Value) return false;
         return true;
@@ -225,7 +226,10 @@ internal class NodeTypesByIds {
                 return false;
         }
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
+
+        if (ctx.OnlyWithCulture && meta.CultureId == Guid.Empty) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
+
         if (!ctx.IncludeUnpublished) {
             if (!isReleased(nowUtc, meta)) return false;
         }
@@ -375,10 +379,22 @@ internal class NodeTypesByIds {
         // then any published revision with fallback culture
         if (ctxKey.IncludeCultureFallback) {
             var match = ndr.Revisions
-                .Where(r => r.RevisionType == RevisionType.Published && isReleased(nowUtc, r.Meta!))
+                .Where(r => r.RevisionType == RevisionType.Published && isReleased(nowUtc, r.Meta))
                 .OrderBy(r => _definition.GetCulturePriority(r.Meta!.CultureId, r.Meta!.CollectionId))
                 .FirstOrDefault();
-            if (match != null) return match;
+            if (match != null) 
+                return match;
+        }
+
+        if (!ctxKey.OnlyWithCulture) { // fallback to any published revision without culture ( invariant culture )
+            var match = ndr.Revisions
+                .FirstOrDefault(r => 
+                    r.RevisionType == RevisionType.Published 
+                    && isReleased(nowUtc, r.Meta)
+                    && (r.Meta == null || r.Meta.CultureId == Guid.Empty)
+                );
+            if (match != null) 
+                return match;
         }
 
         throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);

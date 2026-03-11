@@ -14,6 +14,7 @@ public class QueryContext {
     public Guid UserId { get; private set; }
     public string? CultureCode { get; private set; }
     public bool IncludeDeleted { get; private set; } = false;
+    public bool OnlyWithCulture { get; private set; } = false;
     public bool IncludeCultureFallback { get; private set; } = false;
     public bool IncludeUnpublished { get; private set; } = false;
     public bool EditView { get; private set; } = false;
@@ -227,6 +228,12 @@ public class QueryContext {
         copy.IncludeCultureFallback = includeCultureFallback;
         return copy;
     }
+    public QueryContext RequireCulture(bool excludeNoCulture = true) {
+        if (this.OnlyWithCulture == excludeNoCulture) return this;
+        var copy = this.copy();
+        copy.OnlyWithCulture = excludeNoCulture;
+        return copy;
+    }
     public override string ToString() {
         var s = $"User:{UserId} ";
         if (CultureCode != null) s += $"Culture:{CultureCode} ";
@@ -245,6 +252,7 @@ public class QueryContext {
 public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;
     public readonly bool IncludeCultureFallback;  // requires evaluating multiple versions
+    public readonly bool OnlyWithCulture;
     public readonly bool IncludeUnpublished;  // requires evaluating multiple versions
     public readonly bool EditView;
     public readonly bool IncludeHidden;
@@ -269,6 +277,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         Guid[]? membershipIds,
         bool includeDeleted,
         bool includeCultureFallback,
+        bool onlyWithCulture,
         bool includeUnpublished,
         bool editView,
         bool includeHidden,
@@ -280,6 +289,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         CollectionIds = collectionIds;
         IncludeDeleted = includeDeleted;
         IncludeCultureFallback = includeCultureFallback;
+        OnlyWithCulture = onlyWithCulture;
         IncludeUnpublished = includeUnpublished;
         IncludeHidden = includeHidden;
         ExcludeDecendants = excludeDecendants;
@@ -294,6 +304,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         //hash.Add(CultureId);
         //hash.Add(IncludeDeleted);
         //hash.Add(IncludeCultureFallback);
+        //hash.Add(OnlyWithCulture);
         //hash.Add(IncludeUnpublished);
         //hash.Add(EditView);
         //hash.Add(IncludeHidden);
@@ -319,6 +330,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         int hash = CultureId.GetHashCode();
         hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
         hash = (hash * 397) ^ IncludeCultureFallback.GetHashCode();
+        hash = (hash * 397) ^ OnlyWithCulture.GetHashCode();
         hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
         hash = (hash * 397) ^ EditView.GetHashCode();
         hash = (hash * 397) ^ IncludeHidden.GetHashCode();
@@ -356,6 +368,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         return CultureId == other.CultureId
             && IncludeDeleted == other.IncludeDeleted
             && IncludeCultureFallback == other.IncludeCultureFallback
+            && OnlyWithCulture == other.OnlyWithCulture
             && IncludeUnpublished == other.IncludeUnpublished
             && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden

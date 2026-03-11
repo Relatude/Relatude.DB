@@ -368,6 +368,7 @@ public class NativeModelStore(DataStoreLocal store) {
             membershipIds: membershipIds,
             includeDeleted: ctx.IncludeDeleted,
             includeCultureFallback: ctx.IncludeCultureFallback,
+            onlyWithCulture: ctx.OnlyWithCulture,
             includeUnpublished: ctx.IncludeUnpublished,
             editView: ctx.EditView,
             includeHidden: ctx.IncludeHidden,

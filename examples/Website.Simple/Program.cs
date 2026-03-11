@@ -39,6 +39,20 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
+app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
+    var db = ctx.Database;
+    var html = new System.Text.StringBuilder();
+
+    db.Insert(new DemoArticle() {
+        Title = "Norwegian article",
+    }, out var id);
+    db.EnableRevisions(id, out var rid);
+    db.ChangeRevisionCulture(id, rid, "no-NO");
+
+    html.AppendLine("<h1>Article created with no culture, then culture set to no-NO</h1>");
+
+    return html.ToString();
+});
 app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     try {
         var db = ctx.Database;
