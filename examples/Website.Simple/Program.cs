@@ -133,6 +133,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
         var dbUs = ctx.Database.Context.Culture("en-US").Create();
         var dbNo = ctx.Database.Context.Culture("no-NO").Create();
         var dbFallbacks = ctx.Database.Context.CultureFallbacks(true).Hidden(true).Create();
+
         html.AppendLine("<br/>Count in no culture: " + dbNone.Query<DemoArticle>().Count());
         html.AppendLine("<br/>Count in en-US: " + dbUs.Query<DemoArticle>().Count());
         html.AppendLine("<br/>Count in no-NO: " + dbNo.Query<DemoArticle>().Count());
