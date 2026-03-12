@@ -29,10 +29,19 @@ namespace Relatude.DB.Nodes;
 //    ReIndex, // triggers a re-index of the node, ignored if the node does not exist
 //}
 
+public class DbContext(NodeStore store) {
+    public DbContext Culture(string? cultureCode) => change(store.QueryContext.Culture(cultureCode));
+    public DbContext Hidden(bool includeHidden = true) => change(store.QueryContext.Hidden(includeHidden));
+    public DbContext CultureFallbacks(bool includeFallbacks = true) => change(store.QueryContext.CultureFallbacks(includeFallbacks));
+    public DbContext Admin() => change(store.QueryContext.Admin());
+    DbContext change(QueryContext queryContext) => new DbContext(store.NewContext(queryContext));
+    public NodeStore Create() => store;
+}
 public class NodeStore : IDisposable {
 
     public readonly IDataStore Datastore;
-    public QueryContext QueryContext => Datastore.QueryContext;
+    public DbContext Context => new DbContext(this);
+    internal QueryContext QueryContext => Datastore.QueryContext;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
     internal readonly List<INodeTransactionPlugin> TransactionPlugins;
@@ -47,9 +56,6 @@ public class NodeStore : IDisposable {
     }
 
     public NodeStore NewContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
-    }
-    public NodeStoreContextCreator NewContext() {
         return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
     }
 
