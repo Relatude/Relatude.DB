@@ -1,6 +1,6 @@
 ﻿public class SettingsLocal {
 
-    public string? DefaultCultureCode { get; set; }
+    public string? DefaultCultureCode { get; set; } = null;  // culture code if culture ID is Guid.Empty or Null
 
     public string? FilePrefix { get; set; }
 

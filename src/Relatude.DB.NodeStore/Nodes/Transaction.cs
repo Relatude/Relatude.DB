@@ -715,36 +715,36 @@ public partial class Transaction {
         if (property is not RelationPropertyModel relationProperty) throw new Exception("Only relation properties accepted. ");
         return relationProperty;
     }
-    public Transaction Insert(IEnumerable<object> nodes, bool ignoreRelated = false) => InsertOrFail(nodes, ignoreRelated);
-    public Transaction Insert(object node, bool ignoreRelated = false) => InsertOrFail(node, out _, ignoreRelated);
-    public Transaction Insert(object node, out Guid id, bool ignoreRelated = false) => InsertOrFail(node, out id, ignoreRelated);
-    public Transaction InsertOrFail(IEnumerable<object> nodes, bool ignoreRelated = false) {
-        foreach (var n in nodes) InsertOrFail(n, ignoreRelated);
+    public Transaction Insert(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) => InsertOrFail(nodes, cultureCode, revisionType, ignoreRelated);
+    public Transaction Insert(object node, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) => InsertOrFail(node, out _, cultureCode, revisionType, ignoreRelated);
+    public Transaction Insert(object node, out Guid id, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) => InsertOrFail(node, out id, cultureCode, revisionType, ignoreRelated);
+    public Transaction InsertOrFail(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        foreach (var n in nodes) InsertOrFail(n, cultureCode, revisionType, ignoreRelated);
         return this;
     }
-    public Transaction InsertOrFail(object node, bool ignoreRelated = false) {
-        return InsertOrFail(node, out _, ignoreRelated);
+    public Transaction InsertOrFail(object node, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        return InsertOrFail(node, out _, cultureCode, revisionType, ignoreRelated);
     }
-    public Transaction InsertOrFail(object node, out Guid id, bool ignoreRelated = false) {
-        return _insertOrFail(node, out id, ignoreRelated);
+    public Transaction InsertOrFail(object node, out Guid id, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        return _insertOrFail(node, out id, ignoreRelated, null, cultureCode, revisionType);
     }
-    public Transaction InsertIfNotExists(IEnumerable<object> nodes, bool ignoreRelated = false) {
-        foreach (var n in nodes) InsertIfNotExists(n, ignoreRelated);
+    public Transaction InsertIfNotExists(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        foreach (var n in nodes) InsertIfNotExists(n, cultureCode, revisionType, ignoreRelated);
         return this;
     }
-    public Transaction InsertIfNotExists(object node, bool ignoreRelated = false) {
-        return InsertIfNotExists(node, out _, ignoreRelated);
+    public Transaction InsertIfNotExists(object node, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        return InsertIfNotExists(node, out _, cultureCode, revisionType, ignoreRelated);
     }
-    public Transaction InsertIfNotExists(object node, out Guid id, bool ignoreRelated = false) {
-        return _insertIfNotExists(node, out id, ignoreRelated, []); // when last parameter is not null, it will force InsertIfNotExists
+    public Transaction InsertIfNotExists(object node, out Guid id, string? cultureCode = null, RevisionType? revisionType = null, bool ignoreRelated = false) {
+        return _insertIfNotExists(node, out id, ignoreRelated, [], cultureCode, revisionType); // when last parameter is not null, it will force InsertIfNotExists
     }
-    private Transaction _insertOrFail(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted = null) {
-        return _insert(node, out id, ignoreRelated, inserted, false);
+    private Transaction _insertOrFail(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted, string? cultureCode, RevisionType? revisionType) {
+        return _insert(node, out id, ignoreRelated, inserted, false, cultureCode, revisionType);
     }
-    private Transaction _insertIfNotExists(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted = null) {
-        return _insert(node, out id, ignoreRelated, inserted, true);
+    private Transaction _insertIfNotExists(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted, string? cultureCode, RevisionType? revisionType) {
+        return _insert(node, out id, ignoreRelated, inserted, true, cultureCode, revisionType);
     }
-    private Transaction _insert(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted, bool insertIfNotExists) {
+    private Transaction _insert(object node, out Guid id, bool ignoreRelated, Dictionary<object, Guid>? inserted, bool insertIfNotExists, string? cultureCode, RevisionType? revisionType) {
         // // when last parameter (inserted) is not null, it will force InsertIfNotExists
         if (inserted != null && inserted.TryGetValue(node, out id)) return this;
 
@@ -754,23 +754,23 @@ public partial class Transaction {
         id = nodeData.Id;
         if (inserted == null) { // root node, insert or fail depending on insertIfNotExists flag
             if (insertIfNotExists) {
-                _transactionData.InsertIfNotExists(nodeData);
+                _transactionData.InsertIfNotExists(nodeData, cultureCode, revisionType);
             } else {
-                _transactionData.InsertOrFail(nodeData);
+                _transactionData.InsertOrFail(nodeData, cultureCode, revisionType);
             }
         } else {  // any child node is InsertIfNotExists as children are always only added if new
-            _transactionData.InsertIfNotExists(nodeData);
+            _transactionData.InsertIfNotExists(nodeData, cultureCode, revisionType);
         }
         if (related == null) return this; // means ignoreRelated was true or no related found
         inserted ??= [];
         inserted.Add(node, id);
         foreach (var single in related.Singles) {
-            _insertOrFail(single.To, out var idTo, ignoreRelated, inserted);
+            _insertOrFail(single.To, out var idTo, ignoreRelated, inserted, cultureCode, revisionType);
             SetRelation(id, single.PropertyId, idTo);
         }
         foreach (var multiple in related.Multiples) {
             foreach (var to in multiple.Tos) {
-                _insertOrFail(to, out var idTo, ignoreRelated, inserted);
+                _insertOrFail(to, out var idTo, ignoreRelated, inserted, cultureCode, revisionType);
                 SetRelation(id, multiple.PropertyId, idTo);
             }
         }

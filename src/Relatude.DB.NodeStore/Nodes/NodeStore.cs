@@ -30,13 +30,13 @@ namespace Relatude.DB.Nodes;
 //}
 
 public class NodeStore : IDisposable {
-    public NodeStore NewContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore));
-    }
+
     public readonly IDataStore Datastore;
+    public QueryContext QueryContext => Datastore.QueryContext;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
-    internal readonly List<INodeTransactionPlugin> TransactionPlugins = new();
+    internal readonly List<INodeTransactionPlugin> TransactionPlugins;
+
     public void RegisterTransactionPlugin(INodeTransactionPlugin plugin) {
         if (plugin == null) throw new ArgumentNullException(nameof(plugin));
         if (Datastore.State == DataStoreState.Open) {
@@ -44,6 +44,19 @@ public class NodeStore : IDisposable {
         }
         TransactionPlugins.Add(plugin);
         plugin.Store = this;
+    }
+
+    public NodeStore NewContext(QueryContext ctx) {
+        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
+    }
+    public NodeStoreContextCreator NewContext() {
+        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
+    }
+
+    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins) {
+        Datastore = datastore;
+        Mapper = mapper;
+        TransactionPlugins = plugins;
     }
     public NodeStore(IDataStore datastore) {
         Datastore = datastore;
@@ -101,20 +114,33 @@ public class NodeStore : IDisposable {
         return Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
 
-    public TransactionResult Insert(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
-    public TransactionResult Insert(object node, out Guid id, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(node, out id, ignoreRelated), flushToDisk);
-    public TransactionResult Insert(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult InsertOrFail(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
-    public TransactionResult InsertOrFail(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
-    public TransactionResult InsertIfNotExists(object node, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
-    public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => Execute(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).Insert(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(object node, out Guid id, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).Insert(node, out id, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult Insert(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).Insert(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).InsertOrFail(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult InsertOrFail(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).InsertOrFail(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).InsertIfNotExists(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this).InsertIfNotExists(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
 
-    public Task<TransactionResult> InsertAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).Insert(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).Insert(nodes, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertOrFailAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertOrFail(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertOrFailAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertOrFail(nodes, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertIfNotExistsAsync(object node, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(node, ignoreRelated), flushToDisk);
-    public Task<TransactionResult> InsertIfNotExistsAsync(IEnumerable<object> nodes, bool flushToDisk = false, bool ignoreRelated = false) => ExecuteAsync(new Transaction(this).InsertIfNotExists(nodes, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertAsync(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).Insert(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).Insert(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).InsertOrFail(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertOrFailAsync(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).InsertOrFail(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).InsertIfNotExists(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> InsertIfNotExistsAsync(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this).InsertIfNotExists(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
 
     public TransactionResult Update(object node, bool flushToDisk = false) => Execute(new Transaction(this).Update(node), flushToDisk);
     public TransactionResult Update<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).Update(nodes), flushToDisk);

@@ -14,7 +14,7 @@ public interface IDataStore : IDisposable {
     // Exposed and access controlled
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
-
+    QueryContext QueryContext { get; }
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);

@@ -18,14 +18,30 @@ public class TransactionData {
 
     public void Add(ActionBase action) => Actions.Add(action);
 
-    //public void RemoveCulture(Guid nodeGuid, int lcid) => Add(NodeAction.RemoveCulture(nodeGuid, lcid));
-    public void InsertOrFail(INodeDataOuter node) => Add(NodeAction.InsertOrFail(node));
-    public void InsertIfNotExists(INodeDataOuter node) => Add(NodeAction.InsertIfNotExists(node));
+    void ensureCultureAndRevision(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+        if (cultureCode != null) ChangeRevisionCulture(node.Id, cultureCode);
+        if (revisionType != null && revisionType != RevisionType.Published) {
+            var revisionId = Guid.NewGuid();
+            EnableRevisions(node.Id, revisionId);
+            ChangeRevisionType(node.Id, revisionId, revisionType.Value);
+        }
+    }
+    public void InsertOrFail(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+        Add(NodeAction.InsertOrFail(node));
+        ensureCultureAndRevision(node, cultureCode, revisionType);
+    }
+    public void InsertIfNotExists(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+        Add(NodeAction.InsertIfNotExists(node));
+        ensureCultureAndRevision(node, cultureCode, revisionType);
+    }
     public void ForceUpdateNode(INodeDataOuter node) => Add(NodeAction.ForceUpdate(node));
     public void UpdateIfExists(INodeDataOuter node) => Add(NodeAction.UpdateIfExists(node));
     public void UpdateOrFail(INodeDataOuter node) => Add(NodeAction.UpdateOrFail(node));
     public void ForceUpsert(INodeDataOuter node) => Add(NodeAction.ForceUpsert(node));
-    public void Upsert(INodeDataOuter node) => Add(NodeAction.Upsert(node));
+
+    public void Upsert(INodeDataOuter node) {
+        Add(NodeAction.Upsert(node));
+    }
 
     public void DeleteOrFail(int nodeId) => Add(NodeAction.DeleteOrFail(nodeId));
     public void DeleteOrFail(Guid nodeGuid) => Add(NodeAction.DeleteOrFail(nodeGuid));
@@ -91,6 +107,10 @@ public class TransactionData {
     public void CreateRevision(int nodeId, Guid sourceRevisionId, RevisionType revisionType, Guid? revisionId, string? newCultureCode) => Add(NodeRevisionAction.CreateRevision(new(nodeId), sourceRevisionId, revisionType, revisionId, newCultureCode));
     public void ChangeRevisionType(Guid nodeId, Guid revisionId, RevisionType newRevisionType) => Add(NodeRevisionAction.ChangeRevisionType(new(nodeId), revisionId, newRevisionType));
     public void ChangeRevisionType(int nodeId, Guid revisionId, RevisionType newRevisionType) => Add(NodeRevisionAction.ChangeRevisionType(new(nodeId), revisionId, newRevisionType));
+    public void ChangeRevisionCulture(Guid nodeId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), newCultureId));
+    public void ChangeRevisionCulture(int nodeId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), newCultureId));
+    public void ChangeRevisionCulture(Guid nodeId, string? newCultureCode) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), newCultureCode));
+    public void ChangeRevisionCulture(int nodeId, string? newCultureCode) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), newCultureCode));
     public void ChangeRevisionCulture(Guid nodeId, Guid revisionId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), revisionId, newCultureId));
     public void ChangeRevisionCulture(int nodeId, Guid revisionId, Guid newCultureId) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), revisionId, newCultureId));
     public void ChangeRevisionCulture(Guid nodeId, Guid revisionId, string? newCultureCode) => Add(NodeRevisionAction.ChangeRevisionCulture(new(nodeId), revisionId, newCultureCode));

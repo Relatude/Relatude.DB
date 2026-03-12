@@ -25,12 +25,21 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
     ctx.Database.DeleteMany<DemoArticle>();
+    var ctxNew= ctx.Database.QueryContext.Culture("en-US");
+    var db2 = ctx.Database.NewContext(ctxNew);
+
 
 });
+
+
+
+
 
 bool hasRun = false;
 app.MapGet("/cult", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
+
+    
     var culture = db.Create<ISystemCulture>();
     culture.CultureCode = "en-US";
     db.Insert(culture);
@@ -39,14 +48,27 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
-app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
-    var db = ctx.Database;
+app.MapGet("/Test2", (RelatudeDBContext dbCtx, HttpContext httpCtx) => {
+
+    
+    
+
+    var db = dbCtx.Database;
+
+
+    //var db = dbCtx.Database.NewContext(dbCtx.RequestQueryContext.Culture("en-US"));
+
     var html = new System.Text.StringBuilder();
 
     db.Insert(new DemoArticle() {
         Title = "Norwegian article",
-    }, out var id);
+    }, out var id, "no-NO", RevisionType.Preliminary);    
+
+
+    db.UpdateMeta(id, nameof(NodeMeta.CultureId), Guid.Empty);
+
     db.EnableRevisions(id, out var rid);
+    
     db.ChangeRevisionCulture(id, rid, "no-NO");
 
     html.AppendLine("<h1>Article created with no culture, then culture set to no-NO</h1>");

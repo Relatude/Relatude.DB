@@ -34,7 +34,10 @@ public class NodeRevisionAction : ActionBase {
         => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, newCultureId, null, null);
     public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid revisionId, string? newCultureCode)
         => new(NodeRevisionOperation.ChangeRevisionCulture, key, revisionId, null, null, null, newCultureCode, null);
-
+    public static NodeRevisionAction ChangeRevisionCulture(IdKey key, Guid newCultureId)
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, null, null, null, newCultureId, null, null);
+    public static NodeRevisionAction ChangeRevisionCulture(IdKey key, string? newCultureCode)
+        => new(NodeRevisionOperation.ChangeRevisionCulture, key, null, null, null, null, newCultureCode, null);
     private NodeRevisionAction(
         NodeRevisionOperation operation,
         IdKey idKey,

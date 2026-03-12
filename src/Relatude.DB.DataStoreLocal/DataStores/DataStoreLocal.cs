@@ -138,6 +138,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
+    public QueryContext QueryContext => _defaultQueryCtx;
     void validateDatabaseState() {
         if (_state != Common.DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
     }
