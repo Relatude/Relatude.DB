@@ -54,13 +54,13 @@ public class RelatudeDBTester : ITester {
     public void CreateSchema() {
     }
     public void InsertUsers(TestUser[] users) {
-        var result = _store.Insert(users, _flushEveryTrans, true);
+        var result = _store.Insert(users, flushToDisk: _flushEveryTrans, ignoreRelated: true);
     }
     public void InsertCompanies(TestCompany[] companies) {
-        _store.Insert(companies, _flushEveryTrans, true);
+        _store.Insert(companies, flushToDisk: _flushEveryTrans, ignoreRelated: true);
     }
     public void InsertDocuments(TestDocument[] documents) {
-        _store.Insert(documents, _flushEveryTrans, true);
+        _store.Insert(documents, flushToDisk: _flushEveryTrans, ignoreRelated: true);
     }
     public void RelateDocumentsToUsers(IEnumerable<Tuple<Guid, Guid>> relations) {
         var transaction = _store.CreateTransaction();

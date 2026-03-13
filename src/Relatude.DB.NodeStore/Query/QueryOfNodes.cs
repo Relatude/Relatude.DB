@@ -124,6 +124,22 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         _q.WhereInIds(ids);
         return this;
     }
+    public IQueryOfNodes<TNode, TInclude> WhereCulture(string? cultureCode) {
+        _q.WhereCulture(cultureCode);
+        return this;
+    }
+    public IQueryOfNodes<TNode, TInclude> WhereCulture(Guid cultureId) {
+        _q.WhereCulture(cultureId);
+        return this;
+    }
+    public IQueryOfNodes<TNode, TInclude> WhereHidden(bool include) {
+        _q.WhereHidden(include);
+        return this;
+    }
+    public IQueryOfNodes<TNode, TInclude> WhereCultureFallback(bool include) {
+        _q.WhereCultureFallback(include);
+        return this;
+    }
     public IQueryOfNodes<TNode, TInclude> Page(int pageIndex0based, int pageSize) {
         _q.Page(pageIndex0based, pageSize);
         return this;

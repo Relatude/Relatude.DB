@@ -44,7 +44,13 @@ public class NodeStore : IDisposable {
     internal QueryContext QueryContext => Datastore.QueryContext;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
-    internal readonly List<INodeTransactionPlugin> TransactionPlugins;
+    internal List<INodeTransactionPlugin>? _transactionPlugins = null;
+    internal List<INodeTransactionPlugin> TransactionPlugins {
+        get {
+            if (_transactionPlugins == null) _transactionPlugins = new();
+            return _transactionPlugins;
+        }
+    }
 
     public void RegisterTransactionPlugin(INodeTransactionPlugin plugin) {
         if (plugin == null) throw new ArgumentNullException(nameof(plugin));
@@ -62,13 +68,13 @@ public class NodeStore : IDisposable {
     private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins) {
         Datastore = datastore;
         Mapper = mapper;
-        TransactionPlugins = plugins;
+        _transactionPlugins = plugins;
     }
     public NodeStore(IDataStore datastore) {
         Datastore = datastore;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
-        foreach (var plugin in TransactionPlugins) plugin.Store = this;
+        if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Store = this;
         var interfaceClasses = InterfaceGen.GetImplementations(datastore.Datamodel);
         var mappers = MapperGen.GenerateValueMappers(datastore.Datamodel);
         var code = interfaceClasses.Concat(mappers).ToList();
@@ -348,6 +354,14 @@ public class NodeStore : IDisposable {
     public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
     public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
     public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
+
+    public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
+    public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
+    public T Get<T>(IdKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
+
+    public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
+    public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
+    public T Get<T>(IdKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
 
     public Type GetNodeType(Guid nodeId) => Mapper.GetNodeType(Datastore.GetNodeType(nodeId));
     public bool TryGetNodeType(Guid nodeId, [MaybeNullWhen(false)] out Type type) {

@@ -343,23 +343,23 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
 
         // cannot do below line, as object with same values but different types would have different hashcodes:
         // if (obj is NodeMetaEmpty) return 0; 
-        hash.Add(obj.RevisionKey);
-        hash.Add(obj.CollectionId);
-        hash.Add(obj.ReadAccess);
-        hash.Add(obj.EditAccess);
+        hash.Add(obj.RevisionKey.GetHashCode());
+        hash.Add(obj.CollectionId.GetHashCode());
+        hash.Add(obj.ReadAccess.GetHashCode());
+        hash.Add(obj.EditAccess.GetHashCode());
 
         // cannot do below line, as object with same values but different types would have different hashcodes:
         // if (obj is NodeMetaMin) return hash.ToHashCode();
 
-        hash.Add(obj.EditViewAccess);
-        hash.Add(obj.PublishAccess);
-        hash.Add(obj.Deleted);
-        hash.Add(obj.Hidden);
-        hash.Add(obj.CreatedBy);
-        hash.Add(obj.ChangedBy);
-        hash.Add(obj.CultureId);
-        hash.Add(obj.ReleaseUtc);
-        hash.Add(obj.ExpireUtc);
+        hash.Add(obj.EditViewAccess.GetHashCode());
+        hash.Add(obj.PublishAccess.GetHashCode());
+        hash.Add(obj.Deleted.GetHashCode());
+        hash.Add(obj.Hidden.GetHashCode());
+        hash.Add(obj.CreatedBy.GetHashCode());
+        hash.Add(obj.ChangedBy.GetHashCode());
+        hash.Add(obj.CultureId.GetHashCode());
+        hash.Add(obj.ReleaseUtc.GetHashCode());
+        hash.Add(obj.ExpireUtc.GetHashCode());
         lastHash = hash.ToHashCode();
         return lastHash;
     }
@@ -410,8 +410,7 @@ class InnerNodeMetaEmpty : IInnerNodeMeta {
         if (obj is IInnerNodeMeta meta) return IInnerNodeMeta.IEquals(this, meta);
         return base.Equals(obj);
     }
-    static int _hashCode = IInnerNodeMeta.Empty.GetHashCode(); // precompute hashcode for empty
-    public override int GetHashCode() => _hashCode;
+    public override int GetHashCode() => 212908141;
     public byte[] ToBytes() => [];
     public bool Equals(IInnerNodeMeta? other) => IInnerNodeMeta.IEquals(this, other);
 }
@@ -517,5 +516,8 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
     int _lastHash = 0;
     public override int GetHashCode() {
         return IInnerNodeMeta.GetIHashCode(this, ref _lastHash);
+    }
+    public override string ToString() {
+        return GetHashCode() + $"RevisionKey: {RevisionKey}, CollectionId: {CollectionId}, ReadAccess: {ReadAccess}, EditAccess: {EditAccess}, EditViewAccess: {EditViewAccess}, PublishAccess: {PublishAccess}, Deleted: {Deleted}, Hidden: {Hidden}, CreatedBy: {CreatedBy}, ChangedBy: {ChangedBy}, CultureId: {CultureId}, ReleaseUtc: {ReleaseUtc}, ExpireUtc: {ExpireUtc}";
     }
 }

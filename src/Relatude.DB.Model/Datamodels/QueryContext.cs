@@ -13,6 +13,7 @@ public struct NodeIdAndRevisionId {
 public class QueryContext {
     public Guid UserId { get; private set; }
     public string? CultureCode { get; private set; }
+    public Guid? CultureId { get; private set; }
     public bool IncludeDeleted { get; private set; } = false;
     public bool OnlyWithCulture { get; private set; } = false;
     public bool IncludeCultureFallback { get; private set; } = false;
@@ -31,6 +32,7 @@ public class QueryContext {
         ) {
         UserId = Guid.Empty,
         CultureCode = null,
+        CultureId = null,
         IncludeDeleted = false,
         IncludeCultureFallback = false,
         IncludeUnpublished = false,
@@ -44,6 +46,7 @@ public class QueryContext {
     public static readonly QueryContext AllExcludingDecendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
         CultureCode = null,
+        CultureId = null,
         IncludeDeleted = true,
         IncludeCultureFallback = true,
         IncludeUnpublished = true,
@@ -57,6 +60,7 @@ public class QueryContext {
     public static QueryContext AllIncludingDescendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
         CultureCode = null,
+        CultureId = null,
         IncludeDeleted = true,
         IncludeCultureFallback = true,
         IncludeUnpublished = true,
@@ -87,6 +91,7 @@ public class QueryContext {
         if (obj is not QueryContext other) return false;
         return UserId == other.UserId
             && CultureCode == other.CultureCode
+            && CultureId == other.CultureId
             && IncludeDeleted == other.IncludeDeleted
             && IncludeCultureFallback == other.IncludeCultureFallback
             && IncludeUnpublished == other.IncludeUnpublished
@@ -120,6 +125,7 @@ public class QueryContext {
         int hash = 17;
         hash = (hash * 397) ^ UserId.GetHashCode();
         hash = (hash * 397) ^ (CultureCode?.GetHashCode() ?? 0);
+        hash = (hash * 397) ^ (CultureId?.GetHashCode() ?? 0);
         hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
         hash = (hash * 397) ^ IncludeCultureFallback.GetHashCode();
         hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
@@ -146,6 +152,7 @@ public class QueryContext {
         return new QueryContext {
             UserId = this.UserId,
             CultureCode = this.CultureCode,
+            CultureId = this.CultureId,
             IncludeDeleted = this.IncludeDeleted,
             IncludeCultureFallback = this.IncludeCultureFallback,
             IncludeUnpublished = this.IncludeUnpublished,
@@ -171,7 +178,15 @@ public class QueryContext {
     public QueryContext Culture(string? cultureCode) {
         if (this.CultureCode == cultureCode) return this;
         var copy = this.copy();
+        copy.CultureId = null; // reset CultureId when setting CultureCode
         copy.CultureCode = cultureCode;
+        return copy;
+    }
+    public QueryContext Culture(Guid? cultureId) {
+        if (this.CultureId == cultureId) return this;
+        var copy = this.copy();
+        copy.CultureCode = null; // reset CultureCode when setting CultureId
+        copy.CultureId = cultureId;
         return copy;
     }
     public QueryContext Admin() {
@@ -237,6 +252,7 @@ public class QueryContext {
     public override string ToString() {
         var s = $"User:{UserId} ";
         if (CultureCode != null) s += $"Culture:{CultureCode} ";
+        if (CultureId != null) s += $"CultureId:{CultureId} ";
         if (IncludeDeleted) s += "Deleted ";
         if (IncludeCultureFallback) s += "CultureFallback ";
         if (IncludeUnpublished) s += "Unpublished ";
@@ -248,6 +264,7 @@ public class QueryContext {
         if (SelectedRevisions != null) s += $"SelectedRevisions:[{string.Join(",", SelectedRevisions.Select(r => $"{r.NodeId}:{r.RevisionId}"))}] ";
         return s;
     }
+
 }
 public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;

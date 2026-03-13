@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace Relatude.DB.Query.Parsing.Expressions;
+
 class ExpressionMethod {
     public required string Name { get; set; }
     public required ExpressionMethodParameter[] Parameters { get; set; }
@@ -22,6 +23,7 @@ class ExpressionMethodParameter {
 internal class BuildMethod {
     public static IExpression BuildMethodCall(MethodCallToken e, Datamodel dm) {
         var name = e.Name.ToLower();
+        // TODO: abstract and optimize this with reflection and attributes on method classes.
         if (name == "select") {
             if (e.Arguments.Count != 1) throw new Exception("Select statement only accepts one argument. ");
             var arg = e.Arguments[0];
@@ -296,6 +298,21 @@ internal class BuildMethod {
             if (path == null) throw new NullReferenceException();
             return new RangeExpression(path, e.Arguments[0].ToString(), e.Arguments[1].ToString());
         }
+        if (name == "whereculture") {
+            if (e.Subject == null) throw new NullReferenceException();
+            var source = ExpressionTreeBuilder.Build(e.Subject, dm);
+            return new WhereCultureMethod(source, e.Arguments[0].ToString());
+        }
+        if (name == "whereculturefallback") {
+            if (e.Subject == null) throw new NullReferenceException();
+            var source = ExpressionTreeBuilder.Build(e.Subject, dm);
+            return new WhereCultureFallbackMethod(source, e.Arguments[0].ToString());
+        }
+        if (name == "wherehidden") {
+            if (e.Subject == null) throw new NullReferenceException();
+            var source = ExpressionTreeBuilder.Build(e.Subject, dm);
+            return new WhereHiddenMethod(source, e.Arguments[0].ToString());
+        }       
         throw new NotSupportedException("The method \"" + e + "\" is not supported. ");
     }
 }

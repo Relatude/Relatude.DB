@@ -12,7 +12,6 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IQueryOfNodes<TNode, TInclude> Page(int pageIndex0based, int pageSize);
     IQueryOfNodes<TNode, TInclude> Take(int maxCount);
     IQueryOfNodes<TNode, TInclude> Skip(int offset);
-
     IQueryCollection<ResultSet<Guid>> SelectId();
 
     IQueryOfNodes<TNode, TInclude> Where(Expression<Func<TNode, bool>> boolExpression);
@@ -29,6 +28,10 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IQueryOfNodes<TNode, TInclude> WhereNotRelates<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid nodeId);
     IQueryOfNodes<TNode, TInclude> WhereRelatesAny<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, IEnumerable<Guid> nodeId);
     IQueryOfNodes<TNode, TInclude> WhereIn<TProperty>(Expression<Func<TNode, TProperty>> property, IEnumerable<TProperty> values);
+    IQueryOfNodes<TNode, TInclude> WhereCulture(string? cultureCode);
+    IQueryOfNodes<TNode, TInclude> WhereCulture(Guid cultureId);
+    IQueryOfNodes<TNode, TInclude> WhereHidden(bool include);
+    IQueryOfNodes<TNode, TInclude> WhereCultureFallback(bool include);
 
 
     QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluated = null, int? maxHitsEvaluated = null);

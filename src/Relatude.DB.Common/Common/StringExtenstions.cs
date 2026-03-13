@@ -11,6 +11,12 @@ namespace Relatude.DB.Common {
         public static string ToStringLiteral(this string text) {
             return Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(text, true);
         }
+        public static string ToStringLiteral(this Guid guid) {
+            return guid.ToString().ToStringLiteral();
+        }
+        public static string ToStringLiteral(this bool value) {
+            return value ? "true" : "false";
+        }
         public static ulong XXH64Hash(this string s) {
             return XXH64.DigestOf(Encoding.UTF8.GetBytes(s));
         }

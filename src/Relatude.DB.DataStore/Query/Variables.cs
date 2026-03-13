@@ -4,7 +4,7 @@ using System.Text;
 namespace Relatude.DB.Query {
     public interface IVariables {
         Variables CreateScope();
-        public QueryContext Context { get; }
+        public QueryContext Context { get; set; }
         object Get(string name);
     }
     public class Variable {
@@ -20,7 +20,7 @@ namespace Relatude.DB.Query {
     public class Variables : IVariables {
         public Variables? ParentScope { get; set; }
         private QueryContext? _context;
-        public QueryContext Context { get => _context ?? throw new Exception("No QueryContext available in this scope. "); set => _context = value; }
+        public QueryContext Context { get => _context ?? throw new Exception("No QueryContext available in this scope. "); set => _context = value; }        
         private Metrics? _metrics;
         public Metrics Metrics { get => _metrics ?? throw new Exception("No Metrics available in this scope. "); set => _metrics = value; }
         readonly Dictionary<string, Variable> _vars = new();

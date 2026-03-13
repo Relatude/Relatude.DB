@@ -61,7 +61,8 @@ class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
     public readonly Guid TypeId = typeId;
     public readonly IInnerNodeMeta Meta = meta;
     public bool Equals(metaAndType? other) {
-        if (other is null) return false;
+        if (other is null) 
+            return false;
         return TypeId == other.TypeId && Meta.Equals(other.Meta);
     }
     public override bool Equals(object? obj) {
@@ -303,6 +304,15 @@ internal class NodeTypesByIds {
             if (throwOnErrors) throw;
             log("Error registering node action during state load: " + na, ex);
         }
+    }
+    public string asText() {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("NodeTypesByIds:");
+        sb.AppendLine("MetaById:");
+        sb.AppendLine(
+            string.Join(Environment.NewLine, _idByMeta.Select(kv => "  " + kv.Key.TypeId + " meta: " + kv.Key.Meta))
+        );
+        return sb.ToString();
     }
     public void Index(INodeData node) {
         metaAndType mt = new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType);

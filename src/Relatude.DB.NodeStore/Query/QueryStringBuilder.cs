@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Text;
 
 namespace Relatude.DB.Query;
+
 internal sealed class QueryStringBuilder {
     internal StringBuilder _sb;
     internal readonly List<Parameter> _parameters;
@@ -353,5 +354,27 @@ internal sealed class QueryStringBuilder {
         _sb.Append(')');
     }
 
+    internal void WhereCulture(string? cultureCode) {
+        _sb.Append(".WhereCulture(");
+        _sb.Append(cultureCode == null ? "null" : cultureCode.ToStringLiteral());
+        _sb.Append(')');
+    }
+
+    internal void WhereCulture(Guid cultureId) {
+        _sb.Append(".WhereCulture(");
+        _sb.Append(cultureId.ToStringLiteral());
+        _sb.Append(')');
+    }
+
+    internal void WhereHidden(bool include) {
+        _sb.Append(".WhereHidden(");
+        _sb.Append(include ? "true" : "false");
+        _sb.Append(')');
+    }
+    internal void WhereCultureFallback(bool include) {
+        _sb.Append(".WhereCultureFallback(");
+        _sb.Append(include.ToStringLiteral());
+        _sb.Append(')');
+    }
 }
 

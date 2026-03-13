@@ -1,11 +1,11 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Xml.Linq;
 using System.Linq.Expressions;
-using System.Xml.Linq;
 using Relatude.DB.Nodes;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Query;
 public interface IQueryExecutable<T> {
-    T Execute();
+    T  Execute();
     Task<T> ExecuteAsync();
 }
 public static class IQueryExecutableExtentions {

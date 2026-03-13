@@ -337,8 +337,19 @@ public class NativeModelStore(DataStoreLocal store) {
 
     public QueryContextKey GetQueryContextKey(QueryContext ctx, out DateTime now) {
         now = ctx.NowUtc ?? DateTime.UtcNow;
-        var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
-        var cultureId = culture == null ? Guid.Empty : culture.Guid;
+        Guid cultureId;
+        if (ctx.CultureId.HasValue && ctx.CultureId != Guid.Empty) {
+            if (ctx.CultureCode != null) throw new InvalidOperationException("Both CultureId and CultureCode cannot be set at the same time.");
+            var culture = _cultures.Values.FirstOrDefault(c => c.Guid == ctx.CultureId);
+            if (culture == null) throw new InvalidOperationException($"Culture with id '{ctx.CultureId}' does not exist.");
+            cultureId = culture.Guid;
+        } else if (!string.IsNullOrWhiteSpace(ctx.CultureCode)) {
+            var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
+            if (culture == null) throw new InvalidOperationException($"Culture with code '{ctx.CultureCode}' does not exist.");
+            cultureId = culture.Guid;
+        } else {
+            cultureId = Guid.Empty;
+        }
         Guid[]? collectionIds;
         if (ctx.CollectionIds is not null) {
             List<Guid> collectionIdsList = [];
