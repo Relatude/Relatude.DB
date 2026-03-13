@@ -1,5 +1,4 @@
 using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
@@ -30,11 +29,6 @@ app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
 });
 
-
-
-
-
-bool hasRun = false;
 app.MapGet("/cult", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
 
@@ -52,6 +46,19 @@ app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     var db = ctx.Database;
 
     db = ctx.Database.Context.Culture("en-US").Hidden(true).CultureFallbacks(true).Create();
+
+    db.Insert(new DemoArticle() {
+        Title = "English article",
+    }, out var id, "en-US", RevisionType.Preliminary);
+
+    db.Query<DemoArticle>()
+    .WhereCulture("en-Us")
+    .WhereCultureFallbacks(false)
+    .WhereHidden(false)
+    .ExecuteWithMeta();
+    .ExecuteMetaOnly();
+
+
 
     var html = new System.Text.StringBuilder();
 
