@@ -314,8 +314,10 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
         }
     }
     internal static bool IEquals(IInnerNodeMeta? x, IInnerNodeMeta? y) {
-        if (x == null && y == null) return true;
-        if (x == null || y == null) return false;
+        if (x == null && y == null) 
+            return true;
+        if (x == null || y == null) 
+            return false;
         if (x is InnerNodeMetaEmpty && y is InnerNodeMetaEmpty) return true;
         if (x is InnerNodeMetaMin && y is InnerNodeMetaMin) {
             return x.CollectionId == y.CollectionId
@@ -410,7 +412,7 @@ class InnerNodeMetaEmpty : IInnerNodeMeta {
         if (obj is IInnerNodeMeta meta) return IInnerNodeMeta.IEquals(this, meta);
         return base.Equals(obj);
     }
-    public override int GetHashCode() => 212908141;
+    public override int GetHashCode() => 241;
     public byte[] ToBytes() => [];
     public bool Equals(IInnerNodeMeta? other) => IInnerNodeMeta.IEquals(this, other);
 }

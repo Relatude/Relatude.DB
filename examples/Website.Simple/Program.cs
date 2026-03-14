@@ -1,4 +1,5 @@
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
@@ -90,14 +91,45 @@ app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
 });
 app.MapGet("/ttt", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     var cIsd = Guid.NewGuid();
-    var m = IInnerNodeMeta.Empty;
-    var ctx1 = IInnerNodeMeta.CopyAndSetCulture(m, cIsd);
-    var ctx2 = IInnerNodeMeta.CopyAndSetCulture(m, Guid.NewGuid());
-    var set = new HashSet<IInnerNodeMeta>();
-    set.Add(ctx1);
-    set.Add(ctx2);
+    var now = DateTime.UtcNow;
+    var ctx1 = new InnerNodeMetaFull(
+        10,
+        cIsd,
+        cIsd,
+        cIsd,
+        cIsd, cIsd,
+        false,
+        true,
+        cIsd,
+        cIsd,
+        cIsd,
+        now,
+        now);
+    var ctx2 = new InnerNodeMetaFull(
+        10,
+        cIsd,
+        cIsd,
+        cIsd,
+        cIsd, cIsd,
+        false,
+        true,
+        cIsd,
+        cIsd,
+        cIsd,
+        now,
+        now);
 
-    return ctx1.Equals(ctx2).ToString() + " - " + set.Count.ToString() + " - " + ctx2.GetHashCode() + " - " + ctx1.GetHashCode();
+
+
+
+    var set = new HashSet<metaAndType>();
+    var typeId = Guid.NewGuid();
+    var mt1 = new metaAndType(ctx1, typeId);
+    var mt2 = new metaAndType(ctx2, typeId);
+    set.Add(mt1);
+    set.Add(mt2);
+
+    return mt1.Equals(mt2).ToString() + " - " + set.Count.ToString() + " - " + mt1.GetHashCode() + " - " + mt2.GetHashCode();
 });
 app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     try {
@@ -106,7 +138,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
         var iterations = 1000;
         for (var i = 0; i < iterations; i++) {
 
-            html= new System.Text.StringBuilder();
+            html = new System.Text.StringBuilder();
             var db = ctx.Database;
 
             var article = db.Create<DemoArticle>();
@@ -130,11 +162,10 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
 
             //db.DisableRevisions(article.Id, r3);
 
-            db.UpdateMeta(article.Id, nameof(NodeMeta.EditAccess), Guid.NewGuid());
+            //db.UpdateMeta(article.Id, nameof(NodeMeta.EditAccess), Guid.NewGuid());
             db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
             //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), false);
 
-            sw.Stop();
 
             var revisions = db.GetRevisions<DemoArticle>(article.Id);
 
@@ -175,8 +206,10 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
             html.AppendLine("<br/>Count in en-US: " + db.Query<DemoArticle>().WhereCulture("en-US").Count());
             html.AppendLine("<br/>Count in no-NO: " + db.Query<DemoArticle>().WhereCulture("no-NO").Count());
             html.AppendLine("<br/>Count in fallbacks: " + db.Query<DemoArticle>().WhereCultureFallback(true).WhereHidden(true).Count());
+            sw.Stop();
 
             html.AppendLine("<h1>Test time per iteration: " + (sw.Elapsed.TotalMilliseconds / iterations).ToString("F2") + " ms</h1>");
+            html.AppendLine("<h1>Test time total: " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms</h1>");
         }
 
         return html.ToString();

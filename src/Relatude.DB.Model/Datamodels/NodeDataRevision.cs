@@ -50,6 +50,7 @@ public static class RevisionUtil {
 
 public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public Guid CultureId => Meta?.CultureId ?? Guid.Empty;
+    public Guid CollectionId => Meta?.CollectionId ?? Guid.Empty;
     public int RevisionKey => Meta?.RevisionKey ?? 0; // used for internal meta dictionary to save memory, the meta must be unique for each revisions
     public Guid RevisionId { get; } // used for external references to revisions
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;

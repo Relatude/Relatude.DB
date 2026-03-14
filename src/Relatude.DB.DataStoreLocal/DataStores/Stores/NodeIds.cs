@@ -57,11 +57,11 @@ class idSet {
 
     }
 }
-class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
+public class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
     public readonly Guid TypeId = typeId;
     public readonly IInnerNodeMeta Meta = meta;
     public bool Equals(metaAndType? other) {
-        if (other is null) 
+        if (other is null)
             return false;
         return TypeId == other.TypeId && Meta.Equals(other.Meta);
     }
@@ -183,7 +183,7 @@ class nodeMetasByNodeId {
 }
 internal class NodeTypesByIds {
     readonly Definition _definition;
-    uint shortIdCounter = 0;
+    uint metaIdCounter = 0;
     readonly Dictionary<uint, metaAndType> _metaById = new();
     readonly Dictionary<metaAndType, uint> _idByMeta = new();
     readonly nodeMetasByNodeId _metaIdsByNodeId = new();
@@ -318,8 +318,10 @@ internal class NodeTypesByIds {
         metaAndType mt = new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType);
         //Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
-            if (shortIdCounter == short.MaxValue) throw new Exception("Internal error. Node meta short id overflow.");
-            shortId = shortIdCounter++;
+#if DEBUG
+            if (metaIdCounter == 10000) throw new Exception("Warning: To many metas?");
+#endif
+            shortId = metaIdCounter++;
             _metaById[shortId] = mt;
             _idByMeta.Add(mt, shortId);
         }
@@ -377,9 +379,10 @@ internal class NodeTypesByIds {
 
         // then any published revision with matching culture
         foreach (var r in ndr.Revisions) {
+            var meta = r.Meta ?? IInnerNodeMeta.Empty;
             if (
                 r.RevisionType == RevisionType.Published
-                && r.Meta!.CultureId == ctxKey.CultureId
+                && r.CultureId == ctxKey.CultureId
                 && isReleased(nowUtc, r.Meta)
                 ) {
                 return r;
@@ -390,20 +393,20 @@ internal class NodeTypesByIds {
         if (ctxKey.IncludeCultureFallback) {
             var match = ndr.Revisions
                 .Where(r => r.RevisionType == RevisionType.Published && isReleased(nowUtc, r.Meta))
-                .OrderBy(r => _definition.GetCulturePriority(r.Meta!.CultureId, r.Meta!.CollectionId))
+                .OrderBy(r => _definition.GetCulturePriority(r.CultureId, r.CollectionId))
                 .FirstOrDefault();
-            if (match != null) 
+            if (match != null)
                 return match;
         }
 
         if (!ctxKey.OnlyWithCulture) { // fallback to any published revision without culture ( invariant culture )
             var match = ndr.Revisions
-                .FirstOrDefault(r => 
-                    r.RevisionType == RevisionType.Published 
+                .FirstOrDefault(r =>
+                    r.RevisionType == RevisionType.Published
                     && isReleased(nowUtc, r.Meta)
-                    && (r.Meta == null || r.Meta.CultureId == Guid.Empty)
+                    && r.CultureId == Guid.Empty
                 );
-            if (match != null) 
+            if (match != null)
                 return match;
         }
 
@@ -412,7 +415,7 @@ internal class NodeTypesByIds {
     static int formatVersion = 1000;
     public void SaveState(IAppendStream stream) {
         stream.WriteInt(formatVersion);
-        stream.WriteUInt(shortIdCounter);
+        stream.WriteUInt(metaIdCounter);
         stream.WriteInt(_metaById.Count);
         foreach (var kv in _metaById) {
             stream.WriteUInt(kv.Key);
@@ -429,7 +432,7 @@ internal class NodeTypesByIds {
     public void ReadState(IReadStream stream) {
         var version = stream.ReadInt();
         if (version != formatVersion) throw new Exception("Incompatible format version for NodeIds store: " + version);
-        shortIdCounter = stream.ReadUInt();
+        metaIdCounter = stream.ReadUInt();
         var metaCount = stream.ReadInt();
         for (int i = 0; i < metaCount; i++) {
             var shortId = stream.ReadUInt();

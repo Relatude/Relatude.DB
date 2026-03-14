@@ -279,6 +279,8 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly Guid[]? MembershipIds;
     public readonly NodeIdAndRevisionId[]? SelectedRevisions;
     public bool IsMember(Guid groupId) {
+        // everyone is member of Guid.Empty
+        // no one is member of unknown groups
         if (groupId == Guid.Empty) return true;
         if (MembershipIds == null) return false;
         if (MembershipIds.Length == 0) return false;
