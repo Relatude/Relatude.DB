@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.IO;
 // thread-safe interface for IO operations
-public interface IIOProvider {
+public interface IIOProvider{
     IReadStream OpenRead(string fileKey, long position);
     IAppendStream OpenAppend(string fileKey);
     bool DoesNotExistOrIsEmpty(string fileKey);
@@ -10,9 +10,12 @@ public interface IIOProvider {
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
     void CloseAllOpenStreams();
-    bool CanHaveFolders{ get; }
-    Task<FolderMeta[]> GetFoldersAsync();
-    void DeleteFolderIfItExists(string folderName);
+}
+public interface IIOProviderWithFolders : IIOProvider{
+    bool CanHaveFolders { get; }
+    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles, bool includeSize);
+    void DeleteFolderIfItExists(string[] path);
+    void EnsureFolder(string[] path);
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {

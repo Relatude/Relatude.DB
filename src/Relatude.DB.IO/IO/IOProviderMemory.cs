@@ -135,11 +135,4 @@ public class IOProviderMemory : IIOProvider {
             if(_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public bool CanHaveFolders => false;
-    public Task<FolderMeta[]> GetFoldersAsync() {
-        throw new NotSupportedException("IOProviderMemory does not support subfolders. ");
-    }
-    public void DeleteFolderIfItExists(string folderName) {
-        throw new NotSupportedException("IOProviderMemory does not support subfolders. ");
-    }
 }
