@@ -1,6 +1,8 @@
 ﻿using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Native;
 
 namespace Relatude.DB.Datamodels;
+
 public enum DataTypePublicId {
     Guid,
     String,
@@ -25,12 +27,12 @@ public partial class NodeTypeModel { // with default values
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
 
-    public bool DefaultHidden{ get; set; } = false;
+    public bool Hidden { get; set; } = false;
 
-    public Guid DefaultReadAccess { get; set; }
-    public Guid DefaultEditAccess { get; set; }
-    public Guid DefaultEditViewAccess { get; set; }
-    public Guid DefaultPublishAccess { get; set; }
+    public Guid DefaultReadAccess { get; set; } = NodeConstants.UserGroupUnspecified;
+    public Guid DefaultEditAccess { get; set; } = NodeConstants.UserGroupUnspecified;
+    public Guid DefaultEditViewAccess { get; set; } = NodeConstants.UserGroupUnspecified;
+    public Guid DefaultPublishAccess { get; set; } = NodeConstants.UserGroupUnspecified;
 
     public ModelType ModelType { get; set; }
 

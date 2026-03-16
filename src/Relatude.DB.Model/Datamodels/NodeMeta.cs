@@ -50,13 +50,13 @@ public class NodeMeta {
     // public int RevisionKey => _meta.RevisionKey; 
 
     public Guid CollectionId => InnerMeta.CollectionId;
+
     public Guid ReadAccess => InnerMeta.ReadAccess;
     public Guid EditAccess => InnerMeta.EditAccess;
     public Guid EditViewAccess => InnerMeta.EditViewAccess;
     public Guid PublishAccess => InnerMeta.PublishAccess;
 
     public bool Deleted => InnerMeta.Deleted;
-    public bool Hidden => InnerMeta.Hidden;
     public Guid CreatedBy => InnerMeta.CreatedBy;
     public Guid ChangedBy => InnerMeta.ChangedBy;
     public Guid CultureId => InnerMeta.CultureId;
@@ -82,7 +82,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
     Guid EditViewAccess { get; }  // common for all cultures
     Guid PublishAccess { get; }  // common for all cultures
     bool Deleted { get; } // common for all cultures
-    bool Hidden { get; } // common for all cultures
     Guid CreatedBy { get; }
     Guid ChangedBy { get; }
     Guid CultureId { get; }
@@ -100,7 +99,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
                 editViewAccess: Guid.Empty,
                 publishAccess: Guid.Empty,
                 deleted: false,
-                hidden: false,
                 createdBy: Guid.Empty,
                 changedBy: Guid.Empty,
                 cultureId: cultureId, // change culture
@@ -117,7 +115,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             editViewAccess: meta.EditViewAccess,
             publishAccess: meta.PublishAccess,
             deleted: meta.Deleted,
-            hidden: meta.Hidden,
             createdBy: meta.CreatedBy,
             changedBy: meta.ChangedBy,
             cultureId: cultureId, // change culture
@@ -136,7 +133,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
                 editViewAccess: Guid.Empty,
                 publishAccess: Guid.Empty,
                 deleted: false,
-                hidden: false,
                 createdBy: Guid.Empty,
                 changedBy: Guid.Empty,
                 cultureId: Guid.Empty,
@@ -153,7 +149,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             editViewAccess: meta.EditViewAccess,
             publishAccess: meta.PublishAccess,
             deleted: meta.Deleted,
-            hidden: meta.Hidden,
             createdBy: meta.CreatedBy,
             changedBy: meta.ChangedBy,
             cultureId: meta.CultureId,
@@ -171,7 +166,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             editViewAccess: meta.EditViewAccess,
             publishAccess: meta.PublishAccess,
             deleted: meta.Deleted,
-            hidden: meta.Hidden,
             createdBy: meta.CreatedBy,
             changedBy: meta.ChangedBy,
             cultureId: meta.CultureId,
@@ -194,7 +188,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             editViewAccess: newRev?.EditViewAccess ?? Empty.EditViewAccess,
             publishAccess: newRev?.PublishAccess ?? Empty.PublishAccess,
             deleted: newRev?.Deleted ?? Empty.Deleted,
-            hidden: newRev?.Hidden ?? Empty.Hidden,
 
             // keep revision specific properties             
             revisionKey: original?.RevisionKey ?? Empty.RevisionKey,
@@ -213,7 +206,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             && meta.EditViewAccess == Guid.Empty
             && meta.PublishAccess == Guid.Empty
             && !meta.Deleted
-            && !meta.Hidden
             && meta.CreatedBy == Guid.Empty
             && meta.ChangedBy == Guid.Empty
             && meta.CultureId == Guid.Empty
@@ -225,7 +217,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             && meta.EditViewAccess == meta.EditAccess
             && meta.PublishAccess == meta.EditAccess
             && !meta.Deleted
-            && !meta.Hidden
             && meta.CreatedBy == Guid.Empty
             && meta.ChangedBy == Guid.Empty
             && meta.CultureId == Guid.Empty
@@ -259,18 +250,15 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             meta.EditViewAccess.TryWriteBytes(span.Slice(52, 16));
             meta.PublishAccess.TryWriteBytes(span.Slice(68, 16));
             span[84] = (byte)(meta.Deleted ? 1 : 0);
-            span[85] = (byte)(meta.Hidden ? 1 : 0);
-            meta.CreatedBy.TryWriteBytes(span.Slice(86, 16));
-            meta.ChangedBy.TryWriteBytes(span.Slice(102, 16));
-            meta.CultureId.TryWriteBytes(span.Slice(118, 16));
-            BitConverter.TryWriteBytes(span.Slice(134, 8), meta.ReleaseUtc?.ToBinary() ?? 0);
-            BitConverter.TryWriteBytes(span.Slice(142, 8), meta.ExpireUtc?.ToBinary() ?? 0);
+            meta.CreatedBy.TryWriteBytes(span.Slice(85, 16));
+            meta.ChangedBy.TryWriteBytes(span.Slice(101, 16));
+            meta.CultureId.TryWriteBytes(span.Slice(117, 16));
 
             // DateTimes (forcing little endian)
             long releaseBinary = meta.ReleaseUtc?.ToBinary() ?? 0;
             long expireBinary = meta.ExpireUtc?.ToBinary() ?? 0;
-            BinaryPrimitives.WriteInt64LittleEndian(span.Slice(134, 8), releaseBinary);
-            BinaryPrimitives.WriteInt64LittleEndian(span.Slice(142, 8), expireBinary);
+            BinaryPrimitives.WriteInt64LittleEndian(span.Slice(133, 8), releaseBinary);
+            BinaryPrimitives.WriteInt64LittleEndian(span.Slice(141, 8), expireBinary);
 
             return data;
         } else {
@@ -298,18 +286,17 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             var editViewAccess = new Guid(span.Slice(52, 16));
             var publishAccess = new Guid(span.Slice(68, 16));
             var deleted = span[84] != 0;
-            var hidden = span[85] != 0;
-            var createdBy = new Guid(span.Slice(86, 16));
-            var changedBy = new Guid(span.Slice(102, 16));
-            var cultureId = new Guid(span.Slice(118, 16));
+            var createdBy = new Guid(span.Slice(85, 16));
+            var changedBy = new Guid(span.Slice(101, 16));
+            var cultureId = new Guid(span.Slice(117, 16));
 
             // DateTimes (forcing little endian)
-            long releaseBinary = BinaryPrimitives.ReadInt64LittleEndian(span.Slice(134, 8));
-            long expireBinary = BinaryPrimitives.ReadInt64LittleEndian(span.Slice(142, 8));
+            long releaseBinary = BinaryPrimitives.ReadInt64LittleEndian(span.Slice(133, 8));
+            long expireBinary = BinaryPrimitives.ReadInt64LittleEndian(span.Slice(141, 8));
             DateTime? releaseUtc = releaseBinary != 0 ? DateTime.FromBinary(releaseBinary) : null;
             DateTime? expireUtc = expireBinary != 0 ? DateTime.FromBinary(expireBinary) : null;
 
-            return new InnerNodeMetaFull(revisionId, collectionId, readAccess, editAccess, editViewAccess, publishAccess, deleted, hidden, createdBy, changedBy, cultureId, releaseUtc, expireUtc);
+            return new InnerNodeMetaFull(revisionId, collectionId, readAccess, editAccess, editViewAccess, publishAccess, deleted, createdBy, changedBy, cultureId, releaseUtc, expireUtc);
         } else {
             throw new InvalidOperationException("Unknown INodeMeta type in byte array.");
         }
@@ -333,7 +320,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             && x.EditViewAccess == y.EditViewAccess
             && x.PublishAccess == y.PublishAccess
             && x.Deleted == y.Deleted
-            && x.Hidden == y.Hidden
             && x.CreatedBy == y.CreatedBy
             && x.ChangedBy == y.ChangedBy
             && x.CultureId == y.CultureId
@@ -357,7 +343,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
         hash.Add(obj.EditViewAccess.GetHashCode());
         hash.Add(obj.PublishAccess.GetHashCode());
         hash.Add(obj.Deleted.GetHashCode());
-        hash.Add(obj.Hidden.GetHashCode());
         hash.Add(obj.CreatedBy.GetHashCode());
         hash.Add(obj.ChangedBy.GetHashCode());
         hash.Add(obj.CultureId.GetHashCode());
@@ -385,7 +370,6 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             editViewAccess: meta.EditViewAccess,
             publishAccess: meta.PublishAccess,
             deleted: meta.Deleted,
-            hidden: meta.Hidden,
             createdBy: meta.CreatedBy,
             changedBy: meta.ChangedBy,
             cultureId: cultureId, // change culture
@@ -403,7 +387,6 @@ class InnerNodeMetaEmpty : IInnerNodeMeta {
     public Guid EditViewAccess => Guid.Empty;
     public Guid PublishAccess => Guid.Empty;
     public bool Deleted => false;
-    public bool Hidden => false;
     public Guid CreatedBy => Guid.Empty;
     public Guid ChangedBy => Guid.Empty;
     public Guid CultureId => Guid.Empty;
@@ -435,7 +418,6 @@ public class InnerNodeMetaMin : IInnerNodeMeta {
     public Guid EditViewAccess => EditAccess; // common for all revisions and cultures
     public Guid PublishAccess => EditAccess; // common for all revisions and cultures
     public bool Deleted => false; // common for all revisions and cultures
-    public bool Hidden => false; // common for all revisions and cultures
 
     public Guid CreatedBy => Guid.Empty;
     public Guid ChangedBy => Guid.Empty;
@@ -466,7 +448,6 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
                 case nameof(IInnerNodeMeta.EditViewAccess): EditViewAccess = (Guid)value!; break;
                 case nameof(IInnerNodeMeta.PublishAccess): PublishAccess = (Guid)value!; break;
                 case nameof(IInnerNodeMeta.Deleted): Deleted = (bool)value!; break;
-                case nameof(IInnerNodeMeta.Hidden): Hidden = (bool)value!; break;
                 case nameof(IInnerNodeMeta.CreatedBy): CreatedBy = (Guid)value!; break;
                 case nameof(IInnerNodeMeta.ChangedBy): ChangedBy = (Guid)value!; break;
                 case nameof(IInnerNodeMeta.CultureId): throw new ArgumentException("Cannot update CultureId using this method.");
@@ -485,7 +466,6 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
     public Guid EditViewAccess { get; private set; }
     public Guid PublishAccess { get; private set; }
     public bool Deleted { get; private set; }
-    public bool Hidden { get; private set; }
 
     public Guid CreatedBy { get; private set; } // specific
     public Guid ChangedBy { get; private set; } // specific
@@ -494,7 +474,7 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
     public DateTime? ReleaseUtc { get; private set; } // specific
     public DateTime? ExpireUtc { get; private set; } // specific
 
-    public InnerNodeMetaFull(int revisionKey, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, bool hidden, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
+    public InnerNodeMetaFull(int revisionKey, Guid collectionId, Guid readAccess, Guid editAccess, Guid editViewAccess, Guid publishAccess, bool deleted, Guid createdBy, Guid changedBy, Guid cultureId, DateTime? releaseUtc, DateTime? expireUtc) {
         RevisionKey = revisionKey;
         RevisionType = RevisionUtil.GetRevisionTypeFromKey(revisionKey);
         CollectionId = collectionId;
@@ -503,7 +483,6 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
         EditViewAccess = editViewAccess;
         PublishAccess = publishAccess;
         Deleted = deleted;
-        Hidden = hidden;
         CreatedBy = createdBy;
         ChangedBy = changedBy;
         CultureId = cultureId;
@@ -521,6 +500,6 @@ public class InnerNodeMetaFull : IInnerNodeMeta {
         return IInnerNodeMeta.GetIHashCode(this, ref _lastHash);
     }
     public override string ToString() {
-        return GetHashCode() + $"RevisionKey: {RevisionKey}, CollectionId: {CollectionId}, ReadAccess: {ReadAccess}, EditAccess: {EditAccess}, EditViewAccess: {EditViewAccess}, PublishAccess: {PublishAccess}, Deleted: {Deleted}, Hidden: {Hidden}, CreatedBy: {CreatedBy}, ChangedBy: {ChangedBy}, CultureId: {CultureId}, ReleaseUtc: {ReleaseUtc}, ExpireUtc: {ExpireUtc}";
+        return GetHashCode() + $"RevisionKey: {RevisionKey}, CollectionId: {CollectionId}, ReadAccess: {ReadAccess}, EditAccess: {EditAccess}, EditViewAccess: {EditViewAccess}, PublishAccess: {PublishAccess}, Deleted: {Deleted}, CreatedBy: {CreatedBy}, ChangedBy: {ChangedBy}, CultureId: {CultureId}, ReleaseUtc: {ReleaseUtc}, ExpireUtc: {ExpireUtc}";
     }
 }

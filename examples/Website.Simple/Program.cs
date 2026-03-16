@@ -1,5 +1,5 @@
 using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores.Stores;
+using Relatude.DB.DataStores.Indexes.Meta;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
@@ -89,48 +89,6 @@ app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
 
     return html.ToString();
 });
-app.MapGet("/ttt", (RelatudeDBContext ctx, HttpContext httpCtx) => {
-    var cIsd = Guid.NewGuid();
-    var now = DateTime.UtcNow;
-    var ctx1 = new InnerNodeMetaFull(
-        10,
-        cIsd,
-        cIsd,
-        cIsd,
-        cIsd, cIsd,
-        false,
-        true,
-        cIsd,
-        cIsd,
-        cIsd,
-        now,
-        now);
-    var ctx2 = new InnerNodeMetaFull(
-        10,
-        cIsd,
-        cIsd,
-        cIsd,
-        cIsd, cIsd,
-        false,
-        true,
-        cIsd,
-        cIsd,
-        cIsd,
-        now,
-        now);
-
-
-
-
-    var set = new HashSet<metaAndType>();
-    var typeId = Guid.NewGuid();
-    var mt1 = new metaAndType(ctx1, typeId);
-    var mt2 = new metaAndType(ctx2, typeId);
-    set.Add(mt1);
-    set.Add(mt2);
-
-    return mt1.Equals(mt2).ToString() + " - " + set.Count.ToString() + " - " + mt1.GetHashCode() + " - " + mt2.GetHashCode();
-});
 app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     try {
         var sw = Stopwatch.StartNew();
@@ -163,7 +121,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
             //db.DisableRevisions(article.Id, r3);
 
             //db.UpdateMeta(article.Id, nameof(NodeMeta.EditAccess), Guid.NewGuid());
-            db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
+            //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), true);
             //db.UpdateMeta(article.Id, r3, nameof(NodeMeta.Hidden), false);
 
 
@@ -183,7 +141,7 @@ app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
                 html.Append($"<td>{rev.Meta.RevisionType}</td>");
                 html.Append($"<td>{rev.Meta.CultureId}</td>");
                 html.Append($"<td>{rev.Meta.EditAccess}</td>");
-                html.Append($"<td>{rev.Meta.Hidden}</td>");
+                //html.Append($"<td>{rev.Meta.Hidden}</td>");
                 html.Append($"</tr>");
             }
             html.AppendLine("</table>");

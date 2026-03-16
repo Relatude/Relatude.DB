@@ -1,20 +1,20 @@
 ﻿namespace Relatude.DB.Datamodels;
+
 public static class NodeConstants {
 
     const string BaseNodeTypeIdString = "ac6515ae-3ca5-43fa-8045-7a5a1bb11830";
     const string TextIndexPropertyIdString = "b835577e-84a2-4fa3-a850-44ab2112e6cf";
     const string VectorIndexPropertyIdString = "1e282f9f-3bd2-4230-abcb-f9e840145159";
-    //const string ReadAccessIdString = "58d3c678-567d-41ac-8b9a-1e15e897f432";
-    //const string WriteAccessPropertyIdString = "0c0d68a0-ec5b-4811-a558-3376573fc9fa";
-    //const string CollectionPropertyIdString = "17dd6bf5-e5be-4908-ac81-2278df2ad150";
     public static readonly Guid BaseNodeTypeId = new(BaseNodeTypeIdString);
     public static readonly Guid SystemTextIndexPropertyId = new(TextIndexPropertyIdString);
     public static readonly Guid SystemVectorIndexPropertyId = new(VectorIndexPropertyIdString);
-    //public static readonly Guid SystemReadAccessPropertyId = new(ReadAccessIdString);
-    //public static readonly Guid SystemWriteAccessPropertyId = new(WriteAccessPropertyIdString);
-    //public static readonly Guid SystemCollectionPropertyId = new(CollectionPropertyIdString);
 
     public static readonly Guid MasterAdminUserId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
+
+    public static readonly Guid UserGroupAdmins = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
+    public static readonly Guid UserGroupEveryone = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    public static readonly Guid UserGroupMember = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    public static readonly Guid UserGroupUnspecified = Guid.Empty;
 
     public static readonly string SystemTextIndexPropertyName = "_textIndex";
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";
@@ -38,29 +38,8 @@ public static class NodeConstants {
     const string NativeUserPropertyUserTypeString = "61bfa8ff-e8af-47d4-86e3-0b3f82510896";
     public static readonly Guid NativeUserPropertyUserType = new(NativeUserPropertyUserTypeString);
 
-    const string NativeCulturePropertyCultureCodeString = "f97c08b8-b851-fe8a-97cd-9b1dbec99f36"; 
+    const string NativeCulturePropertyCultureCodeString = "f97c08b8-b851-fe8a-97cd-9b1dbec99f36";
     public static readonly Guid NativeCulturePropertyCultureCode = new(NativeCulturePropertyCultureCodeString);
 
 
 }
-//public enum Revision {
-//    Live = 0,
-//    Approval = -2, // awaiting approval
-//    Preliminary = -1,
-//    Archived = 1, // rev > 0 && rev < 1000
-//    Deleted = 2, // rev >= 1000
-//}
-//public enum RevisionState : int {
-//    Archived = 1,
-//    Published = 0,
-//    Preliminary = -1,
-//    Derived = -3,
-//    Deleted = -4,
-//    Variant = 10000,
-//}
-//public enum RevisionStateRequest : int {
-//    None = 0,
-//    AwaitingDeleteApproval = -1,
-//    AwaitingPublicationApproval = -2,
-//    AwaitingUnPublicationApproval = -3,
-//}

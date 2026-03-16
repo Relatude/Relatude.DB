@@ -1,7 +1,10 @@
-﻿public class SettingsLocal {
+﻿using Relatude.DB.Native;
+
+public class SettingsLocal {
 
     public string? DefaultCultureCode { get; set; } = null;  // culture code if culture ID is Guid.Empty or Null
-
+    public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Admins;
+    public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Admins;
     public string? FilePrefix { get; set; }
 
     public bool ThrowOnBadLogFile { get; set; } = false;

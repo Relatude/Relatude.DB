@@ -2,8 +2,8 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Indexes.Meta;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
@@ -36,7 +36,7 @@ internal sealed class Definition {
             Relations.Add(c.Id, c);
         }
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
-        _nodeTypeIndex = new(this, store._nativeModelStore);
+        _nodeTypeIndex = new(this, store._nativeModelStore, store.Settings);
     }
     public Datamodel Datamodel { get; }
     public SetRegister Sets { get; }

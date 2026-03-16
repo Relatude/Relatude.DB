@@ -1,11 +1,12 @@
-﻿
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
-namespace Relatude.DB.DataStores.Stores;
+using Relatude.DB.Native;
+namespace Relatude.DB.DataStores.Indexes.Meta;
 
 // Could consider using short instead of uint for the ID of metas, to save memory.
 // It is very unlikely to have more than 65k different metas
@@ -190,10 +191,12 @@ internal class NodeTypesByIds {
     readonly Dictionary<Guid, int> _countByType = new();
     readonly Cache<ctxAndType, idSet> _cachedNodeIdsByCtx;
     readonly NativeModelStore _nativeModelStore;
-    internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore) {
+    readonly SettingsLocal _settings;
+    internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore, SettingsLocal settings) {
         _definition = definition;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
+        _settings = settings;
     }
     bool isReleased(DateTime nowUtc, IInnerNodeMeta? meta) {
         if (meta == null) return true;
@@ -229,7 +232,7 @@ internal class NodeTypesByIds {
             if (!ctxTypeDef.ThisAndDescendingTypes.ContainsKey(typeId))
                 return false;
         }
-        
+
         // Showing deleted?
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
 
@@ -242,30 +245,76 @@ internal class NodeTypesByIds {
             if (!isReleased(nowUtc, meta)) return false;
         }
 
-        // Include hidden:
-        if (!ctx.IncludeHidden && meta.Hidden) return false;
-
         // Collection:
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
 
-        // Access control:
-        switch (ctx.UserType) {
-            case Native.SystemUserType.Anonymous:
-                if (meta.ReadAccess != Guid.Empty) return false;
-                break;
-            case Native.SystemUserType.User:
-                if (!ctx.IsMember(meta.ReadAccess)) return false;
-                if (ctx.EditView && !ctx.IsMember(meta.EditViewAccess)) return false;
-                break;
-            case Native.SystemUserType.Admin: // admins have access to everything
-                break;
-            default:
-                throw new Exception("Internal error. Unknown system user type: " + ctx.UserType);
+        NodeTypeModel? typeDef = null;
+        Guid readAccessGroup;
+        Guid editViewAccessGroup;
+        if (meta.ReadAccess != NodeConstants.UserGroupUnspecified && meta.EditViewAccess != NodeConstants.UserGroupUnspecified) {
+            readAccessGroup = meta.ReadAccess;
+            editViewAccessGroup = meta.EditViewAccess;
+        } else {
+            typeDef = _definition.NodeTypes[typeId].Model; // only look up typeDef if needed, as it is a bit expensive to look up
+            readAccessGroup = findUserGroup(meta.ReadAccess, typeDef.DefaultReadAccess, _settings.DefaultReadAccess);
+            editViewAccessGroup = findUserGroup(meta.EditViewAccess, typeDef.DefaultEditViewAccess, _settings.DefaultReadAccess);
         }
+
+        // Read Access:
+        if (!isUserAMember(readAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
+
+        // View Access Edit:
+        if (ctx.EditView && !isUserAMember(editViewAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
+
+        // Include hidden:
+        if (typeDef == null) typeDef = _definition.NodeTypes[typeId].Model;
+        if (!ctx.IncludeHidden && typeDef.Hidden) return false;
 
         return true;
     }
+    static Guid findUserGroup(Guid fromMeta, Guid fromType, SystemGroupType fromSettings) {
+        if (fromMeta != NodeConstants.UserGroupUnspecified) return fromMeta;
+        if (fromType != NodeConstants.UserGroupUnspecified) return fromType;
+        return fromSettings switch {
+            SystemGroupType.Everyone => NodeConstants.UserGroupEveryone,
+            SystemGroupType.Member => NodeConstants.UserGroupMember,
+            SystemGroupType.Admins => NodeConstants.UserGroupAdmins,
+            _ => throw new InvalidOperationException(),
+        };
+    }
+    static bool isUserAMember(Guid requiredMembership, SystemUserType userType, Guid[]? userMemberships) {
 
+        if (requiredMembership == NodeConstants.UserGroupEveryone)
+            return true; // everyone is member of the "everyone" group
+
+        if (userType == SystemUserType.Admin)
+            return true; // admins are member of all groups
+
+        if (requiredMembership == NodeConstants.UserGroupAdmins)
+            return false; // only admins can be members of the "admins" group
+
+        if (requiredMembership == NodeConstants.UserGroupMember
+            && userType != SystemUserType.Anonymous)
+            return true; // any authenticated user is member of the "any member"
+
+        // from here on we know that the required membership is not "everyone" or "admins",
+        // and that the user is not an admin so a specific membership is required
+
+        if (userType == SystemUserType.Anonymous)
+            return false; // anonymous users does not have any memberships
+
+
+        if (userMemberships == null || userMemberships.Length == 0)
+            return false; // if user has no memberships, they cannot be member of the required group
+
+        foreach (var userMembership in userMemberships) {
+            if (userMembership == requiredMembership)
+                return true; // the user is a member of the required group
+        }
+
+        return false; // the users memberships does not include the required group
+
+    }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);

@@ -5,6 +5,11 @@ public enum SystemUserType {
     User = 1, // authenticated user part of the system
     Admin = 2, // authenticated user with access to everything
 }
+public enum SystemGroupType {
+    Everyone = 0,
+    Member = 1,
+    Admins = 2,
+}
 public class NativeSystemUser {
     public int Id;
     public SystemUserType UserType;
