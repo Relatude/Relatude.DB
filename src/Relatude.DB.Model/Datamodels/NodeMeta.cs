@@ -54,6 +54,7 @@ public class NodeMeta {
     public Guid EditAccess => InnerMeta.EditAccess;
     public Guid EditViewAccess => InnerMeta.EditViewAccess;
     public Guid PublishAccess => InnerMeta.PublishAccess;
+
     public bool Deleted => InnerMeta.Deleted;
     public bool Hidden => InnerMeta.Hidden;
     public Guid CreatedBy => InnerMeta.CreatedBy;

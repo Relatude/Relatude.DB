@@ -216,8 +216,11 @@ internal class NodeTypesByIds {
         });
         return ids;
     }
+
     bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc) {
         var meta = mt.Meta;
+
+        // Filter based on node type
         var typeId = mt.TypeId;
         if (ctx.ExcludeDecendants) {
             if (typeId != ctxTypeId) return false;
@@ -226,15 +229,23 @@ internal class NodeTypesByIds {
             if (!ctxTypeDef.ThisAndDescendingTypes.ContainsKey(typeId))
                 return false;
         }
+        
+        // Showing deleted?
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
 
+        // Culture:
         if (ctx.OnlyWithCulture && meta.CultureId == Guid.Empty) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
 
+        // Release/expire date:
         if (!ctx.IncludeUnpublished) {
             if (!isReleased(nowUtc, meta)) return false;
         }
+
+        // Include hidden:
         if (!ctx.IncludeHidden && meta.Hidden) return false;
+
+        // Collection:
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
 
         // Access control:
@@ -254,6 +265,7 @@ internal class NodeTypesByIds {
 
         return true;
     }
+
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);

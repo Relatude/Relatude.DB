@@ -24,16 +24,15 @@ public partial class NodeTypeModel { // with default values
     public Guid Id { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
-    public bool AnonymousReadAccessByDefault { get; set; } = false;
-    public bool AnonymousWriteAccessByDefault { get; set; } = false;
+
+    public bool DefaultHidden{ get; set; } = false;
+
+    public Guid DefaultReadAccess { get; set; }
+    public Guid DefaultEditAccess { get; set; }
+    public Guid DefaultEditViewAccess { get; set; }
+    public Guid DefaultPublishAccess { get; set; }
+
     public ModelType ModelType { get; set; }
-
-    public bool DefaultAdminAccess { get; set; }
-
-    public bool AccessControl { get; set; }
-    public bool Cultures { get; set; }
-    public bool Collections { get; set; }
-    public bool Revisions { get; set; }
 
     public string? NameOfPublicIdProperty { get; set; }
     public string? NameOfInternalIdProperty { get; set; }
