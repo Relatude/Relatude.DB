@@ -4,6 +4,7 @@
 /// </summary>
 public interface IReadStream : IStream {
     bool More();
+    Task<int> ReadAsync(byte[] buffer, int count);
     byte[] Read(int length);
     void Skip(long length);
     long Position { get; set; }

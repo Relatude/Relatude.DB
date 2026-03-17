@@ -9,4 +9,5 @@ public interface IAppendStream : IStream{
     void ResetByteCounter();
     long GetBytesRead();
     long GetBytesWritten();
+    Task WriteAsync(byte[] buffer, int count);
 }

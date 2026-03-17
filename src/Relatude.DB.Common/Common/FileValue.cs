@@ -18,8 +18,8 @@ public class FileValue {
         Height = 0;
         Width = 0;
         Hash = string.Empty;
-        __StorageId = Guid.Empty;
-        __StorageKey = [];
+        _storageId = Guid.Empty;
+        _fileKeyData = [];
     }
     private FileValue(string name, long size, string hash, Guid storageId, byte[] storageKey) {
         IsEmpty = false;
@@ -31,8 +31,8 @@ public class FileValue {
         Height = 0;
         Width = 0;
         Hash = hash;
-        __StorageId = storageId;
-        __StorageKey = storageKey;
+        _storageId = storageId;
+        _fileKeyData = storageKey;
     }
     public static FileValue Empty { get; } = new FileValue();
     public static FileValue CreateNew(string name, long size, string hash, Guid storageId, byte[] storageKey) {
@@ -44,8 +44,8 @@ public class FileValue {
         // never set externally:
         if (old.IsEmpty) return f; // return empty, not allowed to change if old is empty
         f.Size = old.Size;
-        f.__StorageId = old.__StorageId;
-        f.__StorageKey = old.__StorageKey;
+        f._storageId = old._storageId;
+        f._fileKeyData = old._fileKeyData;
 
         // allow new values:
         f.IsEmpty = false;
@@ -61,7 +61,7 @@ public class FileValue {
     }
     public bool IsEmpty { get; private set; }
     public bool Indexed { get; private set; }
-    public string Hash { get; private set; }
+    public string Hash { get; private set; } // A hash of the file content, used for integrity check and a works as a file key
     public long Size { get; private set; }
 
     public string Name { get; set; }
@@ -71,10 +71,10 @@ public class FileValue {
     public int Height { get; set; }
     public int Width { get; set; }
 
-    private Guid __StorageId { get; set; }
-    private byte[] __StorageKey { get; set; }
-    public static byte[] GetStorageKey(FileValue v) => v.__StorageKey;
-    public static Guid GetStorageId(FileValue v) => v.__StorageId;
+    private Guid _storageId { get; set; }
+    private byte[] _fileKeyData { get; set; }
+    public static byte[] GetFileKeyData(FileValue v) => v._fileKeyData; // A data that to identify the file in the storage provider. 
+    public static Guid GetStorageId(FileValue v) => v._storageId;  // Id is used to identify the storage provider
 
     private static int version = 0; // to allow for future changes
     public byte[] ToBytes() {
@@ -91,9 +91,9 @@ public class FileValue {
         bw.Write(Height);
         bw.Write(Width);
         bw.Write(Hash);
-        bw.Write(__StorageId.ToByteArray());
-        bw.Write(__StorageKey.Length);
-        bw.Write(__StorageKey);
+        bw.Write(_storageId.ToByteArray());
+        bw.Write(_fileKeyData.Length);
+        bw.Write(_fileKeyData);
         return ms.ToArray();
     }
     public static FileValue FromBytes(byte[] bytes) {
@@ -110,9 +110,9 @@ public class FileValue {
         v.Height = br.ReadInt32();
         v.Width = br.ReadInt32();
         v.Hash = br.ReadString();
-        v.__StorageId = new Guid(br.ReadBytes(16));
+        v._storageId = new Guid(br.ReadBytes(16));
         var keyLength = br.ReadInt32();
-        v.__StorageKey = br.ReadBytes(keyLength);
+        v._fileKeyData = br.ReadBytes(keyLength);
         return v;
     }
     public FileValue Copy() {

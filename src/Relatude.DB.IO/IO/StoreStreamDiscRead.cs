@@ -1,4 +1,5 @@
 ﻿namespace Relatude.DB.IO;
+
 public class StoreStreamDiscRead : IReadStream {
     protected FileStream _stream;
     string _filePath;
@@ -14,6 +15,9 @@ public class StoreStreamDiscRead : IReadStream {
         _stream.Position = position;
     }
     long _bytesRead;
+    public Task<int> ReadAsync(byte[] buffer, int count) {
+        return _stream.ReadAsync(buffer, 0, count);
+    }
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
