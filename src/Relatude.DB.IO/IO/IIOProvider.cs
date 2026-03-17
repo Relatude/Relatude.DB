@@ -13,7 +13,7 @@ public interface IIOProvider{
 }
 public interface IIOProviderWithFolders : IIOProvider{
     bool CanHaveFolders { get; }
-    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles, bool includeSize);
+    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
 }

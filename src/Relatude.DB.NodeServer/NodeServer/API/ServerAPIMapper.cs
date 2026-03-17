@@ -195,7 +195,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
         app.MapPost(path("can-have-folders"), (Guid storeId, Guid ioId) => new { CanHave = server.GetIO(ioId) is IIOProviderWithFolders });
-        app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => ((IIOProviderWithFolders)server.GetIO(ioId)).GetFoldersAsync([]));
+        app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => ((IIOProviderWithFolders)server.GetIO(ioId)).GetFoldersAsync([], true, true));
         app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => ((IIOProviderWithFolders)server.GetIO(ioId)).DeleteFolderIfItExists([folderName]));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => {

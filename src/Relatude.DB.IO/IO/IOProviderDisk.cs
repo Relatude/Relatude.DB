@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.IO;
 
-public class IOProviderDisk : IIOProvider {
+public class IOProviderDisk : IIOProviderWithFolders {
     readonly bool _readOnly;
     readonly object _lock = new();
     readonly Dictionary<string, int> _openReaders = [];
@@ -138,23 +138,25 @@ public class IOProviderDisk : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public Task<FolderMeta[]> GetFoldersAsync(string[] path) {
+    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
         var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
         var dirInfo = new DirectoryInfo(BaseFolder);
-        addAllSubFolders(dirInfo, baseFolderMeta, "");
+        addAllSubFolders(dirInfo, baseFolderMeta, Path.Combine(path), recursive, withFiles);
         return Task.FromResult(baseFolderMeta.SubFolders);
     }
-    void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath) {
-        folder.Files = [.. dirInfo.GetFiles().Select(FileMeta.FromFileInfo)];
+    void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath, bool recursive, bool withFiles) {
+        if(withFiles) folder.Files = [.. dirInfo.GetFiles().Select(FileMeta.FromFileInfo)];
         folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, Path.Combine(relativeParentPath, d.Name)))];
-        foreach (var subFolder in folder.SubFolders) {
-            var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
-            addAllSubFolders(subDirInfo, subFolder, Path.Combine(relativeParentPath, subFolder.Name));
+        if (recursive) {
+            foreach (var subFolder in folder.SubFolders) {
+                var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
+                addAllSubFolders(subDirInfo, subFolder, Path.Combine(relativeParentPath, subFolder.Name), recursive, withFiles);
+            }
         }
     }
     public void DeleteFolderIfItExists(string[] path) {
         lock (_lock) {
-            var folderPath = Path.Combine(BaseFolder, folderKey);
+            var folderPath = Path.Combine([BaseFolder, ..path]);
             GC.Collect();
             GC.WaitForPendingFinalizers();
             //if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);

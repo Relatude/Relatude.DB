@@ -7,10 +7,15 @@ public class FolderMeta {
             CreationTimeUtc = dirInfo.CreationTimeUtc,
             LastModifiedUtc = dirInfo.LastWriteTimeUtc,
             Description= FileKeyUtility.FolderTypeDescription(relpath),
+            HasFiles = dirInfo.EnumerateFiles().Any(),
+            HasSubFolders = dirInfo.EnumerateDirectories().Any(),            
         };
     }
     public FolderMeta[] SubFolders { get; set; } = [];
     public FileMeta[] Files{ get; set; } = [];
+    public bool HasFiles { get; set; }
+    public bool HasSubFolders { get; set; }
+    public bool IsEmpty => !HasFiles && !HasSubFolders;
     public string Name { get; set; } = string.Empty;
     public long Size { get; set; }
     public DateTime CreationTimeUtc { get; set; } = DateTime.UtcNow;
