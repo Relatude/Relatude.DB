@@ -46,6 +46,25 @@ public class StoreStreamBufferedRead : IReadStream {
 
     }
 
+    public async Task<int> ReadAsync(byte[] buffer, int count) {
+        if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+        if (count <= 0 || count > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count));
+        int totalBytesRead = 0;
+        while (totalBytesRead < count) {
+            // If buffer is empty, refill it
+            if (_bufferOffset >= _bufferLength) {
+                if (!fillBuffer()) break;
+            }
+            int bytesToCopy = Math.Min(count - totalBytesRead, _bufferLength - _bufferOffset);
+            Buffer.BlockCopy(_buffer, _bufferOffset, buffer, totalBytesRead, bytesToCopy);
+            _bufferOffset += bytesToCopy;
+            totalBytesRead += bytesToCopy;
+        }
+        _checkSum.EvaluateChecksumIfRecording(buffer.AsSpan(0, totalBytesRead).ToArray());
+        _bytesRead += totalBytesRead;
+        return totalBytesRead;
+    }
+
     private bool fillBuffer() {
         if (!_innerStream.More()) return false;
 

@@ -162,21 +162,21 @@ public class SingleFileStore : IDisposable, IFileStore {
         var meta = SingleStorageFileMeta.FromFileValue(value);
         await extractWithReadLock(meta, (buffer) => stream.WriteAsync(buffer, 0, buffer.Length));
     }
-    public async Task ExtractCopy(Stream outStream) {
-        await _asyncLock.AcquireReaderLock();
-        try {
-            long pos = 0;
-            var buffer = new byte[1024 * 1024];
-            while (pos < file.Length) {
-                var toRead = (int)Math.Min(buffer.Length, file.Length - pos);
-                lock (_fileLock) file.Get(pos, toRead, buffer);
-                await outStream.WriteAsync(buffer, 0, toRead);
-                pos += toRead;
-            }
-        } finally {
-            _asyncLock.ReleaseReaderLock();
-        }
-    }
+    //public async Task ExtractCopy(Stream outStream) {
+    //    await _asyncLock.AcquireReaderLock();
+    //    try {
+    //        long pos = 0;
+    //        var buffer = new byte[1024 * 1024];
+    //        while (pos < file.Length) {
+    //            var toRead = (int)Math.Min(buffer.Length, file.Length - pos);
+    //            lock (_fileLock) file.Get(pos, toRead, buffer);
+    //            await outStream.WriteAsync(buffer, 0, toRead);
+    //            pos += toRead;
+    //        }
+    //    } finally {
+    //        _asyncLock.ReleaseReaderLock();
+    //    }
+    //}
     public Task DeleteAsync(FileValue value) {
         // no action. File is never deleted from store, just left unused
         return Task.CompletedTask;

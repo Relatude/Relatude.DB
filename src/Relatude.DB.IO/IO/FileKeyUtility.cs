@@ -203,6 +203,11 @@ public class FileKeyUtility {
                 return false;
         return true;
     }
+    public static void ValidateFileKeyPath(string[] path) {
+        foreach(var c in path) {
+            ValidateFileKeyString(c);
+        }
+    }
     public static void ValidateFileKeyString(string fileKey) {
         if (!IsFileKeyValid(fileKey)) throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + 100 + " characters.");
     }

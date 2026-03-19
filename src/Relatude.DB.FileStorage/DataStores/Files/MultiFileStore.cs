@@ -1,12 +1,9 @@
 ﻿using Relatude.DB.IO;
 using Relatude.DB.Common;
-using System.Text;
 using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Files;
 
 public class MultiFileStore : IDisposable, IFileStore {
-    object _fileLock = new();
-    IAppendStream? _file;
     readonly IIOProviderWithFolders _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }
@@ -59,28 +56,47 @@ public class MultiFileStore : IDisposable, IFileStore {
             totalBytesRead += bytesRead;
         }
         if (totalBytesRead != length) throw new Exception("Length mismatch");
-        return new MultiStorageFileMeta(fileId, totalBytesRead, checksum, fileName);
+        return new MultiStorageFileMeta(fileId, totalBytesRead, checksum, fileName, fileName);
     }
-    public Task ExtractAsync(FileValue value, Stream outStream) {
-        throw new NotImplementedException();
+    public async Task ExtractAsync(FileValue value, Stream outStream) {
+        await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));
     }
-    public Task ExtractAsync(FileValue value, IAppendStream outStream) {
-        throw new NotImplementedException();
+    public async Task ExtractAsync(FileValue value, IAppendStream outStream) {
+        await extractAsync(value, outStream.WriteAsync);
+    }
+    public async Task<MultiStorageFileMeta> extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
+        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
+        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        using var inStream = _ioProvider.OpenRead(path, 0);
+        var bufferSize = 1024 * 1024; // 1MB buffer
+        var buffer = new byte[bufferSize];
+        long bytesRead = 0;
+        while (true) {
+            var bytesToRead = (int)Math.Min(bufferSize, inStream.Length - bytesRead);
+            if (bytesToRead <= 0) break;
+            var read = await inStream.ReadAsync(buffer, bytesToRead);
+            if (read == 0) break;
+            await writeAsync(buffer, read);
+            bytesRead += read;
+        }
+        return multiStorageFileMeta;
     }
     public Task<bool> ContainsFileAsync(FileValue fileValue) {
-        throw new NotImplementedException();
+        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(fileValue);
+        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        var fileSize = _ioProvider.GetFileSizeOrZeroIfUnknown(path);
+        return Task.FromResult(fileValue.Size == fileSize);
     }
-    public Task DeleteAsync(FileValue value) {
-        throw new NotImplementedException();
-    }
-    public Task ExtractCopy(Stream outStream) {
-        throw new NotImplementedException();
+    public async Task DeleteAsync(FileValue value) {
+        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
+        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        _ioProvider.DeleteIfItExists(path);
     }
     public long GetSize() {
         throw new NotImplementedException();
     }
     public void Dispose() {
-        throw new NotImplementedException();
+        _ioProvider.CloseAllOpenStreams();
     }
 
 }

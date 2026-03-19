@@ -16,8 +16,10 @@ public interface IIOProviderWithFolders : IIOProvider{
     IReadStream OpenRead(string[] path, long position);
     IAppendStream OpenAppend(string[] path);
     Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);
+    long GetFileSizeOrZeroIfUnknown(string[] path);
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
+    void DeleteIfItExists(string[] path);
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {
