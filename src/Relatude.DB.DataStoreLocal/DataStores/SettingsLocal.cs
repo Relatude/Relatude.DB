@@ -5,8 +5,9 @@ public class SettingsLocal {
     public string? DefaultCultureCode { get; set; } = null;  // culture code if culture ID is Guid.Empty or Null
     public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Admins;
     public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Admins;
-    public string? FilePrefix { get; set; }
 
+    public string? FilePrefix { get; set; }
+    public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.SingleFile;
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 
@@ -80,6 +81,10 @@ public enum PersistedQueueStoreEngine {
     Memory = 0,
     BuiltIn = 1,
     Sqlite = 2,
+}
+public enum FileStoreEngine {
+    SingleFile = 0,
+    MultiFile = 1,
 }
 
 

@@ -124,7 +124,18 @@ public sealed partial class DataStoreLocal : IDataStore {
         dm.EnsureInitalization();
         dm.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
         if (!_fileStores.ContainsKey(Guid.Empty)) {
-            var fs = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
+            IFileStore fs;
+            switch (_settings.DefaultFileStoreEngine) {
+                case FileStoreEngine.SingleFile:
+                    fs = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
+                    break;
+                case FileStoreEngine.MultiFile:
+                    if (!(_io is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
+                    fs = new MultiFileStore(Guid.Empty, iof, [""]);
+                    break;
+                default:
+                    throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine);
+            }
             _fileStores.Add(fs.Id, fs);
         }
         _nativeModelStore = new(this);

@@ -43,6 +43,11 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
+app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
+    var article = ctx.Database.Create<DemoArticle>();
+    ctx.Database.file
+});
+
 app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
 
     var db = ctx.Database;

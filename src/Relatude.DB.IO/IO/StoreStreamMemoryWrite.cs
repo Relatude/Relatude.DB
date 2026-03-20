@@ -67,4 +67,8 @@ public class StoreStreamMemoryWrite : IAppendStream {
         _isDisposed = true;
         _onDispose(_ms);
     }
+
+    public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
+        await _ms.WriteAsync(buffer, 0, count);
+    }
 }

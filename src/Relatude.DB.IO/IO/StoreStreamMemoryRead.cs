@@ -38,4 +38,10 @@ public class StoreStreamMemoryRead : IReadStream {
         _isDisposed = true;
         _onDispose();
     }
+
+    public Task<int> ReadAsync(byte[] buffer, int count) {
+        var bytes= Read(count);
+        Array.Copy(bytes, 0, buffer, 0, bytes.Length);
+        return Task.FromResult(bytes.Length);
+    }
 }

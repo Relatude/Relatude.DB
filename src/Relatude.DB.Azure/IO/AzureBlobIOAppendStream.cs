@@ -3,6 +3,7 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using System.Diagnostics;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.IO {
     // this is optmized for append operations and scattered reads
     // it uses a write buffer to accumulate data before uploading to blob, reducing the effect of latency
@@ -92,6 +93,29 @@ namespace Relatude.DB.IO {
                 _writeBuffer = new MemoryStream();
             }
         }
+        async Task flushAsync(bool deepFlush) {
+            if (_writeBuffer.Length == 0) return;
+            _writeBuffer.Position = 0;
+            var conditions = new AppendBlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
+            var options = new AppendBlobAppendBlockOptions() { Conditions = conditions };
+            if (_writeBuffer.Length < _maxBufferBeforeFlush) {
+                await _appendBlobClient.AppendBlockAsync(_writeBuffer, options);
+            } else {
+                var segment = new byte[_maxBufferBeforeFlush];
+                var segmengStream = new MemoryStream((int)_maxBufferBeforeFlush);
+                while (true) {
+                    var read = _writeBuffer.Read(segment, 0, segment.Length);
+                    if (read == 0) break;
+                    segmengStream.Position = 0;
+                    segmengStream.Write(segment, 0, read);
+                    segmengStream.Position = 0;
+                    segmengStream.SetLength(read);
+                    Stopwatch sw = Stopwatch.StartNew();
+                    await _appendBlobClient.AppendBlockAsync(segmengStream, options);
+                }
+            }
+            _writeBuffer = new MemoryStream();
+        }
         public void Get(long position, int count, byte[] result) {
             lock (_lock) {
 
@@ -152,6 +176,21 @@ namespace Relatude.DB.IO {
             _blobLeaseClient?.Release();
             _disposeCallback(_length);
             AzureBlobIOProvider.DeleteLastLeaseId(_appendBlobClient.Name);
+        }
+
+        public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
+            byte[] data;
+            if (count == buffer.Length) {
+                data = buffer;
+            } else {
+                data = new byte[count];
+                Array.Copy(buffer, 0, data, 0, count);
+            }
+            _readBuffer = null; // reset read buffer, as new data is appended, that will not be in readbuffer
+            await _writeBuffer.WriteAsync(data, 0, data.Length);
+            _length += data.Length;
+            _bytesWritten += data.Length;
+            if (_writeBuffer.Length > _maxBufferBeforeFlush) await flushAsync(true);
         }
     }
 }

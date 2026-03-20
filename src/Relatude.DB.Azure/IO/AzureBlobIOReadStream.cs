@@ -77,4 +77,32 @@ public class AzureBlobIOReadStream : IReadStream {
         AzureBlobIOProvider.DeleteLastLeaseId(_blobClient.Name);
         _disposeCallback();
     }
+
+    public async Task<int> ReadAsync(byte[] buffer, int count) {
+        if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+        if (count < 0 || count > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count));
+        if (count == 0) return 0;
+
+        // Clamp requested size to remaining bytes in the blob.
+        count = (int)Math.Min(count, _totalLength - Position);
+        if (count <= 0) return 0;
+
+        // Refill read-ahead buffer if position moved outside current window
+        // or if requested bytes exceed what is currently buffered.
+        if (Position < _bufferStartPos || Position + count > _readAheadBuffer.Length + _bufferStartPos) {
+            var lengthToRead = Math.Max((long)count, _readAheadBufferSize);
+            if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
+            var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
+            var options = new BlobDownloadOptions { Range = new HttpRange(Position, lengthToRead), Conditions = conditions };
+            _readAheadBuffer = (await _blobClient.DownloadContentAsync(options).ConfigureAwait(false)).Value.Content.ToArray();
+            _bufferStartPos = Position;
+        }
+
+        // Copy from internal read-ahead buffer into caller-provided buffer.
+        Buffer.BlockCopy(_readAheadBuffer, (int)(Position - _bufferStartPos), buffer, 0, count);
+        Position += count;
+        _checksum.EvaluateChecksumIfRecording(buffer.AsSpan(0, count).ToArray());
+        _bytesRead += count;
+        return count;
+    }
 }

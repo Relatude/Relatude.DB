@@ -136,5 +136,9 @@ public class StoreStreamDiscWriteTester : IAppendStream {
         }
 #endif
     }
+
+    public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
+        await _stream.WriteAsync(buffer, 0, count);
+    }
 }
 

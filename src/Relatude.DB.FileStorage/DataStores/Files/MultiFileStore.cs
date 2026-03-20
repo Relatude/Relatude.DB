@@ -52,7 +52,7 @@ public class MultiFileStore : IDisposable, IFileStore {
             if (bytesRead == 0) break; // End of stream            
             byte[] chk = MD5.HashData(buffer);
             checksum = combineHash(checksum, chk);
-            await outStream.WriteAsync(buffer, bytesRead);
+            await outStream.AppendAsyncNoChecksumOrLock(buffer, bytesRead);
             totalBytesRead += bytesRead;
         }
         if (totalBytesRead != length) throw new Exception("Length mismatch");
@@ -62,7 +62,7 @@ public class MultiFileStore : IDisposable, IFileStore {
         await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));
     }
     public async Task ExtractAsync(FileValue value, IAppendStream outStream) {
-        await extractAsync(value, outStream.WriteAsync);
+        await extractAsync(value, outStream.AppendAsyncNoChecksumOrLock);
     }
     public async Task<MultiStorageFileMeta> extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
         var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
