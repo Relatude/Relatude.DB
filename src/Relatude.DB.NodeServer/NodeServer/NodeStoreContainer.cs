@@ -107,9 +107,22 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (settings.IoFiles != null) {
                 foreach (var ioFilesId in settings.IoFiles) {
                     if (!server.TryGetIO(ioFilesId, out var ioFiles)) continue;
-                    var fileKey = new FileKeyUtility(settings.LocalSettings.FilePrefix).FileStore_GetLatestFileKey(ioFiles);
-                    if (fs == null) fs = [new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
-                    else fs = [.. fs, new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
+                    switch (settings.LocalSettings.DefaultFileStoreEngine) {
+                        case FileStoreEngine.SingleFile: {
+                                var fileKey = new FileKeyUtility(settings.LocalSettings.FilePrefix).FileStore_GetLatestFileKey(ioFiles);
+                                if (fs == null) fs = [new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
+                                else fs = [.. fs, new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
+                            }
+                            break;
+                        case FileStoreEngine.MultiFile: {
+                                if (!(ioFiles is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
+                                if (fs == null) fs = [new MultiFileStore(Guid.Empty, iof, ["files"])];
+                                else fs = [.. fs, new MultiFileStore(Guid.Empty, iof, ["files"])];
+                            }
+                            break;
+                        default:
+                            break;
+                    }
                 }
             }
             var ioBackup = server.GetOrNullIO(settings.IoBackup);

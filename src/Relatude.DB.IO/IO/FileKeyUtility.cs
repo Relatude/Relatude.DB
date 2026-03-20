@@ -43,7 +43,7 @@ public class FileKeyUtility {
     string loggerBinaryExt => ".bin";
     string loggerTextExt => ".txt";
     string loggerBkUpExt => ".bkup";
-     
+
     string criticalErrorLogFilePattern => _prefix + "critical.error.txt";
 
     string queueFileKey => _prefix + "queue";
@@ -192,11 +192,11 @@ public class FileKeyUtility {
         };
     }
 
-
+    public const int MaxFileNameLength = 64; // leaving ample room for folder paths and extensions
     static HashSet<char> _legalFileKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789()-–_. ".ToHashSet();
     public static bool IsFileKeyValid(string fileKey) {
         if (string.IsNullOrEmpty(fileKey)) return false;
-        if (fileKey.Length > 100)
+        if (fileKey.Length > MaxFileNameLength)
             return false;
         foreach (var c in fileKey.ToLower())
             if (!_legalFileKeyCharacters.Contains(c))
@@ -204,10 +204,21 @@ public class FileKeyUtility {
         return true;
     }
     public static void ValidateFileKeyPath(string[] path) {
-        foreach(var c in path) {
+        foreach (var c in path) {
             ValidateFileKeyString(c);
         }
     }
+    public static string FilterLegalCharInFileKey(string? fileKey) {
+        if (string.IsNullOrWhiteSpace(fileKey)) return "unnamed";
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in fileKey.ToLower()) {
+            if (_legalFileKeyCharacters.Contains(c)) sb.Append(c);
+        }
+        fileKey = sb.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(fileKey)) return "unnamed";
+        return fileKey;
+    }
+
     public static void ValidateFileKeyString(string fileKey) {
         if (!IsFileKeyValid(fileKey)) throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + 100 + " characters.");
     }

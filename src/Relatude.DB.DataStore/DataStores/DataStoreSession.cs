@@ -57,10 +57,10 @@ public class DataStoreSession : IDataStore {
         => _datastore.Execute(transaction, flushToDisk, ctx ?? QueryContext);
     public Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null)
         => _datastore.FileDeleteAsync(nodeId, propertyId, ctx ?? QueryContext);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null)
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string? fileName = null, QueryContext? ctx = null)
         => _datastore.FileUploadAsync(nodeId, propertyId, source, fileKey, fileName, ctx ?? QueryContext);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null)
-        => _datastore.FileUploadAsync(nodeId, propertyId, source, fileKey, fileName, ctx ?? QueryContext);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, QueryContext? ctx = null)
+        => _datastore.FileUploadAsync(nodeId, propertyId, source, fileName, ctx ?? QueryContext);
 
     // Revisions:
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null)

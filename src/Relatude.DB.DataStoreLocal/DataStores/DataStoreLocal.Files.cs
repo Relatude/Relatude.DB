@@ -27,19 +27,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(nodeId, propertyId, FileValue.Empty);
         execute_outer(t, false, true, ctx, out _);
     }
-    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName, QueryContext? ctx = null) {
+    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;    
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
-        using var inputStream = source.OpenRead(fileKey, 0);
+        using var inputStream = source.OpenRead(sourceFileKey, 0);
+        fileName ??= sourceFileKey;
         var fileValue = await fileStore.InsertAsync(inputStream, fileName);
         var t = new TransactionData();
         t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
-    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName, QueryContext? ctx = null) {
+    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");

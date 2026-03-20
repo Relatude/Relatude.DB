@@ -131,7 +131,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     break;
                 case FileStoreEngine.MultiFile:
                     if (!(_io is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
-                    fs = new MultiFileStore(Guid.Empty, iof, [""]);
+                    fs = new MultiFileStore(Guid.Empty, iof, ["files"]);
                     break;
                 default:
                     throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine);

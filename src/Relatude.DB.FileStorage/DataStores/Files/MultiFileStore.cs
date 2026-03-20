@@ -7,16 +7,28 @@ public class MultiFileStore : IDisposable, IFileStore {
     readonly IIOProviderWithFolders _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }
-    string[] getFullFilePath(Guid fileId, string originalFileName) {
-        const int folderDepth = 3;
-        var hash = fileId.ToString("N"); // 32 chars
-        var path = new string[folderDepth + 2];
+    const int folderDepth = 0;
+    string[] getFullPathWithBase(string[] path) {
+        return [.. _basePath, .. path];
+    }
+    string[] getFilePath(Guid fileId, string? originalFileName, out string usedFileName) {
+        var hash = fileId.ToString("N"); // 32 chars. example: "d3b07384d113edec49eaa6238ad5ff00"
+        var path = new string[folderDepth + 1];
         for (int i = 0; i < folderDepth; i++) {
             path[i] = hash.Substring(i * 2, 2);
         }
-        path[folderDepth] = hash; // remain hash
-        path[folderDepth + 1] = originalFileName;
-        return [.. _basePath, .. path];
+        originalFileName = FileKeyUtility.FilterLegalCharInFileKey(originalFileName);
+        var filenameWithoutExt = Path.GetFileNameWithoutExtension(originalFileName);
+        if (filenameWithoutExt == null) filenameWithoutExt = "noname";
+        var fileExt = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(fileExt)) fileExt = "";
+        else if (fileExt.Length > 10) fileExt = fileExt[10..];
+        if (filenameWithoutExt.Length + hash.Length + 1 + fileExt.Length > FileKeyUtility.MaxFileNameLength) {
+            filenameWithoutExt = filenameWithoutExt[..(FileKeyUtility.MaxFileNameLength - hash.Length - 1 - fileExt.Length)];
+        }
+        usedFileName = filenameWithoutExt + "." + hash + fileExt;
+        path[folderDepth] = usedFileName;
+        return path;
     }
     public MultiFileStore(Guid id, IIOProviderWithFolders ioProvider, string[] basePath) {
         Id = id;
@@ -39,9 +51,9 @@ public class MultiFileStore : IDisposable, IFileStore {
     }
     public async Task<MultiStorageFileMeta> insertAsync(long length, Func<byte[], int, Task<int>> readAsync, string? fileName) {
         var fileId = Guid.NewGuid();
-        fileName ??= "noname";
-        var filePath = getFullFilePath(fileId, fileName);
-        using var outStream = _ioProvider.OpenAppend(filePath);
+        var relPath = getFilePath(fileId, fileName, out var usedFileName);
+        var fullPath = getFullPathWithBase(relPath);
+        using var outStream = _ioProvider.OpenAppend(relPath);
         var bufferSize = 1024 * 1024; // 1MB buffer
         var buffer = new byte[bufferSize];
         long totalBytesRead = 0;
@@ -56,7 +68,7 @@ public class MultiFileStore : IDisposable, IFileStore {
             totalBytesRead += bytesRead;
         }
         if (totalBytesRead != length) throw new Exception("Length mismatch");
-        return new MultiStorageFileMeta(fileId, totalBytesRead, checksum, fileName, fileName);
+        return new MultiStorageFileMeta(fileId, totalBytesRead, checksum, fileName, fileName, relPath);
     }
     public async Task ExtractAsync(FileValue value, Stream outStream) {
         await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));

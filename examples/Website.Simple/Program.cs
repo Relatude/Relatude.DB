@@ -43,9 +43,20 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
     });
 
 });
-app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
-    var article = ctx.Database.Create<DemoArticle>();
-    ctx.Database.file
+
+
+
+app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
+
+    var db = ctx.Database;
+    
+    var article = ctx.Database.CreateAndInsert<DemoArticle>(a => { });
+    var files = Directory.GetFiles(Path.Combine([Environment.GetLogicalDrives()[0], "Filer"]));
+    foreach (var file in files) {
+        await db.FileUploadAsync(article, a => a.File, file);
+        Console.WriteLine("Uploaded file: " + file);
+
+    }
 });
 
 app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
@@ -94,7 +105,7 @@ app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {
 
     return html.ToString();
 });
-app.MapGet("/Test", (RelatudeDBContext ctx, HttpContext httpCtx) => {
+app.MapGet("/Testdd", (RelatudeDBContext ctx, HttpContext httpCtx) => {
     try {
         var sw = Stopwatch.StartNew();
         var html = new System.Text.StringBuilder();

@@ -521,12 +521,6 @@ public class NodeStore : IDisposable {
     public void ReIndex(int id) => new Transaction(this).ReIndex(id);
     public void ReIndex(Guid id) => new Transaction(this).ReIndex(id);
 
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string fileName) {
-        return Datastore.FileUploadAsync(nodeId, propertyId, source, fileKey, fileName);
-    }
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileKey, string fileName) {
-        return Datastore.FileUploadAsync(nodeId, propertyId, source, fileKey, fileName);
-    }
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {
         return Datastore.FileDownloadAsync(nodeId, propertyId, outStream);
     }
@@ -535,25 +529,27 @@ public class NodeStore : IDisposable {
         await FileDownloadAsync(nodeId, propertyId, ms);
         return ms.ToArray();
     }
-    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) {
-        return Datastore.FileDeleteAsync(nodeId, propertyId);
-    }
-
-    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string fileKey, string fileName) {
-        using var source = File.OpenRead(filePath);
-        return FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileKey, fileName);
-    }
-    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream source, string fileKey, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileKey, fileName);
-    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileKey, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileKey, fileName);
-    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string fileKey, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileKey, fileName);
-    public Task FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream outStream) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id, outStream);
-    public Task<byte[]> FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id);
+    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(nodeId, propertyId);
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
-    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, string filePath, string fileKey, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, filePath, fileKey, fileName);
-    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, Stream source, string fileKey, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, fileKey, fileName);
-    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, byte[] data, string fileKey, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, new MemoryStream(data), fileKey, fileName);
-    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, IIOProvider source, string fileKey, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, fileKey, fileName);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(nodeId, propertyId, source, sourceFileKey, fileName);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(nodeId, propertyId, source, fileName);
+    public async Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
+        using var stream = File.OpenRead(filePath);
+        newFileName = newFileName ?? Path.GetFileName(filePath);
+        await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
+    }
+    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream source, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileName);
+    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileName);
+    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, sourceFileKey, fileName);
+
+    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, string filePath, string? fileName = null) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, filePath, fileName);
+    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, Stream source, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, fileName);
+    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, new MemoryStream(data), fileName);
+    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, sourceFileKey, fileName);
+
+    public Task FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream outStream) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id, outStream);
+    public Task<byte[]> FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id);
     public Task FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression, Stream outStream) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression, outStream);
     public Task<byte[]> FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression);
     public Task FileDeleteAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDeleteAsync(Mapper.GetIdGuid(node), expression);
