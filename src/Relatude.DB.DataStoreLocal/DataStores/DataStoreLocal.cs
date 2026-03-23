@@ -123,23 +123,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         Datamodel = dm;
         dm.EnsureInitalization();
         dm.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
-        if (!_fileStores.ContainsKey(Guid.Empty)) {
-            IFileStore fs;
-            switch (_settings.DefaultFileStoreEngine) {
-                case FileStoreEngine.SingleFile:
-                    fs = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
-                    break;
-                case FileStoreEngine.MultiFile:
-                    if (!(_io is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
-                    fs = new MultiFileStore(Guid.Empty, iof, ["files"]);
-                    break;
-                default:
-                    throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine);
-            }
-            _fileStores.Add(fs.Id, fs);
-        }
         _nativeModelStore = new(this);
-        _defaultFileStore = _fileStores[Guid.Empty];
+        _defaultFileStore = null;
+        if (_settings.DefaultFileStore.HasValue) {
+            if (!_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out _defaultFileStore)) {
+                throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided filestores.");
+            }
+        }
+        if (_defaultFileStore == null) _defaultFileStore = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io, FileKeys);
         _scheduler = new(this);
         try {

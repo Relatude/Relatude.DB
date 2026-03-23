@@ -26,29 +26,26 @@ public class SingleFileStore : IDisposable, IFileStore {
         }
     }
     public Guid Id { get; }
-    byte[] combineHash(byte[] hash1, byte[] hash2) {
-        var combined = new byte[hash1.Length + hash2.Length];
-        Buffer.BlockCopy(hash1, 0, combined, 0, hash1.Length);
-        Buffer.BlockCopy(hash2, 0, combined, hash1.Length, hash2.Length);
-        return MD5.HashData(combined);
-    }
     async Task<SingleStorageFileMeta> insert(Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
         var offset = file.Length;
-        var count = (int)Math.Min(1024 * 1024, length); // 1MB
-        var buffer = new byte[count];
+        var bufferSize = 5 * 1024 * 1024; // 5MB buffer 
+        bufferSize = length < bufferSize ? (int)length : bufferSize;
+        var buffer = new byte[bufferSize];
         long totalBytesRead = 0;
         byte[] checksum = [];
         var id = Guid.NewGuid();
         file.WriteGuid(id);
         file.WriteVerifiedLong(length);
         file.WriteString(originalFileName);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         while (totalBytesRead < length) {
             buffer = await readAsync(buffer);  // buffer returned must be exact size, but buffer can be reused
-            byte[] chk = MD5.HashData(buffer);
-            checksum = combineHash(checksum, chk);
-            file.Append(buffer);
+            hash.AppendData(buffer, 0, buffer.Length);
+            await file.AppendAsyncNoChecksumOrLock(buffer, buffer.Length);
+            //file.Append(buffer);
             totalBytesRead += buffer.Length;
         }
+        checksum = hash.GetHashAndReset();
         if (totalBytesRead != length) throw new Exception("Length mismatch");
         file.WriteByteArray(checksum);
         file.WriteByteArray(_fileEndMarker);
@@ -69,17 +66,17 @@ public class SingleFileStore : IDisposable, IFileStore {
         if (pos + remaining > file.Length) throw new Exception("File corruption, file too short. ");
         var count = (int)Math.Min(1024 * 1024, length); // 1MB
         var buffer = new byte[count];
-        byte[] calculatedChecksum = [];
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         while (bytesLeft > 0) {
             count = (int)Math.Min(buffer.Length, bytesLeft);
             if (count < buffer.Length) buffer = new byte[count]; // new buffer for last read, needs to be exact size
             lock (_fileLock) file.Get(pos, count, buffer);
             await recieveAsync(buffer);
-            var chk = MD5.HashData(buffer);
-            calculatedChecksum = combineHash(calculatedChecksum, chk);
+            hash.AppendData(buffer, 0, buffer.Length);
             pos += count;
             bytesLeft -= count;
         }
+        byte[] calculatedChecksum = hash.GetHashAndReset();
         byte[] storedChecksum;
         lock (_fileLock) storedChecksum = file.GetByteArray(ref pos);
         byte[] marker;
@@ -162,21 +159,6 @@ public class SingleFileStore : IDisposable, IFileStore {
         var meta = SingleStorageFileMeta.FromFileValue(value);
         await extractWithReadLock(meta, (buffer) => stream.WriteAsync(buffer, 0, buffer.Length));
     }
-    //public async Task ExtractCopy(Stream outStream) {
-    //    await _asyncLock.AcquireReaderLock();
-    //    try {
-    //        long pos = 0;
-    //        var buffer = new byte[1024 * 1024];
-    //        while (pos < file.Length) {
-    //            var toRead = (int)Math.Min(buffer.Length, file.Length - pos);
-    //            lock (_fileLock) file.Get(pos, toRead, buffer);
-    //            await outStream.WriteAsync(buffer, 0, toRead);
-    //            pos += toRead;
-    //        }
-    //    } finally {
-    //        _asyncLock.ReleaseReaderLock();
-    //    }
-    //}
     public Task DeleteAsync(FileValue value) {
         // no action. File is never deleted from store, just left unused
         return Task.CompletedTask;

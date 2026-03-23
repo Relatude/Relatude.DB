@@ -47,16 +47,22 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
 
 
 app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
-
     var db = ctx.Database;
-    
-    var article = ctx.Database.CreateAndInsert<DemoArticle>(a => { });
+    var article = db.CreateAndInsert<DemoArticle>(a => { });
     var files = Directory.GetFiles(Path.Combine([Environment.GetLogicalDrives()[0], "Filer"]));
-    foreach (var file in files) {
-        await db.FileUploadAsync(article, a => a.File, file);
-        Console.WriteLine("Uploaded file: " + file);
-
+    var sw = Stopwatch.StartNew();
+    var iterations = 10;
+    var t = db.CreateTransaction();
+    for (int i = 0; i < iterations; i++) {
+        //foreach (var file in files) {
+        //    await db.FileUploadAsync(article, a => a.File, file);
+        //}
+        // using parallel upload:
+        var tasks = files.Select(file => db.FileUploadAsync(article, a => a.File, file)).ToArray();
+        await Task.WhenAll(tasks);
     }
+    return "Uploaded " + files.Length + " files in " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms";
+
 });
 
 app.MapGet("/Test2", (RelatudeDBContext ctx, HttpContext httpCtx) => {

@@ -103,21 +103,21 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (localFallbackPath == null && ioDatabase is IOProviderDisk ioDisk) localFallbackPath = ioDisk.BaseFolder;
             if (localFallbackPath == null) localFallbackPath = server.DefaultSubDataFolderPath;
 
+            FileKeyUtility fileKeyUtility = new FileKeyUtility(settings.LocalSettings.FilePrefix);
             IFileStore[]? fs = null;
-            if (settings.IoFiles != null) {
-                foreach (var ioFilesId in settings.IoFiles) {
-                    if (!server.TryGetIO(ioFilesId, out var ioFiles)) continue;
-                    switch (settings.LocalSettings.DefaultFileStoreEngine) {
+            if (settings.IoFileSettings != null) {
+                foreach (var ioFilesSetting in settings.IoFileSettings) {
+                    if (!server.TryGetIO(ioFilesSetting.IoProviderId, out var ioFiles)) throw new Exception($"IO provider with id {ioFilesSetting.IoProviderId} not found for IoFiles setting.");
+                    if (fs == null) fs = [];
+                    switch (ioFilesSetting.StoreType) {
                         case FileStoreEngine.SingleFile: {
-                                var fileKey = new FileKeyUtility(settings.LocalSettings.FilePrefix).FileStore_GetLatestFileKey(ioFiles);
-                                if (fs == null) fs = [new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
-                                else fs = [.. fs, new SingleFileStore(Guid.Empty, ioFiles, fileKey)];
+                                var fileKey = fileKeyUtility.FileStore_GetLatestFileKey(ioFiles);
+                                fs = [.. fs, new SingleFileStore(ioFilesSetting.Id, ioFiles, fileKey)];
                             }
                             break;
                         case FileStoreEngine.MultiFile: {
                                 if (!(ioFiles is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
-                                if (fs == null) fs = [new MultiFileStore(Guid.Empty, iof, ["files"])];
-                                else fs = [.. fs, new MultiFileStore(Guid.Empty, iof, ["files"])];
+                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, iof, fileKeyUtility, ioFilesSetting.MultiFileFolderDepth)];
                             }
                             break;
                         default:
@@ -147,7 +147,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     if (string.IsNullOrEmpty(indexPath)) {
                         throw new Exception("The setting PersistedValueIndexFolderPath is required for the persisted index store.");
                     }
-                    indexPath = Path.Combine(indexPath, new FileKeyUtility(settings.LocalSettings.FilePrefix).IndexStoreFolderKey);
+                    indexPath = Path.Combine(indexPath, fileKeyUtility.IndexStoreFolderKey);
                     toLog.Add("Index path: " + indexPath);
                     IPersistentWordIndexFactory? textIndexFactory = null;
                     if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Lucene) {
@@ -167,7 +167,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (string.IsNullOrEmpty(queuePath)) throw new Exception("The setting PersistedQueueStoreFolderPath is required for the persisted queue store.");
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 toLog.Add("Queue path: " + queuePath);
-                queuePath = Path.Combine(queuePath, new FileKeyUtility(settings.LocalSettings.FilePrefix).Queue_GetFileKey("sqlite"));
+                queuePath = Path.Combine(queuePath, fileKeyUtility.Queue_GetFileKey("sqlite"));
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             var sw = Stopwatch.StartNew();

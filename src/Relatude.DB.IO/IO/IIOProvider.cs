@@ -1,5 +1,8 @@
 ﻿namespace Relatude.DB.IO;
-// thread-safe interface for IO operations
+// thread-safe interface for IO operations. 
+/// <summary>
+/// Thread safe interface for IO operations. Implementations should ensure that multiple threads can read/write/delete files concurrently without causing data corruption or inconsistent states. This involves using locks and synchronization mechanisms as needed.
+/// </summary>
 public interface IIOProvider{
     IReadStream OpenRead(string fileKey, long position);
     IAppendStream OpenAppend(string fileKey);
@@ -20,6 +23,7 @@ public interface IIOProviderWithFolders : IIOProvider{
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
     void DeleteIfItExists(string[] path);
+    long GetTotalSize();
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {

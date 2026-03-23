@@ -51,7 +51,7 @@ public class RelatudeDBServerSettings {
             LocalSettings = local,
             IOSettings = [io],
             IoDatabase = io.Id,
-            IoFiles = [io.Id],
+            IoFileSettings = [],
             IoBackup = io.Id,
             IoLog = io.Id,
             DatamodelSources = [new DatamodelSource()

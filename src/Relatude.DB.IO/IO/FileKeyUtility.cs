@@ -21,6 +21,7 @@ public class FileKeyUtility {
     string walFileBackupPattern => _prefix + "db.*.bkup";
     string walFileBackupPatternKeepForever => _prefix + "db.bkup.keep.*.bkup";
 
+    string multiFileStoreFolderPattern => _prefix + "files";
     string fileStorePattern => _prefix + "files.*.bin";
     string fileStoreBackupPattern => _prefix + "files.*.bkup";
     string fileStoreBackupPatternKeepForever => _prefix + "files.bkup.keep.*.bkup";
@@ -62,6 +63,7 @@ public class FileKeyUtility {
         if (_prefix.Length > 0 && !_prefix.EndsWith(".")) _prefix += ".";
     }
 
+    public string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
     public string StateFileKey => stateFilePattern;
     public string AiCacheFileKey => aiCacheFilePattern;
     public string IndexStoreFolderKey => indexStoreFolderPattern;

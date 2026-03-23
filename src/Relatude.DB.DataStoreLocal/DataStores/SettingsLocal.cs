@@ -7,7 +7,7 @@ public class SettingsLocal {
     public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Admins;
 
     public string? FilePrefix { get; set; }
-    public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.SingleFile;
+    public Guid? DefaultFileStore { get; set; } 
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 

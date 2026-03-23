@@ -78,9 +78,9 @@ public class FileValue {
 
     private static int version = 0; // to allow for future changes
     public byte[] ToBytes() {
+        if (IsEmpty) return [];
         var ms = new MemoryStream();
         var bw = new BinaryWriter(ms);
-        bw.Write(IsEmpty);
         if (IsEmpty) return ms.ToArray();
         bw.Write(version);
         bw.Write(Name);
@@ -97,10 +97,11 @@ public class FileValue {
         return ms.ToArray();
     }
     public static FileValue FromBytes(byte[] bytes) {
+        if(bytes.Length == 0) return Empty;
         var ms = new MemoryStream(bytes);
         var br = new BinaryReader(ms);
-        var isEmpty = br.ReadBoolean();
-        if (isEmpty) return Empty;
+        var version = br.ReadInt32();
+        if(version != 0) throw new Exception($"Unsupported FileValue version: {version}");
         var v = new FileValue();
         v.Name = br.ReadString();
         v.TextExtract = br.ReadString();

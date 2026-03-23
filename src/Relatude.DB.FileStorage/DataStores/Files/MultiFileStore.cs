@@ -6,8 +6,15 @@ namespace Relatude.DB.DataStores.Files;
 public class MultiFileStore : IDisposable, IFileStore {
     readonly IIOProviderWithFolders _ioProvider;
     readonly string[] _basePath;
+    long _totalSize;
     public Guid Id { get; }
-    const int folderDepth = 0;
+    readonly int folderDepth;
+    public MultiFileStore(Guid id, IIOProviderWithFolders ioProvider, FileKeyUtility fileKeyUtility, int? folderDepth) {
+        Id = id;
+        _ioProvider = ioProvider;
+        _basePath = [fileKeyUtility.MultiFileStoreFolderKey];
+        this.folderDepth = folderDepth.HasValue ? folderDepth.Value : 2;
+    }
     string[] getFullPathWithBase(string[] path) {
         return [.. _basePath, .. path];
     }
@@ -30,17 +37,6 @@ public class MultiFileStore : IDisposable, IFileStore {
         path[folderDepth] = usedFileName;
         return path;
     }
-    public MultiFileStore(Guid id, IIOProviderWithFolders ioProvider, string[] basePath) {
-        Id = id;
-        _ioProvider = ioProvider;
-        _basePath = basePath;
-    }
-    byte[] combineHash(byte[] hash1, byte[] hash2) {
-        var combined = new byte[hash1.Length + hash2.Length];
-        Buffer.BlockCopy(hash1, 0, combined, 0, hash1.Length);
-        Buffer.BlockCopy(hash2, 0, combined, hash1.Length, hash2.Length);
-        return MD5.HashData(combined);
-    }
     public async Task<FileValue> InsertAsync(Stream sourceStream, string? fileName) {
         var multiMeta = await insertAsync(sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
         return multiMeta.ToFileValue(Id);
@@ -51,24 +47,27 @@ public class MultiFileStore : IDisposable, IFileStore {
     }
     public async Task<MultiStorageFileMeta> insertAsync(long length, Func<byte[], int, Task<int>> readAsync, string? fileName) {
         var fileId = Guid.NewGuid();
+        fileName = fileName ?? "noname";
         var relPath = getFilePath(fileId, fileName, out var usedFileName);
         var fullPath = getFullPathWithBase(relPath);
-        using var outStream = _ioProvider.OpenAppend(relPath);
+        using var outStream = _ioProvider.OpenAppend(fullPath);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         var bufferSize = 1024 * 1024; // 1MB buffer
+        bufferSize = length < bufferSize ? (int)length : bufferSize;
         var buffer = new byte[bufferSize];
         long totalBytesRead = 0;
-        byte[] checksum = [];
         while (true) {
             var bytesToRead = (int)Math.Min(bufferSize, length - totalBytesRead);
             var bytesRead = await readAsync(buffer, bytesToRead);
             if (bytesRead == 0) break; // End of stream            
-            byte[] chk = MD5.HashData(buffer);
-            checksum = combineHash(checksum, chk);
+            hash.AppendData(buffer, 0, bytesRead);
             await outStream.AppendAsyncNoChecksumOrLock(buffer, bytesRead);
             totalBytesRead += bytesRead;
         }
         if (totalBytesRead != length) throw new Exception("Length mismatch");
-        return new MultiStorageFileMeta(fileId, totalBytesRead, checksum, fileName, fileName, relPath);
+        var fileHash = Convert.ToHexString(hash.GetHashAndReset());
+        _totalSize += totalBytesRead;
+        return new MultiStorageFileMeta(fileName, totalBytesRead, fileHash, fileName, relPath);
     }
     public async Task ExtractAsync(FileValue value, Stream outStream) {
         await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));
@@ -78,9 +77,9 @@ public class MultiFileStore : IDisposable, IFileStore {
     }
     public async Task<MultiStorageFileMeta> extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
         var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
-        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
         using var inStream = _ioProvider.OpenRead(path, 0);
-        var bufferSize = 1024 * 1024; // 1MB buffer
+        var bufferSize = 5 * 1024 * 1024; // 5MB buffer
         var buffer = new byte[bufferSize];
         long bytesRead = 0;
         while (true) {
@@ -95,17 +94,19 @@ public class MultiFileStore : IDisposable, IFileStore {
     }
     public Task<bool> ContainsFileAsync(FileValue fileValue) {
         var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(fileValue);
-        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
         var fileSize = _ioProvider.GetFileSizeOrZeroIfUnknown(path);
         return Task.FromResult(fileValue.Size == fileSize);
     }
     public async Task DeleteAsync(FileValue value) {
         var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
-        var path = getFullFilePath(multiStorageFileMeta.Id, multiStorageFileMeta.OriginalFileName);
+        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
         _ioProvider.DeleteIfItExists(path);
+        _totalSize -= multiStorageFileMeta.Size;
     }
     public long GetSize() {
-        throw new NotImplementedException();
+        if (_totalSize < 0) _totalSize = _ioProvider.GetTotalSize();
+        return _totalSize;
     }
     public void Dispose() {
         _ioProvider.CloseAllOpenStreams();
