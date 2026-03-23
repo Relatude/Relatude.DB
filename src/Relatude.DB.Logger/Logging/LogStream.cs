@@ -174,7 +174,7 @@ internal class LogStream : IDisposable {
         flushBufferAndReleaseOpenFiles();
         var filesToDelete = GetLogFileDates().Where(f => dt > f);
         foreach (var fileDt in filesToDelete) {
-            _io.DeleteIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, fileDt));
+            _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, fileDt));
         }
         return filesToDelete.Count();
     }
@@ -222,7 +222,7 @@ internal class LogStream : IDisposable {
         foreach (var f in files) {
             var fileTo = f.AddInterval(_fileInterval);
             if (fileTo <= to)
-                _io.DeleteIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, f));
+                _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameBin(_logName, _fileInterval, f));
         }
     }
     public void Dispose() {
@@ -238,7 +238,7 @@ internal class LogStream : IDisposable {
         foreach (var f in files) {
             if (currentTotalSize <= maxTotalSizeOfLogFilesInMb * 1024 * 1024) return;
             currentTotalSize = currentTotalSize - _io.GetFileSizeOrZeroIfUnknown(f);
-            _io.DeleteIfItExists(f);
+            _io.DeleteFileIfItExists(f);
         }
     }
     internal long Size() {

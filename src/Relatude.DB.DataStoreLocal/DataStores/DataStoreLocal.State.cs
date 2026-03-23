@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         //return g;
     }
     void saveMainState(long activityId) {
-        IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
+        IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
         UpdateActivity(activityId, "Opening " + _fileKeys.StateFileKey + "...");
         using var stream = IOIndex.OpenAppend(_fileKeys.StateFileKey);
         stream.WriteVerifiedInt(_stateFileVersion); // fileversion

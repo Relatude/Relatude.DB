@@ -4,12 +4,12 @@ using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Files;
 
 public class MultiFileStore : IDisposable, IFileStore {
-    readonly IIOProviderWithFolders _ioProvider;
+    readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
     long _totalSize;
     public Guid Id { get; }
     readonly int folderDepth;
-    public MultiFileStore(Guid id, IIOProviderWithFolders ioProvider, FileKeyUtility fileKeyUtility, int? folderDepth) {
+    public MultiFileStore(Guid id, IIOProvider ioProvider, FileKeyUtility fileKeyUtility, int? folderDepth) {
         Id = id;
         _ioProvider = ioProvider;
         _basePath = [fileKeyUtility.MultiFileStoreFolderKey];
@@ -101,11 +101,11 @@ public class MultiFileStore : IDisposable, IFileStore {
     public async Task DeleteAsync(FileValue value) {
         var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
         var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
-        _ioProvider.DeleteIfItExists(path);
+        _ioProvider.DeleteFileIfItExists(path);
         _totalSize -= multiStorageFileMeta.Size;
     }
-    public long GetSize() {
-        if (_totalSize < 0) _totalSize = _ioProvider.GetTotalSize();
+    public long GetSizeForMetrics() {
+        if (_totalSize < 0) _totalSize = _ioProvider.GetTotalSizeForMetrics();
         return _totalSize;
     }
     public void Dispose() {

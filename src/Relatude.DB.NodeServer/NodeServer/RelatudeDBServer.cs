@@ -125,7 +125,7 @@ public partial class RelatudeDBServer {
         if (tempCount == 0) Log("No temp files found to clean.");
         else Log($"Cleaning temp folder, found {tempCount} file(s) and {tempSize.ToByteString()}.");
         foreach (var file in tempFiles) {
-            try { TempIO.DeleteIfItExists(file.Key); } catch { }
+            try { TempIO.DeleteFileIfItExists(file.Key); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
         Stopwatch sw = Stopwatch.StartNew();

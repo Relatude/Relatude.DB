@@ -74,7 +74,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             foreach (var f in _fileKeys.WAL_GetAllFileKeys(_io)) {
                 if (_wal.FileKey != f) {
-                    _io.DeleteIfItExists(f);
+                    _io.DeleteFileIfItExists(f);
                     LogInfo($"Deleted old log file {f}. ");
                     fileDeleted++;
                 }
@@ -116,9 +116,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void resetStateAndIndexes() {
         var stateFileExisted = IOIndex.ExistsAndIsNotEmpty(_fileKeys.StateFileKey);
-        IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
+        IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
         var indexesFiles = FileKeys.Index_GetAll(IOIndex);
-        foreach (var i in indexesFiles) IOIndex.DeleteIfItExists(i);
+        foreach (var i in indexesFiles) IOIndex.DeleteFileIfItExists(i);
         if (stateFileExisted) {
             _noPrimitiveActionsSinceLastStateSnapshot = Settings.AutoSaveIndexStatesActionCountUpperLimit + 1;
         }
@@ -247,9 +247,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
 
             try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
-            try { info.FileStoreSize = _fileStores.Select(kv => kv.Value.GetSize()).Sum(); } catch { }
-            try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Select(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
-            try { info.IndexFileSize = (PersistedIndexStore?.GetTotalDiskSpace() ?? 0L) + FileKeys.Index_GetAll(_ioIndex).Select(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)).Sum(); } catch { }
+            try { info.FileStoreSize = _fileStores.Sum(kv => kv.Value.GetSizeForMetrics()); } catch { }
+            try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Sum(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)); } catch { }
+            try { info.IndexFileSize = (PersistedIndexStore?.GetTotalDiskSpace() ?? 0L) + FileKeys.Index_GetAll(_ioIndex).Sum(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)); } catch { }
             try { info.TotalFileSize = AllIOs.SelectMany(io => io.GetFiles()).Sum(f => f.Size); } catch { }
             // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 

@@ -106,7 +106,7 @@ public class StringArrayIndex : IIndex {
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
-        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedInt(_valueByNodeId.Count);
         foreach (var kv in _valueByNodeId) {

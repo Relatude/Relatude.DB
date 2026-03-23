@@ -484,7 +484,7 @@ internal class Scheduler {
         var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep); // the opoosite of keep
         foreach (var f in filesToDelete) {
             _db.LogInfo("Deleting: " + f);
-            _db.IO.DeleteIfItExists(f);
+            _db.IO.DeleteFileIfItExists(f);
         }
     }
 

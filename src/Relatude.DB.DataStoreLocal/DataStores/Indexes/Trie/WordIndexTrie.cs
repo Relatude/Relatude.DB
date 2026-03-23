@@ -58,7 +58,7 @@ internal class WordIndexTrie : IWordIndex {
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
-        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         _trie.WriteState(stream);
         stream.WriteVerifiedLong(logTimestamp);

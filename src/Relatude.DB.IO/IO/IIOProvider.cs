@@ -3,27 +3,26 @@
 /// <summary>
 /// Thread safe interface for IO operations. Implementations should ensure that multiple threads can read/write/delete files concurrently without causing data corruption or inconsistent states. This involves using locks and synchronization mechanisms as needed.
 /// </summary>
-public interface IIOProvider{
+public interface IIOProvider {
     IReadStream OpenRead(string fileKey, long position);
+    IReadStream OpenRead(string[] path, long position);
     IAppendStream OpenAppend(string fileKey);
+    IAppendStream OpenAppend(string[] path);
     bool DoesNotExistOrIsEmpty(string fileKey);
-    void DeleteIfItExists(string fileKey);
+    void DeleteFileIfItExists(string[] path);
+    void DeleteFileIfItExists(string fileKey);
     FileMeta[] GetFiles();
     long GetFileSizeOrZeroIfUnknown(string file);
+    long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
     void CloseAllOpenStreams();
+    long GetTotalSizeForMetrics();
 }
-public interface IIOProviderWithFolders : IIOProvider{
-    bool CanHaveFolders { get; }
-    IReadStream OpenRead(string[] path, long position);
-    IAppendStream OpenAppend(string[] path);
-    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);
-    long GetFileSizeOrZeroIfUnknown(string[] path);
+public interface IIOProviderWithFolders : IIOProvider {
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
-    void DeleteIfItExists(string[] path);
-    long GetTotalSize();
+    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);
 }
 public static class IIOProviderExtensions {
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {
@@ -38,7 +37,7 @@ public static class IIOProviderExtensions {
         return stream.ReadString();
     }
     public static void WriteString(this IIOProvider io, string fileKey, string content) {
-        io.DeleteIfItExists(fileKey);
+        io.DeleteFileIfItExists(fileKey);
         using var stream = io.OpenAppend(fileKey);
         stream.WriteString(content);
     }
@@ -47,7 +46,7 @@ public static class IIOProviderExtensions {
         return stream.Read((int)stream.Length);
     }
     public static void WriteAllBytes(this IIOProvider io, string fileKey, byte[] content) {
-        io.DeleteIfItExists(fileKey);
+        io.DeleteFileIfItExists(fileKey);
         using var stream = io.OpenAppend(fileKey);
         stream.Append(content);
     }
@@ -56,7 +55,7 @@ public static class IIOProviderExtensions {
         return stream.ReadUTF8StringNoLengthPrefix((int)stream.Length);
     }
     public static void WriteAllTextUTF8(this IIOProvider io, string fileKey, string content) {
-        io.DeleteIfItExists(fileKey);
+        io.DeleteFileIfItExists(fileKey);
         using var stream = io.OpenAppend(fileKey);
         stream.WriteUTF8StringNoLengthPrefix(content);
     }
@@ -68,7 +67,7 @@ public static class IIOProviderExtensions {
     }
     public static void CopyIfItExistsAndOverwrite(this IIOProvider io, string fileKeySource, string fileKeyDest) {
         if (io.DoesNotExistOrIsEmpty(fileKeySource)) return;
-        io.DeleteIfItExists(fileKeyDest);
+        io.DeleteFileIfItExists(fileKeyDest);
         using var readStream = io.OpenRead(fileKeySource, 0);
         using var writeStream = io.OpenAppend(fileKeyDest);
         if (readStream.Length > 1024 * 1024 * 100) { // max 100 mb this method

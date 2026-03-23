@@ -2,7 +2,14 @@
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 namespace Relatude.DB.IO;
+
 public class AzureBlobIOProvider : IIOProvider {
+    const string _virtualFolderChar = "/";
+    string getAndValidateBlobName(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        return string.Join(_virtualFolderChar, path);
+    }
+
     readonly BlobContainerClient _container;
     readonly bool _lockBlob;
     readonly Dictionary<string, FileMeta> _files = new(StringComparer.OrdinalIgnoreCase);
@@ -17,16 +24,13 @@ public class AzureBlobIOProvider : IIOProvider {
 
     static string leasePath(string fileKey) => Environment.ProcessPath + "_" + fileKey + "_leaseId";
     static internal void DeleteLastLeaseId(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
         if (File.Exists(leasePath(fileKey))) File.Delete(leasePath(fileKey));
     }
     static internal void SaveLastLeaseId(string fileKey, string leaseId) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
         if (File.Exists(leasePath(fileKey))) File.Delete(leasePath(fileKey));
         File.WriteAllText(leasePath(fileKey), leaseId);
     }
     static internal void EnsureResetOfLeaseId(BlobContainerClient container, string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
         if (!File.Exists(leasePath(fileKey))) return;
         var leaseId = File.ReadAllText(leasePath(fileKey));
         var client = container.GetBlobClient(fileKey);
@@ -69,59 +73,86 @@ public class AzureBlobIOProvider : IIOProvider {
     }
 
     public IReadStream OpenRead(string fileKey, long position) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            FileMeta meta;
-            if (!_files.TryGetValue(fileKey, out meta!)) throw new Exception($"File {fileKey} does not exist");
-            if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            meta.Readers++;
-            AzureBlobIOReadStream? stream = null;
-            stream = new AzureBlobIOReadStream(_container, fileKey, position, _lockBlob, () => {
-                lock (_lock) {
-                    meta.Readers--;
-                    _openStreams.Remove(stream!);
-                }
-            });
-            _openStreams.Add(stream);
-            return stream;
+            return openRead(position, fileKey);
         }
+    }
+    public IReadStream OpenRead(string[] path, long position) {
+        var blobName = getAndValidateBlobName(path);
+        lock (_lock) {
+            return openRead(position, blobName);
+        }
+    }
+    IReadStream openRead(long position, string blobName) {
+        FileMeta meta;
+        if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");
+        if (meta.Writers > 0) throw new Exception($"File {blobName} is locked for writing. ");
+        meta.Readers++;
+        AzureBlobIOReadStream? stream = null;
+        stream = new AzureBlobIOReadStream(_container, blobName, position, _lockBlob, () => {
+            lock (_lock) {
+                meta.Readers--;
+                _openStreams.Remove(stream!);
+            }
+        });
+        _openStreams.Add(stream);
+        return stream;
     }
     public IAppendStream OpenAppend(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            FileMeta meta;
-            if (!_files.TryGetValue(fileKey, out meta!)) {
-                meta = new FileMeta { Key = fileKey };
-                _files.Add(fileKey, meta);
-            } else {
-                if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            }
-            meta.Writers++;
-            AzureBlobIOAppendStream? stream = null;
-            stream = new AzureBlobIOAppendStream(_container, fileKey, fileKey, _lockBlob, (long size) => {
-                lock (_lock) {
-                    meta.Writers--;
-                    meta.LastModifiedUtc = DateTime.UtcNow;
-                    meta.Size = 0;
-                    _openStreams.Remove(stream!);
-                }
-            });
-            _openStreams.Add(stream);
-            return stream;
+            return openAppend(fileKey);
         }
     }
-    public void DeleteIfItExists(string fileKey) {
+    public IAppendStream OpenAppend(string[] path) {
+        var blobName = getAndValidateBlobName(path);
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            if (_files.TryGetValue(fileKey, out var meta)) {
-                if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            }
-            EnsureResetOfLeaseId(_container, fileKey);
-            _container.DeleteBlobIfExists(fileKey);
-            if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
+            return openAppend(blobName);
         }
+    }
+    IAppendStream openAppend(string fileKey) {
+        FileMeta meta;
+        if (!_files.TryGetValue(fileKey, out meta!)) {
+            meta = new FileMeta { Key = fileKey };
+            _files.Add(fileKey, meta);
+        } else {
+            if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+            if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+        }
+        meta.Writers++;
+        AzureBlobIOAppendStream? stream = null;
+        stream = new AzureBlobIOAppendStream(_container, fileKey, fileKey, _lockBlob, (long size) => {
+            lock (_lock) {
+                meta.Writers--;
+                meta.LastModifiedUtc = DateTime.UtcNow;
+                meta.Size = 0;
+                _openStreams.Remove(stream!);
+            }
+        });
+        _openStreams.Add(stream);
+        return stream;
+    }
+    public void DeleteFileIfItExists(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        lock (_lock) {
+            deleteFileIfItExists(fileKey);
+        }
+    }
+    public void DeleteFileIfItExists(string[] path) {
+        var blobName = getAndValidateBlobName(path);
+        lock (_lock) {
+            deleteFileIfItExists(blobName);
+        }
+    }
+    void deleteFileIfItExists(string fileKey) {
+        if (_files.TryGetValue(fileKey, out var meta)) {
+            if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+            if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+        }
+        EnsureResetOfLeaseId(_container, fileKey);
+        _container.DeleteBlobIfExists(fileKey);
+        if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
     }
     public bool DoesNotExistOrIsEmpty(string fileKey) {
         lock (_lock) {
@@ -139,11 +170,20 @@ public class AzureBlobIOProvider : IIOProvider {
         }
     }
     public long GetFileSizeOrZeroIfUnknown(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var client = _container.GetBlobClient(fileKey);
-            return client.Exists() ? client.GetProperties().Value.ContentLength : 0;
+            return getFileSizeOrZeroIfUnknown(fileKey);
         }
+    }
+    public long GetFileSizeOrZeroIfUnknown(string[] path) {
+        var blobName = getAndValidateBlobName(path);
+        lock (_lock) {
+            return getFileSizeOrZeroIfUnknown(blobName);
+        }
+    }
+    long getFileSizeOrZeroIfUnknown(string blobName) {
+        var client = _container.GetBlobClient(blobName);
+        return client.Exists() ? client.GetProperties().Value.ContentLength : 0;
     }
     public bool CanRenameFile => false;
     public void RenameFile(string fileKey, string newFileKey) {
@@ -160,4 +200,12 @@ public class AzureBlobIOProvider : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
+    public long GetTotalSizeForMetrics() {
+        lock (_lock) {
+            var existing = _container.GetBlobs().ToArray();
+            syncDirInfo(existing);
+            return _files.Values.Sum(f => f.Size);
+        }
+    }
+
 }

@@ -14,10 +14,10 @@ internal class LogRewriter {
         using var stream = io.OpenRead(_logRewriterStartFile, 0);
         var fileKey = stream.ReadString();
         if (string.IsNullOrWhiteSpace(fileKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
-        io.DeleteIfItExists(fileKey);
-        io.DeleteIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
+        io.DeleteFileIfItExists(fileKey);
+        io.DeleteFileIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
         stream.Dispose();
-        io.DeleteIfItExists(_logRewriterStartFile);
+        io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {
         return !io.DoesNotExistOrIsEmpty(_logRewriterStartFile);
@@ -33,7 +33,7 @@ internal class LogRewriter {
         var fileKey = stream.ReadString();
         if (fileKey != newLogFileKey) throw new Exception("Log rewriter start file does not match new log file key. ");
         stream.Dispose();
-        io.DeleteIfItExists(_logRewriterStartFile);
+        io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     readonly Definition _definition;
     readonly IIOProvider _destIO;
@@ -57,7 +57,7 @@ internal class LogRewriter {
         FileKey = newFileKey;
         _definition = definition;
         _destIO = destinationIO;
-        _destIO.DeleteIfItExists(FileKey);
+        _destIO.DeleteFileIfItExists(FileKey);
         _snapshot = snapshot;
         // validate snapshot:
         var whereNull = snapshot.Where(n => n.segment.Length == 0);
@@ -75,7 +75,7 @@ internal class LogRewriter {
     public void Cancel(FileKeyUtility fileKeys) {
         _cancelled = true;
         _newWAL.Dispose();
-        _destIO.DeleteIfItExists(FileKey);
+        _destIO.DeleteFileIfItExists(FileKey);
         DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey);        
         CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO, fileKeys);
     }

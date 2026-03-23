@@ -84,14 +84,14 @@ public class IOProviderDisk : IIOProviderWithFolders {
             return stream;
         }
     }
-    public void DeleteIfItExists(string fileKey) {
+    public void DeleteFileIfItExists(string fileKey) {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyString(fileKey);
             var filePath = Path.Combine(BaseFolder, fileKey);
             if (File.Exists(filePath)) File.Delete(filePath);
         }
     }
-    public void DeleteIfItExists(string[] path) {
+    public void DeleteFileIfItExists(string[] path) {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyPath(path);
             var filePath = Path.Combine([BaseFolder, .. path]);
@@ -105,6 +105,14 @@ public class IOProviderDisk : IIOProviderWithFolders {
             return !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
         }
     }
+    public long GetFileSizeOrZeroIfUnknown(string fileKey) {
+        lock (_lock) {
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            if (!File.Exists(filePath)) return 0;
+            return new FileInfo(filePath).Length;
+        }
+    }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyPath(path);
@@ -113,7 +121,6 @@ public class IOProviderDisk : IIOProviderWithFolders {
             return new FileInfo(filePath).Length;
         }
     }
-
     public FileMeta[] GetFiles() {
         lock (_lock) {
             var files = new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
@@ -126,21 +133,13 @@ public class IOProviderDisk : IIOProviderWithFolders {
             return files;
         }
     }
-    public long GetFileSizeOrZeroIfUnknown(string fileKey) {
-        lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
-            if (!File.Exists(filePath)) return 0;
-            return new FileInfo(filePath).Length;
-        }
-    }
     public void MoveFile(IOProviderDisk sourceIo, string sourceFileKey, string destFileKey, bool overwrite) {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyString(sourceFileKey);
             FileKeyUtility.ValidateFileKeyString(destFileKey);
             var source = Path.Combine(sourceIo.BaseFolder, sourceFileKey);
             var dest = Path.Combine(BaseFolder, destFileKey);
-            if (overwrite) DeleteIfItExists(destFileKey);
+            if (overwrite) DeleteFileIfItExists(destFileKey);
             if (File.Exists(destFileKey)) throw new Exception($"File {destFileKey} already exists");
             File.Move(source, dest);
         }
@@ -156,8 +155,6 @@ public class IOProviderDisk : IIOProviderWithFolders {
         }
     }
     public bool CanRenameFile => true;
-
-    public bool CanHaveFolders => throw new NotImplementedException();
 
     public void CloseAllOpenStreams() {
         lock (_lock) {
@@ -215,7 +212,7 @@ public class IOProviderDisk : IIOProviderWithFolders {
         }
     }
 
-    public long GetTotalSize() {
+    public long GetTotalSizeForMetrics() {
         lock (_lock) {
             return new DirectoryInfo(BaseFolder).GetFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         }

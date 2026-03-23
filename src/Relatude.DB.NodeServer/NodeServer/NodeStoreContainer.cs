@@ -68,9 +68,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
         foreach (var io in ioProvidersToClean) {
             if (io is IIOProviderWithFolders iof) iof.DeleteFolderIfItExists([fileKeyUtil.IndexStoreFolderKey]);
-            io.DeleteIfItExists(fileKeyUtil.StateFileKey);
-            fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteIfItExists);
-            fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteIfItExists);
+            io.DeleteFileIfItExists(fileKeyUtil.StateFileKey);
+            fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteFileIfItExists);
+            fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteFileIfItExists);
         }
     }
 
@@ -105,8 +105,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
 
             FileKeyUtility fileKeyUtility = new FileKeyUtility(settings.LocalSettings.FilePrefix);
             IFileStore[]? fs = null;
-            if (settings.IoFileSettings != null) {
-                foreach (var ioFilesSetting in settings.IoFileSettings) {
+            if (settings.FileStoreSettings != null) {
+                foreach (var ioFilesSetting in settings.FileStoreSettings) {
                     if (!server.TryGetIO(ioFilesSetting.IoProviderId, out var ioFiles)) throw new Exception($"IO provider with id {ioFilesSetting.IoProviderId} not found for IoFiles setting.");
                     if (fs == null) fs = [];
                     switch (ioFilesSetting.StoreType) {
@@ -116,8 +116,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                             }
                             break;
                         case FileStoreEngine.MultiFile: {
-                                if (!(ioFiles is IIOProviderWithFolders iof)) throw new Exception("IO provider must support folders for MultiFileStore engine.");
-                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, iof, fileKeyUtility, ioFilesSetting.MultiFileFolderDepth)];
+                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, ioFiles, fileKeyUtility, ioFilesSetting.MultiFileFolderDepth)];
                             }
                             break;
                         default:

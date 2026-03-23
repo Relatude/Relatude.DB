@@ -271,7 +271,7 @@ internal class WALFile : IDisposable {
         try {
             if (destinationIO == null) destinationIO = _io;
             if (newLogFileKey == FileKey && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
-            destinationIO.DeleteIfItExists(newLogFileKey);
+            destinationIO.DeleteFileIfItExists(newLogFileKey);
             Close();
             using IReadStream readStream = _io.OpenRead(FileKey, 0);
             using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
@@ -308,7 +308,7 @@ internal class WALFile : IDisposable {
         }
         if (resetSecondaryFile) {
             store.LogInfo("Resetting secondary log file. ");
-            _ioSecondary.DeleteIfItExists(_secondaryFileKey);
+            _ioSecondary.DeleteFileIfItExists(_secondaryFileKey);
         }
         var hasSecondary = _ioSecondary.ExistsAndIsNotEmpty(_secondaryFileKey);
         if (!hasSecondary) {

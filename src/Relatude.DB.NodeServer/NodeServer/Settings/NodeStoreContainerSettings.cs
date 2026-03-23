@@ -18,7 +18,7 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public Guid? IoDatabase { get; set; }
     public Guid? IoDatabaseSecondary { get; set; }
     public Guid? IoIndexes { get; set; }
-    public FileStoreSettings[]? IoFileSettings { get; set; }
+    public FileStoreSettings[]? FileStoreSettings { get; set; }
     public Guid? IoBackup { get; set; }
     public Guid? IoLog { get; set; }
     public Guid? AiProvider { get; set; }

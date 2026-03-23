@@ -163,7 +163,7 @@ public class SingleFileStore : IDisposable, IFileStore {
         // no action. File is never deleted from store, just left unused
         return Task.CompletedTask;
     }
-    public long GetSize() {
+    public long GetSizeForMetrics() {
         lock (_fileLock) {
             if (_file == null) return _ioProvider.GetFileSizeOrZeroIfUnknown(_fileKey);
             return _file.Length;

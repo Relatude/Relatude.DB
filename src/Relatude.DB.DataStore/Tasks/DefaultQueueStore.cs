@@ -90,7 +90,7 @@ public class DefaultQueueStore : IQueueStore {
     void deleteStream() {
         _stream?.Dispose();
         _stream = null;
-        _io?.DeleteIfItExists(_fileKey!);
+        _io?.DeleteFileIfItExists(_fileKey!);
     }
     public void FlushDiskIfNeeded() {
         if (_stream != null && _unflushed) {
@@ -194,10 +194,10 @@ public class DefaultQueueStore : IQueueStore {
             try {
                 _batchesById = loadFromDisk(_runners, _io, _fileKey);
             } catch {
-                _io.DeleteIfItExists(_fileKey);
+                _io.DeleteFileIfItExists(_fileKey);
                 _batchesById = [];
             }
-            if (_batchesById.Count == 0) _io.DeleteIfItExists(_fileKey); // no batches, delete file
+            if (_batchesById.Count == 0) _io.DeleteFileIfItExists(_fileKey); // no batches, delete file
         } else {
             _batchesById = [];
         }

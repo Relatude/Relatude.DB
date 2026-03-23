@@ -9,5 +9,5 @@ public interface IFileStore : IDisposable {
     Task<FileValue> InsertAsync(IReadStream sourceStream, string? fileName = null);
     Task<bool> ContainsFileAsync(FileValue fileValue);
     Task DeleteAsync(FileValue value);
-    long GetSize();
+    long GetSizeForMetrics();
 }

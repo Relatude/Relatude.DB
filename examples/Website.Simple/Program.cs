@@ -49,9 +49,10 @@ app.MapGet("/cult", (RelatudeDBContext ctx) => {
 app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
     var db = ctx.Database;
     var article = db.CreateAndInsert<DemoArticle>(a => { });
-    var files = Directory.GetFiles(Path.Combine([Environment.GetLogicalDrives()[0], "Filer"]));
+    var path = Path.Combine([Environment.GetLogicalDrives()[0], "Filer"]);
+    var files = Directory.GetFiles(path);
     var sw = Stopwatch.StartNew();
-    var iterations = 10;
+    var iterations = 5;
     var t = db.CreateTransaction();
     for (int i = 0; i < iterations; i++) {
         //foreach (var file in files) {
@@ -61,7 +62,9 @@ app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
         var tasks = files.Select(file => db.FileUploadAsync(article, a => a.File, file)).ToArray();
         await Task.WhenAll(tasks);
     }
-    return "Uploaded " + files.Length + " files in " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms";
+    sw.Stop();
+    var totalSize = new DirectoryInfo(path).GetFiles().Sum(f=>f.Length) * iterations;
+    return "Uploaded " + files.Length * iterations + " files (" + (totalSize / 1024 / 1024) + " MB) in " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms";
 
 });
 

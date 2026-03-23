@@ -199,7 +199,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
-        _io.DeleteIfItExists(fileName); // could be optimized to keep old file
+        _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedInt(_valueById.Count);
         foreach (var (id, value) in _valueById) {

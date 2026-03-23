@@ -1,7 +1,13 @@
 ﻿using Relatude.DB.Common;
 using System.Text;
 namespace Relatude.DB.IO;
+
 public class IOProviderMemory : IIOProvider {
+    const string _virtualFolderChar = "/";
+    string getAndValidateName(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        return string.Join(_virtualFolderChar, path);
+    }
     class MemFile {
         public byte[] Bytes = [];
         public FileMeta Meta = new();
@@ -26,56 +32,83 @@ public class IOProviderMemory : IIOProvider {
     public IReadStream OpenRead(string fileKey, long position) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            if (!_disk.TryGetValue(fileKey, out var file)) throw new Exception($"File {fileKey} does not exist");
-            if (file.Meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            file.Meta.Readers++;
-            StoreStreamMemoryRead? stream = null;
-            stream = new StoreStreamMemoryRead(fileKey, file.Bytes, position, () => {
-                lock (_lock) {
-                    file.Meta.Readers--;
-                    _openStreams.Remove(stream!);
-                }
-            });
-            _openStreams.Add(stream);
-            return stream;
+            return openRead(fileKey, position);
         }
+    }
+    public IReadStream OpenRead(string[] path, long position) {
+        var fileName = getAndValidateName(path);
+        lock (_lock) {
+            return openRead(fileName, position);
+        }
+    }
+    IReadStream openRead(string fileName, long position) {
+        if (!_disk.TryGetValue(fileName, out var file)) throw new Exception($"File {fileName} does not exist");
+        if (file.Meta.Writers > 0) throw new Exception($"File {fileName} is locked for writing. ");
+        file.Meta.Readers++;
+        StoreStreamMemoryRead? stream = null;
+        stream = new StoreStreamMemoryRead(fileName, file.Bytes, position, () => {
+            lock (_lock) {
+                file.Meta.Readers--;
+                _openStreams.Remove(stream!);
+            }
+        });
+        _openStreams.Add(stream);
+        return stream;
     }
     public IAppendStream OpenAppend(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            if (!_disk.TryGetValue(fileKey, out var file)) {
-                file = new MemFile();
-                _disk.Add(fileKey, file);
-            } else {
-                if (file.Meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (file.Meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            }
-            file.Meta.Writers++;
-            MemoryStream ms = new();
-            ms.Write(file.Bytes);
-            StoreStreamMemoryWrite? stream = null;
-            stream = new StoreStreamMemoryWrite(fileKey, ms, ms => {
-                lock (_lock) {
-                    file.Meta.Writers--;
-                    file.Meta.LastModifiedUtc = DateTime.UtcNow;
-                    file.Meta.Size = ms.Length;
-                    file.Bytes = ms.ToArray();
-                    ms.Dispose();
-                    _openStreams.Remove(stream!);
-                }
-            });
-            _openStreams.Add(stream);
-            return stream;
+            return openAppend(fileKey);
         }
     }
-    public void DeleteIfItExists(string fileKey) {
+    public IAppendStream OpenAppend(string[] path) {
+        var fileKey = getAndValidateName(path);
+        lock (_lock) {
+            return openAppend(fileKey);
+        }
+    }
+    IAppendStream openAppend(string fileName) {
+        if (!_disk.TryGetValue(fileName, out var file)) {
+            file = new MemFile();
+            _disk.Add(fileName, file);
+        } else {
+            if (file.Meta.Readers > 0) throw new Exception($"File {fileName} is locked for reading. ");
+            if (file.Meta.Writers > 0) throw new Exception($"File {fileName} is locked for writing. ");
+        }
+        file.Meta.Writers++;
+        MemoryStream ms = new();
+        ms.Write(file.Bytes);
+        StoreStreamMemoryWrite? stream = null;
+        stream = new StoreStreamMemoryWrite(fileName, ms, ms => {
+            lock (_lock) {
+                file.Meta.Writers--;
+                file.Meta.LastModifiedUtc = DateTime.UtcNow;
+                file.Meta.Size = ms.Length;
+                file.Bytes = ms.ToArray();
+                ms.Dispose();
+                _openStreams.Remove(stream!);
+            }
+        });
+        _openStreams.Add(stream);
+        return stream;
+    }
+    public void DeleteFileIfItExists(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            if (_disk.TryGetValue(fileKey, out var file)) {
-                if (file.Meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (file.Meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-                _disk.Remove(fileKey);
-            }
+            deleteFileIfItExists(fileKey);
+        }
+    }
+    public void DeleteFileIfItExists(string[] path) {
+        var fileName = getAndValidateName(path);
+        lock (_lock) {
+            deleteFileIfItExists(fileName);
+        }
+    }
+    void deleteFileIfItExists(string fileName) {
+        if (_disk.TryGetValue(fileName, out var file)) {
+            if (file.Meta.Readers > 0) throw new Exception($"File {fileName} is locked for reading. ");
+            if (file.Meta.Writers > 0) throw new Exception($"File {fileName} is locked for writing. ");
+            _disk.Remove(fileName);
         }
     }
     public bool DoesNotExistOrIsEmpty(string fileKey) {
@@ -99,8 +132,17 @@ public class IOProviderMemory : IIOProvider {
     public long GetFileSizeOrZeroIfUnknown(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {
-            return _disk.TryGetValue(fileKey, out var f) ? f.Bytes.Length : 0;
+            return getFileSizeOrZeroIfUnknown(fileKey);
         }
+    }
+    public long GetFileSizeOrZeroIfUnknown(string[] path) {
+        var fileKey = getAndValidateName(path);
+        lock (_lock) {
+            return getFileSizeOrZeroIfUnknown(fileKey);
+        }
+    }
+    long getFileSizeOrZeroIfUnknown(string fileName) {
+        return _disk.TryGetValue(fileName, out var f) ? f.Bytes.Length : 0;
     }
     public override string ToString() {
         lock (_lock) {
@@ -132,7 +174,12 @@ public class IOProviderMemory : IIOProvider {
             foreach (var stream in _openStreams.ToArray()) {
                 stream.Dispose();
             }
-            if(_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+            if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+        }
+    }
+    public long GetTotalSizeForMetrics() {
+        lock (_lock) {
+            return _disk.Values.Sum(f => f.Bytes.Length);
         }
     }
 }

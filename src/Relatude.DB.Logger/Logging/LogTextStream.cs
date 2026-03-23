@@ -53,7 +53,7 @@ internal class LogTextStream : IDisposable {
         releaseOpenFiles();
         var filesToDelete = GetLogFileDates().Where(f => dt > f);
         foreach (var fileDt in filesToDelete) {
-            _io.DeleteIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, fileDt));
+            _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, fileDt));
         }
         return filesToDelete.Count();
     }
@@ -64,7 +64,7 @@ internal class LogTextStream : IDisposable {
         releaseOpenFiles();
         foreach (var f in GetLogFileDates()) {
             var fileTo = f.AddInterval(_fileInterval);
-            if (fileTo <= to) _io.DeleteIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, f));
+            if (fileTo <= to) _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, f));
         }
     }
     public void Dispose() {

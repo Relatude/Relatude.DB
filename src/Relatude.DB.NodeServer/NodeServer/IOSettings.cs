@@ -11,7 +11,6 @@ namespace Relatude.DB.NodeServer {
         public string? Path { get; set; }
         public string? BlobConnectionString { get; set; }
         public string? BlobContainerName { get; set; }
-        public FileStoreEngine FileStoreEngine { get; set; } = FileStoreEngine.SingleFile;
         public bool LockBlob { get; set; }
         public IOTypes IOType { get; set; }
         public static IIOProvider Create(IOSettings settings, string appRootPath) {

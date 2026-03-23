@@ -83,7 +83,7 @@ public class NodeStore : IDisposable {
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
         var fileKey = datastore.FileKeys.MapperDll_GetFileKey(codeHash);
         foreach (var f in datastore.FileKeys.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
-            if (f != fileKey) datastore.IOIndex.DeleteIfItExists(f);
+            if (f != fileKey) datastore.IOIndex.DeleteFileIfItExists(f);
         }
         byte[] dll;
         if (datastore.IOIndex.DoesNotExistsOrIsEmpty(fileKey)) {

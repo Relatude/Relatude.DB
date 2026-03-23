@@ -182,10 +182,10 @@ internal class Log : IDisposable {
             if (_io.DoesNotExistOrIsEmpty(_statFileKey)) return;
 
             if (canConfirmFileIsNotValid(_io, _statFileKey)) { // confirmed corrupted file
-                _io.DeleteIfItExists(_statFileKey); // delete corrupted file
+                _io.DeleteFileIfItExists(_statFileKey); // delete corrupted file
                 if (_io.ExistsAndIsNotEmpty(_backupStatFile)) {
                     if (canConfirmFileIsNotValid(_io, _backupStatFile)) {
-                        _io.DeleteIfItExists(_backupStatFile); // delete corrupted bkup file
+                        _io.DeleteFileIfItExists(_backupStatFile); // delete corrupted bkup file
                         return; // both files corrupted, cannot restore
                     } else {
                         _io.CopyFile(_backupStatFile, _statFileKey);
@@ -247,7 +247,7 @@ internal class Log : IDisposable {
             var anyDirty = allStats.Any(s => s.IsDirty) || _rowStat.IsDirty;
             if (!anyDirty) return;
             _io.CopyIfItExistsAndOverwrite(_statFileKey, _backupStatFile); // make backup first
-            _io.DeleteIfItExists(_statFileKey);
+            _io.DeleteFileIfItExists(_statFileKey);
             using var stream = _io.OpenAppend(_statFileKey);
             stream.WriteString(_rowStat.Key);
             var rowBytes = getStatBytes(_rowStat);
@@ -387,8 +387,8 @@ internal class Log : IDisposable {
     }
     public void DeleteStatistics() {
         lock (_lock) {
-            _io.DeleteIfItExists(_statFileKey);
-            _io.DeleteIfItExists(_backupStatFile);
+            _io.DeleteFileIfItExists(_statFileKey);
+            _io.DeleteFileIfItExists(_backupStatFile);
             loadAllStatistics();
         }
     }

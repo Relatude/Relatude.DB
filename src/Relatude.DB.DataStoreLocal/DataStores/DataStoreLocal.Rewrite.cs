@@ -84,7 +84,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             logError("Error during log rewrite. ", err, null, false);
             throw new Exception("Error during log rewrite. ", err);
         }
-        IOIndex.DeleteIfItExists(_fileKeys.StateFileKey);
+        IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
         try {
             _lock.EnterWriteLock();
             UpdateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
