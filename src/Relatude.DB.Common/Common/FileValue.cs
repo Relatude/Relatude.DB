@@ -7,6 +7,16 @@ public enum FileValueType {
     Audio,
 }
 public class FileValue {
+    public static FileValueType GetTypeFromFileName(string fileNameWithExtension) {
+        var ext = Path.GetExtension(fileNameWithExtension).ToLower();
+        return ext switch {
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".svg" or ".webp" => FileValueType.Image,
+            ".mp4" or ".avi" or ".mov" or ".wmv" or ".flv" => FileValueType.Video,
+            ".mp3" or ".wav" or ".aac" or ".flac" => FileValueType.Audio,
+            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" or ".txt" => FileValueType.Document,
+            _ => FileValueType.Other,
+        };
+    }
     public FileValue() {
         IsEmpty = true;
         Name = string.Empty;
