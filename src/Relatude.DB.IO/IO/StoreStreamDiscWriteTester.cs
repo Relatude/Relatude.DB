@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 
 namespace Relatude.DB.IO;
+
 public class StoreStreamDiscWriteTester : IAppendStream {
     readonly FileStream _stream;
     readonly string _filePath;
@@ -55,6 +56,21 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             _bytesWritten += data.Length;
+            if (!_unflushed) _unflushed = true;
+#if DEBUG
+        } finally {
+            _flagAccessing.Reset();
+        }
+#endif
+    }
+    public void Append(byte[] data, int count) {
+#if DEBUG
+        _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
+        try {
+#endif
+            _checkSum.EvaluateChecksumIfRecording(data, count);
+            _stream.Write(data, 0, count);
+            _bytesWritten += count;
             if (!_unflushed) _unflushed = true;
 #if DEBUG
         } finally {

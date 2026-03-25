@@ -37,4 +37,17 @@ public static class ArrayExtenstion {
             prev = checksum ^ prev;
         }
     }
+    public static unsafe void EvaluateChecksum(this byte[] array, ref uint prev, int count) {
+        unchecked {
+            uint checksum = 0;
+            fixed (byte* arrayBase = array) {
+                byte* arrayPointer = arrayBase;
+                for (int i = count - 1; i >= 0; i--) {
+                    checksum += *arrayPointer;
+                    arrayPointer++;
+                }
+            }
+            prev = checksum ^ prev;
+        }
+    }
 }

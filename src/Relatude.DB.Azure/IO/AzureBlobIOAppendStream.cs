@@ -68,6 +68,16 @@ namespace Relatude.DB.IO {
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
+        public void Append(byte[] data, int count) {
+            lock (_lock) {
+                _readBuffer = null; // reset read buffer, as new data is appended, that will not be in readbuffer
+                _checkSum.EvaluateChecksumIfRecording(data, count);
+                _writeBuffer.Write(data, 0, count);
+                _length += count;
+                _bytesWritten += count;
+                if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
+            }
+        }
         public void Flush(bool deepFlush) {
             lock (_lock) {
                 if (_writeBuffer.Length == 0) return;

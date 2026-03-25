@@ -30,6 +30,14 @@ public class StoreStreamMemoryWrite : IAppendStream {
             _bytesWritten += data.Length;
         }
     }
+    public void Append(byte[] data, int count) {
+        lock (_lock) {
+            if (_isDisposed) throw new ObjectDisposedException("Stream is disposed. ");
+            _ms.Write(data, 0, count);
+            _checkSum.EvaluateChecksumIfRecording(data, count);
+            _bytesWritten += count;
+        }
+    }
     public void Flush(bool deepFlush) { }
     public long Length {
         get {

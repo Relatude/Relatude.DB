@@ -55,6 +55,14 @@ public class StoreStreamDiscWrite : IAppendStream {
             if (!_unflushed) _unflushed = true;
         }
     }
+    public void Append(byte[] data, int count) {
+        lock (_lock) {
+            _checkSum.EvaluateChecksumIfRecording(data, count);
+            _stream.Write(data, 0, count);
+            _bytesWritten += count;
+            if (!_unflushed) _unflushed = true;
+        }
+    }
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _stream.WriteAsync(buffer, 0, count);
     }

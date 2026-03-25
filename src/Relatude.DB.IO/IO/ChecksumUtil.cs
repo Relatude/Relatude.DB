@@ -10,6 +10,9 @@ public class ChecksumUtil {
     public void EvaluateChecksumIfRecording(byte[] bytes) {
         if (_recordingChecksum) bytes.EvaluateChecksum(ref _checkSum);
     }
+    public void EvaluateChecksumIfRecording(byte[] bytes, int count) {
+        if (_recordingChecksum) bytes.EvaluateChecksum(ref _checkSum, count);
+    }
     public void ValidateChecksum(IReadStream stream) {
         _recordingChecksum = false;
         var checkSum = stream.ReadUInt();

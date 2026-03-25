@@ -2,6 +2,7 @@
 // Thread-safe interface for appending data to a stream.
 public interface IAppendStream : IStream{
     void Append(byte[] data);
+    void Append(byte[] data, int count);
     void RecordChecksum();
     void WriteChecksum();
     void Flush(bool deepFlush);
