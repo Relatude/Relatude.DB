@@ -62,6 +62,9 @@ public static class IIOProviderExtensions {
     public static bool DoesNotExistsOrIsEmpty(this IIOProvider io, string fileKey) {
         return io.GetFileSizeOrZeroIfUnknown(fileKey) == 0;
     }
+    public static bool DoesNotExistsOrIsEmpty(this IIOProvider io, string[] path) {
+        return io.GetFileSizeOrZeroIfUnknown(path) == 0;
+    }
     public static bool ExistsAndIsNotEmpty(this IIOProvider io, string fileKey) {
         return io.GetFileSizeOrZeroIfUnknown(fileKey) > 0;
     }

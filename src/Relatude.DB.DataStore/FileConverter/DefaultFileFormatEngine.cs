@@ -22,29 +22,28 @@ internal class AsyncConcurrentFileCache {
 
     readonly IIOProvider _io;
     readonly Dictionary<string, SemaphoreSlim> _locks = new();
-
     public AsyncConcurrentFileCache(IIOProvider io) { _io = io; }
-    public async Task<FileCacheGetResult> TryGetStreamAsync(string fileKey, int maxWaitMs) {
+    public async Task<FileCacheGetResult> TryGetStreamAsync(FileIdWithAdjustment adj, int maxWaitMs) {
         SemaphoreSlim? writeLock = null;
         lock (_locks) {
-            _locks.TryGetValue(fileKey, out writeLock);
+            _locks.TryGetValue(adj.Key, out writeLock);
         }
         if (writeLock != null) { // file is locked, but wait for a bit
             if (!await writeLock.WaitAsync(maxWaitMs)) { // timed out, return with not ready flag
                 return new(FileCacheGetStatus.BeingWrittenTo, stream: null);
             }
         }
-        if (_io.DoesNotExistsOrIsEmpty(fileKey)) return new(FileCacheGetStatus.NotExisting, stream: null);
-        var stream = _io.OpenRead(fileKey, 0)?.AsStream();
+        if (_io.DoesNotExistsOrIsEmpty(adj.Path)) return new(FileCacheGetStatus.NotExisting, stream: null);
+        var stream = _io.OpenRead(adj.Path, 0)?.AsStream();
         return new(FileCacheGetStatus.Ready, stream: stream);
     }
-    public async Task<FileCacheSetResult> SetFromStreamAsync(string fileKey, Stream input, int maxWaitMs) {
+    public async Task<FileCacheSetResult> SetFromStreamAsync(FileIdWithAdjustment fileKey, Stream input, int maxWaitMs) {
         SemaphoreSlim? existingLock = null;
         lock (_locks) {
-            if (!_locks.TryGetValue(fileKey, out existingLock)) {
+            if (!_locks.TryGetValue(fileKey.Key, out existingLock)) {
                 var newLock = new SemaphoreSlim(1, 1);
                 newLock.Wait(); // set in locked state
-                _locks[fileKey] = newLock;
+                _locks[fileKey.Key] = newLock;
             }
         }
         if (existingLock != null) {  
@@ -57,7 +56,7 @@ internal class AsyncConcurrentFileCache {
         bool completedWithInMaxWait = true;
         byte[]? buffer = null;
         try {
-            output = _io.OpenAppend(fileKey);
+            output = _io.OpenAppend(fileKey.Path);
             var bufferLength = 1024 * 1024;
             bufferLength = input.Length > bufferLength ? bufferLength : (int)input.Length;
             buffer = new byte[bufferLength]; // could pool, for later optimization
@@ -80,7 +79,7 @@ internal class AsyncConcurrentFileCache {
         }
         if (completedWithInMaxWait) {
             releaseLockAndCloseStreams(fileKey, output, input);
-            var finalStream = _io.OpenRead(fileKey, 0).AsStream();
+            var finalStream = _io.OpenRead(fileKey.Path, 0).AsStream();
             return new FileCacheSetResult(true, finalStream); // all done, file is ready
         } else {
             // continue writing in background thread, synchronously 
@@ -98,17 +97,17 @@ internal class AsyncConcurrentFileCache {
             return new FileCacheSetResult(false, null); // not done yet, but writing is in progress, and lock will be released when done, allowing readers to wait for completion
         }
     }
-    void releaseLockAndCloseStreams(string key, IAppendStream? output, Stream input) {
+    void releaseLockAndCloseStreams(FileIdWithAdjustment key, IAppendStream? output, Stream input) {
         if (output != null) output.Dispose();
         lock (_locks) {
-            if (_locks.TryGetValue(key, out var lockSlim)) {
+            if (_locks.TryGetValue(key.Key, out var lockSlim)) {
                 lockSlim.Release();
                 lockSlim.Dispose();
-                _locks.Remove(key);
+                _locks.Remove(key.Key);
             }
         }
     }
-    public void Clear(string key) {
+    public void Clear(FileIdWithAdjustment key) {
         throw new NotImplementedException();
     }
 }
@@ -181,12 +180,10 @@ internal class FileFormatEngine : IDisposable {
     public string GetUrl(FileIdWithAdjustment fileIdWithAdjustment) {
         return _urlProvider.GetUrl(fileIdWithAdjustment);
     }
-    public async Task<FileConversionResult> TryGetFormatAsync(FileIdWithAdjustment adjustments, int maxWaitMs, string fileName, string hash, Func<Stream> getInputStream) {
-
-        var cacheKey = adjustments.Key;
+    public async Task<FileConversionResult> TryGetFormatAsync(FileIdWithAdjustment adj, int maxWaitMs, string fileName, string hash, Func<Stream> getInputStream) {
 
         // check file cache first:
-        var cacheResult = await _fileCache.TryGetStreamAsync(cacheKey, maxWaitMs); // check cache, leave some time in case conversion is done, but file is writing to disk
+        var cacheResult = await _fileCache.TryGetStreamAsync(adj, maxWaitMs); // check cache, leave some time in case conversion is done, but file is writing to disk
         switch (cacheResult.Status) {
             case FileCacheGetStatus.Ready: return new(new(FileConversionStatus.Ready), cacheResult.Stream); // all good, file is ready in cache
             case FileCacheGetStatus.BeingWrittenTo: return new(new(FileConversionStatus.InProgress)); // in case conversion is done, but cache is not ready with writing to disk
@@ -196,29 +193,29 @@ internal class FileFormatEngine : IDisposable {
 
         // not in cache, check if conversion is in progress at converter:
         lock (_conversionsInProgress) {
-            if (_conversionsInProgress.TryGetValue(cacheKey, out var progressInfo))
+            if (_conversionsInProgress.TryGetValue(adj.Key, out var progressInfo))
                 return new FileConversionResult(progressInfo.ProgressInfo);
             var newProgressInfo = new FileConversionProgressInfo(FileConversionStatus.InProgress);
-            _conversionsInProgress[cacheKey] = new ProgressEntry(DateTime.UtcNow, newProgressInfo, adjustments, maxWaitMs, fileName, hash);
+            _conversionsInProgress[adj.Key] = new ProgressEntry(DateTime.UtcNow, newProgressInfo, adj, maxWaitMs, fileName, hash);
         }
 
         // not in cache, nor converter; start conversion:
         FileConversionResult? result = null;
         try {
             var inputStream = getInputStream();
-            result = await _fileConverter.ConvertAsyncAndDisposeStreamWhenDone(inputStream, adjustments, hash, fileName, maxWaitMs);
+            result = await _fileConverter.ConvertAsyncAndDisposeStreamWhenDone(inputStream, adj, hash, fileName, maxWaitMs);
         } catch (Exception error) {
             if (result != null && result.Output != null) result.Output.Dispose();
             lock (_conversionsInProgress) {
-                _conversionsInProgress.Remove(cacheKey);
+                _conversionsInProgress.Remove(adj.Key);
             }
             return new(new(FileConversionStatus.Error, message: error.Message));
         }
         switch (result.ProgressInfo.Status) {
             case FileConversionStatus.InProgress: { // update progress info
                     lock (_conversionsInProgress) {
-                        var created = _conversionsInProgress[cacheKey].Created; // keep original creation time for progress tracking
-                        _conversionsInProgress[cacheKey] = new ProgressEntry(created, result.ProgressInfo, adjustments, maxWaitMs, fileName, hash);
+                        var created = _conversionsInProgress[adj.Key].Created; // keep original creation time for progress tracking
+                        _conversionsInProgress[adj.Key] = new ProgressEntry(created, result.ProgressInfo, adj, maxWaitMs, fileName, hash);
                     }
                     return new(result.ProgressInfo); // in progress, waiting for conversion
                 }
@@ -226,17 +223,17 @@ internal class FileFormatEngine : IDisposable {
                     FileCacheSetResult? setResult;
                     try {
                         if (result.Output == null) throw new Exception("Empty output of conversion");
-                        setResult = await _fileCache.SetFromStreamAsync(cacheKey, result.Output, maxWaitMs);
+                        setResult = await _fileCache.SetFromStreamAsync(adj, result.Output, maxWaitMs);
                     } catch (Exception error) {
                         lock (_conversionsInProgress) {
-                            _conversionsInProgress.Remove(cacheKey);
+                            _conversionsInProgress.Remove(adj.Key);
                         }
                         if(result.Output!=null) result.Output.Dispose();
                         return new(new(FileConversionStatus.Error, message: "Failed to save result. "+error.Message));
                     }
                     if (setResult.Completed) {
                         lock (_conversionsInProgress) {
-                            _conversionsInProgress.Remove(cacheKey);
+                            _conversionsInProgress.Remove(adj.Key);
                         }
                         return new(new(FileConversionStatus.Ready), setResult.Stream); // all good, file is ready
                     } else {
@@ -245,7 +242,7 @@ internal class FileFormatEngine : IDisposable {
                 }
             case FileConversionStatus.Error:
                 lock (_conversionsInProgress) {
-                    _conversionsInProgress.Remove(cacheKey);
+                    _conversionsInProgress.Remove(adj.Key);
                 }
                 return new(new(FileConversionStatus.Error, message: result.ProgressInfo.Message));
             default: throw new NotImplementedException("Unknown FileConversionStatus: " + result.ProgressInfo.Status);

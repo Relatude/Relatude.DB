@@ -2,10 +2,22 @@
 
 namespace Relatude.DB.FileConverter;
 
-public class FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
-    public Guid FileId { get; } = fileId;
-    public FileAdjustmentBase Adjustment { get; } = adj;
-    public Guid Key { get; } = (fileId + "_" + adj.GetLongKey()).GenerateGuid();
+public class FileIdWithAdjustment {
+    const int folderDepth = 2;
+    public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
+        FileId = fileId;
+        Adjustment = adj;
+        Key = (fileId + "_" + adj.GetLongKey()).GenerateGuidSafe().ToString("N");
+        Path = new string[folderDepth];
+        for (int i = 0; i < folderDepth - 1; i++) {
+            Path[i] = Key.Substring(i * 2, 2);
+        }
+        Path[folderDepth - 1] = Key;
+    }
+    public Guid FileId { get; }
+    public FileAdjustmentBase Adjustment { get; }
+    public string Key { get; }
+    public string[] Path { get; }
 }
 public abstract class FileAdjustmentBase {
     public FileValueType FileValueType { get; set; }
