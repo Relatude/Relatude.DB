@@ -25,12 +25,12 @@ internal class AsyncConcurrentFileCache {
 
     public AsyncConcurrentFileCache(IIOProvider io) { _io = io; }
     public async Task<FileCacheGetResult> TryGetStreamAsync(string fileKey, int maxWaitMs) {
-        SemaphoreSlim? existingLock = null;
+        SemaphoreSlim? writeLock = null;
         lock (_locks) {
-            _locks.TryGetValue(fileKey, out existingLock);
+            _locks.TryGetValue(fileKey, out writeLock);
         }
-        if (existingLock != null) { // file is locked, but wait for a bit
-            if (!await existingLock.WaitAsync(maxWaitMs)) { // timed out, return with not ready flag
+        if (writeLock != null) { // file is locked, but wait for a bit
+            if (!await writeLock.WaitAsync(maxWaitMs)) { // timed out, return with not ready flag
                 return new(FileCacheGetStatus.BeingWrittenTo, stream: null);
             }
         }
@@ -43,11 +43,13 @@ internal class AsyncConcurrentFileCache {
         lock (_locks) {
             if (!_locks.TryGetValue(fileKey, out existingLock)) {
                 var newLock = new SemaphoreSlim(1, 1);
-                newLock.Wait();
+                newLock.Wait(); // set in locked state
                 _locks[fileKey] = newLock;
             }
         }
-        if (existingLock != null) {
+        if (existingLock != null) {  
+            // should not happen often, means fileKey is already being written to by other thread
+            // Format Engine, should already be avoiding this
             var acquired = await existingLock.WaitAsync(maxWaitMs);
             if (!acquired) throw new Exception("Unable to acquire lock for file");
         }
@@ -127,25 +129,21 @@ internal class ProgressEntry(
 }
 internal class FileFormatEngine : IDisposable {
     // This Engine is designed to help keep track of longer running conversions
-    // and to help request respond either with a in progress image or a ready image
+    // and to help web requests respond either with a progress image or a ready image
     // You can specify a max time limit for how long you want to wait for a conversion to complete
-    // For most image adjustments the conversion should be pretty fast, but for some adjustments
+    // For most image adjustments, the conversion should be pretty fast, but for some adjustments
     // like ai or video conversions, it can take a long time and it is better to return a in progress status
-    // Using async is critcal when holding requests like this to avoid blocking threads
-    // This will quickly become a bottleneck on image requests as we need to handle many concurrent requests
-    // that each can take a long time to complete
-
+    // Using async is critical when holding requests like this to avoid blocking threads
     const int conversionProgressUpdateIntervalMs = 1000;
     readonly IFileConverter _fileConverter;
     readonly IUrlProvider _urlProvider;
-    readonly Dictionary<string, ProgressEntry> _conversionsInProgressAtConverter;
+    readonly Dictionary<string, ProgressEntry> _conversionsInProgress;
     readonly AsyncConcurrentFileCache _fileCache;
     private readonly CancellationTokenSource _cts = new();
     public FileFormatEngine(IFileConverter converter, IUrlProvider urlProvider, IIOProvider io, FileKeyUtility fileKeys) {
         _fileConverter = converter;
         _urlProvider = urlProvider;
-        _urlProvider = urlProvider;
-        _conversionsInProgressAtConverter = [];
+        _conversionsInProgress = [];
         _fileCache = new AsyncConcurrentFileCache(io);
     }
     public void Start() {
@@ -162,9 +160,9 @@ internal class FileFormatEngine : IDisposable {
     }
     async Task oneUpdate(CancellationToken token) {
         Dictionary<string, ProgressEntry> snapshot;
-        lock (_conversionsInProgressAtConverter) {
-            if (_conversionsInProgressAtConverter.Count == 0) return;
-            snapshot = _conversionsInProgressAtConverter.ToDictionary(kv => kv.Key, kv => kv.Value);
+        lock (_conversionsInProgress) {
+            if (_conversionsInProgress.Count == 0) return;
+            snapshot = _conversionsInProgress.ToDictionary(kv => kv.Key, kv => kv.Value);
         }
         foreach (var kv in snapshot) {
             if (token.IsCancellationRequested) return;
@@ -174,7 +172,7 @@ internal class FileFormatEngine : IDisposable {
             } catch { }
         }
     }
-    public void ClearAllCaches() {
+    public async Task<int> ClearAllCaches() {
         throw new NotImplementedException();
     }
     public void ClearFileCache(FileIdWithAdjustment fileIdWithAdjustment) {
@@ -183,10 +181,9 @@ internal class FileFormatEngine : IDisposable {
     public string GetUrl(FileIdWithAdjustment fileIdWithAdjustment) {
         return _urlProvider.GetUrl(fileIdWithAdjustment);
     }
-
     public async Task<FileConversionResult> TryGetFormatAsync(FileIdWithAdjustment adjustments, int maxWaitMs, string fileName, string hash, Func<Stream> getInputStream) {
 
-        var cacheKey = adjustments.GetKey();
+        var cacheKey = adjustments.Key;
 
         // check file cache first:
         var cacheResult = await _fileCache.TryGetStreamAsync(cacheKey, maxWaitMs); // check cache, leave some time in case conversion is done, but file is writing to disk
@@ -198,45 +195,60 @@ internal class FileFormatEngine : IDisposable {
         }
 
         // not in cache, check if conversion is in progress at converter:
-        lock (_conversionsInProgressAtConverter) {
-            if (_conversionsInProgressAtConverter.TryGetValue(cacheKey, out var progressInfo))
+        lock (_conversionsInProgress) {
+            if (_conversionsInProgress.TryGetValue(cacheKey, out var progressInfo))
                 return new FileConversionResult(progressInfo.ProgressInfo);
             var newProgressInfo = new FileConversionProgressInfo(FileConversionStatus.InProgress);
-            _conversionsInProgressAtConverter[cacheKey] = new ProgressEntry(DateTime.UtcNow, newProgressInfo, adjustments, maxWaitMs, fileName, hash);
+            _conversionsInProgress[cacheKey] = new ProgressEntry(DateTime.UtcNow, newProgressInfo, adjustments, maxWaitMs, fileName, hash);
         }
 
         // not in cache, nor converter; start conversion:
+        FileConversionResult? result = null;
         try {
-            using var inputStream = getInputStream();
-            var result = await _fileConverter.ConvertAsync(inputStream, adjustments, hash, fileName, maxWaitMs);
-            switch (result.ProgressInfo.Status) {
-                case FileConversionStatus.InProgress: {
-                        lock (_conversionsInProgressAtConverter) {
-                            var created = _conversionsInProgressAtConverter[cacheKey].Created; // keep original creation time for progress tracking
-                            _conversionsInProgressAtConverter[cacheKey] = new ProgressEntry(created, result.ProgressInfo, adjustments, maxWaitMs, fileName, hash);
-                        }
-                        return new(result.ProgressInfo); // in progress, waiting for conversion
-                    }
-                case FileConversionStatus.Ready: {
-                        lock (_conversionsInProgressAtConverter) {
-                            if (_conversionsInProgressAtConverter.ContainsKey(cacheKey)) {
-                                _conversionsInProgressAtConverter.Remove(cacheKey);
-                            }
-                        }
-                        var setResult = await _fileCache.SetFromStreamAsync(cacheKey, result.Output, maxWaitMs);
-                        if (setResult.Completed) {
-                            return new(new(FileConversionStatus.Ready), setResult.Stream); // all good, file is ready
-                        } else {
-                            return new(new(FileConversionStatus.InProgress)); // in progress, waiting for cache writing
-                        }
-                    }
-                case FileConversionStatus.Error: return new(new(FileConversionStatus.Error, message: result.ProgressInfo.Message));
-                default: throw new NotImplementedException("Unknown FileConversionStatus: " + result.ProgressInfo.Status);
+            var inputStream = getInputStream();
+            result = await _fileConverter.ConvertAsyncAndDisposeStreamWhenDone(inputStream, adjustments, hash, fileName, maxWaitMs);
+        } catch (Exception error) {
+            if (result != null && result.Output != null) result.Output.Dispose();
+            lock (_conversionsInProgress) {
+                _conversionsInProgress.Remove(cacheKey);
             }
-        } finally {
-            lock (_conversionsInProgressAtConverter) {
-                _conversionsInProgressAtConverter.Remove(cacheKey);
-            }
+            return new(new(FileConversionStatus.Error, message: error.Message));
+        }
+        switch (result.ProgressInfo.Status) {
+            case FileConversionStatus.InProgress: { // update progress info
+                    lock (_conversionsInProgress) {
+                        var created = _conversionsInProgress[cacheKey].Created; // keep original creation time for progress tracking
+                        _conversionsInProgress[cacheKey] = new ProgressEntry(created, result.ProgressInfo, adjustments, maxWaitMs, fileName, hash);
+                    }
+                    return new(result.ProgressInfo); // in progress, waiting for conversion
+                }
+            case FileConversionStatus.Ready: { // save result
+                    FileCacheSetResult? setResult;
+                    try {
+                        if (result.Output == null) throw new Exception("Empty output of conversion");
+                        setResult = await _fileCache.SetFromStreamAsync(cacheKey, result.Output, maxWaitMs);
+                    } catch (Exception error) {
+                        lock (_conversionsInProgress) {
+                            _conversionsInProgress.Remove(cacheKey);
+                        }
+                        if(result.Output!=null) result.Output.Dispose();
+                        return new(new(FileConversionStatus.Error, message: "Failed to save result. "+error.Message));
+                    }
+                    if (setResult.Completed) {
+                        lock (_conversionsInProgress) {
+                            _conversionsInProgress.Remove(cacheKey);
+                        }
+                        return new(new(FileConversionStatus.Ready), setResult.Stream); // all good, file is ready
+                    } else {
+                        return new(new(FileConversionStatus.InProgress)); // in progress, waiting for cache writing
+                    }
+                }
+            case FileConversionStatus.Error:
+                lock (_conversionsInProgress) {
+                    _conversionsInProgress.Remove(cacheKey);
+                }
+                return new(new(FileConversionStatus.Error, message: result.ProgressInfo.Message));
+            default: throw new NotImplementedException("Unknown FileConversionStatus: " + result.ProgressInfo.Status);
         }
 
     }

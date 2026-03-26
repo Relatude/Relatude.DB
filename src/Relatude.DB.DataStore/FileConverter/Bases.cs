@@ -2,16 +2,14 @@
 
 namespace Relatude.DB.FileConverter;
 
-public class FileIdWithAdjustment(string fileId, FileAdjustmentBase adj) {
-    public string FileId { get; } = fileId;
+public class FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
+    public Guid FileId { get; } = fileId;
     public FileAdjustmentBase Adjustment { get; } = adj;
-    public string GetKey() {
-        return $"{FileId}_{Adjustment.GetKey()}";
-    }
+    public string Key { get; } = (fileId + "_" + adj.GetLongKey()).GenerateGuid();
 }
 public abstract class FileAdjustmentBase {
     public FileValueType FileValueType { get; set; }
-    public abstract string GetKey();
+    public abstract string GetLongKey();
 }
 public class FileAdjustmentImage : FileAdjustmentBase {
     public int? Width { get; set; } // canvas width
@@ -31,7 +29,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public string? AIInstructions { get; set; } // Remove background, enhance details, etc.
     public FileImageFormat? Format { get; set; }
     public int? Quality { get; set; }
-    public override string GetKey() {
+    public override string GetLongKey() {
         throw new NotImplementedException();
     }
     //public string? JsonParams { get; set; } = null;
@@ -102,7 +100,8 @@ public enum FileImageFormat {
     Bmp,
 }
 public interface IFileConverter { // just the conversion, likely calling external services, like ai analysis or video processing
-    Task<FileConversionResult> ConvertAsync(Stream input, FileIdWithAdjustment fileIdWithAdjustment, string hash, string fileName, int maxWaitMs);
+    Task<bool> CancelConversionAsync(string key);
+    Task<FileConversionResult> ConvertAsyncAndDisposeStreamWhenDone(Stream input, FileIdWithAdjustment fileIdWithAdjustment, string hash, string fileName, int maxWaitMs);
     Task<ImageMeta> AnalyzeImageAsync(Stream input, FileIdWithAdjustment fileIdWithAdjustment, string hash, string fileName);
     Task<FileConversionProgressInfo> GetStatusAsync(FileIdWithAdjustment fileIdWithAdjustment);
     Task<Stream> GetStreamAsync(FileIdWithAdjustment fileIdWithAdjustment);
