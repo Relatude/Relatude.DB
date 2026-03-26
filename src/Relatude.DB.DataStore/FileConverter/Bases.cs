@@ -5,7 +5,7 @@ namespace Relatude.DB.FileConverter;
 public class FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
     public Guid FileId { get; } = fileId;
     public FileAdjustmentBase Adjustment { get; } = adj;
-    public string Key { get; } = (fileId + "_" + adj.GetLongKey()).GenerateGuid();
+    public Guid Key { get; } = (fileId + "_" + adj.GetLongKey()).GenerateGuid();
 }
 public abstract class FileAdjustmentBase {
     public FileValueType FileValueType { get; set; }
