@@ -18,7 +18,8 @@ internal class SemanticIndex : IIndex {
         _register = sets;
         //_index = new HnswVectorIndex();
         UniqueKey = uniqueKey;
-        _index = new FlatMemoryVectorIndex();
+        //_index = new FlatMemoryVectorIndex();
+        _index = new TurboQuantVectorIndex(1536);
         _ai = ai;
         newSetState();
         _io = io;
