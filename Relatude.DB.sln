@@ -1,6 +1,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.3.11512.155 d18.3
+VisualStudioVersion = 18.3.11512.155
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Website.Simple", "examples\Website.Simple\Website.Simple.csproj", "{84AAAFB1-CCB2-4EEA-891B-BDEC7B0AC22C}"
 EndProject
@@ -72,6 +72,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.RavenDB", "benchmarks\Benchmark.RavenDB\Benchmark.RavenDB.csproj", "{0828AB1F-FE7C-47A4-BB4A-96500129A653}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Site", "benchmarks\Benchmark.Site\Benchmark.Site.csproj", "{551A45CA-4DD1-4536-A633-B4144182EBA1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Relatude.DB.FileConverter", "src\Relatude.DB.FileConverter\Relatude.DB.FileConverter.csproj", "{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -167,6 +169,10 @@ Global
 		{551A45CA-4DD1-4536-A633-B4144182EBA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{551A45CA-4DD1-4536-A633-B4144182EBA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{551A45CA-4DD1-4536-A633-B4144182EBA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -194,6 +200,7 @@ Global
 		{3D0666D8-CE31-4FFB-A623-BA5626A66DEF} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{0828AB1F-FE7C-47A4-BB4A-96500129A653} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{551A45CA-4DD1-4536-A633-B4144182EBA1} = {A7EDF03D-19E7-46DF-BDCE-2F53AB84ED47}
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA} = {76CB41E2-ED98-46D8-896A-3D7711AF25EB}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A16D0224-6A2F-4773-91F8-FC2C4D5479DD}

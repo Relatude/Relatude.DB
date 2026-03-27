@@ -1,0 +1,120 @@
+﻿using System.Drawing;
+
+namespace Relatude.DB.Common;
+
+public enum FileBaseFormats {
+    Unknown,
+    Document,
+    Image,
+    Video,
+    Audio,
+}
+public enum FileFormat {
+    // Image formats
+    Jpeg,
+    Png,
+    Gif,
+    Bmp,
+    Svg,
+    Webp,
+    // Video formats
+    Mp4,
+    Avi,
+    Mov,
+    Wmv,
+    Flv,
+    // Audio formats
+    Mp3,
+    Wav,
+    Aac,
+    Flac,
+    // Document formats
+    Pdf,
+    Doc,
+    Docx,
+    Xls,
+    Xlsx,
+    Ppt,
+    Pptx,
+    Txt,
+    // Other formats can be added here
+    Unknown,
+}
+public static class FileFormatUtil {
+    public static FileBaseFormats GetBaseFormatFromFileName(string fileNameWithExtension) {
+        var detailedFormat = GetDetailedFormatFromFileName(fileNameWithExtension);
+        return GetBaseFormatFromDetailedFormat(detailedFormat);
+    }
+    public static FileFormat GetDetailedFormatFromFileName(string fileNameWithExtension) {
+        var ext = Path.GetExtension(fileNameWithExtension).ToLower();
+        return ext switch {
+            ".jpg" or ".jpeg" => FileFormat.Jpeg,
+            ".png" => FileFormat.Png,
+            ".gif" => FileFormat.Gif,
+            ".bmp" => FileFormat.Bmp,
+            ".svg" => FileFormat.Svg,
+            ".webp" => FileFormat.Webp,
+            ".mp4" => FileFormat.Mp4,
+            ".avi" => FileFormat.Avi,
+            ".mov" => FileFormat.Mov,
+            ".wmv" => FileFormat.Wmv,
+            ".flv" => FileFormat.Flv,
+            ".mp3" => FileFormat.Mp3,
+            ".wav" => FileFormat.Wav,
+            ".aac" => FileFormat.Aac,
+            ".flac" => FileFormat.Flac,
+            ".pdf" => FileFormat.Pdf,
+            ".doc" => FileFormat.Doc,
+            ".docx" => FileFormat.Docx,
+            ".xls" => FileFormat.Xls,
+            ".xlsx" => FileFormat.Xlsx,
+            ".ppt" => FileFormat.Ppt,
+            ".pptx" => FileFormat.Pptx,
+            ".txt" => FileFormat.Txt,
+            _ => FileFormat.Unknown, // This should probably be a different value or throw an exception since it's not a detailed format
+        };
+    }
+    public static FileBaseFormats GetBaseFormatFromDetailedFormat(FileFormat format) {
+        return format switch {
+            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp => FileBaseFormats.Image,
+            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv => FileBaseFormats.Video,
+            FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileBaseFormats.Audio,
+            FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileBaseFormats.Document,
+            FileFormat.Unknown => FileBaseFormats.Unknown,
+            _ => throw new Exception("Internal error. Unhandled FileFormat value: " + format.ToString()), // This should never happen if all FileFormat values are covered
+        };
+    }
+}
+public struct FormatPair : IEquatable<FormatPair> {
+    public FormatPair(FileFormat from, FileFormat to) {
+        From = from;
+        To = to;
+    }
+
+    public FileFormat From { get; }
+    public FileFormat To { get; }
+
+    // Strongly-typed equality (no boxing)
+    public bool Equals(FormatPair other) {
+        return From.Equals(other.From) && To.Equals(other.To);
+    }
+
+    // Object override (required)
+    public override bool Equals(object? obj) {
+        return obj is FormatPair other && Equals(other);
+    }
+
+    // Hash code (important for dictionaries, sets, etc.)
+    public override int GetHashCode() {
+        return HashCode.Combine(From, To);
+    }
+
+    // Operator overloads
+    public static bool operator ==(FormatPair left, FormatPair right) {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(FormatPair left, FormatPair right) {
+        return !(left == right);
+    }
+}

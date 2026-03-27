@@ -1,29 +1,12 @@
 ﻿namespace Relatude.DB.Common;
-public enum FileValueType {
-    Other,
-    Document,
-    Image,
-    Video,
-    Audio,
-}
 public class FileValue {
-    public static FileValueType GetTypeFromFileName(string fileNameWithExtension) {
-        var ext = Path.GetExtension(fileNameWithExtension).ToLower();
-        return ext switch {
-            ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".svg" or ".webp" => FileValueType.Image,
-            ".mp4" or ".avi" or ".mov" or ".wmv" or ".flv" => FileValueType.Video,
-            ".mp3" or ".wav" or ".aac" or ".flac" => FileValueType.Audio,
-            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" or ".txt" => FileValueType.Document,
-            _ => FileValueType.Other,
-        };
-    }
     public FileValue() {
         IsEmpty = true;
         Name = string.Empty;
         Indexed = false;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileValueType.Other;
+        Type = FileBaseFormats.Unknown;
         Size = 0;
         Height = 0;
         Width = 0;
@@ -36,7 +19,7 @@ public class FileValue {
         Name = name;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileValueType.Other;
+        Type = FileBaseFormats.Unknown;
         Size = size;
         Height = 0;
         Width = 0;
@@ -77,7 +60,7 @@ public class FileValue {
     public string Name { get; set; }
     public string TextExtract { get; set; }
     public string MetaJSON { get; set; }
-    public FileValueType Type { get; set; }
+    public FileBaseFormats Type { get; set; }
     public int Height { get; set; }
     public int Width { get; set; }
 
@@ -116,7 +99,7 @@ public class FileValue {
         v.Name = br.ReadString();
         v.TextExtract = br.ReadString();
         v.MetaJSON = br.ReadString();
-        v.Type = (FileValueType)br.ReadInt32();
+        v.Type = (FileBaseFormats)br.ReadInt32();
         v.Size = br.ReadInt64();
         v.Height = br.ReadInt32();
         v.Width = br.ReadInt32();
