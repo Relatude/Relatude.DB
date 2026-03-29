@@ -8,7 +8,7 @@ public class RelatudeDBServerSettings {
     public string? MasterUserName { get; set; }
     public string? MasterPassword { get; set; }
     //public string TokenEncryptionSalt { get; set; } = SecureGuid.New().ToString();
-    public string TokenEncryptionSecret { get; set; } = SecureGuid.New().ToString();
+    public string? TokenEncryptionSecret { get; set; }
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days
 
     public string? DBAdminUIUrlPath { get; set; }

@@ -6,15 +6,11 @@
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-		<Version>0.1.0.83</Version>
+		<Version>0.1.0.88</Version>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="DataStores\NewFolder\" />
 	</ItemGroup>
 
 </Project>

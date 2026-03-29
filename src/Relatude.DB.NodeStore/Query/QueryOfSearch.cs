@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Query.Data;
 namespace Relatude.DB.Query;
+
 public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearch<T>> {
     QueryOfNodes<T, TInclude> _query;
     internal QueryOfSearch(QueryOfNodes<T, TInclude> query) {
@@ -26,10 +27,10 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
             values.Add(searchResultHit);
         }
         int count = s.Hits.Count;
-        int totalCount = s.Hits.Count;
+        int totalCount = s.TotalCount;
         int pageIndex = 0;
         int pageSize = s.Hits.Count;
-        return new ResultSetSearch<T>(values, count, totalCount, pageIndex, pageSize, s.DurationMs);
+        return new ResultSetSearch<T>(values, count, totalCount, pageIndex, pageSize, s.DurationMs, s.InnerSearchTimeMs);
     }
     public async Task<ResultSetSearch<T>> ExecuteAsync() {
         var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray());

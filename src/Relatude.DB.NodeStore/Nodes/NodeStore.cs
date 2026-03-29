@@ -41,7 +41,7 @@ public class NodeStore : IDisposable {
 
     public readonly IDataStore Datastore;
     public DbContext Context => new DbContext(this);
-    internal QueryContext QueryContext => Datastore.QueryContext;
+    internal QueryContext QueryContext => Datastore.DefaultQueryContext;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
     internal List<INodeTransactionPlugin>? _transactionPlugins = null;

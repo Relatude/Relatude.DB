@@ -42,6 +42,20 @@ public class QueryContext {
         NowUtc = null,
         SelectedRevisions = null
     };
+    public static readonly QueryContext MasterAdmin = new(
+        ) {
+        UserId = NodeConstants.MasterAdminUserId,
+        CultureCode = null,
+        CultureId = null,
+        IncludeDeleted = false,
+        IncludeCultureFallback = false,
+        IncludeUnpublished = false,
+        IncludeHidden = false,
+        ExcludeDecendants = false,
+        CollectionIds = null,
+        NowUtc = null,
+        SelectedRevisions = null
+    };
     public static readonly QueryContext Default = new();
     public static readonly QueryContext AllExcludingDecendants = new() {
         UserId = NodeConstants.MasterAdminUserId,

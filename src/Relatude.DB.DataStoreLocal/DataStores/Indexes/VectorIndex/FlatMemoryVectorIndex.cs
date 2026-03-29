@@ -8,12 +8,11 @@ namespace Relatude.DB.DataStores.Indexes.VectorIndex;
 /// Since all vectors are normalized we can use "dot product" as a similarity measure.
 /// </summary>
 public class FlatMemoryVectorIndex : IVectorIndex {
-    readonly Dictionary<int, float[]> _index = [];
-    bool multiThreaded {
-        get {
-            return Environment.ProcessorCount > 2 && _index.Count > 100;
-        }
+    bool _multiThreaded;
+    public FlatMemoryVectorIndex() {
+        _multiThreaded = Environment.ProcessorCount > 2;
     }
+    readonly Dictionary<int, float[]> _index = [];
     public void Set(int nodeId, float[] vector) {
         if (vector.Length == 0) return; // do not store empty vectors
         _index[nodeId] = vector;
@@ -38,7 +37,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
 
     #region Old search (without SIMD and top-k optimization)
     public List<VectorHit> SearchOld(float[] u, int skip, int take, float minCosineSimilarity) {
-        var hits = multiThreaded ? multi(u, minCosineSimilarity) : single(u, minCosineSimilarity);
+        var hits = _multiThreaded ? multi(u, minCosineSimilarity) : single(u, minCosineSimilarity);
         return hits.OrderByDescending(h => h.Similarity).Skip(skip).Take(take).ToList();
     }
     List<VectorHit> multi(float[] u, float minCosineSimilarity) {
@@ -79,7 +78,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         // (also avoids enumeration invalidation if the index changes concurrently)
         var snapshot = _index.ToArray();
 
-        if (multiThreaded) {
+        if (_multiThreaded) {
             // Thread-local top-k; merge at the end.
             var merged = new ConcurrentBag<(int id, float sim)>();
 

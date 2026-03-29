@@ -170,7 +170,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             var sw = Stopwatch.StartNew();
-            var datastore = new DataStoreLocal(
+            IDataStore datastore = new DataStoreLocal(
                     Datamodel,
                     settings.LocalSettings,
                     ioDatabase,
@@ -181,15 +181,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     createIndexStore,
                     queueStore,
                     ioSecondary,
-                    ioIndexes
-                    );
+                    ioIndexes,
+                    QueryContext.MasterAdmin
+                    );            
             Interlocked.Increment(ref _initializationCounter);
             var runners = server.GetRegisteredTaskRunners(this);
             foreach (var runner in runners) datastore.RegisterRunner(runner);
             foreach (var msg in toLog) {
                 datastore.LogInfo(msg);
             }
-            Store = new NodeStore(datastore);
+            Store = new NodeStore(datastore);            
             server.RaiseEventStoreInit(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);

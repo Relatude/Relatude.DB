@@ -14,6 +14,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     static object _consoleColorLock = new();
     static object _criticalLogLock = new();
     public void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false) {
+        replace = false; // Disable replace for now as it can cause issues with concurrent logs and the benefit is minimal
         try {
             if (_settings.WriteSystemLogConsole) {
                 lock (_consoleColorLock) {

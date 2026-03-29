@@ -85,13 +85,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         Func<IPersistedIndexStore>? createPersistedIndexStore = null,
         IQueueStore? queueStore = null,
         IIOProvider? secondaryLogIO = null,
-        IIOProvider? indexIO = null
-
+        IIOProvider? indexIO = null,
+        QueryContext? defaultQueryContext = null
         ) {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
-        _defaultQueryCtx = QueryContext.Default;
-
+        _defaultQueryCtx = defaultQueryContext ?? QueryContext.Default;
         if (dbIO == null) dbIO = new IOProviderMemory();
         _io = dbIO;
         _ioIndex = indexIO ?? _io;
@@ -124,10 +123,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         dm.EnsureInitalization();
         dm.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
         _nativeModelStore = new(this);
-        _defaultFileStore = null;
         if (_settings.DefaultFileStore.HasValue) {
-            if (!_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out _defaultFileStore)) {
-                throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided filestores.");
+            if (_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out var fileStore)) {
+                _defaultFileStore = fileStore;
+            } else {
+                throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided file stores.");
             }
         }
         if (_defaultFileStore == null) _defaultFileStore = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
@@ -140,7 +140,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
-    public QueryContext QueryContext => _defaultQueryCtx;
+    public QueryContext DefaultQueryContext => _defaultQueryCtx;
     void validateDatabaseState() {
         if (_state != Common.DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
     }

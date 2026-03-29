@@ -16,7 +16,7 @@ export const component = (P: { store: QueryBuilderStore }) => {
     if (!queryResult) return null;
     return (
         <div style={{ width: "100%", height: "100%" }}>
-            <h3>{(queryResult.capped ? "More than " : "") + queryResult.totalCount} hits, {queryResult.durationMs?.toFixed(1)} ms</h3>
+            <h3>{(queryResult.capped ? "More than " : "") + queryResult.totalCount} hits, {queryResult.innerSearchTimeMs?.toFixed(1)} ms</h3>
 
             <h3>Page: {queryResult.pageIndex + 1} / {queryResult.pageCount}</h3>
             <h3>Page Size: {queryResult.pageSize}</h3>

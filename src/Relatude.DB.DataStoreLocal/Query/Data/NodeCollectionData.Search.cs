@@ -11,13 +11,14 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         if (!maxHitsEvaluated.HasValue) maxHitsEvaluated = int.MaxValue;
         if (!maxWordsEvaluated.HasValue) maxWordsEvaluated = int.MaxValue;
         if (maxHitsEvaluated < int.MaxValue) maxHitsEvaluated++; // we want to know if there are more hits than requested, so we need to evaluate one more
-        var hits = p.SearchForRankedHitData(_ids, search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, pageIndex, pageSize, maxHitsEvaluated.Value, maxWordsEvaluated.Value, _db, _ctx, out var totalHits);
+        var hits = p.SearchForRankedHitData(_ids, search, ratioSemantic.Value, minimumVectorSimilarity.Value, orSearch.Value, pageIndex, pageSize, maxHitsEvaluated.Value, maxWordsEvaluated.Value, _db, _ctx
+            , out var totalHits, out var innerSearchTimeMs);
         var capped = false;
         if (maxHitsEvaluated < int.MaxValue && totalHits >= maxHitsEvaluated) { // if we have more hits than requested, we know the result is capped
             totalHits = maxHitsEvaluated.Value - 1; // adjust total hits to the maximum hits evaluated
             capped = true; // we have more hits than requested
         }
-        return new SearchQueryResultData(_db, _metrics, _includeBranches, p, search, hits, pageIndex, pageSize, totalHits, capped, _ctx);
+        return new SearchQueryResultData(_db, _metrics, _includeBranches, p, search, hits, pageIndex, pageSize, totalHits, capped, innerSearchTimeMs, _ctx);
     }
     public IStoreNodeDataCollection FilterBySearch(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations) {
         var property = _def.Properties[searchPropertyId];

@@ -60,8 +60,10 @@ public class SimpleAuthentication(RelatudeDBServer server) {
                 { "UserIP", userIP }
             };
         var json = JsonSerializer.Serialize(values);
-        return StringEncryption.Encrypt(json, settings.TokenEncryptionSecret);
+        var encryptionKey = string.IsNullOrWhiteSpace(settings.TokenEncryptionSecret) ? _transientEncryptionFallbackKey : settings.TokenEncryptionSecret;
+        return StringEncryption.Encrypt(json, encryptionKey);
     }
+    static string _transientEncryptionFallbackKey = SecureGuid.New().ToString();
     bool isTokenValid(string? token, string requestIP, [MaybeNullWhen(false)] out string userName, [MaybeNullWhen(false)] out Guid? userTokenId) {
         userName = null;
         userTokenId = null;
@@ -73,7 +75,8 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         try {
 
             // decrypting
-            if (!StringEncryption.TryDecrypt(token, settings.TokenEncryptionSecret, out var json)) return false; // decryption failed
+            var decryptionKey = string.IsNullOrWhiteSpace(settings.TokenEncryptionSecret) ? _transientEncryptionFallbackKey : settings.TokenEncryptionSecret;
+            if (!StringEncryption.TryDecrypt(token, decryptionKey, out var json)) return false; // decryption failed
 
             // parsing json
             var values = JsonSerializer.Deserialize<Dictionary<string, string>>(json); // may throw exception

@@ -1,13 +1,14 @@
 ﻿using Relatude.DB.Common;
-using System.Text;
 using Relatude.DB.Query.Data;
 using System.Collections.Generic;
+using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Relatude.DB.Query;
 public class ResultSetFacets<T> : ResultSet<T> {
     internal protected FacetQueryResultData result;
     internal ResultSetFacets(IEnumerable<T> values, FacetQueryResultData result)
-        : base(values, result.Count, result.TotalCount, result.PageIndexUsed, result.PageSizeUsed ?? 0, result.DurationMs) {
+        : base(values, result.Count, result.TotalCount, result.PageIndexUsed, result.PageSizeUsed ?? 0, result.DurationMs, result.DurationMs) {
         this.result = result;
         Facets = result.Facets.Values;
         SourceCount = result.SourceCount;
@@ -37,7 +38,7 @@ public class ResultSetFacets<T> : ResultSet<T> {
 
 public sealed class ResultSetFacetsNotEnumerable<T> : ResultSetNotEnumerable<T> {
     internal ResultSetFacetsNotEnumerable(IEnumerable<T> values, FacetQueryResultData result)
-        : base(values, result.Count, result.TotalCount, result.PageIndexUsed, result.PageSizeUsed ?? 0, result.DurationMs, false) {
+        : base(values, result.Count, result.TotalCount, result.PageIndexUsed, result.PageSizeUsed ?? 0, result.DurationMs, false, 0) {
         Facets = result.Facets.Values;
         SourceCount = result.SourceCount;
     }

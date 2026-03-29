@@ -38,6 +38,7 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
 }
 public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {
     bool Capped { get; }
+    double InnerSearchTimeMs { get; }
     List<SearchResultHitData> Hits { get; }
     int PageIndexUsed { get; }
     int? PageSizeUsed { get; }

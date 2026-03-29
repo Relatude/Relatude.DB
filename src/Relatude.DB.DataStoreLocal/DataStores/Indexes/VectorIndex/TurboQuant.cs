@@ -1,24 +1,12 @@
-﻿
-// TurboQuant.cs
-// .NET 8 compatible
-//
-// A practical TurboQuant-style implementation:
-//   - Random orthogonal rotation via signed Walsh-Hadamard transform
-//   - Scalar quantization with Lloyd-Max codebook training
-//   - Optional residual sign sketch (QJL-style) for improved dot products
-//
-// Usage:
-//   var tq = TurboQuant.Create(dimension: 256, bits: 3, residualProjections: 64, seed: 1234);
-//   var enc = tq.Encode(vector);
-//   var recon = tq.Decode(enc);
-//   float dot = tq.ApproxDot(encA, encB);
+﻿using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+namespace Relatude.DB.DataStores.Indexes.VectorIndex;
 
 public sealed class TurboQuant {
     private readonly int _dimension;
     private readonly int _bits;
-    private readonly int _levels;
     private readonly int _residualProjections;
-    private readonly int _seed;
 
     // Rotation config: diagonal Rademacher signs + Walsh-Hadamard
     private readonly float[] _rotationSigns;
@@ -26,6 +14,9 @@ public sealed class TurboQuant {
     // Scalar quantizer
     private readonly float[] _codebook;
     private readonly float[] _thresholds;
+
+    // Fast ApproxDot Lookup Table (256x256)
+    private readonly float[] _dotTable;
 
     // Residual sign sketch projection matrix (dense Gaussian)
     private readonly float[][]? _residualProjection;
@@ -41,19 +32,24 @@ public sealed class TurboQuant {
         float[][]? residualProjection) {
         _dimension = dimension;
         _bits = bits;
-        _levels = 1 << bits;
         _residualProjections = residualProjections;
-        _seed = seed;
         _rotationSigns = rotationSigns;
         _codebook = codebook;
         _thresholds = thresholds;
         _residualProjection = residualProjection;
-    }
 
-    public int Dimension => _dimension;
-    public int Bits => _bits;
-    public int Levels => _levels;
-    public int ResidualProjections => _residualProjections;
+        // Initialize fast lookup table for ApproxDot
+        _dotTable = new float[256 * 256];
+        int maxIdx = codebook.Length - 1;
+        for (int i = 0; i < 256; i++) {
+            for (int j = 0; j < 256; j++) {
+                // Safely cap index to the codebook size if out-of-range bytes are ever encountered
+                int ci = i > maxIdx ? maxIdx : i;
+                int cj = j > maxIdx ? maxIdx : j;
+                _dotTable[(i << 8) | j] = codebook[ci] * codebook[cj];
+            }
+        }
+    }
 
     public static TurboQuant Create(
         int dimension,
@@ -75,8 +71,6 @@ public sealed class TurboQuant {
         for (int i = 0; i < dimension; i++)
             rotationSigns[i] = rng.NextDouble() < 0.5 ? -1f : 1f;
 
-        // Train scalar quantizer on coordinates from random unit vectors after rotation.
-        // For random unit vectors, rotated coordinates have the same distribution.
         var training = SampleSphereCoordinates(dimension, lloydMaxTrainingSamples, seed + 1);
         var codebook = TrainLloydMax(training, 1 << bits, lloydMaxIterations);
         Array.Sort(codebook);
@@ -104,31 +98,25 @@ public sealed class TurboQuant {
             residualProjection);
     }
 
-    public EncodedVector Encode(ReadOnlySpan<float> vector, int nodeId) {
+    public EncodedVector Encode(ReadOnlySpan<float> vector) {
         if (vector.Length != _dimension)
             throw new ArgumentException($"Expected vector length {_dimension}.");
 
         var norm = L2Norm(vector);
         if (norm == 0f) {
             return new EncodedVector(
-                _dimension,
-                _bits,
                 0f,
                 new byte[_dimension],
-                _residualProjections > 0 ? new byte[(_residualProjections + 7) / 8] : null,
-                nodeId
+                _residualProjections > 0 ? new byte[(_residualProjections + 7) / 8] : null
                 );
         }
 
-        // Normalize to unit vector
         var normalized = new float[_dimension];
         for (int i = 0; i < _dimension; i++)
             normalized[i] = vector[i] / norm;
 
-        // Rotate
         var rotated = ApplyRandomHadamard(normalized);
 
-        // Quantize rotated coordinates
         var indices = new byte[_dimension];
         var reconstructedRotated = new float[_dimension];
 
@@ -138,7 +126,6 @@ public sealed class TurboQuant {
             reconstructedRotated[i] = _codebook[idx];
         }
 
-        // Optional residual sketch
         byte[]? residualBits = null;
         if (_residualProjections > 0 && _residualProjection is not null) {
             var residual = new float[_dimension];
@@ -148,12 +135,10 @@ public sealed class TurboQuant {
             residualBits = ProjectToSignBits(residual, _residualProjection);
         }
 
-        return new EncodedVector(_dimension, _bits, norm, indices, residualBits, nodeId);
+        return new EncodedVector(norm, indices, residualBits);
     }
 
     public float[] Decode(EncodedVector encoded) {
-        ValidateEncoded(encoded);
-
         var rotatedRecon = new float[_dimension];
         for (int i = 0; i < _dimension; i++)
             rotatedRecon[i] = _codebook[encoded.Indices[i]];
@@ -167,31 +152,61 @@ public sealed class TurboQuant {
         return output;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public float ApproxDot(EncodedVector a, EncodedVector b) {
-        ValidateEncoded(a);
-        ValidateEncoded(b);
+        int dim = _dimension;
 
-        // Stage 1: dot in rotated reconstructed space
+        if (a.Indices.Length < dim || b.Indices.Length < dim)
+            throw new ArgumentException("Encoded vectors do not match dimension.");
+
         float baseDot = 0f;
-        for (int i = 0; i < _dimension; i++) {
-            baseDot += _codebook[a.Indices[i]] * _codebook[b.Indices[i]];
+
+        // Stage 1: Vectorized, Unrolled LUT lookups (Zero Bounds Checking)
+        ref byte pA = ref MemoryMarshal.GetArrayDataReference(a.Indices);
+        ref byte pB = ref MemoryMarshal.GetArrayDataReference(b.Indices);
+        ref float pLut = ref MemoryMarshal.GetArrayDataReference(_dotTable);
+
+        int i = 0;
+        int dim8 = dim - (dim % 8);
+
+        for (; i < dim8; i += 8) {
+            baseDot += Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i) << 8) | Unsafe.Add(ref pB, i))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 1) << 8) | Unsafe.Add(ref pB, i + 1))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 2) << 8) | Unsafe.Add(ref pB, i + 2))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 3) << 8) | Unsafe.Add(ref pB, i + 3))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 4) << 8) | Unsafe.Add(ref pB, i + 4))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 5) << 8) | Unsafe.Add(ref pB, i + 5))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 6) << 8) | Unsafe.Add(ref pB, i + 6))
+                     + Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i + 7) << 8) | Unsafe.Add(ref pB, i + 7));
+        }
+        for (; i < dim; i++) {
+            baseDot += Unsafe.Add(ref pLut, (Unsafe.Add(ref pA, i) << 8) | Unsafe.Add(ref pB, i));
         }
 
         float result = a.Norm * b.Norm * baseDot;
 
-        // Stage 2: optional residual sign-sketch correction
-        if (_residualProjections > 0 &&
-            a.ResidualBits is not null &&
-            b.ResidualBits is not null) {
-            int agreeMinusDisagree = 0;
-            for (int i = 0; i < _residualProjections; i++) {
-                bool sa = GetBit(a.ResidualBits, i);
-                bool sb = GetBit(b.ResidualBits, i);
-                agreeMinusDisagree += sa == sb ? 1 : -1;
+        // Stage 2: Hardware Intrinsic PopCount for Residual Sketch
+        if (_residualProjections > 0 && a.ResidualBits != null && b.ResidualBits != null) {
+            int len = Math.Min(a.ResidualBits.Length, b.ResidualBits.Length);
+            ReadOnlySpan<byte> minSpanA = new ReadOnlySpan<byte>(a.ResidualBits, 0, len);
+            ReadOnlySpan<byte> minSpanB = new ReadOnlySpan<byte>(b.ResidualBits, 0, len);
+
+            ReadOnlySpan<ulong> ulongA = MemoryMarshal.Cast<byte, ulong>(minSpanA);
+            ReadOnlySpan<ulong> ulongB = MemoryMarshal.Cast<byte, ulong>(minSpanB);
+
+            int differingBits = 0;
+            for (int j = 0; j < ulongA.Length; j++) {
+                differingBits += BitOperations.PopCount(ulongA[j] ^ ulongB[j]);
             }
 
-            // Scaled correction term. This is a practical estimator,
-            // not a proof-tight reproduction of the paper.
+            // Handle trailing bytes that didn't fit neatly into 8-byte ulong blocks
+            int remainingBytesStart = ulongA.Length * 8;
+            for (int j = remainingBytesStart; j < len; j++) {
+                differingBits += BitOperations.PopCount((uint)(minSpanA[j] ^ minSpanB[j]));
+            }
+
+            // agreeMinusDisagree = (Total Valid Bits) - 2 * (Differing Bits)
+            int agreeMinusDisagree = _residualProjections - (2 * differingBits);
             float correction = (float)agreeMinusDisagree / _residualProjections;
             result += a.Norm * b.Norm * correction / 16f;
         }
@@ -204,7 +219,7 @@ public sealed class TurboQuant {
         long count = 0;
 
         foreach (var v in vectors) {
-            var enc = Encode(v.Value, v.Key);
+            var enc = Encode(v.Value);
             var dec = Decode(enc);
             for (int i = 0; i < _dimension; i++) {
                 double diff = v.Value[i] - dec[i];
@@ -216,26 +231,7 @@ public sealed class TurboQuant {
         return count == 0 ? 0f : (float)(total / count);
     }
 
-
-
-
-
-    private void ValidateEncoded(EncodedVector encoded) {
-        if (encoded.Dimension != _dimension)
-            throw new ArgumentException("Encoded vector dimension mismatch.");
-        if (encoded.Bits != _bits)
-            throw new ArgumentException("Encoded vector bit-width mismatch.");
-        if (encoded.Indices.Length != _dimension)
-            throw new ArgumentException("Encoded vector indices length mismatch.");
-        if (_residualProjections > 0) {
-            if (encoded.ResidualBits is null)
-                throw new ArgumentException("Residual bits are required for this TurboQuant instance.");
-            int expectedBytes = (_residualProjections + 7) / 8;
-            if (encoded.ResidualBits.Length != expectedBytes)
-                throw new ArgumentException("Residual bit sketch length mismatch.");
-        }
-    }
-
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private int QuantizeIndex(float x) {
         int lo = 0;
         int hi = _thresholds.Length;
@@ -266,8 +262,6 @@ public sealed class TurboQuant {
     }
 
     private float[] ApplyInverseRandomHadamard(ReadOnlySpan<float> input) {
-        // Hadamard is self-inverse up to scaling; since we use orthonormal scaling,
-        // inverse is the same transform with the same diagonal signs.
         var buffer = input.ToArray();
         FastWalshHadamard(buffer);
 
@@ -278,7 +272,7 @@ public sealed class TurboQuant {
         return buffer;
     }
 
-    private static void FastWalshHadamard(float[] data) {
+    private static void FastWalshHadamardOld(float[] data) {
         int n = data.Length;
         for (int len = 1; 2 * len <= n; len <<= 1) {
             for (int i = 0; i < n; i += (len << 1)) {
@@ -291,14 +285,76 @@ public sealed class TurboQuant {
             }
         }
     }
+    private static void FastWalshHadamard(float[] data) {
+        int n = data.Length;
+        ref float ptr = ref MemoryMarshal.GetArrayDataReference(data);
+        int vecCount = Vector<float>.Count;
 
-    private static float L2Norm(ReadOnlySpan<float> v) {
+        for (int len = 1; 2 * len <= n; len <<= 1) {
+            // Once the stride length is large enough, switch to hardware-accelerated SIMD
+            if (Vector.IsHardwareAccelerated && len >= vecCount) {
+                for (int i = 0; i < n; i += (len << 1)) {
+                    ref float ptrU = ref Unsafe.Add(ref ptr, i);
+                    ref float ptrV = ref Unsafe.Add(ref ptr, i + len);
+
+                    for (int j = 0; j < len; j += vecCount) {
+                        // Load multiple floats at once
+                        var uVec = Vector.LoadUnsafe(ref ptrU, (nuint)j);
+                        var vVec = Vector.LoadUnsafe(ref ptrV, (nuint)j);
+
+                        // Add/Sub in a single CPU cycle, then store back
+                        Vector.StoreUnsafe(uVec + vVec, ref ptrU, (nuint)j);
+                        Vector.StoreUnsafe(uVec - vVec, ref ptrV, (nuint)j);
+                    }
+                }
+            } else {
+                // Scalar fallback for the first few iterations (len = 1, 2, 4...)
+                for (int i = 0; i < n; i += (len << 1)) {
+                    for (int j = 0; j < len; j++) {
+                        float u = Unsafe.Add(ref ptr, i + j);
+                        float v = Unsafe.Add(ref ptr, i + j + len);
+                        Unsafe.Add(ref ptr, i + j) = u + v;
+                        Unsafe.Add(ref ptr, i + j + len) = u - v;
+                    }
+                }
+            }
+        }
+    }
+
+    private static float L2NormOld(ReadOnlySpan<float> v) {
         double sum = 0;
         for (int i = 0; i < v.Length; i++)
             sum += v[i] * v[i];
         return (float)Math.Sqrt(sum);
     }
+    private static float L2Norm(ReadOnlySpan<float> v) {
+        float sum = 0f;
+        int i = 0;
+        ref float ptr = ref MemoryMarshal.GetReference(v);
 
+        if (Vector.IsHardwareAccelerated && v.Length >= Vector<float>.Count) {
+            Vector<float> sumVec = Vector<float>.Zero;
+            int step = Vector<float>.Count;
+            int limit = v.Length - (v.Length % step);
+
+            // Unroll into vector accumulators
+            for (; i < limit; i += step) {
+                var vec = Vector.LoadUnsafe(ref ptr, (nuint)i);
+                sumVec += vec * vec; // SIMD multiply and add
+            }
+
+            // Sum the lanes of the vector together
+            sum += Vector.Sum(sumVec);
+        }
+
+        // Mop up any remaining elements if the length wasn't a perfect multiple of the vector size
+        for (; i < v.Length; i++) {
+            float val = Unsafe.Add(ref ptr, i);
+            sum += val * val;
+        }
+
+        return MathF.Sqrt(sum);
+    }
     private static float[] SampleSphereCoordinates(int dimension, int sampleCount, int seed) {
         var rng = new Random(seed);
         var result = new float[sampleCount];
@@ -393,35 +449,139 @@ public sealed class TurboQuant {
         return bits;
     }
 
-    private static bool GetBit(byte[] bytes, int index) {
-        return (bytes[index >> 3] & (1 << (index & 7))) != 0;
-    }
-
     private static float NextGaussian(Random rng) {
-        // Box-Muller
         double u1 = 1.0 - rng.NextDouble();
         double u2 = 1.0 - rng.NextDouble();
         return (float)(Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2));
     }
+
+    internal byte[] ToByteArray() {
+        var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true);
+
+        const int formatVersion = 1;
+        bw.Write(formatVersion);
+
+        bw.Write(_dimension);
+        bw.Write(_bits);
+        bw.Write(_residualProjections);
+
+        bw.Write(_rotationSigns.Length);
+        for (int i = 0; i < _rotationSigns.Length; i++)
+            bw.Write(_rotationSigns[i]);
+
+        bw.Write(_codebook.Length);
+        for (int i = 0; i < _codebook.Length; i++)
+            bw.Write(_codebook[i]);
+
+        bw.Write(_thresholds.Length);
+        for (int i = 0; i < _thresholds.Length; i++)
+            bw.Write(_thresholds[i]);
+
+        bool hasResidualProjection = _residualProjection is not null;
+        bw.Write(hasResidualProjection);
+        if (hasResidualProjection) {
+            bw.Write(_residualProjection!.Length);
+            for (int r = 0; r < _residualProjection.Length; r++) {
+                var row = _residualProjection[r];
+                bw.Write(row.Length);
+                for (int c = 0; c < row.Length; c++)
+                    bw.Write(row[c]);
+            }
+        }
+
+        bw.Flush();
+        return ms.ToArray();
+    }
+
+    internal static TurboQuant FromByteArray(byte[] bytes) {
+        if (bytes is null) throw new ArgumentNullException(nameof(bytes));
+
+        using var ms = new MemoryStream(bytes);
+        using var br = new BinaryReader(ms, System.Text.Encoding.UTF8, leaveOpen: false);
+
+        const int expectedFormatVersion = 1;
+        int formatVersion = br.ReadInt32();
+        if (formatVersion != expectedFormatVersion)
+            throw new InvalidDataException($"Unsupported TurboQuant format version: {formatVersion}.");
+
+        int dimension = br.ReadInt32();
+        int bits = br.ReadInt32();
+        int residualProjections = br.ReadInt32();
+
+        int rotationLength = br.ReadInt32();
+        var rotationSigns = new float[rotationLength];
+        for (int i = 0; i < rotationLength; i++)
+            rotationSigns[i] = br.ReadSingle();
+
+        int codebookLength = br.ReadInt32();
+        var codebook = new float[codebookLength];
+        for (int i = 0; i < codebookLength; i++)
+            codebook[i] = br.ReadSingle();
+
+        int thresholdsLength = br.ReadInt32();
+        var thresholds = new float[thresholdsLength];
+        for (int i = 0; i < thresholdsLength; i++)
+            thresholds[i] = br.ReadSingle();
+
+        float[][]? residualProjection = null;
+        bool hasResidualProjection = br.ReadBoolean();
+        if (hasResidualProjection) {
+            int rowCount = br.ReadInt32();
+            residualProjection = new float[rowCount][];
+            for (int r = 0; r < rowCount; r++) {
+                int colCount = br.ReadInt32();
+                var row = new float[colCount];
+                for (int c = 0; c < colCount; c++)
+                    row[c] = br.ReadSingle();
+                residualProjection[r] = row;
+            }
+        }
+
+        return new TurboQuant(
+            dimension,
+            bits,
+            residualProjections,
+            seed: 0,
+            rotationSigns,
+            codebook,
+            thresholds,
+            residualProjection);
+    }
 }
 
 public sealed class EncodedVector {
-    public int Dimension { get; }
-    public int Bits { get; }
     public float Norm { get; }
     public byte[] Indices { get; }
     public byte[]? ResidualBits { get; }
-    public int NodeId { get; }
-
-    public EncodedVector(int dimension, int bits, float norm, byte[] indices, byte[]? residualBits, int nodeId) {
-        Dimension = dimension;
-        Bits = bits;
+    public EncodedVector(float norm, byte[] indices, byte[]? residualBits) {
         Norm = norm;
         Indices = indices;
         ResidualBits = residualBits;
-        NodeId = nodeId;
     }
 
-    public int ApproxCompressedBytes =>
-        sizeof(float) + Indices.Length + (ResidualBits?.Length ?? 0);
+    public int ApproxCompressedBytes => sizeof(float) + Indices.Length + (ResidualBits?.Length ?? 0);
+
+    public byte[] ToByteArray() {
+        int residualLength = ResidualBits?.Length ?? 0;
+        byte[] data = new byte[4 + Indices.Length + residualLength];
+        BitConverter.GetBytes(Norm).CopyTo(data, 0);
+        Indices.CopyTo(data, 4);
+        if (ResidualBits != null)
+            ResidualBits.CopyTo(data, 4 + Indices.Length);
+        return data;
+    }
+    public static EncodedVector FromByteArray(byte[] data) {
+        float norm = BitConverter.ToSingle(data, 0);
+        int dimension = data.Length - 4;
+        byte[] indices = new byte[dimension];
+        Array.Copy(data, 4, indices, 0, dimension);
+        byte[]? residualBits = null;
+        if (data.Length > 4 + dimension) {
+            int residualLength = data.Length - 4 - dimension;
+            residualBits = new byte[residualLength];
+            Array.Copy(data, 4 + dimension, residualBits, 0, residualLength);
+        }
+        return new EncodedVector(norm, indices, residualBits);
+    }
 }

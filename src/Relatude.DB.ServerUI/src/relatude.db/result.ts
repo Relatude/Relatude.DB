@@ -7,6 +7,7 @@ export class ResultSet<T> {
     pageCount: number = 0;
     count: number = 0;
     durationMs: number = 0;
+    innerSearchTimeMs?: number = 0;
     values: T[] = [];
 }
 export class ResultSetSearch<T> extends ResultSet<SearchResultHit<T>> { }

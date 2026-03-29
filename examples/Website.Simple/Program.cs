@@ -25,26 +25,26 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 app.MapGet("/Del", (RelatudeDBContext ctx) => {
 
-    ctx.Database.DeleteMany<DemoArticle>();
+    var db = ctx.Database;
+    var resultSet = db.Query<DemoArticle>()
+        .Search("test", 1, 0.2f)      
+        .Page(1,10)
+        .Execute();
 
-    var db2 = ctx.Database.Context.Culture("en-US").Create();
+    return resultSet.TotalCount;
+
 
 });
 
 app.MapGet("/cult", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-
-
     var culture = db.Create<ISystemCulture>();
     culture.CultureCode = "en-US";
     db.Insert(culture);
     var c = db.CreateAndInsert<ISystemCulture>(c => {
         c.CultureCode = "no-NO";
     });
-
 });
-
-
 
 app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
     var db = ctx.Database;
@@ -63,7 +63,7 @@ app.MapGet("/Test", async (RelatudeDBContext ctx, HttpContext httpCtx) => {
         await Task.WhenAll(tasks);
     }
     sw.Stop();
-    var totalSize = new DirectoryInfo(path).GetFiles().Sum(f=>f.Length) * iterations;
+    var totalSize = new DirectoryInfo(path).GetFiles().Sum(f => f.Length) * iterations;
     return "Uploaded " + files.Length * iterations + " files (" + (totalSize / 1024 / 1024) + " MB) in " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms";
 
 });

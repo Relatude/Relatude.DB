@@ -5,6 +5,7 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
@@ -99,14 +100,14 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             return IdSet.Empty;
         }
     }
-    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits) {
+    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits, out double innerSearchTimeMs) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         if (ratioSemantic > 1) ratioSemantic = 1;
         else if (ratioSemantic < 0) ratioSemantic = 0;
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
         var useWords = ratioSemantic < 0.99 && IndexedByWords;
-        
+
         var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
 
         //if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
@@ -117,12 +118,13 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
 
         if (!useSemantic && !useWords) {
             totalHits = 0;
+            innerSearchTimeMs = 0;
             return [];
         }
 
         IEnumerable<RawSearchHit> wordHits;
         IEnumerable<RawSearchHit> semanticHits;
-
+        var sw = Stopwatch.StartNew();
         int top;
         if (useSemantic && useWords) top = maxHitsEvaluated;
         else top = (pageIndex + 1) * pageSize;
@@ -142,6 +144,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         } else {
             semanticHits = [];
         }
+        innerSearchTimeMs = sw.Elapsed.TotalMilliseconds;
         if (!useWords && !useSemantic) { // no search
             totalHits = 0;
             return [];

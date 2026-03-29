@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Globalization;
 namespace Relatude.DB.AI;
+
 public class AIEngine {
     readonly IEmbeddingCache _cache;
     readonly IAIProvider _provider;
@@ -34,7 +35,7 @@ public class AIEngine {
         // check cache for existing embeddings and collect missing:
         foreach (var v in valueSet) {
             if (_cache.TryGet(v.Hash, out v.Embedding)) continue;
-            if(string.IsNullOrWhiteSpace(v.Text)) {
+            if (string.IsNullOrWhiteSpace(v.Text)) {
                 v.Embedding = [];
                 continue;
             }
@@ -74,7 +75,9 @@ public class AIEngine {
         totalTimer.Stop();
         var cached = valueSet.Length - missing.Count;
         var ms = totalTimer.Elapsed.TotalMilliseconds.To1000C00N();
-        LogCallback?.Invoke($"Embeddings: {missing.Count}({totalRequested}) requested, {cached}({totalCached}) cached, {ms}ms");
+        if (missing.Count > 0) {
+            LogCallback?.Invoke($"Embeddings: {missing.Count}({totalRequested}) requested, {cached}({totalCached}) cached, {ms}ms");
+        }
 
         return result;
     }

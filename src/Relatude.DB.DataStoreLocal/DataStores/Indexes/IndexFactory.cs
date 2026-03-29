@@ -17,7 +17,7 @@ internal static class IndexFactory {
             + (string.IsNullOrEmpty(cultureCode) ? "" : "_" + cultureCode)
             + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
     }
-    
+
     public static Dictionary<string, StringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
         Dictionary<string, StringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
@@ -135,7 +135,7 @@ internal static class IndexFactory {
         var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
         var name = "Semantic " + classDef.CodeName + "." + p.Model.CodeName;
         var uniqueKey = getUniqueKey(p, cultureCode, subKey);
-        return new SemanticIndex(def.Sets, uniqueKey, name, store.IOIndex, store.FileKeys, ai);
+        return new SemanticIndex(def.Sets, uniqueKey, name, store.IOIndex, store.FileKeys, ai, t => store.LogInfo(t));
     }
 
 }

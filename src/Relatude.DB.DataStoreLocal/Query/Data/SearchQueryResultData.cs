@@ -13,7 +13,8 @@ internal class SearchQueryResultData : ISearchQueryResultData {
     List<SearchResultHitData>? _hits;
     Metrics _metrics;
     QueryContext _ctx;
-    public SearchQueryResultData(DataStoreLocal db, Metrics metrics, List<IncludeBranch>? includeBranches, StringProperty searchProperty, string search, IEnumerable<RawSearchHit> hits, int pageUsed, int? pageSizeUsed, int totalHits, bool capped, QueryContext ctx) {
+    public SearchQueryResultData(DataStoreLocal db, Metrics metrics, List<IncludeBranch>? includeBranches, StringProperty searchProperty, string search,
+        IEnumerable<RawSearchHit> hits, int pageUsed, int? pageSizeUsed, int totalHits, bool capped, double innerSearchTimeMs, QueryContext ctx) {
         Search = search;
         _metrics = metrics;
         _rawHits = hits;
@@ -22,6 +23,7 @@ internal class SearchQueryResultData : ISearchQueryResultData {
         PageSizeUsed = pageSizeUsed;
         TotalCount = totalHits;
         Capped = capped;
+        InnerSearchTimeMs = innerSearchTimeMs;
         _db = db;
         _searchProperty = searchProperty;
         _includeBranches = includeBranches;
@@ -37,6 +39,7 @@ internal class SearchQueryResultData : ISearchQueryResultData {
     public int Count => Hits.Count;
     public int TotalCount { get; }
     public bool Capped { get; }
+    public double InnerSearchTimeMs { get; }
     public int PageIndexUsed { get; }
     public int? PageSizeUsed { get; }
     public double DurationMs { get; set; }

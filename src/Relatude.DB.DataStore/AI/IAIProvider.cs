@@ -16,6 +16,10 @@ public enum AIProviderCacheType {
     Memory = 1,
     Sqlite = 2,
 }
+public enum AIProviderIndexType{
+    FlatMemory = 0,
+    TurboQuant = 1,
+}
 public class AIProviderSettings {
     public Guid Id { get; set; }
     public string? TypeName { get; set; }
@@ -33,6 +37,7 @@ public class AIProviderSettings {
     public int? MaxCharsInBatch { get; set; }
     public int? MaxCountInBatch { get; set; }
     public int? MaxCharsOfEach { get; set; }
+    public int? ModelDimensions { get; set; }
 
     public double GetDefaultSemanticRatio() => DefaultSemanticRatio ?? 0.5;
     public double GetDefaultMinimumSimilarity() => DefaultMinimumSimilarity ?? 0.75;
@@ -41,4 +46,5 @@ public class AIProviderSettings {
     public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;
 
     public AIProviderCacheType? CacheType { get; set; }
+    public AIProviderIndexType? IndexType { get; set; }
 }

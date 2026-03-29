@@ -20,11 +20,11 @@ internal sealed class QueryStringEvaluater {
             if (data is FacetQueryResultData facet) {
                 return new ResultSetFacetsNotEnumerable<object?>(values, facet);
             } else {
-                return new ResultSetNotEnumerable<object?>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false);
+                return new ResultSetNotEnumerable<object?>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false, 0);
             }
         } else if (data is ISearchQueryResultData search) {
             var hitValues = search.Hits.Select(h => new SearchResultHit<object?>(_store.Mapper.CreateObjectFromNodeData(h.NodeData), h.Score, h.Sample));
-            return new ResultSetNotEnumerable<object?>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped);
+            return new ResultSetNotEnumerable<object?>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped, search.InnerSearchTimeMs);
         } else {
             return data;
         }
@@ -36,7 +36,7 @@ internal sealed class QueryStringEvaluater {
         if (data is FacetQueryResultData facet) {
             return new ResultSetFacets<T?>(enumerable, facet);
         } else {
-            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
+            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs, data.DurationMs);
         }
     }
     internal ResultSet<T?> EvaluateSet<T>() {
@@ -45,7 +45,7 @@ internal sealed class QueryStringEvaluater {
         if (data is FacetQueryResultData facet) {
             return new ResultSetFacets<T?>(enumerable, facet);
         } else {
-            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs);
+            return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs, data.DurationMs);
         }
     }
 
