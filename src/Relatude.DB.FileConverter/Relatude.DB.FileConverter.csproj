@@ -9,10 +9,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="SixLabors.ImageSharp" Version="1.0.4" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
 	</ItemGroup>
 
