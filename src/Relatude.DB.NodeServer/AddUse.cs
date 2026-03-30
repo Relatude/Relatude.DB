@@ -10,14 +10,14 @@ public static class AddUse {
         builder.Services.AddSingleton<RelatudeDBContext>();
         return builder;
     }
-    public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = Defaults.AdminUrlRoot,
-        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
-        return UseRelatudeDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsIO).Result;
+    public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = null,
+        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsLoader = null) {
+        return UseRelatudeDBAsync(app, urlPath, dataFolderPath, tempFolderPath, settingsLoader).Result;
     }
-    public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = Defaults.AdminUrlRoot,
-        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsIO = null) {
+    public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = null,
+        string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsLoader = null) {
         var server = new RelatudeDBServer(urlPath);
-        await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsIO);
+        await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsLoader);
         app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
         server.MapSimpleAPI(app);

@@ -72,10 +72,10 @@ public class AIEngine {
             return v.Embedding;
         }).ToList();
 
-        totalTimer.Stop();
-        var cached = valueSet.Length - missing.Count;
-        var ms = totalTimer.Elapsed.TotalMilliseconds.To1000C00N();
         if (missing.Count > 0) {
+            totalTimer.Stop();
+            var cached = valueSet.Length - missing.Count;
+            var ms = totalTimer.Elapsed.TotalMilliseconds.To1000C00N();
             LogCallback?.Invoke($"Embeddings: {missing.Count}({totalRequested}) requested, {cached}({totalCached}) cached, {ms}ms");
         }
 

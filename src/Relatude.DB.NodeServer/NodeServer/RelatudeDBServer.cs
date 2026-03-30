@@ -1,7 +1,5 @@
-﻿using Microsoft.AspNetCore.Hosting.Server;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
-using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.EventHub;
@@ -24,14 +22,19 @@ namespace Relatude.DB.NodeServer;
 public partial class RelatudeDBServer {
     DateTime _initialized = DateTime.UtcNow;
     public RelatudeDBServer(string? urlPath) {
-        if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
-        if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
-        if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
+        setApiUrlRoot(urlPath);
         EventHub = new ServerEventHub(this);
         EventHub.RegisterPoller(new DataStoreStatesEventPoller());
         EventHub.RegisterPoller(new DataStoreStatusEventPoller());
         EventHub.RegisterPoller(new DataStoreInfoEventPoller());
         EventHub.RegisterPoller(new DataStoreTraceEventPoller());
+    }
+    void setApiUrlRoot(string? urlPath) {
+        if (urlPath == null) urlPath = Defaults.AdminUrlRoot;
+        if (!string.IsNullOrWhiteSpace(urlPath)) ApiUrlRoot = urlPath;
+        if (ApiUrlRoot.EndsWith('/')) ApiUrlRoot = ApiUrlRoot[0..^1];
+        if (!ApiUrlRoot.StartsWith('/') && ApiUrlRoot.Length > 0) ApiUrlRoot = '/' + ApiUrlRoot;
+        Console.WriteLine("Relatude.DB Admin UI set to: " + ApiUrlRoot);
     }
     public TimeSpan UpTime => DateTime.UtcNow - _initialized;
     // simple startup log to help with debugging startup issues
@@ -86,7 +89,7 @@ public partial class RelatudeDBServer {
     }
     internal string RootDataFolderPath => _rootDataFolderPath;
     internal string DefaultSubDataFolderPath => Path.Combine(_rootDataFolderPath, Defaults.DataFolderPath);
-    internal string ApiUrlRoot { get; private set; } = string.Empty;
+    public string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
     public RelatudeDBServerSettings Settings => _serverSettings;
@@ -132,6 +135,7 @@ public partial class RelatudeDBServer {
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         _serverSettings = await _settingsLoader.ReadAsync();
         Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
+        if (_serverSettings.DBAdminUIUrlPath != null) setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
                 var container = new NodeStoreContainer(containerSettings, this);
