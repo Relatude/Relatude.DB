@@ -16,13 +16,17 @@ Relatude.DB provides all of this in **one NuGet package** you can bring it into 
 
 ## Technical implementation
 
-The underlying storage is in its default configuration a binary **append-only log file** with an **in-memory index system**. This greatly reduces the risk of losing data and ensures high transaction throughput with fast response to queries. All data is stored in one file and this file is all you need to copy or move the database. There are other temporary files, but these regenerates automatically. The log file contains every transaction executed, so every operation can be rolled back. As the file grows you can set limits to when it will be shortened in background processes. Backups also run in the background without affecting the live database. The **append only** architecture works well with high latency storages like blob as data can be streamed in the background over time.
+The underlying storage is different to many other systems, and is in its default configuration a binary **append-only log file** with an **in-memory index system**. This ensures high transaction throughput with fast response to queries. You may tune which indexes are kept in memory and which are stored on disk. As the file grows it will automatically be shortened in background processes that does not affect the live queries. Backups also run in the background without affecting the live database. The architecture works well with high latency storages like blob as data can be streamed in the background over time. The time delay and options to make every transaction wait for a commit to disk is configurable on a per transaction level.
 
 The file format is binary and values are casted as best possible to the current schema on read. This provides flexibility in handling schema changes with existing data, similar to document databases.
 
 To tune memory usage vs performance, you have the option of using disk-based indexes. 
 
 The system comes out of the box with a very effective cache based on set operations (A ∪ B, etc.). This enables high cache reuse across different queries.
+
+The system currently runs "in-process" in your application, but it is designed to be used as a standalone server with multiple clients as well. (This client part is not complete, but the system has been designed with this in mind). The server includes a web-based DBA UI for managing databases, users, and viewing logs and statistics.
+
+Antoher thing that differentiates Relatude.DB from other databases is the support for culture version of every object, with a fallback system. It also incorporates a revision system that allows preliminary revisions, publications,and archiving of old revisions. This is especially useful for content management systems, but can be used in any application that needs to control the lifecycle of data. Full access management for individual objects and properties is also part of the system.
 
 ----------
 
