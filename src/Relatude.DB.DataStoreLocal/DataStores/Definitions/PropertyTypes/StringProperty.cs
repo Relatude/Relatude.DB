@@ -100,7 +100,8 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             return IdSet.Empty;
         }
     }
-    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits, out double innerSearchTimeMs) {
+    internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex,
+        int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits, out double innerSearchTimeMs) {
         SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         if (ratioSemantic > 1) ratioSemantic = 1;
