@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Web;
 
 namespace Relatude.DB.FileConverter;
 
@@ -7,19 +8,30 @@ public class FileIdWithAdjustment {
     public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
         FileId = fileId;
         Adjustment = adj;
-        Key = (fileId + "_" + adj.GetUniqueKey()).GenerateGuidSafe().ToString("N");
-        Path = new string[_folderDepth];
-        for (int i = 0; i < _folderDepth - 1; i++) Path[i] = Key.Substring(i * 2, 2);
-        Path[_folderDepth - 1] = Key;
     }
     public Guid FileId { get; }
     public FileAdjustmentBase Adjustment { get; }
-    public string Key { get; }
-    public string[] Path { get; }
+    string? _key = null;
+    string[]? _path = null;
+    public string GetKey() => _key ??= GuidKeyGenerator.Generate(this).ToString();
+    public string[] GetFilePath() {
+        if (_path == null) {
+            var key = GetKey();
+            var path = new string[_folderDepth];
+            for (int i = 0; i < _folderDepth - 1; i++) path[i] = key.Substring(i * 2, 2);
+            path[_folderDepth - 1] = key;
+            _path = path;
+        }
+        return _path;
+    }
+}
+public enum FileAdjustmentType {
+    Image,
+    ImageMetaData,
 }
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
-    public abstract string GetUniqueKey();
+    public abstract FileAdjustmentType GetAdjustmentType();
 }
 public class FileAdjustmentImage : FileAdjustmentBase {
     public int? Width { get; set; } // canvas width
@@ -38,12 +50,11 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public ImageCropMode? CropMode { get; set; }
     public string? AIInstructions { get; set; } // Remove background, enhance details, etc.
     public int? Quality { get; set; }
-    public override string GetUniqueKey() {
-        throw new NotImplementedException();
-    }
+    public FileAdjustmentImageMetaData[]? MetaData { get; set; }
+
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;
 }
 public class FileAdjustmentImageMetaData : FileAdjustmentBase {
-    public override string GetUniqueKey() {
-        return "FileAdjustmentImageMetaData";
-    }
+    public int? Wids1th { get; set; }
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.ImageMetaData;
 }

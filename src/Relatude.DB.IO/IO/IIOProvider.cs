@@ -17,7 +17,6 @@ public interface IIOProvider {
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
     void CloseAllOpenStreams();
-    long GetTotalSizeForMetrics();
 }
 public interface IIOProviderWithFolders : IIOProvider {
     void DeleteFolderIfItExists(string[] path);

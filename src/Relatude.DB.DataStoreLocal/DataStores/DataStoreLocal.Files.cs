@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Files;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
+
 public sealed partial class DataStoreLocal : IDataStore {
     IFileStore getFileStore(Guid fileStoreId) {
         IFileStore fileStore;
@@ -15,13 +16,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileStore;
     }
-    public async Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx=null) {
+    public async Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         var node = Get(nodeId);
         if (!node.TryGetValue(propertyId, out var value)) return;
         var fileValue = FilePropertyModel.ForceValueType(value, out _);
         if (fileValue.IsEmpty) return;
-        var fileStore = getFileStore(FileValue.GetStorageId(fileValue));
+        var fileStore = getFileStore(fileValue.StorageId);
         await fileStore.DeleteAsync(fileValue);
         var t = new TransactionData();
         t.ForceUpdateProperty(nodeId, propertyId, FileValue.Empty);
@@ -31,12 +32,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
-        var fileProp = (FilePropertyModel)prop;    
+        var fileProp = (FilePropertyModel)prop;
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
+        var newFileId = Guid.NewGuid();
         using var inputStream = source.OpenRead(sourceFileKey, 0);
         fileName ??= sourceFileKey;
-        var fileValue = await fileStore.InsertAsync(inputStream, fileName);
+        var r = await fileStore.InsertAsync(newFileId, inputStream, fileName);
         var t = new TransactionData();
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey);
         t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
@@ -46,25 +49,27 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
-        var fileValue = await fileStore.InsertAsync(source, fileName);
+        var newFileId = Guid.NewGuid();
+        var r = await fileStore.InsertAsync(newFileId, source, fileName);
         var t = new TransactionData();
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey);
         t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null) {
-        var node = Get(nodeId);
+        var node = Get(nodeId, ctx);
         if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
         var fileValue = FilePropertyModel.ForceValueType(value, out _);
         if (fileValue.IsEmpty) throw new Exception("File value is empty");
-        var fileStore = getFileStore(FileValue.GetStorageId(fileValue));
+        var fileStore = getFileStore(fileValue.StorageId);
         return fileStore.ExtractAsync(fileValue, outStream);
     }
     public async Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null) {
-        var node = Get(nodeId);
+        var node = Get(nodeId, ctx);
         if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
         var fileValue = FilePropertyModel.ForceValueType(value, out _);
         if (fileValue.IsEmpty) return false;
-        var fileStore = getFileStore(FileValue.GetStorageId(fileValue));
+        var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.ContainsFileAsync(fileValue);
     }
 }

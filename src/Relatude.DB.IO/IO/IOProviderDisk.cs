@@ -212,9 +212,4 @@ public class IOProviderDisk : IIOProviderWithFolders {
         }
     }
 
-    public long GetTotalSizeForMetrics() {
-        lock (_lock) {
-            return new DirectoryInfo(BaseFolder).GetFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
-        }
-    }
 }

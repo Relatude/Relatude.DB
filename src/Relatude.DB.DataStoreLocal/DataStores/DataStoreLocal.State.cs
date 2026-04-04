@@ -30,7 +30,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.FilePrefix);
-        return s.GenerateGuid();
+        return s.GenerateHashGuid();
         //var g = s.GenerateGuid();
         //Log(SystemLogEntryType.Info, "Model hash: " + g);
         //File.WriteAllText("C:\\WAF_Temp\\" + g, s);

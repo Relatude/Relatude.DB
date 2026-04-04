@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.Common;
 public class FileValue {
-    public FileValue() {
+    private FileValue() {
         IsEmpty = true;
         Name = string.Empty;
         Indexed = false;
@@ -11,10 +11,11 @@ public class FileValue {
         Height = 0;
         Width = 0;
         Hash = string.Empty;
-        _storageId = Guid.Empty;
+        StorageId = Guid.Empty;
+        FileId = Guid.Empty;
         _fileKeyData = [];
     }
-    private FileValue(string name, long size, string hash, Guid storageId, byte[] storageKey) {
+    private FileValue(string name, long size, string hash, Guid storageId, Guid fileId, byte[] storageKey) {
         IsEmpty = false;
         Name = name;
         TextExtract = string.Empty;
@@ -24,12 +25,13 @@ public class FileValue {
         Height = 0;
         Width = 0;
         Hash = hash;
-        _storageId = storageId;
+        StorageId = storageId;
+        FileId = fileId;
         _fileKeyData = storageKey;
     }
     public static FileValue Empty { get; } = new FileValue();
-    public static FileValue CreateNew(string name, long size, string hash, Guid storageId, byte[] storageKey) {
-        return new FileValue(name, size, hash, storageId, storageKey);
+    public static FileValue CreateNew(string name, long size, string hash, Guid storageId, Guid fileId, byte[] storageKey) {
+        return new FileValue(name, size, hash, storageId, fileId, storageKey);
     }
     public static FileValue CreateMerge(FileValue old, FileValue newValue) {
         var f = new FileValue();
@@ -37,7 +39,8 @@ public class FileValue {
         // never set externally:
         if (old.IsEmpty) return f; // return empty, not allowed to change if old is empty
         f.Size = old.Size;
-        f._storageId = old._storageId;
+        f.StorageId = old.StorageId;
+        f.FileId = old.FileId;
         f._fileKeyData = old._fileKeyData;
 
         // allow new values:
@@ -64,10 +67,11 @@ public class FileValue {
     public int Height { get; set; }
     public int Width { get; set; }
 
-    private Guid _storageId { get; set; }
+    public Guid FileId { get; private set; }
+    public Guid StorageId { get; private set; }
     private byte[] _fileKeyData { get; set; }
+    
     public static byte[] GetFileKeyData(FileValue v) => v._fileKeyData; // A data that to identify the file in the storage provider. 
-    public static Guid GetStorageId(FileValue v) => v._storageId;  // Id is used to identify the storage provider
 
     private static int version = 0; // to allow for future changes
     public byte[] ToBytes() {
@@ -84,7 +88,8 @@ public class FileValue {
         bw.Write(Height);
         bw.Write(Width);
         bw.Write(Hash);
-        bw.Write(_storageId.ToByteArray());
+        bw.Write(StorageId.ToByteArray());
+        bw.Write(FileId.ToByteArray());
         bw.Write(_fileKeyData.Length);
         bw.Write(_fileKeyData);
         return ms.ToArray();
@@ -104,23 +109,27 @@ public class FileValue {
         v.Height = br.ReadInt32();
         v.Width = br.ReadInt32();
         v.Hash = br.ReadString();
-        v._storageId = new Guid(br.ReadBytes(16));
+        v.StorageId = new Guid(br.ReadBytes(16));
+        v.FileId = new Guid(br.ReadBytes(16));
         var keyLength = br.ReadInt32();
         v._fileKeyData = br.ReadBytes(keyLength);
         return v;
     }
-    public FileValue Copy() {
-        var v = new FileValue();
-        v.IsEmpty = IsEmpty;
-        v.Name = Name;
-        v.TextExtract = TextExtract;
-        v.MetaJSON = MetaJSON;
-        v.Type = Type;
-        v.Size = Size;
-        v.Height = Height;
-        v.Width = Width;
-        v.Hash = Hash;
-        return v;
+    public FileValue Copy() { 
+        var c = new FileValue();
+        c.IsEmpty = IsEmpty;
+        c.Name = Name;
+        c.TextExtract = TextExtract;
+        c.MetaJSON = MetaJSON;
+        c.Type = Type;
+        c.Size = Size;
+        c.Height = Height;
+        c.Width = Width;
+        c.Hash = Hash;
+        c.StorageId = StorageId;
+        c.FileId = FileId;
+        c._fileKeyData = _fileKeyData;
+        return c;
     }
 
     public static bool AreValuesEqual(FileValue b1, FileValue b2) {
@@ -132,8 +141,9 @@ public class FileValue {
         if (b1.Indexed != b2.Indexed) return false;
         if (b1.Name != b2.Name) return false;
         if (b1.Size != b2.Size) return false;
+        if (b1.FileId != b2.FileId) return false;
+        if (b1.StorageId != b2.StorageId) return false;
         return true;
-
     }
 }
 

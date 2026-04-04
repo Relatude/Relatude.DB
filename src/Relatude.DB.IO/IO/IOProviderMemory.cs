@@ -177,9 +177,4 @@ public class IOProviderMemory : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public long GetTotalSizeForMetrics() {
-        lock (_lock) {
-            return _disk.Values.Sum(f => f.Bytes.Length);
-        }
-    }
 }

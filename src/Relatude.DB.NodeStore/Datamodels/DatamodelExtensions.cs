@@ -89,7 +89,7 @@ public static class DatamodelExtensions {
     internal static NodeAttribute GetOrCreateNodeAttributeWithId(Type type) {
         if (!BuildUtils.TryGetAttribute<NodeAttribute>(type, out var attr)) attr = new NodeAttribute();
         if (attr.Id == null) {
-            attr.Id = (type.FullName + string.Empty).GenerateGuid().ToString();
+            attr.Id = (type.FullName + string.Empty).GenerateHashGuid().ToString();
         } else {
             if (!Guid.TryParse(attr.Id, out _)) throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
         }

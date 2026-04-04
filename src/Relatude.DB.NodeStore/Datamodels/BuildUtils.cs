@@ -161,7 +161,7 @@ internal static class BuildUtils {
     public static RelationAttribute GetOrCreateRelationAttributeWithId(Type type) {
         if (!tryGetAttribute<RelationAttribute>(type, out var attr)) attr = new RelationAttribute();
         if (attr.Id == null) {
-            attr.Id = (type.FullName + string.Empty).GenerateGuid().ToString();
+            attr.Id = (type.FullName + string.Empty).GenerateHashGuid().ToString();
         } else {
             if (!Guid.TryParse(attr.Id, out _)) throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
         }
@@ -170,7 +170,7 @@ internal static class BuildUtils {
     public static NodeAttribute GetOrCreateNodeAttributeWithId(Type type) {
         if (!tryGetAttribute<NodeAttribute>(type, out var attr)) attr = new NodeAttribute();
         if (attr.Id == null) {
-            attr.Id = (type.FullName + string.Empty).GenerateGuid().ToString();
+            attr.Id = (type.FullName + string.Empty).GenerateHashGuid().ToString();
         } else {
             if (!Guid.TryParse(attr.Id, out _)) throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
         }
@@ -198,7 +198,7 @@ internal static class BuildUtils {
                 throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
             return guid;
         }
-        return (type.FullName + string.Empty).GenerateGuid();
+        return (type.FullName + string.Empty).GenerateHashGuid();
     }
     public static Guid GetOrCreateRelationId(Type type) {
         if (tryGetAttribute<RelationAttribute>(type, out var attr) && attr.Id != null) {
@@ -206,7 +206,7 @@ internal static class BuildUtils {
                 throw new Exception("Specified guid (" + attr.Id + ") for " + type.FullName + " is not a valid guid. ");
             return guid;
         }
-        return (type.FullName + string.Empty).GenerateGuid();
+        return (type.FullName + string.Empty).GenerateHashGuid();
     }
     public static bool tryGetAttribute<T>(MemberInfo type, [MaybeNullWhen(false)] out T attribute) where T : Attribute {
         var matches = type.GetCustomAttributes<T>();

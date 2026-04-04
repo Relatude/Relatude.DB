@@ -121,7 +121,7 @@ internal static class BuildUtilsProperties {
         if (string.IsNullOrEmpty(attr.Id)) {
             var rootType = BuildUtils.GetBaseDeclaringType(member);
             var nodeTypeAttr = BuildUtils.GetOrCreateNodeAttributeWithId(rootType);
-            attr.Id = (nodeTypeAttr.Id + "." + member.Name).GenerateGuid().ToString();
+            attr.Id = (nodeTypeAttr.Id + "." + member.Name).GenerateHashGuid().ToString();
         }
         if (valueType.IsEnum && attr is IntegerPropertyAttribute ipa) {
             ipa.IsEnum = true;

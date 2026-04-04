@@ -2,6 +2,9 @@
 using System.Runtime.CompilerServices;
 
 namespace Relatude.DB.Common;
+/// <summary>
+/// A high-performance, lock-free rolling counter for tracking event counts over a sliding time window (e.g., last 10 seconds).
+/// </summary>
 public sealed class FastRollingCounter {
     private readonly int _windowSeconds;       // e.g., 10
     private readonly int _bucketCount;         // power-of-two >= windowSeconds+1 (e.g., 64)

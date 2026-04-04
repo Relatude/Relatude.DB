@@ -1,12 +1,12 @@
 ﻿using Relatude.DB.IO;
 using Relatude.DB.Common;
 using System.Security.Cryptography;
+using System.Text;
 namespace Relatude.DB.DataStores.Files;
 
 public class MultiFileStore : IDisposable, IFileStore {
     readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
-    long _totalSize;
     public Guid Id { get; }
     readonly int folderDepth;
     public MultiFileStore(Guid id, IIOProvider ioProvider, FileKeyUtility fileKeyUtility, int? folderDepth) {
@@ -15,41 +15,16 @@ public class MultiFileStore : IDisposable, IFileStore {
         _basePath = [fileKeyUtility.MultiFileStoreFolderKey];
         this.folderDepth = folderDepth.HasValue ? folderDepth.Value : 2;
     }
-    string[] getFullPathWithBase(string[] path) {
-        return [.. _basePath, .. path];
+    public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName) {
+        return await insertAsync(sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
     }
-    string[] getFilePath(Guid fileId, string? originalFileName, out string usedFileName) {
-        var hash = fileId.ToString("N"); // 32 chars. example: "d3b07384d113edec49eaa6238ad5ff00"
-        var path = new string[folderDepth + 1];
-        for (int i = 0; i < folderDepth; i++) {
-            path[i] = hash.Substring(i * 2, 2);
-        }
-        originalFileName = FileKeyUtility.FilterLegalCharInFileKey(originalFileName);
-        var filenameWithoutExt = Path.GetFileNameWithoutExtension(originalFileName);
-        if (filenameWithoutExt == null) filenameWithoutExt = "noname";
-        var fileExt = Path.GetExtension(originalFileName);
-        if (string.IsNullOrWhiteSpace(fileExt)) fileExt = "";
-        else if (fileExt.Length > 10) fileExt = fileExt[10..];
-        if (filenameWithoutExt.Length + hash.Length + 1 + fileExt.Length > FileKeyUtility.MaxFileNameLength) {
-            filenameWithoutExt = filenameWithoutExt[..(FileKeyUtility.MaxFileNameLength - hash.Length - 1 - fileExt.Length)];
-        }
-        usedFileName = filenameWithoutExt + "." + hash + fileExt;
-        path[folderDepth] = usedFileName;
-        return path;
+    public async Task<FileInsertResult> InsertAsync(Guid newFileId, IReadStream sourceStream, string? fileName) {
+        return await insertAsync(sourceStream.Length, sourceStream.ReadAsync, fileName);
     }
-    public async Task<FileValue> InsertAsync(Stream sourceStream, string? fileName) {
-        var multiMeta = await insertAsync(sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
-        return multiMeta.ToFileValue(Id);
-    }
-    public async Task<FileValue> InsertAsync(IReadStream sourceStream, string? fileName) {
-        var multiMeta = await insertAsync(sourceStream.Length, sourceStream.ReadAsync, fileName);
-        return multiMeta.ToFileValue(Id);
-    }
-    public async Task<MultiStorageFileMeta> insertAsync(long length, Func<byte[], int, Task<int>> readAsync, string? fileName) {
+    public async Task<FileInsertResult> insertAsync(long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
         var fileId = Guid.NewGuid();
-        fileName = fileName ?? "noname";
-        var relPath = getFilePath(fileId, fileName, out var usedFileName);
-        var fullPath = getFullPathWithBase(relPath);
+        var usedFileName = getSafeFilename(fileId, friendlyFileName);
+        var fullPath = getFullPath(fileId, usedFileName);
         using var outStream = _ioProvider.OpenAppend(fullPath);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         var bufferSize = 1024 * 1024; // 1MB buffer
@@ -66,8 +41,7 @@ public class MultiFileStore : IDisposable, IFileStore {
         }
         if (totalBytesRead != length) throw new Exception("Length mismatch");
         var fileHash = Convert.ToHexString(hash.GetHashAndReset());
-        _totalSize += totalBytesRead;
-        return new MultiStorageFileMeta(fileName, totalBytesRead, fileHash, fileName, relPath);
+        return new FileInsertResult(fileHash, stringToBytes(usedFileName), length);
     }
     public async Task ExtractAsync(FileValue value, Stream outStream) {
         await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));
@@ -75,9 +49,8 @@ public class MultiFileStore : IDisposable, IFileStore {
     public async Task ExtractAsync(FileValue value, IAppendStream outStream) {
         await extractAsync(value, outStream.AppendAsyncNoChecksumOrLock);
     }
-    public async Task<MultiStorageFileMeta> extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
-        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
-        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
+    public async Task extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
+        var path = getFullPath(value);
         using var inStream = _ioProvider.OpenRead(path, 0);
         var bufferSize = 5 * 1024 * 1024; // 5MB buffer
         var buffer = new byte[bufferSize];
@@ -90,27 +63,48 @@ public class MultiFileStore : IDisposable, IFileStore {
             await writeAsync(buffer, read);
             bytesRead += read;
         }
-        return multiStorageFileMeta;
     }
-    public Task<bool> ContainsFileAsync(FileValue fileValue) {
-        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(fileValue);
-        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
-        var fileSize = _ioProvider.GetFileSizeOrZeroIfUnknown(path);
-        return Task.FromResult(fileValue.Size == fileSize);
-    }
-    public async Task DeleteAsync(FileValue value) {
-        var multiStorageFileMeta = MultiStorageFileMeta.FromFileValue(value);
-        var path = getFullPathWithBase(multiStorageFileMeta.RelPath);
-        _ioProvider.DeleteFileIfItExists(path);
-        _totalSize -= multiStorageFileMeta.Size;
-    }
+    public Task<bool> ContainsFileAsync(FileValue fileValue) => Task.FromResult(fileValue.Size == _ioProvider.GetFileSizeOrZeroIfUnknown(getFullPath(fileValue)));
+    public async Task DeleteAsync(FileValue value) => _ioProvider.DeleteFileIfItExists(getFullPath(value));
     public long GetSizeForMetrics() {
-        if (_totalSize < 0) _totalSize = _ioProvider.GetTotalSizeForMetrics();
-        return _totalSize;
+        return 0; // not implemented. Scanning could be expensive, so we return 0 for now. 
     }
+
+    string getSafeFilename(Guid fileId, string? originalFileName) {
+        var fileIdString = fileId.ToString("N");
+        originalFileName = FileKeyUtility.FilterLegalCharInFileKey(originalFileName);
+        var filenameWithoutExt = Path.GetFileNameWithoutExtension(originalFileName);
+        if (filenameWithoutExt == null) filenameWithoutExt = "noname";
+        var fileExt = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(fileExt)) fileExt = "";
+        else if (fileExt.Length > 10) fileExt = fileExt[10..];
+        if (filenameWithoutExt.Length + fileIdString.Length + 1 + fileExt.Length > FileKeyUtility.MaxFileNameLength) {
+            filenameWithoutExt = filenameWithoutExt[..(FileKeyUtility.MaxFileNameLength - fileIdString.Length - 1 - fileExt.Length)];
+        }
+        var fileIdStringWithoutPartsUsedForFolders = fileIdString[(folderDepth * 2)..];
+        var usedFilename = filenameWithoutExt + "." + fileIdStringWithoutPartsUsedForFolders + fileExt;
+        return usedFilename;
+    }
+    string[] getFullPath(FileValue value) {
+        var safeFileName = stringFromBytes(FileValue.GetFileKeyData(value));
+        return getFullPath(value.FileId, safeFileName);
+    }
+    string[] getFullPath(Guid fileId, string safeFilename) {
+        // use fileId to create subfolders to avoid too many files in one folder, which can cause performance issues in some file systems
+        // example: if folderDepth is 2 and fileId is "12345678-1234-1234-1234-1234567890" and 
+        // originalFileName is "myfile.txt", the path will be "basePath/12/34/myfile.56781234123412341234567890.txt"
+        var fileIdString = fileId.ToString("N");
+        var path = new string[_basePath.Length + folderDepth + 1];
+        for(int i = 0; i < _basePath.Length; i++) path[i] = _basePath[i];
+        for (int i = _basePath.Length; i < path.Length - 1; i++) path[i] = fileIdString.Substring((i - _basePath.Length) * 2, 2);
+        path[^1] = safeFilename;
+        return path;
+    }
+    static byte[] stringToBytes(string value) => Encoding.UTF8.GetBytes(value);
+    static string stringFromBytes(byte[] bytes) => Encoding.UTF8.GetString(bytes);
+
     public void Dispose() {
         _ioProvider.CloseAllOpenStreams();
     }
-
 }
 

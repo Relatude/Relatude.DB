@@ -26,17 +26,16 @@ public class SingleFileStore : IDisposable, IFileStore {
         }
     }
     public Guid Id { get; }
-    async Task<SingleStorageFileMeta> insert(Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
+    async Task<FileInsertResult> insert(Guid fileId, Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
         var offset = file.Length;
         var bufferSize = 5 * 1024 * 1024; // 5MB buffer 
         bufferSize = length < bufferSize ? (int)length : bufferSize;
         var buffer = new byte[bufferSize];
         long totalBytesRead = 0;
         byte[] checksum = [];
-        var id = Guid.NewGuid();
-        file.WriteGuid(id);
+        file.WriteGuid(fileId);
         file.WriteVerifiedLong(length);
-        file.WriteString(originalFileName);
+        file.WriteString(originalFileName); // just for reference, in case of later corruption and file recovery
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         while (totalBytesRead < length) {
             buffer = await readAsync(buffer);  // buffer returned must be exact size, but buffer can be reused
@@ -49,79 +48,76 @@ public class SingleFileStore : IDisposable, IFileStore {
         if (totalBytesRead != length) throw new Exception("Length mismatch");
         file.WriteByteArray(checksum);
         file.WriteByteArray(_fileEndMarker);
-        return new SingleStorageFileMeta(id, offset, length, checksum, originalFileName);
+        var hashString = Convert.ToHexString(checksum);
+        return new FileInsertResult(hashString, longToBytes(offset), length);
     }
-    async Task<SingleStorageFileMeta> extract(SingleStorageFileMeta meta, Func<byte[], Task> recieveAsync) {
-        long pos = meta.Offset;
+    async Task extract(Guid fileId, long offset, Func<byte[], Task> recieveAsync) {
         long length;
         Guid id;
-        lock (_fileLock) id = file.GetGuid(ref pos);
-        if (id != meta.Id) throw new Exception("File corruption, id mismatch. ");
-        lock (_fileLock) length = file.GetVerifiedLong(ref pos);
-        if (length != meta.Length) throw new Exception("File corruption, length mismatch. ");
+        lock (_fileLock) id = file.GetGuid(ref offset);
+        if (id != fileId) throw new Exception("File corruption, id mismatch. ");
+        lock (_fileLock) length = file.GetVerifiedLong(ref offset);
         long bytesLeft = length;
         var fileName = "";
-        lock (_fileLock) fileName = file.GetString(ref pos); // allow filename to be different from original filename, renaming is allowed
+        lock (_fileLock) fileName = file.GetString(ref offset); // allow filename to be different from original filename, renaming is allowed
         var remaining = length + byteLengthOfMD5Checksum + _fileEndMarker.Length;
-        if (pos + remaining > file.Length) throw new Exception("File corruption, file too short. ");
+        if (offset + remaining > file.Length) throw new Exception("File corruption, file too short. ");
         var count = (int)Math.Min(1024 * 1024, length); // 1MB
         var buffer = new byte[count];
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         while (bytesLeft > 0) {
             count = (int)Math.Min(buffer.Length, bytesLeft);
             if (count < buffer.Length) buffer = new byte[count]; // new buffer for last read, needs to be exact size
-            lock (_fileLock) file.Get(pos, count, buffer);
+            lock (_fileLock) file.Get(offset, count, buffer);
             await recieveAsync(buffer);
             hash.AppendData(buffer, 0, buffer.Length);
-            pos += count;
+            offset += count;
             bytesLeft -= count;
         }
         byte[] calculatedChecksum = hash.GetHashAndReset();
         byte[] storedChecksum;
-        lock (_fileLock) storedChecksum = file.GetByteArray(ref pos);
+        lock (_fileLock) storedChecksum = file.GetByteArray(ref offset);
         byte[] marker;
-        lock (_fileLock) marker = file.GetByteArray(ref pos);
+        lock (_fileLock) marker = file.GetByteArray(ref offset);
         if (!marker.SequenceEqual(_fileEndMarker)) throw new Exception("File corruption, end marker mismatch. ");
         if (!calculatedChecksum.SequenceEqual(storedChecksum)) throw new Exception("File corruption, internal checksum mismatch. ");
-        if (!meta.Checksum.SequenceEqual(calculatedChecksum)) throw new Exception("File corruption, meta checksum mismatch. ");
-        return new SingleStorageFileMeta(id, meta.Offset, length, calculatedChecksum, fileName);
+        var calculatedChecksumString = Convert.ToHexString(calculatedChecksum);
     }
-    async Task<SingleStorageFileMeta> insertWithWriteLock(Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
+    async Task<FileInsertResult> insertWithWriteLock(Guid fileId, Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
         await _asyncLock.AcquireWriterLock();
         try {
-            return await insert(readAsync, length, originalFileName);
+            return await insert(fileId, readAsync, length, originalFileName);
         } finally {
             _asyncLock.ReleaseWriterLock();
         }
     }
-    async Task<SingleStorageFileMeta> extractWithReadLock(SingleStorageFileMeta meta, Func<byte[], Task> recieveAsync) {
+    async Task extractWithReadLock(Guid fileId, long offset, Func<byte[], Task> recieveAsync) {
         await _asyncLock.AcquireReaderLock();
         try {
-            return await extract(meta, recieveAsync);
+            await extract(fileId, offset, recieveAsync);
         } finally {
             _asyncLock.ReleaseReaderLock();
         }
     }
     public async Task<bool> ContainsFileAsync(FileValue fileValue) {
-        var meta = SingleStorageFileMeta.FromFileValue(fileValue);
+        var offset = getOffset(fileValue);
         await _asyncLock.AcquireReaderLock();
         try {
-            long pos = meta.Offset;
             long length;
             Guid id;
-            lock (_fileLock) id = file.GetGuid(ref pos);
-            if (id != meta.Id) return false;
-            lock (_fileLock) length = file.GetVerifiedLong(ref pos);
-            if (length != meta.Length) return false;
-            lock (_fileLock) file.GetString(ref pos);
+            lock (_fileLock) id = file.GetGuid(ref offset);
+            if (id != fileValue.FileId) return false;
+            lock (_fileLock) length = file.GetVerifiedLong(ref offset);
+            if (length != fileValue.Size) return false;
+            lock (_fileLock) file.GetString(ref offset);
             var remaining = length + byteLengthOfMD5Checksum + _fileEndMarker.Length;
-            if (pos + remaining > file.Length) return false; // file not long enough
+            if (offset + remaining > file.Length) return false; // file not long enough
             return true; // seems to be a valid file
         } finally {
             _asyncLock.ReleaseReaderLock();
         }
     }
-    public async Task<FileValue> InsertAsync(IReadStream stream, string? fileName = null) {
+    public async Task<FileInsertResult> InsertAsync(Guid newFileId, IReadStream stream, string? fileName = null) {
         if (fileName == null) fileName = "noname";
         var readAsync = (byte[] buffer) => {
             // buffer returned must be exact size, buffer is not reused here
@@ -129,10 +125,9 @@ public class SingleFileStore : IDisposable, IFileStore {
             var bytes = stream.Read(count);
             return Task.FromResult(bytes);
         };
-        var meta = await insertWithWriteLock(readAsync, stream.Length, fileName);
-        return meta.ToFileValue(Id);
+        return await insertWithWriteLock(newFileId, readAsync, stream.Length, fileName);
     }
-    public async Task<FileValue> InsertAsync(Stream stream, string? fileName = null) {
+    public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream stream, string? fileName = null) {
         if (fileName == null) fileName = "noname";
         var readAsync = async (byte[] buffer) => {
             // reuse buffer if same size and allocate new buffer if different size as returned buffer must be exact size
@@ -145,20 +140,22 @@ public class SingleFileStore : IDisposable, IFileStore {
             }
             return buffer;
         };
-        var meta = await insertWithWriteLock(readAsync, stream.Length, fileName);
-        return meta.ToFileValue(Id);
+        return await insertWithWriteLock(newFileId, readAsync, stream.Length, fileName);
     }
     public async Task ExtractAsync(FileValue value, IAppendStream stream) {
-        var meta = SingleStorageFileMeta.FromFileValue(value);
-        await extractWithReadLock(meta, (buffer) => {
+        var offset = getOffset(value);
+        await extractWithReadLock(value.FileId, offset, (buffer) => {
             stream.Append(buffer);
             return Task.CompletedTask;
         });
     }
     public async Task ExtractAsync(FileValue value, Stream stream) {
-        var meta = SingleStorageFileMeta.FromFileValue(value);
-        await extractWithReadLock(meta, (buffer) => stream.WriteAsync(buffer, 0, buffer.Length));
+        var offset = getOffset(value);
+        await extractWithReadLock(value.FileId, offset, (buffer) => stream.WriteAsync(buffer, 0, buffer.Length));
     }
+    static long getOffset(FileValue value) => longFromBytes(FileValue.GetFileKeyData(value));
+    static byte[] longToBytes(long value) => BitConverter.GetBytes(value);
+    static long longFromBytes(byte[] bytes) => BitConverter.ToInt64(bytes, 0);
     public Task DeleteAsync(FileValue value) {
         // no action. File is never deleted from store, just left unused
         return Task.CompletedTask;

@@ -29,24 +29,24 @@ internal class AsyncConcurrentFileCache {
     public async Task<FileCacheGetResult> TryGetStreamAsync(FileIdWithAdjustment adj, int maxWaitMs) {
         SemaphoreSlim? writeLock = null;
         lock (_locks) {
-            _locks.TryGetValue(adj.Key, out writeLock);
+            _locks.TryGetValue(adj.GetKey(), out writeLock);
         }
         if (writeLock != null) { // file is locked, but wait for a bit
             if (!await writeLock.WaitAsync(maxWaitMs)) { // timed out, return with not ready flag
                 return new(FileCacheGetStatus.BeingWrittenTo, stream: null);
             }
         }
-        if (_io.DoesNotExistsOrIsEmpty(adj.Path)) return new(FileCacheGetStatus.NotExisting, stream: null);
-        var stream = _io.OpenRead(adj.Path, 0)?.AsStream();
+        if (_io.DoesNotExistsOrIsEmpty(adj.GetFilePath())) return new(FileCacheGetStatus.NotExisting, stream: null);
+        var stream = _io.OpenRead(adj.GetFilePath(), 0)?.AsStream();
         return new(FileCacheGetStatus.Ready, stream: stream);
     }
     public async Task<FileCacheSetResult> SetFromStreamAsync(FileIdWithAdjustment fileKey, Stream input, int maxWaitMs) {
         SemaphoreSlim? existingLock = null;
         lock (_locks) {
-            if (!_locks.TryGetValue(fileKey.Key, out existingLock)) {
+            if (!_locks.TryGetValue(fileKey.GetKey(), out existingLock)) {
                 var newLock = new SemaphoreSlim(1, 1);
                 newLock.Wait(); // set in locked state
-                _locks[fileKey.Key] = newLock;
+                _locks[fileKey.GetKey()] = newLock;
             }
         }
         if (existingLock != null) {
@@ -59,7 +59,7 @@ internal class AsyncConcurrentFileCache {
         bool completedWithInMaxWait = true;
         byte[]? buffer = null;
         try {
-            output = _io.OpenAppend(fileKey.Path);
+            output = _io.OpenAppend(fileKey.GetFilePath());
             var bufferLength = 1024 * 1024;
             bufferLength = input.Length > bufferLength ? bufferLength : (int)input.Length;
             buffer = new byte[bufferLength]; // could pool, for later optimization
@@ -82,7 +82,7 @@ internal class AsyncConcurrentFileCache {
         }
         if (completedWithInMaxWait) {
             releaseLockAndCloseStreams(fileKey, output, input);
-            var finalStream = _io.OpenRead(fileKey.Path, 0).AsStream();
+            var finalStream = _io.OpenRead(fileKey.GetFilePath(), 0).AsStream();
             return new FileCacheSetResult(true, finalStream); // all done, file is ready
         } else {
             // continue writing in background thread, synchronously 
@@ -103,10 +103,10 @@ internal class AsyncConcurrentFileCache {
     void releaseLockAndCloseStreams(FileIdWithAdjustment key, IAppendStream? output, Stream input) {
         if (output != null) output.Dispose();
         lock (_locks) {
-            if (_locks.TryGetValue(key.Key, out var lockSlim)) {
+            if (_locks.TryGetValue(key.GetKey(), out var lockSlim)) {
                 lockSlim.Release();
                 lockSlim.Dispose();
-                _locks.Remove(key.Key);
+                _locks.Remove(key.GetKey());
             }
         }
     }
@@ -222,7 +222,7 @@ internal class FileConversionEngine : IDisposable {
             return new(new(FileConversionStatus.Unsupported, message: "No converter available for " + info.Formats.From + " to " + info.Formats.To + ". "));
         }
 
-        var key = info.IdWithAdjustment.Key;
+        var key = info.IdWithAdjustment.GetKey();
 
         // check file cache first:
         var cacheResult = await _fileCache.TryGetStreamAsync(info.IdWithAdjustment, maxWaitMs); // check cache, leave some time in case conversion is done, but file is writing to disk

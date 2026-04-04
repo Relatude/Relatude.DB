@@ -200,12 +200,5 @@ public class AzureBlobIOProvider : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
-    public long GetTotalSizeForMetrics() {
-        lock (_lock) {
-            var existing = _container.GetBlobs().ToArray();
-            syncDirInfo(existing);
-            return _files.Values.Sum(f => f.Size);
-        }
-    }
 
 }
