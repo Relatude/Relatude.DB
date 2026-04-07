@@ -84,6 +84,18 @@ public class AzureBlobIOProvider : IIOProvider {
             return openRead(position, blobName);
         }
     }
+    public bool Exists(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        lock (_lock) {
+            return _container.GetBlobClient(fileKey).Exists();
+        }
+    }
+    public bool Exists(string[] path) {
+        var blobName = getAndValidateBlobName(path);
+        lock (_lock) {
+            return _container.GetBlobClient(blobName).Exists();
+        }
+    }
     IReadStream openRead(long position, string blobName) {
         FileMeta meta;
         if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");

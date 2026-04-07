@@ -21,15 +21,15 @@ public class StoreStreamDiscRead : IReadStream {
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
-    const int numberOfRetries = 10;
+    const int numberOfRetries = 100;
     static FileStream getStream(string filePath) {
         Exception? lastException = null;
         for (int i = 1; i <= numberOfRetries; ++i) {
             try {
-                return new(filePath, FileMode.OpenOrCreate, FileAccess.Read);
+                return new(filePath, FileMode.Open, FileAccess.Read);
             } catch (Exception e) {
                 lastException = e;
-                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 10 retries: 1s + 1s + 10s + 10s + 10s + 10s + 10s + 10s + 10s + 10s = 81s
+                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 100 retries: 1s + 1s + 10s * 98 = 16 minutes, leaving time for azure lock on files during restarts and backups
                 Thread.Sleep(delayOnRetry);
             }
         }

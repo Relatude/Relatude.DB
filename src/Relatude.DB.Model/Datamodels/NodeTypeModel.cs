@@ -46,6 +46,9 @@ public partial class NodeTypeModel { // with default values
     public string? NameOfCreatedUtcProperty { get; set; }
     public string? NameOfChangedUtcProperty { get; set; }
 
+    public string? NameOfDisplayNameProperty { get; set; }
+    public string? NameOfAddressProperty { get; set; }
+
     public List<Guid> Parents { get; set; } = new();
     public int MinNoInstances { get; set; } = int.MinValue;
     public int MaxNoInstances { get; set; } = int.MaxValue;

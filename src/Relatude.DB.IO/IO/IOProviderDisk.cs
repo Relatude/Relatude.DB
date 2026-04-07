@@ -44,6 +44,16 @@ public class IOProviderDisk : IIOProviderWithFolders {
         FileKeyUtility.ValidateFileKeyPath(path);
         return openRead(Path.Combine([BaseFolder, .. path]), position);
     }
+    public bool Exists(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        var filePath = Path.Combine(BaseFolder, fileKey);
+        return File.Exists(filePath);
+    }
+    public bool Exists(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var filePath = Path.Combine([BaseFolder, .. path]);
+        return File.Exists(filePath);
+    }
     IReadStream openRead(string filePath, long position) {
         lock (_lock) {
             IReadStream? stream = null;

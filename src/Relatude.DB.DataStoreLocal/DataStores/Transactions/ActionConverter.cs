@@ -67,13 +67,6 @@ internal class ActionConverter {
         if (id == 0) return false;
         return db._nodes.Contains(id);
     }
-    bool tryDetermineRevisionId(INodeData newNode, INodeData oldNode, Datamodel definition, out Guid revisionId) {
-        // first look for revision id in Node;
-        // first from revisionId property
-        // then by using the QueryContextLanguage.
-        // This requires there is a revision for the culture and that there only is one?
-        throw new NotImplementedException("Node revisions are not yet implemented in DataStoreLocal. ");
-    }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {

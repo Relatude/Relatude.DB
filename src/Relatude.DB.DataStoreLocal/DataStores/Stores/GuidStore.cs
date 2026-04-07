@@ -1,30 +1,23 @@
-﻿using System;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
-using Relatude.DB.DataStores.Transactions;
+using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace Relatude.DB.DataStores.Stores {
-    internal struct IdPair {
-        public IdPair(int id, Guid guid) {
-            Id = id;
-            Guid = guid;
-        }
-        public readonly int Id;
-        public readonly Guid Guid;
+    internal struct IdPair(int id, Guid guid) {
+        public readonly int Id = id;
+        public readonly Guid Guid = guid;
     }
     internal class GuidStore : IDisposable {
         object _lock = new object();
-        readonly Dictionary<Guid, int> _ids;
-        readonly Dictionary<int, Guid> _guids;
-        int _lastId;
+        readonly Dictionary<Guid, int> _ids = [];
+        readonly Dictionary<int, Guid> _guids = [];
+        int _lastId = 0;
         List<IdPair>? _newIds = null;
         int _lastIdOnStartOfRecording;
-        public GuidStore() {
-            _ids = new Dictionary<Guid, int>();
-            _guids = new Dictionary<int, Guid>();
-            _lastId = 0;
-        }
         int newId() {
             // will look for first available id, starting by incrementing from last generated
             if (_lastId == int.MaxValue) _lastId = 0; // start over
@@ -103,15 +96,6 @@ namespace Relatude.DB.DataStores.Stores {
                 if (foundId != foundGuid) throw new Exception("Inconsistent ID state. ");  // should never happen..
                 _ids.Add(guid, id);
                 _guids.Add(id, guid);
-            }
-        }
-        public void ChangeGuid(Guid oldGuid, Guid newGuid) {
-            lock (_lock) {
-                var id = _ids[oldGuid];
-                if (_ids.ContainsKey(newGuid)) throw new Exception("New guid is already in use. ");
-                _guids[id] = newGuid;
-                _ids.Remove(oldGuid);
-                _ids.Add(newGuid, id);
             }
         }
         public void RegisterAction(PrimitiveActionBase action) {
@@ -220,14 +204,6 @@ namespace Relatude.DB.DataStores.Stores {
             stream.ValidateChecksum();
             stream.ValidateMarker(_marker);
         }
-        internal string? TextInfo() {
-            lock (_lock) {
-                return "ID count: " + _ids.Count.To1000N() + "\n";
-            }
-        }
-
-        internal int GetId(IdKey nodeIdKey) {
-            throw new NotImplementedException();
-        }
     }
 }
+

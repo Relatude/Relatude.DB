@@ -1,5 +1,4 @@
-﻿using Microsoft.CodeAnalysis;
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Datamodels;
@@ -30,7 +29,9 @@ public class NodeMeta {
         CreatedUtc = node.CreatedUtc;
         ChangedUtc = node.ChangedUtc;
         NodeTypeId = node.NodeType;
-        DisplayName = node.ToString()!;
+        DisplayName = node.ToString();
+        // Address = node.Address;
+        // AutoAddress = node.AutoAddress;
         Id = node.Id;
         InternalId = node.__Id;
     }
@@ -40,7 +41,12 @@ public class NodeMeta {
     public DateTime ChangedUtc { get; }
     public int InternalId { get; }
     public Guid Id { get; }
-    public string DisplayName { get; }
+    
+    public bool? AutoDisplayName { get; }
+    public string DisplayName { get; } // null, means not having any address
+    public bool? AutoAddress { get; } // null mean defaults to type default
+    public string? Address{ get; } // null, means not having any address
+
     public Guid RevisionId { get; }
 
     public RevisionType RevisionType => InnerMeta.RevisionType;
@@ -73,8 +79,21 @@ public class NodeMeta {
         return base.GetHashCode();
     }
 }
-public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions
-    int RevisionKey { get; }
+/// <summary>
+/// Inner meta is the part of the node meta that is stored in the node data, and can be shared between different 
+/// revisions and cultures of the same node. It is designed to be immutable and reusable, so that it can be easily 
+/// cached and compared for equality. It does not contain revision specific properties like DisplayName, or Address
+/// It also does not contain the revision key, as it is an internal implementation detail that can be the same for 
+/// different cultures of the same revision, and therefore not useful for caching or equality comparison. 
+/// The revision type can be derived from the revision key using a utility method, so it is included in the inner 
+/// meta for convenience. The inner meta can be minimized to a smaller object if it only contains common properties, 
+/// to save memory and improve performance. The inner meta can also be combined with another inner meta 
+/// to create a new inner meta that has the common properties of both, but keeps the revision specific properties 
+/// of one of them. This allows for efficient updates of the node meta without having to create a new full inner 
+/// meta every time.
+/// </summary>
+public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revision ID, so it will be similar for different nodes and node revisions, result in more reusable objects and better caching
+    int RevisionKey { get; }  // revision key is only unique within a node, and therefore similar for many nodes
     RevisionType RevisionType { get; }
     Guid CollectionId { get; } // common for all cultures
     Guid ReadAccess { get; }  // common for all cultures

@@ -32,7 +32,7 @@ internal static class InterfaceGen {
         // constructor:
         sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell){");
         sb.AppendLine("    this." + shellName + " = shell;");
-        
+
         if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
             sb.AppendLine("    this." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(shell.NodeData);");
         }
@@ -65,10 +65,25 @@ internal static class InterfaceGen {
             // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.CreatedUtc) + " = value; } ");
             sb.AppendLine(" }");
         }
+        // change utc
         if (!string.IsNullOrEmpty(nodeDef.NameOfChangedUtcProperty)) {
             sb.AppendLine("public DateTime " + nodeDef.NameOfChangedUtcProperty + "{ ");
             sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + "; } ");
             // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + " = value; } ");
+            sb.AppendLine(" }");
+        }
+        // display name
+        if (!string.IsNullOrEmpty(nodeDef.NameOfDisplayNameProperty)) {
+            sb.AppendLine("public string " + nodeDef.NameOfDisplayNameProperty + "{ ");
+            sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.DisplayName) + "; } ");
+            // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.DisplayName) + " = value; } ");
+            sb.AppendLine(" }");
+        }
+        // address
+        if (!string.IsNullOrEmpty(nodeDef.NameOfAddressProperty)) {
+            sb.AppendLine("public string " + nodeDef.NameOfAddressProperty + "{ ");
+            sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.Address) + "; } ");
+            // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.Address) + " = value; } ");
             sb.AppendLine(" }");
         }
 

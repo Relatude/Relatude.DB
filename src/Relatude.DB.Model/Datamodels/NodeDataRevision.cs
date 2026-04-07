@@ -56,17 +56,17 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, IInnerNodeMeta? meta, Guid revisionId)
-    : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
+    Properties<object> values, IInnerNodeMeta? meta, Guid revisionId, string? displayName, string? address)
+    : base(guid, id, nodeType, createdUtc, changedUtc, values, meta, displayName, address) {
         RevisionId = revisionId;
     }
     public NodeDataRevision CopyAndChangeMetaAndRevisionId(IInnerNodeMeta? newMeta, Guid revisionGuid) {
-        return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
+        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid, DisplayName, Address);
     }
     public NodeDataRevision CopyAndChangeMeta(IInnerNodeMeta? newMeta) {
-        return new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId);
+        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId, DisplayName, Address);
     }
-    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
+    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId, DisplayName, Address);
     public INodeDataOuter CopyOuter() => CopyRevision();
 
     public NodeData CopyAndConvertToNodeData() {
@@ -74,7 +74,7 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         if (Meta != null && Meta.RevisionType != RevisionType.Published) {
             meta = IInnerNodeMeta.ChangeRevision(Meta, 0); // when converting to NodeData, the revision type is always set to Published and revision key to 0, 
         }
-        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
+        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, DisplayName, Address);
         return data;
     }
 
@@ -135,5 +135,7 @@ public class NodeDataRevisions : INodeDataInner {
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
+    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
+    public string? Address { get => throw new NA(); set => throw new NA(); }
 
 }

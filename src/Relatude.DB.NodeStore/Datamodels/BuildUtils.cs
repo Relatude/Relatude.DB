@@ -308,6 +308,23 @@ internal static class BuildUtils {
                 if (hasAttr<CreatedUtcPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on createdUtc property");
             }
         }
+        if (hasAttr<DisplayNamePropertyAttribute>(pInfo)) {
+            if (valueType == typeof(string)) {
+                c.NameOfDisplayNameProperty = pInfo.Name;
+                return true;
+            } else {
+                if (hasAttr<DisplayNamePropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on display name property");
+            }
+        }
+        if (hasAttr<AddressPropertyAttribute>(pInfo)) {
+            if (valueType == typeof(string)) {
+                c.NameOfAddressProperty = pInfo.Name;
+                return true;
+            } else {
+                if (hasAttr<AddressPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on address property");
+            }
+        }
+
         return false;
     }
     static ModelType getModelType(Type type) {

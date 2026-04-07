@@ -130,8 +130,13 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided file stores.");
             }
         }
-        //if (_defaultFileStore == null) _defaultFileStore = new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io));
-        if (_defaultFileStore == null) _defaultFileStore = new MultiFileStore(Guid.Empty, _io, _fileKeys, 2);
+        if (_defaultFileStore == null) {
+            _defaultFileStore = _settings.DefaultFileStoreEngine switch {
+                FileStoreEngine.MultiFile => new MultiFileStore(Guid.Empty, _io, _fileKeys, 2),
+                FileStoreEngine.SingleFile => new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io)),
+                _ => throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine)
+            };
+        }
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io, FileKeys);
         _scheduler = new(this);
         try {

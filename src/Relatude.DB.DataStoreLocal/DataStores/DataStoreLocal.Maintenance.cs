@@ -129,7 +129,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var task = new RewriteTask() {
                 HotSwapToNewFile = true,
                 DeleteOldDbFilesAfterHotSwap = a.HasFlag(MaintenanceAction.DeleteOldLogs),
-                NewLogFileKey = _fileKeys.WAL_NextFileKey(_io),
+                NewLogFileKey = null,
                 IO = _io,
                 Truncate = true,
             };

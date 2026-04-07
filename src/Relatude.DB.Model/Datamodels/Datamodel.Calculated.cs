@@ -80,12 +80,8 @@ public partial class Datamodel {
             nodeType.NameOfInternalIdProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfInternalIdProperty);
             nodeType.NameOfChangedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfChangedUtcProperty);
             nodeType.NameOfMetaProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfMetaProperty);
-            //    nodeType.NameOfCollectionProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfCollectionProperty);
-            //    nodeType.NameOfDerivedFromLCID = getBestSystemPropNameInParents(nodeType, n => n.NameOfDerivedFromLCID);
-            //    nodeType.NameOfIsDerivedProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfIsDerivedProperty);
-            //    nodeType.NameOfLCIDProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfLCIDProperty);
-            //    nodeType.NameOfReadAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfReadAccessProperty);
-            //    nodeType.NameOfWriteAccessProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfWriteAccessProperty);
+            nodeType.NameOfDisplayNameProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfDisplayNameProperty);
+            nodeType.NameOfAddressProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfAddressProperty);
         }
     }
     DataTypeInternalId? getBestInternalIdPropTypeInParents(NodeTypeModel nodeType) {

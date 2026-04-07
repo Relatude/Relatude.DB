@@ -41,6 +41,19 @@ public class IOProviderMemory : IIOProvider {
             return openRead(fileName, position);
         }
     }
+    public bool Exists(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        lock (_lock) {
+            return _disk.ContainsKey(fileKey);
+        }
+    }
+    public bool Exists(string[] path) {
+        var fileName = getAndValidateName(path);
+        FileKeyUtility.ValidateFileKeyString(fileName);
+        lock (_lock) {
+            return _disk.ContainsKey(fileName);
+        }
+    }
     IReadStream openRead(string fileName, long position) {
         if (!_disk.TryGetValue(fileName, out var file)) throw new Exception($"File {fileName} does not exist");
         if (file.Meta.Writers > 0) throw new Exception($"File {fileName} is locked for writing. ");

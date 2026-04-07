@@ -30,6 +30,12 @@ public class ChangedUtcPropertyAttribute : Attribute {
 public class CreatedUtcPropertyAttribute : Attribute {
 }
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+public class DisplayNamePropertyAttribute : Attribute {
+}
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+public class AddressPropertyAttribute : Attribute {
+}
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class PublicIdPropertyAttribute : Attribute {
 }
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]

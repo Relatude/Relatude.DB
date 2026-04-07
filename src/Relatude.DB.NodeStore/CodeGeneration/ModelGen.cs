@@ -5,6 +5,7 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 
 namespace Relatude.DB.CodeGeneration;
+
 public static class ModelGen {
     public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes = true) {
         var sb = new StringBuilder();
@@ -79,6 +80,16 @@ public static class ModelGen {
             sb.Append("        ");
             sb.AppendLine(CodeUtils.FieldOrProperty("DateTime", nodeDef.NameOfChangedUtcProperty, nodeDef.ModelType));
         }
+        if (!string.IsNullOrEmpty(nodeDef.NameOfDisplayNameProperty) && CodeUtils.IsFirstClassUsingName_NameOfDisplayNameProperty(nodeDef, datamodel)) {
+            if (addAttributes) sb.AppendLine("        [" + nameAtt<DisplayNamePropertyAttribute>() + "()]");
+            sb.Append("        ");
+            sb.AppendLine(CodeUtils.FieldOrProperty("string", nodeDef.NameOfDisplayNameProperty, nodeDef.ModelType));
+        }
+        if (!string.IsNullOrEmpty(nodeDef.NameOfAddressProperty) && CodeUtils.IsFirstClassUsingName_NameOfAddressProperty(nodeDef, datamodel)) {
+            if (addAttributes) sb.AppendLine("        [" + nameAtt<AddressPropertyAttribute>() + "()]");
+            sb.Append("        ");
+            sb.AppendLine(CodeUtils.FieldOrProperty("string", nodeDef.NameOfAddressProperty, nodeDef.ModelType));
+        }
         foreach (var p in nodeDef.Properties.Values.Where(p => !p.Private)) {
             if (addAttributes) addPropertyAttribute(p, datamodel, sb);
             var typeName = CodeUtils.GetTypeName(p, datamodel);
@@ -107,6 +118,8 @@ public static class ModelGen {
         var nodeType = dm.NodeTypes[p.NodeType];
         if (nodeType.NameOfChangedUtcProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<ChangedUtcPropertyAttribute>() + "()]");
         if (nodeType.NameOfCreatedUtcProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<CreatedUtcPropertyAttribute>() + "()]");
+        if (nodeType.NameOfDisplayNameProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<DisplayNamePropertyAttribute>() + "()]");
+        if (nodeType.NameOfAddressProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<AddressPropertyAttribute>() + "()]");
         //if(nodeType.NameOfIsDerivedProperty == p.CodeName) {
         //    sb.AppendLine("[" + nameAtt<IsDerivedPropertyAttribute>() + "()]");
         //}
@@ -308,7 +321,7 @@ public static class ModelGen {
                 typeAndNamespace(relation.Namespace, dm.FindFirstCommonBase(relation.SourceTypes).FullName),
             _ => throw new Exception("Unknown relation type " + relation.RelationType),
         });
-        inheritance += ">"; 
+        inheritance += ">";
         // inheritance += ", " + relation.CodeName + ">"; // self reference
         sb.AppendLine("    public class " + relation.CodeName + inheritance + " { ");
         if (!string.IsNullOrEmpty(relation.CodeNameSources)) {

@@ -8,6 +8,8 @@ public interface IIOProvider {
     IReadStream OpenRead(string[] path, long position);
     IAppendStream OpenAppend(string fileKey);
     IAppendStream OpenAppend(string[] path);
+    bool Exists(string fileKey);
+    bool Exists(string[] path);
     bool DoesNotExistOrIsEmpty(string fileKey);
     void DeleteFileIfItExists(string[] path);
     void DeleteFileIfItExists(string fileKey);

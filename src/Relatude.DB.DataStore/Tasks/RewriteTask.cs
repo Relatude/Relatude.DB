@@ -8,7 +8,7 @@ namespace Relatude.DB.Tasks;
 public class RewriteTask : TaskData {
     public bool HotSwapToNewFile;
     public bool DeleteOldDbFilesAfterHotSwap;
-    required public string NewLogFileKey;
+    required public string? NewLogFileKey;
     required public IIOProvider IO;
     public bool IsBackup;
     public bool Truncate = true;
@@ -17,6 +17,9 @@ public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.High;
     public override Task ExecuteAsync(Batch<RewriteTask> batch, TaskLogger? taskLogger) {
         foreach (var t in batch.Tasks) {
+            if (t.NewLogFileKey == null) {
+                t.NewLogFileKey = db.FileKeys.WAL_NextFileKey(db.IO);
+            }
             var sw = Stopwatch.StartNew();
             if (t.IsBackup) {
                 db.Log(SystemLogEntryType.Backup, "Backup started: " + t.NewLogFileKey);

@@ -162,8 +162,9 @@ internal sealed class NodeStore {
         stream.WriteChecksum();
         stream.WriteGuid(_marker);
     }
+    const int _nodeDataBaseSize = 1000;  // approximate min size of node data without properties for cache size estimation
     int estimateSize(int segmentLength) {
-        return segmentLength + INodeData.BaseSize;
+        return segmentLength + _nodeDataBaseSize;
     }
     internal void AddInfo(DataStoreInfo s) {
         lock (_lock) {

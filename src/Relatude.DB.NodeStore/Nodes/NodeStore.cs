@@ -112,7 +112,7 @@ public class NodeStore : IDisposable {
             t.Update(node);
         }
         t.Execute();
-        return Get<T>(Mapper.GetIdGuidOrCreate(node!));
+        return node; // Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
     public T CreateAndInsert<T>(Action<T>? setProperties = null) where T : notnull {
         var node = Mapper.NewObjectFromType<T>();
@@ -123,7 +123,7 @@ public class NodeStore : IDisposable {
             t.Update(node);
         }
         t.Execute();
-        return Get<T>(Mapper.GetIdGuidOrCreate(node!));
+        return node; // Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
 
     public TransactionResult Insert(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)

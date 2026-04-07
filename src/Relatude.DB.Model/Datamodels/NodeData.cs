@@ -1,10 +1,13 @@
 ﻿using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
 namespace Relatude.DB.Datamodels;
+
 public enum NodeDataStorageVersions {
     Legacy0 = 0,
     Legacy1 = 1,
-    NodeData = 2,
+    NodeData_Legacy2 = 2,
+    NodeData = 3,
     RevisionContainer = 100,
 }
 internal class NA : Exception {
@@ -36,39 +39,34 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
-    public static int BaseSize = 1000;  // approximate min size of node data without properties for cache size estimation
+    string? DisplayName { get; set; }
+    string? Address { get; set; }
+
 }
 public abstract class NodeDataAbstract : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
     bool _readOnly;
     int _id;
     Guid _guid;
-    //string? _displayName;
     public Properties<object> _values;
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values) {
+        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) {
         _guid = guid;
         _id = id;
         NodeType = nodeType;
         CreatedUtc = createdUtc;
         ChangedUtc = changedUtc;
         _values = values;
-    }
-    public NodeDataAbstract(Guid guid, int id, Guid nodeType,
-        DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, IInnerNodeMeta? meta) {
-        _guid = guid;
-        _id = id;
-        NodeType = nodeType;
-        CreatedUtc = createdUtc;
-        ChangedUtc = changedUtc;
-        _values = values;
-        if (meta != null && meta == IInnerNodeMeta.Empty) {
-            Meta = null; // avoid storing empty meta, as it is the most common case and saves some memory
-        } else {
-            Meta = meta;
+        if (meta != null) {
+            if (meta == IInnerNodeMeta.Empty) {
+                Meta = null; // avoid storing empty meta, as it is the most common case and saves some memory
+            } else {
+                Meta = meta;
+            }
         }
+        DisplayName = displayName;
+        Address = address;
     }
     public int __Id {
         get => _id;
@@ -110,33 +108,34 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public IRelations Relations => emptyRelations;
     public NodeData CopyAndChangeNodeType(Guid nodeTypeId) {
-        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values), Meta);
+        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
     }
     public override string ToString() {
         return Id.ToString();
-        //return _displayName ?? Id.ToString();
-        //return $"NodeData: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
     }
+    public string? DisplayName { get; set; }
+    public string? Address { get; set; }
 }
 public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
     public int RevisionKey => 0;
     public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, IInnerNodeMeta? meta) : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
+        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) : 
+        base(guid, id, nodeType, createdUtc, changedUtc, values, meta, displayName, address) {
     }
     public NodeDataRevision CopyAndConvertToNodeDataRevision(IInnerNodeMeta? meta, Guid revisionGuid) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid, DisplayName, Address);
         return rev;
     }
     public INodeDataInner CopyAndChangeMeta(IInnerNodeMeta? meta) {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, DisplayName, Address);
     }
     public INodeDataInner CopyInner() {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
     }
     public INodeDataOuter CopyOuter() {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
     }
 }
 public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
@@ -177,6 +176,8 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public INodeDataInner Copy() => throw new NA();
     public INodeDataOuter CopyOuter() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
+    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
+    public string? Address { get => throw new NA(); set => throw new NA(); }
 }
 public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {
@@ -211,6 +212,8 @@ public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with
     public INodeDataInner Copy() => throw new NA();
     public INodeDataOuter CopyOuter() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
+    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
+    public string? Address { get => throw new NA(); set => throw new NA(); }
 }
 public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndGuid(Guid id, Guid typeId) {
@@ -245,4 +248,6 @@ public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data wi
     public INodeDataInner Copy() => throw new NA();
     public INodeDataOuter CopyOuter() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
+    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
+    public string? Address { get => throw new NA(); set => throw new NA(); }
 }

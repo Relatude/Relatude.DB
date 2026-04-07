@@ -54,6 +54,7 @@ public class SingleFileStore : IDisposable, IFileStore {
     async Task extract(Guid fileId, long offset, Func<byte[], Task> recieveAsync) {
         long length;
         Guid id;
+
         lock (_fileLock) id = file.GetGuid(ref offset);
         if (id != fileId) throw new Exception("File corruption, id mismatch. ");
         lock (_fileLock) length = file.GetVerifiedLong(ref offset);
@@ -61,10 +62,13 @@ public class SingleFileStore : IDisposable, IFileStore {
         var fileName = "";
         lock (_fileLock) fileName = file.GetString(ref offset); // allow filename to be different from original filename, renaming is allowed
         var remaining = length + byteLengthOfMD5Checksum + _fileEndMarker.Length;
-        if (offset + remaining > file.Length) throw new Exception("File corruption, file too short. ");
+        lock (_fileLock) { 
+            if (offset + remaining > file.Length) throw new Exception("File corruption, file too short. Offset: " + offset + ", Remaining: " + remaining + ", File Length: " + file.Length);
+        }
         var count = (int)Math.Min(1024 * 1024, length); // 1MB
         var buffer = new byte[count];
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+
         while (bytesLeft > 0) {
             count = (int)Math.Min(buffer.Length, bytesLeft);
             if (count < buffer.Length) buffer = new byte[count]; // new buffer for last read, needs to be exact size

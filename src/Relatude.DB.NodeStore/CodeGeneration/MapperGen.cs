@@ -82,12 +82,15 @@ internal static class MapperGen {
 
         helper("createdUtc", nodeDef.NameOfCreatedUtcProperty, "DateTime.MinValue");
         helper("changedUtc", nodeDef.NameOfChangedUtcProperty, "DateTime.UtcNow");
+        helper("displayName", nodeDef.NameOfDisplayNameProperty, "null");
+        helper("address", nodeDef.NameOfAddressProperty, "null");
 
         sb.Append("var nodeData = new " + typeof(NodeData).Namespace + "." + nameof(NodeData) + "(");
         sb.Append("gid, uid, " + CodeUtils.GuidName(nodeDef.Id));
         //sb.Append(", collectionId, lcid, derivedFromLCID, readAccess, writeAccess, ");
         sb.Append(", createdUtc, changedUtc, values");
         sb.Append(", null");
+        sb.Append(", displayName, address");
         sb.AppendLine(");");
 
         sb.AppendLine("if(related!=null){");
@@ -137,6 +140,8 @@ internal static class MapperGen {
             }
             h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeDataOuter.CreatedUtc));
             h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeDataOuter.ChangedUtc));
+            h1(nodeDef.NameOfDisplayNameProperty, nameof(INodeDataOuter.DisplayName));
+            h1(nodeDef.NameOfAddressProperty, nameof(INodeDataOuter.Address));
 
             if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
                 sb.AppendLine("obj." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(nodeData);");

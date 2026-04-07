@@ -44,7 +44,7 @@ public class FileValue {
         f._fileKeyData = old._fileKeyData;
 
         // allow new values:
-        f.IsEmpty = false;
+        f.IsEmpty = f.IsEmpty;
         f.Name = newValue.Name;
         f.TextExtract = newValue.TextExtract;
         f.MetaJSON = newValue.MetaJSON;
@@ -78,7 +78,6 @@ public class FileValue {
         if (IsEmpty) return [];
         var ms = new MemoryStream();
         var bw = new BinaryWriter(ms);
-        if (IsEmpty) return ms.ToArray();
         bw.Write(version);
         bw.Write(Name);
         bw.Write(TextExtract);
@@ -101,6 +100,7 @@ public class FileValue {
         var version = br.ReadInt32();
         if(version != 0) throw new Exception($"Unsupported FileValue version: {version}");
         var v = new FileValue();
+        v.IsEmpty = false;
         v.Name = br.ReadString();
         v.TextExtract = br.ReadString();
         v.MetaJSON = br.ReadString();
@@ -141,8 +141,8 @@ public class FileValue {
         if (b1.Indexed != b2.Indexed) return false;
         if (b1.Name != b2.Name) return false;
         if (b1.Size != b2.Size) return false;
-        if (b1.FileId != b2.FileId) return false;
         if (b1.StorageId != b2.StorageId) return false;
+        if (b1.FileId != b2.FileId) return false;
         return true;
     }
 }

@@ -16,13 +16,12 @@ public class MultiFileStore : IDisposable, IFileStore {
         this.folderDepth = folderDepth.HasValue ? folderDepth.Value : 2;
     }
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName) {
-        return await insertAsync(sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
+        return await insertAsync(newFileId, sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
     }
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, IReadStream sourceStream, string? fileName) {
-        return await insertAsync(sourceStream.Length, sourceStream.ReadAsync, fileName);
+        return await insertAsync(newFileId, sourceStream.Length, sourceStream.ReadAsync, fileName);
     }
-    public async Task<FileInsertResult> insertAsync(long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
-        var fileId = Guid.NewGuid();
+    public async Task<FileInsertResult> insertAsync(Guid fileId, long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
         var usedFileName = getSafeFilename(fileId, friendlyFileName);
         var fullPath = getFullPath(fileId, usedFileName);
         using var outStream = _ioProvider.OpenAppend(fullPath);
