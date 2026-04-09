@@ -190,14 +190,14 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     internal string GetWordContextText(string question, string sourceText) {
         return sourceText;
     }
-    override public bool IsNodeRelevantForIndex(INodeData node, IIndex index) {
+    override public bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) {
         // special handling for system text index property, allowing different node types to be indexed or not
         if (!_isSystemTextIndexPropertyId) return true;
         if (index is DataStores.Indexes.SemanticIndex) {
-            return Definition.NodeTypes[node.NodeType].Model.SemanticIndex!.Value;
+            return Definition.NodeTypes[nodeTypeId].Model.SemanticIndex!.Value;
         }
         if (index is DataStores.Indexes.IWordIndex) {
-            return Definition.NodeTypes[node.NodeType].Model.TextIndex!.Value;
+            return Definition.NodeTypes[nodeTypeId].Model.TextIndex!.Value;
         }
         throw new Exception("Internal text index property should only be indexed by semantic or word index. ");
     }

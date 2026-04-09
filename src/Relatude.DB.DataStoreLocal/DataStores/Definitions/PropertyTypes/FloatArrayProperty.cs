@@ -20,9 +20,9 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object ForceValueType(object value, out bool changed) {
             return FloatArrayPropertyModel.ForceValueType(value, out changed);
         }
-        public override bool IsNodeRelevantForIndex(INodeData node, IIndex index) {
+        public override bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) {
             if (!_isSystemVectorIndexPropertyId) return true;
-            return Definition.NodeTypes[node.NodeType].Model.SemanticIndex!.Value;
+            return Definition.NodeTypes[nodeTypeId].Model.SemanticIndex!.Value;
         }
         public override void ValidateValue(object value) { }
         public override object GetDefaultValue() => Array.Empty<float>();

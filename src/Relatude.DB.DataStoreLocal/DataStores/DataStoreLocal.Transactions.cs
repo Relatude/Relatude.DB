@@ -110,7 +110,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
         try {
-            _guids.StartRecordingNewIds(); // can be cancelled later in case transaction fails so that new IDs are not wasted
+            _guids.BeginTransaction(); // can be cancelled later in case transaction fails so that new IDs are not wasted
             _addresses.BeginTransaction();
             bool anyLocks = _nodeWriteLocks.AnyLocks();
             var i = 0;
@@ -119,6 +119,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
                 UpdateActivityProgress(activityId, 100 * i++ / count);
                 var enumerator = _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation).GetEnumerator();
+                // not using foreach here to be able to catch exceptions from MoveNext() and know which action caused it, for better error messages.
                 while (true) {
                     try {
                         if (!enumerator.MoveNext()) break;
@@ -133,17 +134,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                     resultingOperations[i - 1] = resultingOperation;
                 }
 
-                //foreach (var primitive in _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation)) {
-                //    _transactionActionActivity.Record();
-                //    if (anyLocks) validateLocks(primitive, lockExcemptions);
-                //    executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
-                //    executed.Add(primitive);
-                //    resultingOperations[i - 1] = resultingOperation;
-                //}
-
             }
-            _guids.CommitNewIds();
-            _addresses.CommitTransaction();
+            _guids.Commit();
+            _addresses.Commit();
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
                     transaction.InnerCallbackBeforeCommitting();
@@ -160,8 +153,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             throw;
         } finally {
-            _guids.CancelUnCommitedNewIdsIfAny();
-            _addresses.RollbackTransaction();
+            _guids.RollbackIfUncommited();
+            _addresses.RollbackIfUncommited();
         }
     }
     void validateLocks(PrimitiveActionBase a, HashSet<Guid>? transactionLocks) {

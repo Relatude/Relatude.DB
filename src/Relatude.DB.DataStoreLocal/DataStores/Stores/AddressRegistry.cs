@@ -7,8 +7,8 @@ public class AddressRegistry {
     private static readonly Guid _marker = new("fa5f4dd3-8520-4fc9-a260-637fe9ddb2ca");
     private readonly Dictionary<long, string> _addressByIdAndCulture = new();
     private readonly Dictionary<string, long> _idAndCultureByAddress = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, byte> _cultureIdByCode = new(StringComparer.Ordinal);
-    private readonly string?[] _cultureCodeById = new string[256];
+    private readonly Dictionary<Guid, byte> _cultureIdByCode = new();
+    private readonly Guid?[] _cultureCodeById = new Guid?[256];
     private byte _lastCultureId = 0;
     private bool _inTransaction;
     private byte _transactionStartCultureId;
@@ -72,31 +72,32 @@ public class AddressRegistry {
         });
     }
 
-    private bool TryGetCultureId(string? cultureCode, out byte cultureId) {
-        if (cultureCode is null) {
+    private bool TryGetCultureId(Guid? cultureCode, out byte cultureId) {
+        if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             cultureId = 0;
             return true;
         }
 
-        return _cultureIdByCode.TryGetValue(cultureCode, out cultureId);
+        return _cultureIdByCode.TryGetValue(cultureCode.Value, out cultureId);
     }
-    private byte GetOrAddCultureId(string? cultureCode) {
-        if (cultureCode is null) {
+    private byte GetOrAddCultureId(Guid? cultureCode) {
+        if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             return 0;
         }
 
-        if (_cultureIdByCode.TryGetValue(cultureCode, out var cultureId)) {
+        var cultureGuid = cultureCode.Value;
+        if (_cultureIdByCode.TryGetValue(cultureGuid, out var cultureId)) {
             return cultureId;
         }
 
         if (_lastCultureId == byte.MaxValue) {
-            throw new InvalidOperationException("AddressRegistry supports up to 255 distinct non-null culture codes.");
+            throw new InvalidOperationException("AddressRegistry supports up to 255 distinct non-empty culture ids.");
         }
 
         _lastCultureId++;
         cultureId = _lastCultureId;
-        _cultureIdByCode[cultureCode] = cultureId;
-        _cultureCodeById[cultureId] = cultureCode;
+        _cultureIdByCode[cultureGuid] = cultureId;
+        _cultureCodeById[cultureId] = cultureGuid;
         return cultureId;
     }
 
@@ -113,7 +114,7 @@ public class AddressRegistry {
             _undoLog.Clear();
         }
     }
-    public void CommitTransaction() {
+    public void Commit() {
         if (!_inTransaction) {
             return;
         }
@@ -121,7 +122,7 @@ public class AddressRegistry {
         _undoLog?.Clear();
         _inTransaction = false;
     }
-    public void RollbackTransaction() {
+    public void RollbackIfUncommited() {
         if (!_inTransaction) {
             return;
         }
@@ -155,8 +156,8 @@ public class AddressRegistry {
 
         for (int i = _lastCultureId; i > _transactionStartCultureId; i--) {
             var cultureCode = _cultureCodeById[i];
-            if (cultureCode is not null) {
-                _cultureIdByCode.Remove(cultureCode);
+            if (cultureCode.HasValue) {
+                _cultureIdByCode.Remove(cultureCode.Value);
                 _cultureCodeById[i] = null;
             }
         }
@@ -213,7 +214,7 @@ public class AddressRegistry {
         _idAndCultureByAddress.Remove(address);
     }
 
-    public bool TryGetId(string address, out int id, out string? cultureCode) {
+    public bool TryGetId(string address, out int id, out Guid? cultureCode) {
         if (_idAndCultureByAddress.TryGetValue(address, out var key)) {
             id = UnpackId(key);
             cultureCode = _cultureCodeById[UnpackCultureId(key)];
@@ -224,7 +225,7 @@ public class AddressRegistry {
         cultureCode = null;
         return false;
     }
-    public string? GetAddress(int id, string? cultureCode) {
+    public string? GetAddress(int id, Guid? cultureCode) {
         if (!TryGetCultureId(cultureCode, out var cultureId)) {
             return null;
         }
@@ -233,7 +234,7 @@ public class AddressRegistry {
             ? address
             : null;
     }
-    public void Update(int id, string? address, string? cultureCode, out string? newAddress, out bool changedNewAddress) {
+    public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
         byte cultureId;
         if (address is null) {
             if (!TryGetCultureId(cultureCode, out cultureId)) {
@@ -287,8 +288,17 @@ public class AddressRegistry {
         SetIdAndCultureByAddress(candidate, key);
         newAddress = candidate;
     }
-    public void Remove(int id, string? address, string? cultureCode) {
+    public void Remove(int id, string? address, Guid? cultureCode) {
         Update(id, null, cultureCode, out _, out _);
+    }
+    public void Remove(int id) {
+        for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
+            var key = PackKey(id, (byte)cultureId);
+            if (_addressByIdAndCulture.TryGetValue(key, out var address)) {
+                RemoveAddressByIdAndCulture(key);
+                RemoveIdAndCultureByAddress(address);
+            }
+        }
     }
 
     public void SaveState(IAppendStream stream) {
@@ -298,7 +308,7 @@ public class AddressRegistry {
         stream.WriteOneByte(_lastCultureId);
         stream.WriteVerifiedInt(_cultureIdByCode.Count);
         foreach (var kv in _cultureIdByCode) {
-            stream.WriteString(kv.Key);
+            stream.WriteGuid(kv.Key);
             stream.WriteOneByte(kv.Value);
         }
 
@@ -323,7 +333,7 @@ public class AddressRegistry {
         _lastCultureId = stream.ReadOneByte();
         var noCultures = stream.ReadVerifiedInt();
         for (var i = 0; i < noCultures; i++) {
-            var cultureCode = stream.ReadString();
+            var cultureCode = stream.ReadGuid();
             var cultureId = stream.ReadOneByte();
             _cultureIdByCode[cultureCode] = cultureId;
             _cultureCodeById[cultureId] = cultureCode;
@@ -346,5 +356,3 @@ public class AddressRegistry {
     }
 
 }
-
-

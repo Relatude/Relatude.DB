@@ -149,7 +149,7 @@ namespace Relatude.DB.DataStores.Definitions {
         public virtual bool IsReferenceTypeAndMustCopy() {
             return false;
         }
-        public virtual bool IsNodeRelevantForIndex(INodeData node, IIndex index) => true;
+        public virtual bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) => true;
         public virtual bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
             throw new NotImplementedException("The property " + CodeName + " of type " + PropertyType + " cannot support value requirements. ");
         }

@@ -1,5 +1,7 @@
-﻿using Relatude.DB.Tasks;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Indexes.Meta;
+using Relatude.DB.DataStores.Indexes.Trie.TrieNet._Ukkonen;
+using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Transactions;
 
@@ -13,7 +15,7 @@ internal class ActionConverter {
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
-            NodeAddressAction nodeAddressAction => toPrimitiveActions(db, nodeAddressAction, transformValues, ctx, newTasks),
+            //NodeAddressAction nodeAddressAction => toPrimitiveActions(db, nodeAddressAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -73,6 +75,8 @@ internal class ActionConverter {
             case NodeOperation.InsertOrFail: {
                     if (nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
+                    db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
+                    if (addressWasChanged) node.Address = newAddress;
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
@@ -108,6 +112,7 @@ internal class ActionConverter {
                         }
                         foreach (var r in _relRemoveOperations) yield return r;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);
+                        db._addresses.Remove(id);
                     }
                 }
                 break;
@@ -144,12 +149,16 @@ internal class ActionConverter {
                                 var typeDef = db._definition.NodeTypes[oldNode.NodeType];
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
+                                db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
+                                if(addressWasChanged) newNode.Address = newAddress;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
                                 if (node is not INodeDataInner nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
                                 Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                                db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
+                                if (addressWasChanged) nodeInner.Address = newAddress;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeInner);
                             }
                         }
@@ -538,23 +547,23 @@ internal class ActionConverter {
                 break;
         }
     }
-    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAddressAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
-        throw new NotImplementedException();
-        var nodeId = db._guids.ValidateAndReturnIntId(a.IdKey);
-        switch (a.Operation) {
-            case NodeAddressOperation.Reset:
-                
-                break;
-            case NodeAddressOperation.UpdateOrFail:
-                break;
-            case NodeAddressOperation.UpdateOrFallback:
-                break;
-            case NodeAddressOperation.SetAutomatic:
-                break;
-            case NodeAddressOperation.SetManual:
-                break;
-            default:
-                break;
-        }
-    }
+    //IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAddressAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+    //    throw new NotImplementedException();
+    //    var nodeId = db._guids.ValidateAndReturnIntId(a.IdKey);
+    //    switch (a.Operation) {
+    //        case NodeAddressOperation.Reset:
+
+    //            break;
+    //        case NodeAddressOperation.UpdateOrFail:
+    //            break;
+    //        case NodeAddressOperation.UpdateOrFallback:
+    //            break;
+    //        case NodeAddressOperation.SetAutomatic:
+    //            break;
+    //        case NodeAddressOperation.SetManual:
+    //            break;
+    //        default:
+    //            break;
+    //    }
+    //}
 }

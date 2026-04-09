@@ -376,7 +376,15 @@ internal class NodeTypesByIds {
         return sb.ToString();
     }
     public void Index(INodeData node) {
-        metaAndType mt = new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType);
+        if (node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta);
+        else if (node is NodeDataRevisions ndr) {
+            foreach (var rev in ndr.Revisions) {
+                index(rev.__Id, rev.NodeType, rev.Meta);
+            }
+        } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + node.GetType().FullName);
+    }
+    void index(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
+        metaAndType mt = new(meta ?? IInnerNodeMeta.Empty, nodeTypeId);
         //Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
 #if DEBUG
@@ -386,36 +394,44 @@ internal class NodeTypesByIds {
             _metaById[shortId] = mt;
             _idByMeta.Add(mt, shortId);
         }
-        _metaIdsByNodeId.Add(node.__Id, shortId);
+        _metaIdsByNodeId.Add(nodeId, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
             if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) { // no time constraint
-                kv.Value.Add(node.__Id, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
+                kv.Value.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
             }
         }
-        if (_countByType.TryGetValue(node.NodeType, out var count)) {
-            _countByType[node.NodeType] = count + 1;
+        if (_countByType.TryGetValue(nodeTypeId, out var count)) {
+            _countByType[nodeTypeId] = count + 1;
         } else {
-            _countByType[node.NodeType] = 1;
+            _countByType[nodeTypeId] = 1;
         }
     }
     public void DeIndex(INodeData node) {
+        if (node is NodeData nd) deIndex(nd.__Id, nd.NodeType, nd.Meta);
+        else if (node is NodeDataRevisions ndr) {
+            foreach (var rev in ndr.Revisions) {
+                deIndex(rev.__Id, rev.NodeType, rev.Meta);
+            }
+        } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + node.GetType().FullName);
+    }
+    void deIndex(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
         //Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
-        var shortId = _idByMeta[new(node.Meta ?? IInnerNodeMeta.Empty, node.NodeType)];
-        _metaIdsByNodeId.Remove(node.__Id, shortId);
+        var shortId = _idByMeta[new(meta ?? IInnerNodeMeta.Empty, nodeTypeId)];
+        _metaIdsByNodeId.Remove(nodeId, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
             if (isMetaRelevantForContext(_metaById[shortId], ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) {
-                kv.Value.Remove(node.__Id);
+                kv.Value.Remove(nodeId);
             }
         }
-        if (_countByType.TryGetValue(node.NodeType, out var count)) {
-            if (count <= 1) _countByType.Remove(node.NodeType);
-            else _countByType[node.NodeType] = count - 1;
+        if (_countByType.TryGetValue(nodeTypeId, out var count)) {
+            if (count <= 1) _countByType.Remove(nodeTypeId);
+            else _countByType[nodeTypeId] = count - 1;
         } else {
-            throw new Exception("Internal error. Attempting to deindex node of type that has no count registered: " + node.NodeType);
+            throw new Exception("Internal error. Attempting to deindex node of type that has no count registered: " + nodeTypeId);
         }
     }
 

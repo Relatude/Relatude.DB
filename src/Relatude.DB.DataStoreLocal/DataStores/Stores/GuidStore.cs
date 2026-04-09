@@ -29,19 +29,19 @@ namespace Relatude.DB.DataStores.Stores {
                 if (_lastId == int.MaxValue) throw new Exception("Ran out of unique 32 bit ids. Too much data. ");
             }
         }
-        public void StartRecordingNewIds() {
+        public void BeginTransaction() {
             lock (_lock) {
                 if (_newIds != null) throw new("Recording started before last was completed. ");
                 _newIds = new List<IdPair>();
                 _lastIdOnStartOfRecording = _lastId;
             }
         }
-        public void CommitNewIds() {
+        public void Commit() {
             lock (_lock) {
                 _newIds = null;
             }
         }
-        public void CancelUnCommitedNewIdsIfAny() {
+        public void RollbackIfUncommited() {
             lock (_lock) {
                 if (_newIds == null) return;
                 foreach (var pair in _newIds) {

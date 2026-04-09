@@ -61,15 +61,14 @@ internal sealed class Definition {
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
     }
-    internal void IndexNode(INodeData node) {
+    public void IteratePropertyIndexes(INodeData node, Action<INodeData, IIndex, object> action) {
         if (node is NodeData nd) {
             foreach (var kv in nd.Values) {
                 var propDef = Properties[kv.PropertyId];
                 foreach (var index in propDef.AllIndexes) {
-                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Add(nd.__Id, kv.Value);
+                    if (propDef.IsNodeRelevantForIndex(nd.NodeType, index)) action(nd, index, kv.Value);
                 }
             }
-            _nodeTypeIndex.Index(nd);
         } else if (node is NodeDataRevisions ndr) {
             HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
             foreach (var rev in ndr.Revisions) {
@@ -86,117 +85,102 @@ internal sealed class Definition {
                         }
                         if (shouldIndex) {
                             foreach (var index in propDef.AllIndexes) {
-                                if (propDef.IsNodeRelevantForIndex(rev, index)) index.Add(rev.__Id, kv.Value);
+                                if (propDef.IsNodeRelevantForIndex(rev.NodeType, index)) action(rev, index, kv.Value);
                             }
                         }
                     }
                 }
-                _nodeTypeIndex.Index(rev);
             }
         } else {
             throw new Exception("Unknown node data type");
         }
     }
+    internal void IndexNode(INodeData node) {
+        IteratePropertyIndexes(node, (n, index, value) => index.Add(n.__Id, value));
+        _nodeTypeIndex.Index(node);
+    }
     internal void DeIndexNode(INodeData node) {
-        if (node is NodeData nd) {
-            foreach (var kv in nd.Values) {
-                var propDef = Properties[kv.PropertyId];
-                foreach (var index in propDef.AllIndexes) {
-                    if (propDef.IsNodeRelevantForIndex(nd, index)) index.Remove(nd.__Id, kv.Value);
-                }
-            }
-            _nodeTypeIndex.DeIndex(nd);
-        } else if (node is NodeDataRevisions ndr) {
-            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
-            foreach (var rev in ndr.Revisions) {
-                if (rev.RevisionType == RevisionType.Published) {
-                    foreach (var kv in rev.Values) {
-                        var propDef = Properties[kv.PropertyId];
-                        bool shouldIndex = true;
-                        if (!propDef.Model.CultureSensitive) {  // only once for all revisions
-                            if (!indexedProps.Contains(propDef.Id)) {
-                                indexedProps.Add(propDef.Id);
-                            } else {
-                                shouldIndex = false;
-                            }
-                        }
-                        if (shouldIndex) {
-                            foreach (var index in propDef.AllIndexes) {
-                                if (propDef.IsNodeRelevantForIndex(rev, index)) index.Remove(rev.__Id, kv.Value);
-                            }
-                        }
-                    }
-                }
-                _nodeTypeIndex.DeIndex(rev);
-            }
-        } else {
-            throw new Exception("Unknown node data type");
-        }
+        IteratePropertyIndexes(node, (n, index, value) => index.Remove(n.__Id, value));
+        _nodeTypeIndex.DeIndex(node);
     }
     public bool TryGetIndex(string indexUniqueKey, [MaybeNullWhen(false)] out IIndex index) {
         return _indexes.TryGetValue(indexUniqueKey, out index);
     }
     public void RegisterActionDuringStateLoad(long transactionTimestamp, PrimitiveNodeAction action, bool throwOnErrors, Action<string, Exception> log) {
-        if (action.Node is NodeDataRevisions ndr) {
-            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
-            foreach (var rev in ndr.Revisions) {
-                foreach (var kv in rev.Values) {
-                    if (Properties.TryGetValue(kv.PropertyId, out var property)) {
-                        bool shouldIndex = true;
-                        if (!property.Model.CultureSensitive) {  // only once for all revisions
-                            if (!indexedProps.Contains(property.Id)) {
-                                indexedProps.Add(property.Id);
-                            } else {
-                                shouldIndex = false;
-                            }
-                        }
-                        if (shouldIndex) {
-                            foreach (var index in property.AllIndexes) {
-                                if (transactionTimestamp <= index.PersistedTimestamp) continue;
-                                try {
-                                    if (property.IsNodeRelevantForIndex(rev, index)) {
-                                        switch (action.Operation) {
-                                            case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(rev.__Id, kv.Value); break;
-                                            case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(rev.__Id, kv.Value); break;
-                                            default: throw new NotImplementedException();
-                                        }
-                                    }
-                                } catch (Exception err) {
-                                    var msg = "Error during state load. " + err.Message;
-                                    log(msg, err);
-                                    if (throwOnErrors) throw new Exception(msg, err);
-                                }
-                            }
-                        }
-                    } else {
-                        // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
-                    }
+        IteratePropertyIndexes(action.Node, (n, index, value) => {
+            if (transactionTimestamp <= index.PersistedTimestamp) return;
+            try {
+                switch (action.Operation) {
+                    case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(n.__Id, value); break;
+                    case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(n.__Id, value); break;
+                    default: throw new NotImplementedException();
                 }
+            } catch (Exception err) {
+                var msg = "Error during state load. " + err.Message;
+                log(msg, err);
+                if (throwOnErrors) throw new Exception(msg, err);
             }
-        } else if (action.Node is NodeData nd) {
-            foreach (var kv in nd.Values) {
-                if (Properties.TryGetValue(kv.PropertyId, out var property)) {
-                    foreach (var index in property.AllIndexes) {
-                        if (transactionTimestamp <= index.PersistedTimestamp) continue;
-                        try {
-                            if (property.IsNodeRelevantForIndex(nd, index)) {
-                                switch (action.Operation) {
-                                    case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(nd.__Id, kv.Value); break;
-                                    case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(nd.__Id, kv.Value); break;
-                                    default: throw new NotImplementedException();
-                                }
-                            }
-                        } catch (Exception err) {
-                            var msg = "Error during state load. " + err.Message;
-                            log(msg, err);
-                            if (throwOnErrors) throw new Exception(msg, err);
-                        }
-                    }
-                } else {
-                    // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
-                }
-            }
-        }
+        });
+        //if (action.Node is NodeDataRevisions ndr) {
+        //    HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
+        //    foreach (var rev in ndr.Revisions) {
+        //        foreach (var kv in rev.Values) {
+        //            if (Properties.TryGetValue(kv.PropertyId, out var property)) {
+        //                bool shouldIndex = true;
+        //                if (!property.Model.CultureSensitive) {  // only once for all revisions
+        //                    if (!indexedProps.Contains(property.Id)) {
+        //                        indexedProps.Add(property.Id);
+        //                    } else {
+        //                        shouldIndex = false;
+        //                    }
+        //                }
+        //                if (shouldIndex) {
+        //                    foreach (var index in property.AllIndexes) {
+        //                        if (transactionTimestamp <= index.PersistedTimestamp) continue;
+        //                        try {
+        //                            if (property.IsNodeRelevantForIndex(rev.NodeType, index)) {
+        //                                switch (action.Operation) {
+        //                                    case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(rev.__Id, kv.Value); break;
+        //                                    case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(rev.__Id, kv.Value); break;
+        //                                    default: throw new NotImplementedException();
+        //                                }
+        //                            }
+        //                        } catch (Exception err) {
+        //                            var msg = "Error during state load. " + err.Message;
+        //                            log(msg, err);
+        //                            if (throwOnErrors) throw new Exception(msg, err);
+        //                        }
+        //                    }
+        //                }
+        //            } else {
+        //                // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
+        //            }
+        //        }
+        //    }
+        //} else if (action.Node is NodeData nd) {
+        //    foreach (var kv in nd.Values) {
+        //        if (Properties.TryGetValue(kv.PropertyId, out var property)) {
+        //            foreach (var index in property.AllIndexes) {
+        //                if (transactionTimestamp <= index.PersistedTimestamp) continue;
+        //                try {
+        //                    if (property.IsNodeRelevantForIndex(nd.NodeType, index)) {
+        //                        switch (action.Operation) {
+        //                            case PrimitiveOperation.Add: index.RegisterAddDuringStateLoad(nd.__Id, kv.Value); break;
+        //                            case PrimitiveOperation.Remove: index.RegisterRemoveDuringStateLoad(nd.__Id, kv.Value); break;
+        //                            default: throw new NotImplementedException();
+        //                        }
+        //                    }
+        //                } catch (Exception err) {
+        //                    var msg = "Error during state load. " + err.Message;
+        //                    log(msg, err);
+        //                    if (throwOnErrors) throw new Exception(msg, err);
+        //                }
+        //            }
+        //        } else {
+        //            // just ignore if unknown property in log. indicates property has been removed from datamodel, but log still contain value
+        //        }
+        //    }
+        //}
     }
     internal void AddInfo(DataStoreInfo info) {
         info.DatamodelNodeTypeCount = NodeTypes.Count - 1; // -1 due to base type
