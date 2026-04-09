@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 namespace Relatude.DB.DataStores.Stores;
 
 public class AddressRegistry {
+    private static readonly Guid _marker = new("fa5f4dd3-8520-4fc9-a260-637fe9ddb2ca");
     private readonly Dictionary<long, string> _addressByIdAndCulture = new();
     private readonly Dictionary<string, long> _idAndCultureByAddress = new(StringComparer.Ordinal);
     private readonly Dictionary<string, byte> _cultureIdByCode = new(StringComparer.Ordinal);
@@ -291,132 +292,59 @@ public class AddressRegistry {
     }
 
     public void SaveState(IAppendStream stream) {
+        stream.WriteMarker(_marker);
+        stream.RecordChecksum();
+
+        stream.WriteOneByte(_lastCultureId);
+        stream.WriteVerifiedInt(_cultureIdByCode.Count);
+        foreach (var kv in _cultureIdByCode) {
+            stream.WriteString(kv.Key);
+            stream.WriteOneByte(kv.Value);
+        }
+
+        stream.WriteVerifiedInt(_addressByIdAndCulture.Count);
+        foreach (var kv in _addressByIdAndCulture) {
+            stream.WriteLong(kv.Key);
+            stream.WriteString(kv.Value);
+        }
+
+        stream.WriteChecksum();
+        stream.WriteGuid(_marker);
     }
     public void ReadState(IReadStream stream) {
+        stream.ValidateMarker(_marker);
+        stream.RecordChecksum();
+
+        _addressByIdAndCulture.Clear();
+        _idAndCultureByAddress.Clear();
+        _cultureIdByCode.Clear();
+        Array.Clear(_cultureCodeById, 0, _cultureCodeById.Length);
+
+        _lastCultureId = stream.ReadOneByte();
+        var noCultures = stream.ReadVerifiedInt();
+        for (var i = 0; i < noCultures; i++) {
+            var cultureCode = stream.ReadString();
+            var cultureId = stream.ReadOneByte();
+            _cultureIdByCode[cultureCode] = cultureId;
+            _cultureCodeById[cultureId] = cultureCode;
+        }
+
+        var noAddresses = stream.ReadVerifiedInt();
+        for (var i = 0; i < noAddresses; i++) {
+            var key = stream.ReadLong();
+            var address = stream.ReadString();
+            _addressByIdAndCulture[key] = address;
+            _idAndCultureByAddress[address] = key;
+        }
+
+        stream.ValidateChecksum();
+        stream.ValidateMarker(_marker);
+
+        _inTransaction = false;
+        _undoLog?.Clear();
+        _transactionStartCultureId = _lastCultureId;
     }
 
 }
 
 
-
-
-//using System.Collections.Generic;
-
-//namespace Relatude.DB.DataStores.Stores;
-
-//public class AddressRegistry {
-//    private readonly Dictionary<IdCultureKey, string> _addressByIdAndCulture = new(IdCultureKeyComparer.Instance);
-//    private readonly Dictionary<string, IdCultureKey> _idAndCultureByAddress = new(StringComparer.Ordinal);
-
-//    private readonly struct IdCultureKey {
-//        public readonly int Id;
-//        public readonly string? CultureCode;
-
-//        public IdCultureKey(int id, string? cultureCode) {
-//            Id = id;
-//            CultureCode = cultureCode;
-//        }
-//    }
-
-//    private sealed class IdCultureKeyComparer : IEqualityComparer<IdCultureKey> {
-//        public static readonly IdCultureKeyComparer Instance = new();
-
-//        public bool Equals(IdCultureKey x, IdCultureKey y) {
-//            return x.Id == y.Id && string.Equals(x.CultureCode, y.CultureCode, StringComparison.Ordinal);
-//        }
-
-//        public int GetHashCode(IdCultureKey obj) {
-//            return HashCode.Combine(obj.Id, obj.CultureCode is null ? 0 : StringComparer.Ordinal.GetHashCode(obj.CultureCode));
-//        }
-//    }
-
-//    /// <summary>
-//    /// Tries to get the id and culture associated with the given address and culture. Returns false if not found.
-//    /// If false it means the address was not found, and the out parameters will be set to default values (id = 0, culture = null).
-//    /// </summary>
-//    /// <param name="address">The node address</param>
-//    /// <param name="id">The node id</param>
-//    /// <param name="cultureCode">Culture == null is a valid value </param>
-//    /// <returns>true if the address was found and the id and culture were returned in the out parameters; otherwise, false.</returns>
-//    public bool TryGetId(string address, out int id, out string? cultureCode) {
-//        if (_idAndCultureByAddress.TryGetValue(address, out var key)) {
-//            id = key.Id;
-//            cultureCode = key.CultureCode;
-//            return true;
-//        }
-
-//        id = 0;
-//        cultureCode = null;
-//        return false;
-//    }
-//    /// <summary>
-//    /// Retrieves the address associated with the specified identifier for a given culture.
-//    /// If no address is found the method returns null.
-//    /// </summary>
-//    /// <param name="id">The unique identifier of the address to retrieve.</param>
-//    /// <param name="cultureCode">An optional culture code (such as "en-US") used to localize the address. If null, the default culture is used.</param>
-//    /// <returns>A string containing the address if found; otherwise, null.</returns>
-//    public string? GetAddress(int id, string? cultureCode) {
-//        return _addressByIdAndCulture.TryGetValue(new IdCultureKey(id, cultureCode), out var address)
-//            ? address
-//            : null;
-//    }
-//    /// <summary>
-//    /// Updates the address information for the specified entity and indicates whether the address was changed.
-//    /// If the provided address is null, it removes the existing address for the given id and culture.
-//    /// If the address is currently in use by another id and culture, suggest a new unique address by appending a suffix to the provided address until it is unique, and return the new address in the out parameter. The method also returns a boolean indicating whether the address was changed (either updated to a new unique address or deleted if null was provided).
-//    /// </summary>
-//    /// <param name="id">The unique identifier of the entity whose address is to be updated.</param>
-//    /// <param name="address">The new address to assign to the entity. If null, the address is deleted for the id and culture</param>
-//    /// <param name="cultureCode">An optional culture code that specifies the localization context for the address update</param>
-//    /// <param name="newAddress">When this method returns, contains the updated address value. This parameter is passed uninitialized.</param>
-//    /// <param name="changedNewAddress">When this method returns, contains <see langword="true"/> if the given address had to be changed for uniqueness; otherwise, <see langword="false"/>.</param>
-//    public void Update(int id, string? address, string? cultureCode, out string? newAddress, out bool changedNewAddress) {
-//        var key = new IdCultureKey(id, cultureCode);
-//        _addressByIdAndCulture.TryGetValue(key, out var currentAddress);
-
-//        if (address is null) {
-//            if (currentAddress is not null) {
-//                _addressByIdAndCulture.Remove(key);
-//                _idAndCultureByAddress.Remove(currentAddress);
-//            }
-
-//            newAddress = null;
-//            changedNewAddress = false;
-//            return;
-//        }
-
-//        var candidate = address;
-//        if (_idAndCultureByAddress.TryGetValue(candidate, out var owner)
-//            && (owner.Id != key.Id || !string.Equals(owner.CultureCode, key.CultureCode, StringComparison.Ordinal))) {
-//            var suffix = 2;
-//            while (true) {
-//                candidate = string.Concat(address, "-", suffix.ToString());
-//                if (!_idAndCultureByAddress.TryGetValue(candidate, out owner)
-//                    || (owner.Id == key.Id && string.Equals(owner.CultureCode, key.CultureCode, StringComparison.Ordinal))) {
-//                    break;
-//                }
-
-//                suffix++;
-//            }
-//        }
-
-//        changedNewAddress = !string.Equals(candidate, address, StringComparison.Ordinal);
-
-//        if (string.Equals(currentAddress, candidate, StringComparison.Ordinal)) {
-//            newAddress = candidate;
-//            return;
-//        }
-
-//        if (currentAddress is not null) {
-//            _idAndCultureByAddress.Remove(currentAddress);
-//        }
-
-//        _addressByIdAndCulture[key] = candidate;
-//        _idAndCultureByAddress[candidate] = key;
-//        newAddress = candidate;
-//    }
-//    public void Remove(int id, string? address, string? cultureCode) {
-//        Update(id, null, cultureCode, out _, out _);
-//    }
-//}
