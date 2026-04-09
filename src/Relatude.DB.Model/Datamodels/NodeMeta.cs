@@ -29,8 +29,8 @@ public class NodeMeta {
         CreatedUtc = node.CreatedUtc;
         ChangedUtc = node.ChangedUtc;
         NodeTypeId = node.NodeType;
-        DisplayName = node.ToString();
-        // Address = node.Address;
+        DisplayName = node.DisplayName;
+        Address = node.Address;
         // AutoAddress = node.AutoAddress;
         Id = node.Id;
         InternalId = node.__Id;
@@ -43,9 +43,9 @@ public class NodeMeta {
     public Guid Id { get; }
     
     public bool? AutoDisplayName { get; }
-    public string DisplayName { get; } // null, means not having any address
-    public bool? AutoAddress { get; } // null mean defaults to type default
+    public string? DisplayName { get; } // null, means not having any displayName
     public string? Address{ get; } // null, means not having any address
+    public bool? AutoAddress { get; } // null mean defaults to type default
 
     public Guid RevisionId { get; }
 

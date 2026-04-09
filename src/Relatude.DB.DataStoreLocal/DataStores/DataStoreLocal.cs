@@ -215,6 +215,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     void initialize() {
         _sets = new((long)(_settings.SetCacheSizeGb * 1024d * 1024d * 1024d));
         _guids = new();
+        _addresses = new();
         _definition = new(_sets, Datamodel, this);
 
         if (_createPersistedIndexStore != null) {

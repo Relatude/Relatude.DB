@@ -539,9 +539,11 @@ internal class ActionConverter {
         }
     }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAddressAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+        throw new NotImplementedException();
+        var nodeId = db._guids.ValidateAndReturnIntId(a.IdKey);
         switch (a.Operation) {
             case NodeAddressOperation.Reset:
-                db._guids
+                
                 break;
             case NodeAddressOperation.UpdateOrFail:
                 break;

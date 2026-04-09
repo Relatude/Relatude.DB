@@ -6,8 +6,7 @@ namespace Relatude.DB.Datamodels;
 public enum NodeDataStorageVersions {
     Legacy0 = 0,
     Legacy1 = 1,
-    NodeData_Legacy2 = 2,
-    NodeData = 3,
+    NodeData = 2,
     RevisionContainer = 100,
 }
 internal class NA : Exception {
@@ -41,7 +40,7 @@ public interface INodeData {
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
     string? DisplayName { get; set; }
     string? Address { get; set; }
-
+    bool AutoAddress { get; set; }
 }
 public abstract class NodeDataAbstract : INodeData {  // permanently readonly once set to readonly, to ensure cached objects are immutable, Relations are alyways empty and can never be set
     readonly static EmptyRelations emptyRelations = new(); // Relations are alyways empty and can never be set
@@ -51,7 +50,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     public Properties<object> _values;
     public NodeDataAbstract(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) {
+        Properties<object> values, IInnerNodeMeta? meta) {
         _guid = guid;
         _id = id;
         NodeType = nodeType;
@@ -65,8 +64,6 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
                 Meta = meta;
             }
         }
-        DisplayName = displayName;
-        Address = address;
     }
     public int __Id {
         get => _id;
@@ -113,19 +110,29 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     public override string ToString() {
         return Id.ToString();
     }
-    public string? DisplayName { get; set; }
-    public string? Address { get; set; }
+    public string? DisplayName {
+        get => _values.GetOrFallback<string?>(NodeConstants.SystemDisplayNamePropertyId, null);
+        set => _values.SetOrRemoveIfNull(NodeConstants.SystemDisplayNamePropertyId, string.IsNullOrEmpty(value) ? null : value);
+    }
+    public string? Address {
+        get => _values.GetOrFallback<string?>(NodeConstants.SystemAddressPropertyId, null);
+        set => _values.SetOrRemoveIfNull(NodeConstants.SystemAddressPropertyId, string.IsNullOrEmpty(value) ? null : value);
+    }
+    public bool AutoAddress {
+        get => _values.GetOrFallback<bool>(NodeConstants.SystemAutoAddressPropertyId, false);
+        set => _values.SetOrRemoveIfNull(NodeConstants.SystemAutoAddressPropertyId, value ? true : null);
+    }
 }
 public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
     public int RevisionKey => 0;
     public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) : 
-        base(guid, id, nodeType, createdUtc, changedUtc, values, meta, displayName, address) {
+        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) :
+        base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
     }
     public NodeDataRevision CopyAndConvertToNodeDataRevision(IInnerNodeMeta? meta, Guid revisionGuid) {
-        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid, DisplayName, Address);
+        var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid);
         return rev;
     }
     public INodeDataInner CopyAndChangeMeta(IInnerNodeMeta? meta) {
@@ -178,6 +185,7 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public override string ToString() => $"NodeDataOnlyId: {Id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
+    public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
 public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {
@@ -214,6 +222,7 @@ public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
+    public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
 public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndGuid(Guid id, Guid typeId) {
@@ -250,4 +259,5 @@ public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data wi
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
+    public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }

@@ -63,6 +63,21 @@ public class Properties<T> {
         value = default;
         return false;
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public K GetOrFallback<K>(Guid key, K fallback) {
+        for (int i = 0; i < _size; i++) {
+            if (_values[i].PropertyId == key) return (K)(object)_values[i].Value!;
+        }
+        return fallback;
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void SetOrRemoveIfNull(Guid key, T? value) {
+        if (value == null) {
+            RemoveIfPresent(key);
+        } else {
+            AddOrUpdate(key, value);
+        }
+    }
     public IEnumerable<PropertyEntry<T>> Items {
         get {
             for (int i = 0; i < _size; i++) yield return _values[i];

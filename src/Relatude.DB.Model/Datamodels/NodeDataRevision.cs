@@ -56,17 +56,17 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     public RevisionType RevisionType => Meta?.RevisionType ?? RevisionType.Published;
     public NodeDataRevision(Guid guid, int id, Guid nodeType,
     DateTime createdUtc, DateTime changedUtc,
-    Properties<object> values, IInnerNodeMeta? meta, Guid revisionId, string? displayName, string? address)
-    : base(guid, id, nodeType, createdUtc, changedUtc, values, meta, displayName, address) {
+    Properties<object> values, IInnerNodeMeta? meta, Guid revisionId)
+    : base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
         RevisionId = revisionId;
     }
     public NodeDataRevision CopyAndChangeMetaAndRevisionId(IInnerNodeMeta? newMeta, Guid revisionGuid) {
-        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid, DisplayName, Address);
+        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, revisionGuid);
     }
     public NodeDataRevision CopyAndChangeMeta(IInnerNodeMeta? newMeta) {
-        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId, DisplayName, Address);
+        return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId);
     }
-    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId, DisplayName, Address);
+    public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
     public INodeDataOuter CopyOuter() => CopyRevision();
 
     public NodeData CopyAndConvertToNodeData() {
@@ -137,5 +137,6 @@ public class NodeDataRevisions : INodeDataInner {
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
+    public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 
 }

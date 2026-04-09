@@ -2,12 +2,14 @@
 
 public static class NodeConstants {
 
-    const string BaseNodeTypeIdString = "ac6515ae-3ca5-43fa-8045-7a5a1bb11830";
-    const string TextIndexPropertyIdString = "b835577e-84a2-4fa3-a850-44ab2112e6cf";
-    const string VectorIndexPropertyIdString = "1e282f9f-3bd2-4230-abcb-f9e840145159";
-    public static readonly Guid BaseNodeTypeId = new(BaseNodeTypeIdString);
-    public static readonly Guid SystemTextIndexPropertyId = new(TextIndexPropertyIdString);
-    public static readonly Guid SystemVectorIndexPropertyId = new(VectorIndexPropertyIdString);
+    public static readonly Guid BaseNodeTypeId = new("ac6515ae-3ca5-43fa-8045-7a5a1bb11830");
+    public static readonly Guid SystemTextIndexPropertyId = new("b835577e-84a2-4fa3-a850-44ab2112e6cf");
+    public static readonly Guid SystemVectorIndexPropertyId = new("1e282f9f-3bd2-4230-abcb-f9e840145159");
+
+    public static readonly Guid SystemAddressPropertyId = new("57c752bf-e364-43e1-9163-d8ffea004bad");
+    public static readonly Guid SystemAutoAddressPropertyId = new("cf885adf-1121-41d8-85e6-70c553345dd0");
+    public static readonly Guid SystemDisplayNamePropertyId = new("c1ea2c8a-dbe8-4fa0-a020-ae05507305b6");
+
 
     public static readonly Guid MasterAdminUserId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
 
@@ -18,6 +20,9 @@ public static class NodeConstants {
 
     public static readonly string SystemTextIndexPropertyName = "_textIndex";
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";
+    public static readonly string SystemAddressPropertyName = "_address";
+    public static readonly string SystemAutoAddressPropertyName = "_autoAddress";
+    public static readonly string SystemDisplayNamePropertyName = "_displayName";
 
     public const string BaseUserIdString = "243f1514-46c3-4106-9c6a-4a25fb39238b";
     public const string BaseUserGroupIdString = "afd3b9e4-7565-49ae-ac3b-ed20b5ccfe6a";

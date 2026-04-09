@@ -233,6 +233,30 @@ public partial class Datamodel {
             Private = true,
         };
         props.Add(vectorIndex);
+        var address = new StringPropertyModel() {
+            Id = NodeConstants.SystemAddressPropertyId,
+            CodeName = NodeConstants.SystemAddressPropertyName,
+            ExcludeFromTextIndex = true,
+            Indexed = false,
+            Private = true,
+        };
+        props.Add(address);
+        var autoAddress = new BooleanPropertyModel() {
+            Id = NodeConstants.SystemAutoAddressPropertyId,
+            CodeName = NodeConstants.SystemAutoAddressPropertyName,
+            ExcludeFromTextIndex = true,
+            Indexed = false,
+            Private = true,
+        };
+        props.Add(autoAddress);
+        var displayName = new StringPropertyModel() {
+            Id = NodeConstants.SystemDisplayNamePropertyId,
+            CodeName = NodeConstants.SystemDisplayNamePropertyName,
+            ExcludeFromTextIndex = false,
+            Indexed = false,
+            DisplayName = true,
+            Private = true,
+        };
         return props;
     }
     static void findAllInherited(Datamodel datamodel, NodeTypeModel ct, Dictionary<Guid, NodeTypeModel> allInherited) {

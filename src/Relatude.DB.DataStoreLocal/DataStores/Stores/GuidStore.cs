@@ -13,6 +13,7 @@ namespace Relatude.DB.DataStores.Stores {
         
     }
     internal class GuidStore : IDisposable {
+        public GuidStore() { }
         object _lock = new object();
         readonly Dictionary<Guid, int> _ids = [];
         readonly Dictionary<int, Guid> _guids = [];

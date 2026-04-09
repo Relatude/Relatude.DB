@@ -40,8 +40,9 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
-    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
-    public string? Address { get => throw new NA(); set => throw new NA(); }
+    public string? DisplayName { get => _node.DisplayName; set => throwReadOnlyError(); }
+    public string? Address { get => _node.Address; set => throwReadOnlyError(); }
+    public bool AutoAddress { get => _node.AutoAddress; set => throwReadOnlyError(); }
 }
 public interface IRelations {
     void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation);
