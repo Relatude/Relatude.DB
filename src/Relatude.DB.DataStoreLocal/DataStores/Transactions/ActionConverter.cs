@@ -13,6 +13,7 @@ internal class ActionConverter {
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
+            NodeAddressAction nodeAddressAction => toPrimitiveActions(db, nodeAddressAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
         resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
@@ -376,8 +377,8 @@ internal class ActionConverter {
         }
         yield break;
     }
-    static bool forgivingRevisionActions = true;
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+        const bool _forgivingRevisionActions = true;
         int nodeId = db._guids.ValidateAndReturnIntId(a.NodeIdKey);
         if (!db._nodes.TryGet(nodeId, out var existingNode, out _)) throw new Exception("Node with id " + a.NodeIdKey + " does not exist, cannot perform revision action. ");
         switch (a.Operation) {
@@ -390,7 +391,7 @@ internal class ActionConverter {
                         var newNode = new NodeDataRevisions(nd.Id, nd.__Id, nd.NodeType, [rev]);
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     } else if (existingNode is NodeDataRevisions) {
-                        if (!forgivingRevisionActions) throw new Exception("Cannot enable revisions for node with id " + a.NodeIdKey + " because it is already enabled. ");
+                        if (!_forgivingRevisionActions) throw new Exception("Cannot enable revisions for node with id " + a.NodeIdKey + " because it is already enabled. ");
                     }
                 }
                 break;
@@ -404,9 +405,9 @@ internal class ActionConverter {
                         var newNode = revisionToKeep.CopyAndConvertToNodeData();
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     } else if (existingNode is NodeData) {
-                        if (!forgivingRevisionActions) throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
+                        if (!_forgivingRevisionActions) throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
                     } else {
-                        if (!forgivingRevisionActions) throw new Exception("Unexpected node data type for node with id " + a.NodeIdKey + " when disabling revisions. ");
+                        if (!_forgivingRevisionActions) throw new Exception("Unexpected node data type for node with id " + a.NodeIdKey + " when disabling revisions. ");
                     }
                 }
                 break;
@@ -425,7 +426,7 @@ internal class ActionConverter {
                     }
 
                     if (existingNode is not NodeDataRevisions revs) {
-                        if (!forgivingRevisionActions) throw new Exception("Cannot create revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. ");
+                        if (!_forgivingRevisionActions) throw new Exception("Cannot create revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. ");
                         if (sourceRevisionId == null) sourceRevisionId = Guid.NewGuid();
                         var enableAction = NodeRevisionAction.EnableRevisions(a.NodeIdKey, sourceRevisionId);
                         foreach (var subAction in toPrimitiveActions(db, enableAction, transformValues, key, newTasks)) yield return subAction;
@@ -455,7 +456,7 @@ internal class ActionConverter {
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot delete revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to delete a revision. ");
                     if (a.RevisionId == null) throw new Exception("RevisionId must be given to delete a revision. ");
                     var posOfRevToDelete = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId);
-                    if (posOfRevToDelete == -1 && forgivingRevisionActions) yield break; // if forgiving, ignore if revision to delete does not exist
+                    if (posOfRevToDelete == -1 && _forgivingRevisionActions) yield break; // if forgiving, ignore if revision to delete does not exist
                     if (posOfRevToDelete == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot delete revision. ");
                     if (revs.Revisions.Length == 1) throw new Exception("Cannot delete the last revision for node with id " + a.NodeIdKey + ". ");
                     var newRevs = revs.Revisions.Where((r, i) => i != posOfRevToDelete).ToArray();
@@ -532,6 +533,23 @@ internal class ActionConverter {
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     }
                 }
+                break;
+            default:
+                break;
+        }
+    }
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAddressAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
+        switch (a.Operation) {
+            case NodeAddressOperation.Reset:
+                db._guids
+                break;
+            case NodeAddressOperation.UpdateOrFail:
+                break;
+            case NodeAddressOperation.UpdateOrFallback:
+                break;
+            case NodeAddressOperation.SetAutomatic:
+                break;
+            case NodeAddressOperation.SetManual:
                 break;
             default:
                 break;

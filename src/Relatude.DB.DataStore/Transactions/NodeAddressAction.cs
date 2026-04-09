@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.Transactions;
 public enum NodeAddressOperation : byte {
@@ -9,12 +10,16 @@ public enum NodeAddressOperation : byte {
     SetManual = 5,
 }
 public class NodeAddressAction : ActionBase {
-    public NodeAddressAction(NodeAddressOperation operation, string? address = null)
+    public NodeAddressAction(IdKey idKey, Guid? revisionId, NodeAddressOperation operation, string? address = null)
       : base(ActionTarget.NodeAddress) {
+        IdKey = idKey;
+        RevisionId = revisionId;
         Operation = operation;
         Address = address;
     }
     public NodeAddressOperation Operation { get; }
+    public IdKey IdKey { get; }
+    public Guid? RevisionId { get; }
     public string? Address;
     public override string ToString() {
         return Operation switch {

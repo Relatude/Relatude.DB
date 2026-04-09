@@ -22,7 +22,6 @@ public readonly struct IdKey {
         }
     }
 }
-
 public readonly struct IdKeyWithCultureId {
     public IdKeyWithCultureId(IdKey idKey, Guid cultureId) { IdKey = idKey; CultureId = cultureId; }
     public IdKey IdKey { get; }
