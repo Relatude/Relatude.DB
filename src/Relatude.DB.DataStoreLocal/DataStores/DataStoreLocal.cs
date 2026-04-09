@@ -25,6 +25,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     DataStoreState _state;
     internal Definition _definition = default!;
     internal GuidStore _guids = default!;
+    internal AddressRegistry _addresses = default!;
     internal IndexStore _index = default!;
     internal RelationStore _relations = default!;
     internal WALFile _wal = default!;

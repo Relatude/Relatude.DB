@@ -48,6 +48,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         stream.WriteGuid(_wal.FileId); // must match log file
         UpdateActivity(activityId, "Saving guids");
         _guids.SaveState(stream);
+        UpdateActivity(activityId, "Saving addresses");
+        _addresses.SaveState(stream);
         UpdateActivity(activityId, "Saving segments");
         _nodes.SaveState(stream);
         UpdateActivity(activityId, "Saving native models");
@@ -141,6 +143,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 if (fileId != walFileId) throw new Exception("Statefile does not belong to log file. It cannot be used. ");
                 UpdateActivity(activityId, "Reading id registry", 5);
                 _guids.ReadState(stream);
+                UpdateActivity(activityId, "Reading addresses", 5);
+                _addresses.ReadState(stream);
+                UpdateActivity(activityId, "Reading segments", 5);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
                 setStartupProgressEstimate(52);
                 UpdateActivity(activityId, "Reading native models", 8); // 8%-10%

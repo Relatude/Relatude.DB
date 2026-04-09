@@ -111,6 +111,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var executed = new List<PrimitiveActionBase>();
         try {
             _guids.StartRecordingNewIds(); // can be cancelled later in case transaction fails so that new IDs are not wasted
+            _addresses.BeginTransaction();
             bool anyLocks = _nodeWriteLocks.AnyLocks();
             var i = 0;
             var count = transaction.Actions.Count;
@@ -142,6 +143,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
             }
             _guids.CommitNewIds();
+            _addresses.CommitTransaction();
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
                     transaction.InnerCallbackBeforeCommitting();
@@ -159,6 +161,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         } finally {
             _guids.CancelUnCommitedNewIdsIfAny();
+            _addresses.RollbackTransaction();
         }
     }
     void validateLocks(PrimitiveActionBase a, HashSet<Guid>? transactionLocks) {

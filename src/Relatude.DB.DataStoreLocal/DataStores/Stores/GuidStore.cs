@@ -10,6 +10,7 @@ namespace Relatude.DB.DataStores.Stores {
     internal struct IdPair(int id, Guid guid) {
         public readonly int Id = id;
         public readonly Guid Guid = guid;
+        
     }
     internal class GuidStore : IDisposable {
         object _lock = new object();

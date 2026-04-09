@@ -71,8 +71,8 @@ internal static class MapperGen {
             }
         }
 
-        void helper(string name, string? prop, string val) =>
-            sb.AppendLine($"var {name} = {(string.IsNullOrEmpty(prop) ? val : $"node.{prop}")};");
+        void helper(string name, string? prop, string val, string typeDec="var") =>
+            sb.AppendLine($"{typeDec} {name} = {(string.IsNullOrEmpty(prop) ? val : $"node.{prop}")};");
 
         //helper("collectionId", nodeDef.NameOfCollectionProperty, "Guid.Empty");
         //helper("lcid", nodeDef.NameOfLCIDProperty, "0");
@@ -82,8 +82,8 @@ internal static class MapperGen {
 
         helper("createdUtc", nodeDef.NameOfCreatedUtcProperty, "DateTime.MinValue");
         helper("changedUtc", nodeDef.NameOfChangedUtcProperty, "DateTime.UtcNow");
-        helper("displayName", nodeDef.NameOfDisplayNameProperty, "null");
-        helper("address", nodeDef.NameOfAddressProperty, "null");
+        helper("displayName", nodeDef.NameOfDisplayNameProperty, "null", "string?");
+        helper("address", nodeDef.NameOfAddressProperty, "null", "string?");
 
         sb.Append("var nodeData = new " + typeof(NodeData).Namespace + "." + nameof(NodeData) + "(");
         sb.Append("gid, uid, " + CodeUtils.GuidName(nodeDef.Id));
