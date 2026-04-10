@@ -21,6 +21,12 @@ public class DemoArticle {
     public Tree.Parent Parent { get; set; } = new();
     public Tree.Children Children { get; set; } = new();
 
+    [AddressProperty]
+    public string Address { get; set; } = string.Empty;
+
+    [DisplayNameProperty]
+    public string DisplayName { get; set; } = string.Empty;
+
 }
 
 

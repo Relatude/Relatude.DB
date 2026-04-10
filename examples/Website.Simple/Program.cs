@@ -28,7 +28,30 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-app.MapGet("/test", () => {
+app.MapGet("/test", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var art1 = new DemoArticle {
+        Title = "Test Article",
+        Content = "This is a test article.",
+        Size = 123,
+        DisplayName = "Test Article Display Name",
+        Address = "asdasdast",
+    };
+
+    var art2 = new DemoArticle {
+        Title = "Another Article",
+        Content = "This is another test article.",
+        Size = 456,
+        DisplayName = "Another Article Display Name",
+        Address = "asdasd",
+    };
+    db.Insert([art1, art2]);
+    var sb= new StringBuilder();
+    foreach (var a in db.Query<DemoArticle>().Execute()) {
+        sb.AppendLine($"Article: {a.Title}, Address: {a.Address}, DisplayName: {a.DisplayName}");
+    }
+    return sb.ToString();
+
 });
 bool firstUpload = true;
 app.MapGet("/testUpload", async (RelatudeDBContext ctx) => {
