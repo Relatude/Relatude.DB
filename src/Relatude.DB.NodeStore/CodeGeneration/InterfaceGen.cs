@@ -89,7 +89,7 @@ internal static class InterfaceGen {
 
         // regular properties:
         CodeUtils.Generate_CreateStaticGuids(sb, nodeDef, datamodel);
-        foreach (var p in nodeDef.Properties.Values.Where(p => !p.Private)) {
+        foreach (var p in nodeDef.Properties.Values.Where(p => !p.Internal)) {
             var typeName = CodeUtils.GetTypeName(p, datamodel);
             var pIdName = CodeUtils.GuidName(p.Id);
             if (p.PropertyType == PropertyType.Relation) {

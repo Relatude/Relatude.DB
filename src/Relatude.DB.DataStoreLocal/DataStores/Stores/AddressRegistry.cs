@@ -12,20 +12,20 @@ public class AddressRegistry {
     private byte _lastCultureId = 0;
     private bool _inTransaction;
     private byte _transactionStartCultureId;
-    private List<UndoEntry>? _undoLog;
+    private List<undoEntry>? _undoLog;
 
-    private enum UndoKind : byte {
+    enum undoKind : byte {
         RestoreAddressByIdAndCulture,
         RestoreIdAndCultureByAddress,
     }
 
-    private readonly struct UndoEntry {
-        public readonly UndoKind Kind;
+    readonly struct undoEntry {
+        public readonly undoKind Kind;
         public readonly long Key;
         public readonly string Address;
         public readonly bool HadValue;
 
-        public UndoEntry(UndoKind kind, long key, string address, bool hadValue) {
+        public undoEntry(undoKind kind, long key, string address, bool hadValue) {
             Kind = kind;
             Key = key;
             Address = address;
@@ -34,22 +34,22 @@ public class AddressRegistry {
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static long PackKey(int id, byte cultureId) {
+    static long packKey(int id, byte cultureId) {
         return ((long)(uint)id << 8) | cultureId;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int UnpackId(long key) {
+    static int unpackId(long key) {
         return unchecked((int)(uint)(key >> 8));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte UnpackCultureId(long key) {
+    static byte unpackCultureId(long key) {
         return (byte)key;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetPositiveIntDigitCount(int value) {
+    static int getPositiveIntDigitCount(int value) {
         if (value < 10) return 1;
         if (value < 100) return 2;
         if (value < 1_000) return 3;
@@ -62,8 +62,8 @@ public class AddressRegistry {
         return 10;
     }
 
-    private static string CreateSuffixedAddress(string address, int suffix) {
-        int digits = GetPositiveIntDigitCount(suffix);
+    static string createSuffixedAddress(string address, int suffix) {
+        int digits = getPositiveIntDigitCount(suffix);
         return string.Create(address.Length + 1 + digits, (address, suffix), static (span, state) => {
             state.address.AsSpan().CopyTo(span);
             int offset = state.address.Length;
@@ -72,7 +72,7 @@ public class AddressRegistry {
         });
     }
 
-    private bool TryGetCultureId(Guid? cultureCode, out byte cultureId) {
+    bool tryGetCultureId(Guid? cultureCode, out byte cultureId) {
         if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             cultureId = 0;
             return true;
@@ -80,7 +80,7 @@ public class AddressRegistry {
 
         return _cultureIdByCode.TryGetValue(cultureCode.Value, out cultureId);
     }
-    private byte GetOrAddCultureId(Guid? cultureCode) {
+    byte getOrAddCultureId(Guid? cultureCode) {
         if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             return 0;
         }
@@ -101,6 +101,55 @@ public class AddressRegistry {
         return cultureId;
     }
 
+    void setAddressByIdAndCulture(long key, string value) {
+        if (_inTransaction && _undoLog is not null) {
+            if (_addressByIdAndCulture.TryGetValue(key, out var existing)) {
+                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, true));
+            } else {
+                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, string.Empty, false));
+            }
+        }
+
+        _addressByIdAndCulture[key] = value;
+    }
+
+    void removeAddressByIdAndCulture(long key) {
+        if (!_addressByIdAndCulture.TryGetValue(key, out var existing)) {
+            return;
+        }
+
+        if (_inTransaction && _undoLog is not null) {
+            _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, true));
+        }
+
+        _addressByIdAndCulture.Remove(key);
+    }
+
+    private void setIdAndCultureByAddress(string address, long key) {
+        if (_inTransaction && _undoLog is not null) {
+            if (_idAndCultureByAddress.TryGetValue(address, out var existing)) {
+                _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, existing, address, true));
+            } else {
+                _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, default, address, false));
+            }
+        }
+
+        _idAndCultureByAddress[address] = key;
+    }
+
+    private void removeIdAndCultureByAddress(string address) {
+        if (!_idAndCultureByAddress.TryGetValue(address, out var existing)) {
+            return;
+        }
+
+        if (_inTransaction && _undoLog is not null) {
+            _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, existing, address, true));
+        }
+
+        _idAndCultureByAddress.Remove(address);
+    }
+
+
     public void BeginTransaction() {
         if (_inTransaction) {
             throw new InvalidOperationException("Transaction already started.");
@@ -109,7 +158,7 @@ public class AddressRegistry {
         _inTransaction = true;
         _transactionStartCultureId = _lastCultureId;
         if (_undoLog is null) {
-            _undoLog = new List<UndoEntry>(32);
+            _undoLog = new List<undoEntry>(32);
         } else {
             _undoLog.Clear();
         }
@@ -134,14 +183,14 @@ public class AddressRegistry {
             for (int i = undoLog.Count - 1; i >= 0; i--) {
                 var entry = undoLog[i];
                 switch (entry.Kind) {
-                    case UndoKind.RestoreAddressByIdAndCulture:
+                    case undoKind.RestoreAddressByIdAndCulture:
                         if (entry.HadValue) {
                             _addressByIdAndCulture[entry.Key] = entry.Address;
                         } else {
                             _addressByIdAndCulture.Remove(entry.Key);
                         }
                         break;
-                    case UndoKind.RestoreIdAndCultureByAddress:
+                    case undoKind.RestoreIdAndCultureByAddress:
                         if (entry.HadValue) {
                             _idAndCultureByAddress[entry.Address] = entry.Key;
                         } else {
@@ -165,59 +214,10 @@ public class AddressRegistry {
         _lastCultureId = _transactionStartCultureId;
         _undoLog?.Clear();
     }
-
-    private void SetAddressByIdAndCulture(long key, string value) {
-        if (_inTransaction && _undoLog is not null) {
-            if (_addressByIdAndCulture.TryGetValue(key, out var existing)) {
-                _undoLog.Add(new UndoEntry(UndoKind.RestoreAddressByIdAndCulture, key, existing, true));
-            } else {
-                _undoLog.Add(new UndoEntry(UndoKind.RestoreAddressByIdAndCulture, key, string.Empty, false));
-            }
-        }
-
-        _addressByIdAndCulture[key] = value;
-    }
-
-    private void RemoveAddressByIdAndCulture(long key) {
-        if (!_addressByIdAndCulture.TryGetValue(key, out var existing)) {
-            return;
-        }
-
-        if (_inTransaction && _undoLog is not null) {
-            _undoLog.Add(new UndoEntry(UndoKind.RestoreAddressByIdAndCulture, key, existing, true));
-        }
-
-        _addressByIdAndCulture.Remove(key);
-    }
-
-    private void SetIdAndCultureByAddress(string address, long key) {
-        if (_inTransaction && _undoLog is not null) {
-            if (_idAndCultureByAddress.TryGetValue(address, out var existing)) {
-                _undoLog.Add(new UndoEntry(UndoKind.RestoreIdAndCultureByAddress, existing, address, true));
-            } else {
-                _undoLog.Add(new UndoEntry(UndoKind.RestoreIdAndCultureByAddress, default, address, false));
-            }
-        }
-
-        _idAndCultureByAddress[address] = key;
-    }
-
-    private void RemoveIdAndCultureByAddress(string address) {
-        if (!_idAndCultureByAddress.TryGetValue(address, out var existing)) {
-            return;
-        }
-
-        if (_inTransaction && _undoLog is not null) {
-            _undoLog.Add(new UndoEntry(UndoKind.RestoreIdAndCultureByAddress, existing, address, true));
-        }
-
-        _idAndCultureByAddress.Remove(address);
-    }
-
     public bool TryGetId(string address, out int id, out Guid? cultureCode) {
         if (_idAndCultureByAddress.TryGetValue(address, out var key)) {
-            id = UnpackId(key);
-            cultureCode = _cultureCodeById[UnpackCultureId(key)];
+            id = unpackId(key);
+            cultureCode = _cultureCodeById[unpackCultureId(key)];
             return true;
         }
 
@@ -226,33 +226,45 @@ public class AddressRegistry {
         return false;
     }
     public string? GetAddress(int id, Guid? cultureCode) {
-        if (!TryGetCultureId(cultureCode, out var cultureId)) {
+        if (!tryGetCultureId(cultureCode, out var cultureId)) {
+            Console.WriteLine($"GetAddress: id={id}, cultureCode={cultureCode}, result='null' (invalid culture code)");
             return null;
         }
+        //return _addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var address)
+        //    ? address
+        //    : null;
 
-        return _addressByIdAndCulture.TryGetValue(PackKey(id, cultureId), out var address)
+        var result=_addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var address)
             ? address
             : null;
+        Console.WriteLine($"GetAddress: id={id}, cultureCode={cultureCode}, result='{result}'");
+        return result;
+
     }
     public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
+        //debug:
+        Console.WriteLine($"Update: id={id}, address='{address}', cultureCode={cultureCode}");
+
+
+
         byte cultureId;
         if (address is null) {
-            if (!TryGetCultureId(cultureCode, out cultureId)) {
+            if (!tryGetCultureId(cultureCode, out cultureId)) {
                 newAddress = null;
                 changedNewAddress = false;
                 return;
             }
         } else {
-            cultureId = GetOrAddCultureId(cultureCode);
+            cultureId = getOrAddCultureId(cultureCode);
         }
 
-        var key = PackKey(id, cultureId);
+        var key = packKey(id, cultureId);
         _addressByIdAndCulture.TryGetValue(key, out var currentAddress);
 
         if (address is null) {
             if (currentAddress is not null) {
-                RemoveAddressByIdAndCulture(key);
-                RemoveIdAndCultureByAddress(currentAddress);
+                removeAddressByIdAndCulture(key);
+                removeIdAndCultureByAddress(currentAddress);
             }
 
             newAddress = null;
@@ -264,7 +276,7 @@ public class AddressRegistry {
         if (_idAndCultureByAddress.TryGetValue(candidate, out var owner) && owner != key) {
             var suffix = 2;
             while (true) {
-                candidate = CreateSuffixedAddress(address, suffix);
+                candidate = createSuffixedAddress(address, suffix);
                 if (!_idAndCultureByAddress.TryGetValue(candidate, out owner) || owner == key) {
                     break;
                 }
@@ -281,11 +293,11 @@ public class AddressRegistry {
         }
 
         if (currentAddress is not null) {
-            RemoveIdAndCultureByAddress(currentAddress);
+            removeIdAndCultureByAddress(currentAddress);
         }
 
-        SetAddressByIdAndCulture(key, candidate);
-        SetIdAndCultureByAddress(candidate, key);
+        setAddressByIdAndCulture(key, candidate);
+        setIdAndCultureByAddress(candidate, key);
         newAddress = candidate;
     }
     public void Remove(int id, string? address, Guid? cultureCode) {
@@ -293,10 +305,10 @@ public class AddressRegistry {
     }
     public void Remove(int id) {
         for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
-            var key = PackKey(id, (byte)cultureId);
+            var key = packKey(id, (byte)cultureId);
             if (_addressByIdAndCulture.TryGetValue(key, out var address)) {
-                RemoveAddressByIdAndCulture(key);
-                RemoveIdAndCultureByAddress(address);
+                removeAddressByIdAndCulture(key);
+                removeIdAndCultureByAddress(address);
             }
         }
     }

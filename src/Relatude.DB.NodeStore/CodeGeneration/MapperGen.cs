@@ -38,7 +38,8 @@ internal static class MapperGen {
         var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
         sb.Append("public " + typeof(INodeDataOuter).Namespace + "." + nameof(INodeDataOuter) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
         sb.AppendLine(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related){");
-        var noneRelProps = nodeDef.AllProperties.Values.Where(p => !p.Private && p.PropertyType != PropertyType.Relation);
+        var noneRelProps = nodeDef.AllProperties.Values
+            .Where(p => (!p.Internal) && p.PropertyType != PropertyType.Relation);
         sb.AppendLine("var values = new " + typeof(Properties<>).FullName!.Replace("`1", "") + "<object>(" + noneRelProps.Count() + ");");
         sb.AppendLine("var node = (" + classTypeName + ")obj;");
         if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty)) {
@@ -74,27 +75,18 @@ internal static class MapperGen {
         void helper(string name, string? prop, string val, string typeDec="var") =>
             sb.AppendLine($"{typeDec} {name} = {(string.IsNullOrEmpty(prop) ? val : $"node.{prop}")};");
 
-        //helper("collectionId", nodeDef.NameOfCollectionProperty, "Guid.Empty");
-        //helper("lcid", nodeDef.NameOfLCIDProperty, "0");
-        //helper("derivedFromLCID", nodeDef.NameOfDerivedFromLCID, "0");
-        //helper("readAccess", nodeDef.NameOfReadAccessProperty, "Guid.Empty");
-        //helper("writeAccess", nodeDef.NameOfWriteAccessProperty, "Guid.Empty");
-
         helper("createdUtc", nodeDef.NameOfCreatedUtcProperty, "DateTime.MinValue");
         helper("changedUtc", nodeDef.NameOfChangedUtcProperty, "DateTime.UtcNow");
-        helper("displayName", nodeDef.NameOfDisplayNameProperty, "null", "string?");
-        helper("address", nodeDef.NameOfAddressProperty, "null", "string?");
-
+        
         sb.Append("var nodeData = new " + typeof(NodeData).Namespace + "." + nameof(NodeData) + "(");
         sb.Append("gid, uid, " + CodeUtils.GuidName(nodeDef.Id));
         //sb.Append(", collectionId, lcid, derivedFromLCID, readAccess, writeAccess, ");
         sb.Append(", createdUtc, changedUtc, values");
         sb.Append(", null");
-        sb.Append(", displayName, address");
         sb.AppendLine(");");
 
         sb.AppendLine("if(related!=null){");
-        foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Private && p is RelationPropertyModel relProp && relProp.RelationValueType != RelationValueType.Native)) {
+        foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Internal && p is RelationPropertyModel relProp && relProp.RelationValueType != RelationValueType.Native)) {
             sb.AppendLine("if(node." + p.CodeName + " != null) related.Add(" + CodeUtils.GuidName(p.Id) + ", node, node." + p.CodeName + ");");
         }
         sb.AppendLine("}");
@@ -149,7 +141,7 @@ internal static class MapperGen {
 
         }
         if (!nodeDef.IsInterface) {
-            foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Private)) {
+            foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Internal)) {
                 if (p.PropertyType == PropertyType.Relation) {
                     if (p is not RelationPropertyModel rp) throw new Exception("PropertyModel " + p.ToString() + " is not a RelationPropertyModel.");
                     var relation = dm.Relations[rp.RelationId];

@@ -61,7 +61,7 @@ public static partial class FromBytes {
                 }
             }
         }
-        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null, null, null);
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null);
     }
     static NodeData read_Legacy_1(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
@@ -93,7 +93,7 @@ public static partial class FromBytes {
                 }
             }
         }
-        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null, null, null);
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, null);
     }
     static NodeDataRevision read_NodeDataRevision(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var revisionGuid = stream.ReadGuid();
@@ -175,7 +175,7 @@ public static partial class FromBytes {
             }
         }
 
-        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, meta, null, null);
+        return new NodeData(guid, __id, nodeTypeId, createdUtc, changedUtc, values, meta);
     }
     static NodeDataRevisions read_NodeDataRevisions(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var versionCount = stream.ReadInt();

@@ -221,7 +221,7 @@ public partial class Datamodel {
             IndexedBySemantic = true,
             InfixSearch = false,
             PropertyIdForEmbeddings = NodeConstants.SystemVectorIndexPropertyId,
-            Private = true,
+            Internal = true,
             MinWordLength = 2,
         };
         props.Add(textIndex);
@@ -230,7 +230,7 @@ public partial class Datamodel {
             CodeName = NodeConstants.SystemVectorIndexPropertyName,
             ExcludeFromTextIndex = true,
             Indexed = true,
-            Private = true,
+            Internal = true,
         };
         props.Add(vectorIndex);
         var address = new StringPropertyModel() {
@@ -238,7 +238,7 @@ public partial class Datamodel {
             CodeName = NodeConstants.SystemAddressPropertyName,
             ExcludeFromTextIndex = true,
             Indexed = false,
-            Private = true,
+            Internal = true,
         };
         props.Add(address);
         var autoAddress = new BooleanPropertyModel() {
@@ -246,7 +246,7 @@ public partial class Datamodel {
             CodeName = NodeConstants.SystemAutoAddressPropertyName,
             ExcludeFromTextIndex = true,
             Indexed = false,
-            Private = true,
+            Internal = true,
         };
         props.Add(autoAddress);
         var displayName = new StringPropertyModel() {
@@ -255,7 +255,7 @@ public partial class Datamodel {
             ExcludeFromTextIndex = false,
             Indexed = false,
             DisplayName = true,
-            Private = true,
+            Internal = true,
         };
         return props;
     }

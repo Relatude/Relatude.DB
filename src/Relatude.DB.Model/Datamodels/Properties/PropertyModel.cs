@@ -33,7 +33,7 @@ public abstract class PropertyModel {
     public bool CultureSpecific { get; set; }
     public abstract object GetDefaultValue();
     public virtual string? GetDefaultDeclaration() => string.Empty;
-    public bool Private { get; set; }
+    public bool Internal { get; set; }
     public virtual bool IsReferenceTypeAndMustCopy() => false;
     public bool TryParse(object anyFormat, [MaybeNullWhen(false)] out object value) {
         switch (PropertyType) {

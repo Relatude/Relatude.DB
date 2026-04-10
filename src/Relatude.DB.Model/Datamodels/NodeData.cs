@@ -105,7 +105,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public IRelations Relations => emptyRelations;
     public NodeData CopyAndChangeNodeType(Guid nodeTypeId) {
-        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
+        return new NodeData(Id, __Id, nodeTypeId, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
     public override string ToString() {
         return Id.ToString();
@@ -128,7 +128,7 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
     public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
         DateTime createdUtc, DateTime changedUtc,
-        Properties<object> values, IInnerNodeMeta? meta, string? displayName, string? address) :
+        Properties<object> values, IInnerNodeMeta? meta) :
         base(guid, id, nodeType, createdUtc, changedUtc, values, meta) {
     }
     public NodeDataRevision CopyAndConvertToNodeDataRevision(IInnerNodeMeta? meta, Guid revisionGuid) {
@@ -136,13 +136,13 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         return rev;
     }
     public INodeDataInner CopyAndChangeMeta(IInnerNodeMeta? meta) {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, DisplayName, Address);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
     }
     public INodeDataInner CopyInner() {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
     public INodeDataOuter CopyOuter() {
-        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, DisplayName, Address);
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
 }
 public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries

@@ -90,7 +90,7 @@ public static class ModelGen {
             sb.Append("        ");
             sb.AppendLine(CodeUtils.FieldOrProperty("string", nodeDef.NameOfAddressProperty, nodeDef.ModelType));
         }
-        foreach (var p in nodeDef.Properties.Values.Where(p => !p.Private)) {
+        foreach (var p in nodeDef.Properties.Values.Where(p => !p.Internal)) {
             if (addAttributes) addPropertyAttribute(p, datamodel, sb);
             var typeName = CodeUtils.GetTypeName(p, datamodel);
             typeName = typeAndNamespace(nodeDef.Namespace, typeName);

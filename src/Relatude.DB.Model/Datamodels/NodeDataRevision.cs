@@ -74,7 +74,7 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         if (Meta != null && Meta.RevisionType != RevisionType.Published) {
             meta = IInnerNodeMeta.ChangeRevision(Meta, 0); // when converting to NodeData, the revision type is always set to Published and revision key to 0, 
         }
-        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, DisplayName, Address);
+        var data = new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
         return data;
     }
 
