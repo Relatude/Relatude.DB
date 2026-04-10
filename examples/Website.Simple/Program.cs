@@ -46,6 +46,8 @@ app.MapGet("/test", (RelatudeDBContext ctx) => {
         Address = "asdasd",
     };
     db.Insert([art1, art2]);
+    db.UpdateAddress(art1, "new-address-for-art1");
+    db.UpdateAddress(art2, "new-address-for-art2");
     var sb= new StringBuilder();
     foreach (var a in db.Query<DemoArticle>().Execute()) {
         sb.AppendLine($"Article: {a.Title}, Address: {a.Address}, DisplayName: {a.DisplayName}");

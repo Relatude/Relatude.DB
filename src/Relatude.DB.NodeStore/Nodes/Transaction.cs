@@ -3,6 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
+using Relatude.DB.Query.Expressions;
 using Relatude.DB.Transactions;
 using System;
 using System.Collections;
@@ -332,6 +333,10 @@ public partial class Transaction {
     public Transaction UpdateProperty(int nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
     public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) => UpdateIfDifferentProperties(nodeId, propertyValuePairs);
     public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
+    
+    public Transaction UpdateAddress(Guid nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
+    public Transaction UpdateAddress(int nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
+    public Transaction UpdateAddress(object node, string value) => UpdateIfDifferentAddress(node, value);
 
     public Transaction ForceUpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
@@ -387,13 +392,31 @@ public partial class Transaction {
         return this;
     }
 
-
+    public Transaction UpdateIfDifferentAddress(object node, string value) {
+        return UpdateIfDifferentProperty(node, NodeConstants.SystemAddressPropertyId, value);
+    }
+    public Transaction UpdateIfDifferentAddress(Guid nodeId, string value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);
+    }
+    public Transaction UpdateIfDifferentAddress(int nodeId, string value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);
+    }
     public Transaction UpdateIfDifferentProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
             return UpdateIfDifferentProperty(nodeId, expression, value);
         } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
             return UpdateIfDifferentProperty(nodeIdUint, expression, value);
+        } else {
+            throw new Exception("Only nodes with Guid or int id accepted. ");
+        }
+    }
+    public Transaction UpdateIfDifferentProperty(object node, Guid propertyId, object value) {
+        if (node == null) throw new Exception("Node cannot be null. ");
+        if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {
+            return UpdateIfDifferentProperty(nodeId, propertyId, value);
+        } else if (Store.Mapper.TryGetIdUInt(node, out var nodeIdUint)) {
+            return UpdateIfDifferentProperty(nodeIdUint, propertyId, value);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
