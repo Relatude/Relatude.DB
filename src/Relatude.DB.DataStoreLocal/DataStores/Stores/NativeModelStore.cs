@@ -227,6 +227,18 @@ public class NativeModelStore(DataStoreLocal store) {
         cultureId = Guid.Empty;
         return false;
     }
+    internal bool TryGetCultureCode(Guid? cultureId, out string? cultureCode) {
+        if (cultureId.HasValue) {
+            foreach (var culture in _cultures.Values) {
+                if (culture.Guid == cultureId.Value) {
+                    cultureCode = culture.CultureCode;
+                    return true;
+                }
+            }
+        }
+        cultureCode = null;
+        return false;
+    }
 
 
     public int CountUsers => _users.Count;

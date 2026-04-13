@@ -168,4 +168,18 @@ public class DataStoreSession : IDataStore {
     IEnumerable<INodeDataOuter> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
     INodeDataOuter[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
 
+    public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
+
+    public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
+
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
+    public bool TryGetNodeDataFromAddress(string address, out INodeDataOuter nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
+
 }

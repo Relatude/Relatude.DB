@@ -406,6 +406,28 @@ public class NodeStore : IDisposable {
     public IEnumerable<T> GetRelated<T>(NodeDataWithRelations[] node) { // used by mapper internally
         foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item);
     }
+
+    public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out Guid nodeId) {
+        return Datastore.TryGetNodeIdFromAddress(address, out nodeId);
+    }
+    public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out Guid nodeId, [MaybeNullWhen(false)] out string cultureCode) {
+        return Datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
+    }
+    public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out int nodeId) {
+        return Datastore.TryGetNodeIdFromAddress(address, out nodeId);
+    }
+    public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out int nodeId, [MaybeNullWhen(false)] out string cultureCode) {
+        return Datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
+    }
+    public bool TryGetFromAddress<T>(string address, [MaybeNullWhen(false)] out T node) {
+        if (Datastore.TryGetNodeDataFromAddress(address, out var nodeData)) {
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData);
+            return true;
+        }
+        node = default;
+        return false;
+    }
+
     public Task<TransactionResult> ExecuteAsync(ActionModel[] actions, bool flushToDisk = false) {
         throw new NotImplementedException();
     }
@@ -486,10 +508,27 @@ public class NodeStore : IDisposable {
     public void UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => UpdateProperty(nodeId, Mapper.GetProperty(expression).Id, value, flushToDisk);
     public void UpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => Execute(new Transaction(this).UpdateProperty(ids, expression, value), flushToDisk);
     public void UpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).UpdateProperties(nodeId, propertyValuePairs));
-    
+
+    public void UpdateDisplayName(Guid nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
+    public void UpdateDisplayName(int nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
+    public void UpdateDisplayName(object node, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(node, newDisplayName), flushToDisk);
     public void UpdateAddress(Guid nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
     public void UpdateAddress(int nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
     public void UpdateAddress(object node, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(node, newAddress), flushToDisk);
+    public void UpdateAutoAddress(object node, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(node, value), flushToDisk);
+    public void UpdateAutoAddress(Guid nodeId, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(nodeId, value), flushToDisk);
+    public void UpdateAutoAddress(int nodeId, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(nodeId, value), flushToDisk);
+
+    public void UpdateAddress(Guid nodeId, string newAddress, out string? generatedAddress, out bool newAddressGenerated, bool flushToDisk = false) {
+        UpdateAddress(nodeId, newAddress, flushToDisk);
+        if (Datastore.TryGetAddress(nodeId, out var address)) {
+            generatedAddress = address;
+            newAddressGenerated = address == newAddress;
+        } else {
+            generatedAddress = null;
+            newAddressGenerated = false;
+        }
+    }
 
     public void ForceUpdateProperty(Guid nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdateProperty(nodeId, propertyId, value), flushToDisk);
     public void ForceUpdateProperty(int nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).ForceUpdateProperty(nodeId, propertyId, value), flushToDisk);

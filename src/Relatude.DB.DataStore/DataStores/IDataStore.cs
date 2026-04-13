@@ -45,6 +45,20 @@ public interface IDataStore : IDisposable {
     Guid GetNodeType(IdKey id);
     Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids);
 
+    bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)]out NodeMeta meta, QueryContext? ctx = null);
+    bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
+    bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
+
+    bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
+    bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
+    bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
+
+    bool TryGetNodeIdFromAddress(string address, out Guid nodeId);
+    bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode);
+    bool TryGetNodeIdFromAddress(string address, out int nodeId);
+    bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
+    bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataOuter nodeData);
+
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);
     void LogWarning(string text, string? details = null);

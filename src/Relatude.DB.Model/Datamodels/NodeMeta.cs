@@ -41,10 +41,10 @@ public class NodeMeta {
     public DateTime ChangedUtc { get; }
     public int InternalId { get; }
     public Guid Id { get; }
-    
+
     public bool? AutoDisplayName { get; }
     public string? DisplayName { get; } // null, means not having any displayName
-    public string? Address{ get; } // null, means not having any address
+    public string? Address { get; } // null, means not having any address
     public bool? AutoAddress { get; } // null mean defaults to type default
 
     public Guid RevisionId { get; }
@@ -321,9 +321,9 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
         }
     }
     internal static bool IEquals(IInnerNodeMeta? x, IInnerNodeMeta? y) {
-        if (x == null && y == null) 
+        if (x == null && y == null)
             return true;
-        if (x == null || y == null) 
+        if (x == null || y == null)
             return false;
         if (x is InnerNodeMetaEmpty && y is InnerNodeMetaEmpty) return true;
         if (x is InnerNodeMetaMin && y is InnerNodeMetaMin) {

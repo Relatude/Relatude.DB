@@ -29,28 +29,34 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     return Results.Content(html, "text/html; charset=utf-8");
 });
 app.MapGet("/test", (RelatudeDBContext ctx) => {
+    var sb= new StringBuilder();
     var db = ctx.Database;
     var art1 = new DemoArticle {
         Title = "Test Article",
         Content = "This is a test article.",
         Size = 123,
         DisplayName = "Test Article Display Name",
-        Address = "asdasdast",
     };
-
     var art2 = new DemoArticle {
         Title = "Another Article",
         Content = "This is another test article.",
         Size = 456,
         DisplayName = "Another Article Display Name",
-        Address = "asdasd",
     };
     db.Insert([art1, art2]);
-    db.UpdateAddress(art1, "new-address-for-art1");
-    db.UpdateAddress(art2, "new-address-for-art2");
-    var sb= new StringBuilder();
+    
+    db.UpdateDisplayName(art1, "asdælk aksøldølas ");
+    db.UpdateDisplayName(art2, "asdasdasd");
+
+
+    if(db.TryGetFromAddress<DemoArticle>(null, out var fromAddress1)) {
+        sb.AppendLine("Successfully got from new address: " + fromAddress1.Id);
+    } else {
+        sb.AppendLine("Failed to get from new address");
+    }
+
     foreach (var a in db.Query<DemoArticle>().Execute()) {
-        sb.AppendLine($"Article: {a.Title}, Address: {a.Address}, DisplayName: {a.DisplayName}");
+        sb.AppendLine($"Article: {a.Title}, Address: {(a.Address == null ? "null" : a.Address)}, DisplayName: {a.DisplayName}, Id: {a.Id}");
     }
     return sb.ToString();
 

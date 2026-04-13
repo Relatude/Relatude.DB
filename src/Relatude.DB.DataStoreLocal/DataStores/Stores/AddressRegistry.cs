@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.IO;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Relatude.DB.DataStores.Stores;
@@ -225,28 +226,28 @@ public class AddressRegistry {
         cultureCode = null;
         return false;
     }
-    public string? GetAddress(int id, Guid? cultureCode) {
+    public bool TryGetAddressAndTryMatchCulture(int id, Guid? cultureCode, [MaybeNullWhen(false)] out string? address) {
         if (!tryGetCultureId(cultureCode, out var cultureId)) {
-            Console.WriteLine($"GetAddress: id={id}, cultureCode={cultureCode}, result='null' (invalid culture code)");
-            return null;
+            return TryGetFirstAddressAnyCulture(id, out address);
         }
-        //return _addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var address)
-        //    ? address
-        //    : null;
-
-        var result=_addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var address)
-            ? address
-            : null;
-        Console.WriteLine($"GetAddress: id={id}, cultureCode={cultureCode}, result='{result}'");
-        return result;
-
+        if (_addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var foundAddress)) {
+            address = foundAddress;
+            return true;
+        }
+        address = null;
+        return false;
+    }
+    public bool TryGetFirstAddressAnyCulture(int id, [MaybeNullWhen(false)] out string? address) {
+        for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
+            if (_addressByIdAndCulture.TryGetValue(packKey(id, (byte)cultureId), out var foundAddress)) {
+                address = foundAddress;
+                return true;
+            }
+        }
+        address = null;
+        return false;
     }
     public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
-        //debug:
-        Console.WriteLine($"Update: id={id}, address='{address}', cultureCode={cultureCode}");
-
-
-
         byte cultureId;
         if (address is null) {
             if (!tryGetCultureId(cultureCode, out cultureId)) {
@@ -257,7 +258,6 @@ public class AddressRegistry {
         } else {
             cultureId = getOrAddCultureId(cultureCode);
         }
-
         var key = packKey(id, cultureId);
         _addressByIdAndCulture.TryGetValue(key, out var currentAddress);
 

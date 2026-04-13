@@ -257,6 +257,7 @@ public partial class Datamodel {
             DisplayName = true,
             Internal = true,
         };
+        props.Add(displayName);
         return props;
     }
     static void findAllInherited(Datamodel datamodel, NodeTypeModel ct, Dictionary<Guid, NodeTypeModel> allInherited) {

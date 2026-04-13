@@ -14,8 +14,8 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 100000;
-    var timeMultiplier = 1;
+    var dataSetMultiplier = 1000000;
+    var timeMultiplier = 5;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
     options.UserCount = 1 * dataSetMultiplier;
@@ -26,6 +26,7 @@ app.MapPost("/start", () => {
     var testData = Generator.Generate(options);
 
     ITester[] testers = [
+
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
         new LiteDBTester(),

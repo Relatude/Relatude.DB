@@ -333,10 +333,16 @@ public partial class Transaction {
     public Transaction UpdateProperty(int nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
     public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) => UpdateIfDifferentProperties(nodeId, propertyValuePairs);
     public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
-    
+
+    public Transaction UpdateDisplayName(object node, string value) => UpdateIfDifferentDisplayName(node, value);
+    public Transaction UpdateDisplayName(Guid nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
+    public Transaction UpdateDisplayName(int nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
     public Transaction UpdateAddress(Guid nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
     public Transaction UpdateAddress(int nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
     public Transaction UpdateAddress(object node, string value) => UpdateIfDifferentAddress(node, value);
+    public Transaction UpdateAutoAddress(object node, bool value) => UpdateIfDifferentAutoAddress(node, value);
+    public Transaction UpdateAutoAddress(Guid nodeId, bool value) => UpdateIfDifferentAutoAddress(nodeId, value);
+    public Transaction UpdateAutoAddress(int nodeId, bool value) => UpdateIfDifferentAutoAddress(nodeId, value);
 
     public Transaction ForceUpdateProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
@@ -392,6 +398,15 @@ public partial class Transaction {
         return this;
     }
 
+    public Transaction UpdateIfDifferentDisplayName(object node, string value) {
+        return UpdateIfDifferentProperty(node, NodeConstants.SystemDisplayNamePropertyId, value);
+    }
+    public Transaction UpdateIfDifferentDisplayName(Guid nodeId, string value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemDisplayNamePropertyId, value);
+    }
+    public Transaction UpdateIfDifferentDisplayName(int nodeId, string value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemDisplayNamePropertyId, value);
+    }
     public Transaction UpdateIfDifferentAddress(object node, string value) {
         return UpdateIfDifferentProperty(node, NodeConstants.SystemAddressPropertyId, value);
     }
@@ -401,6 +416,17 @@ public partial class Transaction {
     public Transaction UpdateIfDifferentAddress(int nodeId, string value) {
         return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);
     }
+    public Transaction UpdateIfDifferentAutoAddress(object node, bool value) {
+        return UpdateIfDifferentProperty(node, NodeConstants.SystemAutoAddressPropertyId, value);
+    }
+    public Transaction UpdateIfDifferentAutoAddress(Guid nodeId, bool value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAutoAddressPropertyId, value);
+    }
+    public Transaction UpdateIfDifferentAutoAddress(int nodeId, bool value) {
+        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAutoAddressPropertyId, value);
+    }
+
+
     public Transaction UpdateIfDifferentProperty<T, V>(T node, Expression<Func<T, V>> expression, V value) {
         if (node == null) throw new Exception("Node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out var nodeId)) {

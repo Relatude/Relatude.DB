@@ -133,6 +133,87 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (id.Int == 0) return GetNodeType(id.Guid);
         return GetNodeType(id.Int);
     }
+    public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
+        if (this.TryGet(id, out var nodeData)) {
+            meta = new NodeMeta(nodeData);
+            return true;
+        }
+        meta = null;
+        return false;
+    }
+    public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
+        if (this.TryGet(id, out var nodeData)) {
+            meta = new NodeMeta(nodeData);
+            return true;
+        }
+        meta = null;
+        return false;
+    }
+    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
+        if (id.Int == 0) return TryGetNodeMeta(id.Guid, out meta, ctx);
+        return TryGetNodeMeta(id.Int, out meta, ctx);
+    }
+    Guid? getBestCultureId(QueryContext? ctx) {
+        ctx ??= _defaultQueryCtx;
+        if (ctx.CultureId.HasValue) return ctx.CultureId.Value;
+        if (ctx.CultureCode != null) {
+            if (_nativeModelStore.TryGetCultureId(string.Intern(ctx.CultureCode), out var cultureId)) return cultureId;
+        }
+        return null;
+    }
+    public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
+        return _addresses.TryGetAddressAndTryMatchCulture(id, getBestCultureId(ctx), out address);
+    }
+    public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
+        if (_guids.TryGetId(id, out var uid)) {
+            return TryGetAddress(uid, out address, ctx);
+        }
+        address = null;
+        return false;
+    }
+    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) {
+        if (id.Int == 0) return TryGetAddress(id.Guid, out meta, ctx);
+        return TryGetAddress(id.Int, out meta, ctx);
+    }
+
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) {
+        if (TryGetNodeIdFromAddress(address, out int uid)) {
+            if (_guids.TryGetId(uid, out nodeId)) {
+                return true;
+            }
+        }
+        nodeId = Guid.Empty;
+        return false;
+    }
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) {
+        if (TryGetNodeIdFromAddress(address, out int uid, out cultureCode)) {
+            if (_guids.TryGetId(uid, out nodeId)) {
+                return true;
+            }
+        }
+        nodeId = Guid.Empty;
+        cultureCode = null;
+        return false;
+    }
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId) {
+        return _addresses.TryGetId(address, out nodeId, out _);
+    }
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) {
+        if (address == null) address = string.Empty; // treat null and empty as the same address
+        if (_addresses.TryGetId(address, out nodeId, out var cultureId)) {
+            _nativeModelStore.TryGetCultureCode(cultureId, out cultureCode);
+            return true;
+        }
+        cultureCode = null;
+        return false;
+    }
+    public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataOuter nodeData) {
+        if (TryGetNodeIdFromAddress(address, out int uid, out string? cultureCode)) {
+            return TryGet(uid, out nodeData, _defaultQueryCtx.Culture(cultureCode));
+        }
+        nodeData = null;
+        return false;
+    }
     public Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids) {
         _lock.EnterReadLock();
         try {
@@ -366,9 +447,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         var syntaxTree = TokenParser.Parse(query, parameters);
         var expressionTree = ExpressionTreeBuilder.Build(syntaxTree, Datamodel);
-        var result = this.query(expressionTree, query, parameters, ctx);
-        return result;
-
+        return this.query(expressionTree, query, parameters, ctx);
     }
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         return Task.FromResult(Query(query, parameters, ctx));
@@ -381,7 +460,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 return revs.Revisions;
             } else if (nodeData is NodeData nd) {
                 return [nd.CopyAndConvertToNodeDataRevision(nd.Meta, Guid.Empty)];
-            } else { 
+            } else {
                 throw new Exception("Unexpected node data type");
             }
         } finally {

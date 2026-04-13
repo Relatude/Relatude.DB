@@ -4,6 +4,7 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
+using Relatude.DB.Native;
 using Relatude.DB.Nodes;
 
 namespace Benchmark.Relatude.DB;
@@ -37,6 +38,10 @@ public class RelatudeDBTester : ITester {
         settings.WriteSystemLogConsole = false;
         settings.DoNotCacheMapperFile = false;
         settings.EnableTextIndexByDefault = false;
+        settings.DefaultReadAccess = SystemGroupType.Everyone;
+        settings.DefaultWriteAccess = SystemGroupType.Everyone;
+        settings.NodeCacheSizeGb = 10;
+        settings.SetCacheSizeGb = 10;
         settings.SecondaryBackupLog = false;
         settings.AutoPurgeCache = false;
         settings.AutoSaveIndexStates = false;
