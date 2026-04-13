@@ -77,9 +77,8 @@ public partial class RelatudeDBServer {
         GC.Collect();
     }
 
-    public static event EventHandler<NodeStore>? OnStoreInit;
-    public static event EventHandler<NodeStore>? OnStoreOpen;
-    public static event EventHandler<NodeStore>? OnStoreDispose;
+    public ServerCallbacks? RelatudeDBServerCallbacks { get; internal set; }
+
     SimpleAuthentication? _authentication;
     public SimpleAuthentication Authentication {
         get {
@@ -159,6 +158,7 @@ public partial class RelatudeDBServer {
     }
     int _remaingToAutoOpenCount = 0;
     public bool AnyRemaingToAutoOpenIncludingFailed => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
+
     void autoOpenContainer(NodeStoreContainer container, bool throwException) {
         try {
             var sw = Stopwatch.StartNew();
@@ -212,11 +212,11 @@ public partial class RelatudeDBServer {
     }
     internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        if (OnStoreOpen == null) return;
+        if (RelatudeDBServerCallbacks?.OnStoreOpen == null) return;
         ThreadPool.QueueUserWorkItem((_) => {
             try {
                 if (nodeStoreContainer == null) return;
-                OnStoreOpen?.Invoke(nodeStoreContainer, store);
+                RelatudeDBServerCallbacks.OnStoreOpen(store);
             } catch (Exception err) {
                 Log("Error occurred during OnStoreOpen event: " + err.Message);
             }
@@ -224,24 +224,24 @@ public partial class RelatudeDBServer {
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        if (OnStoreOpen == null) return;
+        if (RelatudeDBServerCallbacks?.OnStoreInit == null) return;
         ThreadPool.QueueUserWorkItem((_) => {
             try {
                 if (nodeStoreContainer == null) return;
-                OnStoreInit?.Invoke(nodeStoreContainer, store);
+                RelatudeDBServerCallbacks.OnStoreInit(store);
             } catch (Exception err) {
                 Log("Error occurred during OnStoreInit event: " + err.Message);
             }
         });
     }
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (OnStoreOpen == null) return;
+        if (RelatudeDBServerCallbacks?.OnStoreClose == null) return;
         ThreadPool.QueueUserWorkItem((_) => {
             try {
                 if (nodeStoreContainer == null) return;
-                OnStoreDispose?.Invoke(nodeStoreContainer, store);
+                RelatudeDBServerCallbacks.OnStoreClose(store);
             } catch (Exception err) {
-                Log("Error occurred during OnStoreDispose event: " + err.Message);
+                Log("Error occurred during OnStoreClose event: " + err.Message);
             }
         });
     }
@@ -302,4 +302,9 @@ public partial class RelatudeDBServer {
         _api = new ServerAPIMapper(this);
         _api.MapSimpleAPI(app);
     }
+}
+public class ServerCallbacks {
+    public Action<NodeStore>? OnStoreInit { get; set; }
+    public Action<NodeStore>? OnStoreClose { get; set; }
+    public Action<NodeStore>? OnStoreOpen { get; set; }
 }

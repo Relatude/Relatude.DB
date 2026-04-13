@@ -5,9 +5,15 @@ using Relatude.DB.NodeServer.Json;
 
 // NO NAMESPACE ON PURPOSE
 public static class AddUse {
-    public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder) {
+    public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder,
+        Action<NodeStore>? onStoreInit = null, Action<NodeStore>? onStoreOpen = null, Action<NodeStore>? onStoreClose = null) {
         builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
         builder.Services.AddSingleton<RelatudeDBContext>();
+        builder.Services.AddSingleton(new ServerCallbacks() {
+            OnStoreInit = onStoreInit,
+            OnStoreOpen = onStoreOpen,
+            OnStoreClose = onStoreClose
+        });
         return builder;
     }
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = null,
@@ -17,6 +23,7 @@ public static class AddUse {
     public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = null,
         string? dataFolderPath = null, string? tempFolderPath = null, ISettingsLoader? settingsLoader = null) {
         var server = new RelatudeDBServer(urlPath);
+        server.RelatudeDBServerCallbacks = app.Services.GetRequiredService<ServerCallbacks>();
         await server.StartAsync(app, dataFolderPath, tempFolderPath, settingsLoader);
         app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
