@@ -1,6 +1,4 @@
-﻿using System.Drawing;
-
-namespace Relatude.DB.Common;
+﻿namespace Relatude.DB.Common;
 
 public enum FileBaseFormats {
     Unknown,

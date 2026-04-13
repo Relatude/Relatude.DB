@@ -151,8 +151,10 @@ internal class FileConversionLibrary {
             }
             converter = null;
             foreach (var c in _converters) {
-                var supported = c.GetSupportedConversions();
-                if (supported.Any(t => t == key)) {
+                // pick first match:
+                var fromBase = FileFormatUtil.GetBaseFormatFromDetailedFormat(key.From);
+                var toBase = FileFormatUtil.GetBaseFormatFromDetailedFormat(key.To);
+                if (c.SupportsConversion(fromBase, key.From, toBase, key.To)) {
                     converter = c;
                     break;
                 }
@@ -174,7 +176,7 @@ internal class FileConversionEngine : IDisposable {
     readonly IUrlProvider _urlProvider;
     readonly Dictionary<string, ProgressEntry> _conversionsInProgress;
     readonly AsyncConcurrentFileCache _fileCache;
-    private readonly CancellationTokenSource _cts = new();
+    private readonly CancellationTokenSource _updateLookCancellationToken = new();
     public FileConversionEngine(IFileConverter[] converters, IUrlProvider urlProvider, IIOProvider io, FileKeyUtility fileKeys) {
         _fileConverters = new(converters);
         _urlProvider = urlProvider;
@@ -182,10 +184,10 @@ internal class FileConversionEngine : IDisposable {
         _fileCache = new AsyncConcurrentFileCache(io);
     }
     public void Start() {
-        _ = Task.Run(() => updateLoop(_cts.Token));
+        _ = Task.Run(() => updateLoop(_updateLookCancellationToken.Token));
     }
     public void Stop() {
-        _cts.Cancel();
+        _updateLookCancellationToken.Cancel();
     }
     async Task updateLoop(CancellationToken token) {
         while (!token.IsCancellationRequested) {
@@ -259,7 +261,7 @@ internal class FileConversionEngine : IDisposable {
                         var created = _conversionsInProgress[key].Created; // keep original creation time for progress tracking
                         _conversionsInProgress[key] = new ProgressEntry(created, result.ProgressInfo, info, maxWaitMs);
                     }
-                    return new(result.ProgressInfo); // in progress, waiting for conversion
+                    return new(result.ProgressInfo); // not able to complete in maxWaitMs, but still in progress so return without file but with progress info update
                 }
             case FileConversionStatus.Ready: { // save result
                     FileCacheSetResult? setResult;
@@ -283,10 +285,10 @@ internal class FileConversionEngine : IDisposable {
                     }
                 }
             case FileConversionStatus.Unsupported:
-                    lock (_conversionsInProgress) {
-                        _conversionsInProgress.Remove(key);
-                    }
-                    return new(new(FileConversionStatus.Unsupported, message: result.ProgressInfo.Message));
+                lock (_conversionsInProgress) {
+                    _conversionsInProgress.Remove(key);
+                }
+                return new(new(FileConversionStatus.Unsupported, message: result.ProgressInfo.Message));
             case FileConversionStatus.Error:
                 lock (_conversionsInProgress) {
                     _conversionsInProgress.Remove(key);
@@ -313,6 +315,6 @@ internal class FileConversionEngine : IDisposable {
         }
     }
     public void Dispose() {
-        _cts.Cancel();
+        _updateLookCancellationToken.Cancel();
     }
 }
