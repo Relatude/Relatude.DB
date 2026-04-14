@@ -60,6 +60,7 @@ public class NodeStore : IDisposable {
         TransactionPlugins.Add(plugin);
         plugin.Store = this;
     }
+    public void RegisterRunner(ITaskRunner runner) => Datastore.RegisterRunner(runner);
 
     public NodeStore NewContext(QueryContext ctx) {
         return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);

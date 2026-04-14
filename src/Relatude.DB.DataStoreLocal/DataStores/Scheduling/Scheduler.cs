@@ -36,7 +36,7 @@ internal class Scheduler {
     int taskQueueMaxRuntimeMs;
     int taskQueuePauseLimitDbActionsPerSec;
 
-    const int _throttleDefault = 50; // 0-100
+    const int _throttleDefault = 90; // 0-100
     int _throttle = -1;
 
     public Scheduler(DataStoreLocal db) {
@@ -50,13 +50,13 @@ internal class Scheduler {
         return _throttle;
     }
     public void ThrottleTaskQueue(int throttlePercentage) { // 0-100;
-        if (_throttle == throttlePercentage) return;
         if (throttlePercentage < 0) throttlePercentage = 0;
         else if (throttlePercentage > 100) throttlePercentage = 100;
+        if (_throttle == throttlePercentage) return;
         _throttle = throttlePercentage;
         double factor = _throttle / 100d; // min 0, max 1
-        taskQueueMaxRuntimeMs = (int)(10000d * (1d - factor)); // from 10s to 0s, 50% => 5s
-        taskQueuePauseLimitDbActionsPerSec = (int)(factor * 100) ^ 2; // from 0 to 40,000, 50% => 2,500
+        taskQueueMaxRuntimeMs = (int)(10000d * (0.1d + 0.9d * factor)); // from 10s to 0s, 50% => 5s^
+        taskQueuePauseLimitDbActionsPerSec = 4 * (int)Math.Pow((factor * 100d), 2d); // from 0 to 40,000, 50% => 2,500
         taskQueuePulseIntervalMs = 100 + (int)(5000 * (1d - factor)); // from 5100ms to 100ms, 50% => 2,550ms
         _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);
         _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);

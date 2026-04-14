@@ -185,8 +185,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     QueryContext.MasterAdmin
                     );            
             Interlocked.Increment(ref _initializationCounter);
-            var runners = server.GetRegisteredTaskRunners(this);
-            foreach (var runner in runners) datastore.RegisterRunner(runner);
+            //var runners = server.GetRegisteredTaskRunners(this);
+            //foreach (var runner in runners) datastore.RegisterRunner(runner);
             foreach (var msg in toLog) {
                 datastore.LogInfo(msg);
             }

@@ -3,8 +3,8 @@
 public class SettingsLocal {
 
     public string? DefaultCultureCode { get; set; } = null;  // culture code if culture ID is Guid.Empty or Null
-    public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Admins;
-    public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Admins;
+    public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Everyone;
+    public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Everyone;
     public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.MultiFile;
 
     public string? FilePrefix { get; set; }

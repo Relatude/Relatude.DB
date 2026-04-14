@@ -33,7 +33,7 @@ public class DefaultQueueStore : IQueueStore {
         _fileKey = fileKey;
         _runners = runners;
         _persistToDisk = _io != null && !string.IsNullOrEmpty(_fileKey);
-        ReOpen();
+        //ReOpen();
     }
     static Guid _marker = Guid.Parse("a833eb7b-9cfb-4625-a7f3-d431e063fdc6");
     static Dictionary<Guid, IBatch> loadFromDisk(Dictionary<string, ITaskRunner> runners, IIOProvider io, string fileKey) {
@@ -48,7 +48,7 @@ public class DefaultQueueStore : IQueueStore {
                 if (isStateFlag == 10) { // deleted state
                     var batchId = reader.ReadGuid();
                     if (batchesById.ContainsKey(batchId)) batchesById.Remove(batchId);
-                } else if (isStateFlag == 20) { // deleted state
+                } else if (isStateFlag == 20) { // not deleted state
                     var bytesMeta = reader.ReadByteArray();
                     var bytesTasks = reader.ReadByteArray();
                     var meta = BatchMeta.FromBytes(bytesMeta);

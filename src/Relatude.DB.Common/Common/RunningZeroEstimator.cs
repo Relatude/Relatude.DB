@@ -59,10 +59,14 @@ public class RunningZeroEstimator  {
             // If slope is positive or zero, it will never reach zero
             if (m >= 0) return false;
 
+            // if m is very small:
+            m = Math.Min(m, -1e-5);
+
             double b = (sumY - m * sumX) / n;
 
             // Solve for y = 0: 0 = mx + b => x = -b/m
             double targetSeconds = -b / m;
+            
             DateTime targetTime = t0.AddSeconds(targetSeconds);
 
             duration = targetTime - nowUtc;

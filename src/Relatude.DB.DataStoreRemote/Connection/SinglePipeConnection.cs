@@ -20,8 +20,8 @@
 //        public SinglePipeConnection(RemoteConfiguration config) {
 //            _pipe = new AnonymousPipeServerStream(PipeDirection.InOut, HandleInheritability.Inheritable);
 //            _sendAndRecieveInProgress = false;
-//            _sendBuffer = new byte[1 * 1024 ^ 2]; // 1 mb
-//            _recieveBuffer = new byte[1 * 1024 ^ 2]; // 1 mb
+//            _sendBuffer = new byte[1 * 1024 * 1024]; // 1 mb
+//            _recieveBuffer = new byte[1 * 1024 * 1024]; // 1 mb
 //            _port = config.Port == 0 ? 1971 : config.Port;
 //            _connected = false;
 //        }

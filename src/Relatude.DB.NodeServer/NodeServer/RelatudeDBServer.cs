@@ -1,4 +1,5 @@
-﻿using Relatude.DB.AI;
+﻿using Microsoft.AspNetCore.Hosting.Server;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
@@ -77,7 +78,7 @@ public partial class RelatudeDBServer {
         GC.Collect();
     }
 
-    public ServerCallbacks? RelatudeDBServerCallbacks { get; internal set; }
+    public ServerOptions? Options { get; private set; }
 
     SimpleAuthentication? _authentication;
     public SimpleAuthentication Authentication {
@@ -109,7 +110,13 @@ public partial class RelatudeDBServer {
             return new DataStoreOpeningStatus(0, 0, 0);
         }
     }
-    public async Task StartAsync(WebApplication app, string? dataFolderPath, string? tempFolderPath = null, ISettingsLoader? settings = null) {
+    public async Task StartAsync(WebApplication app, ServerOptions options) {
+        Options = options;
+
+        var dataFolderPath = options.DefaultDataFolderPath;
+        var tempFolderPath = options.DefaultTempFolderPath;
+        var settings = options.SettingsLoader;
+
         _serverLog.Clear();
         Log("Server starting up.");
         var environmentRoot = app.Environment.ContentRootPath;
@@ -178,28 +185,6 @@ public partial class RelatudeDBServer {
         }
     }
 
-    Dictionary<Guid, List<ITaskRunner>> _runnersByContainer = [];
-    public void RegisterTaskRunner(ITaskRunner runner) {
-        RegisterTaskRunner(Guid.Empty, runner); // meaning for all containers
-    }
-    public void RegisterTaskRunner(Guid containerId, ITaskRunner runner) {
-        lock (_runnersByContainer) {
-            if (!_runnersByContainer.TryGetValue(containerId, out var runners)) {
-                runners = [];
-                _runnersByContainer[containerId] = runners;
-            }
-            runners.Add(runner);
-        }
-    }
-    internal IEnumerable<ITaskRunner> GetRegisteredTaskRunners(NodeStoreContainer container) {
-        lock (_runnersByContainer) {
-            List<ITaskRunner> values = [];
-            if (_runnersByContainer.TryGetValue(container.Settings.Id, out var runners)) values.AddRange(runners);
-            if (_runnersByContainer.TryGetValue(Guid.Empty, out var allRunners)) values.AddRange(allRunners);
-            return values;
-        }
-    }
-
     public void UpdateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = Containers.Values.Select(c => c.Settings).ToArray();
         _settingsLoader!.WriteAsync(_serverSettings).Wait();
@@ -212,11 +197,11 @@ public partial class RelatudeDBServer {
     }
     internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        if (RelatudeDBServerCallbacks?.OnStoreOpen == null) return;
+        if (Options?.OnStoreOpen == null) return;
         ThreadPool.QueueUserWorkItem((_) => {
             try {
                 if (nodeStoreContainer == null) return;
-                RelatudeDBServerCallbacks.OnStoreOpen(store);
+                Options.OnStoreOpen(store);
             } catch (Exception err) {
                 Log("Error occurred during OnStoreOpen event: " + err.Message);
             }
@@ -224,22 +209,22 @@ public partial class RelatudeDBServer {
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (nodeStoreContainer == null) return;
-        if (RelatudeDBServerCallbacks?.OnStoreInit == null) return;
-        ThreadPool.QueueUserWorkItem((_) => {
-            try {
-                if (nodeStoreContainer == null) return;
-                RelatudeDBServerCallbacks.OnStoreInit(store);
-            } catch (Exception err) {
-                Log("Error occurred during OnStoreInit event: " + err.Message);
-            }
-        });
+        if (Options?.OnStoreInit == null) return;
+        //ThreadPool.QueueUserWorkItem((_) => {
+        try {
+            if (nodeStoreContainer == null) return;
+            Options.OnStoreInit(store);
+        } catch (Exception err) {
+            Log("Error occurred during OnStoreInit event: " + err.Message);
+        }
+        //});
     }
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (RelatudeDBServerCallbacks?.OnStoreClose == null) return;
+        if (Options?.OnStoreClose == null) return;
         ThreadPool.QueueUserWorkItem((_) => {
             try {
                 if (nodeStoreContainer == null) return;
-                RelatudeDBServerCallbacks.OnStoreClose(store);
+                Options.OnStoreClose(store);
             } catch (Exception err) {
                 Log("Error occurred during OnStoreClose event: " + err.Message);
             }
@@ -303,8 +288,37 @@ public partial class RelatudeDBServer {
         _api.MapSimpleAPI(app);
     }
 }
-public class ServerCallbacks {
+public class ServerOptions {
+    /// <summary>
+    /// Callback that is triggered when a new database is initialized. 
+    /// This is called every time a database is initialized, and before it it opened.
+    /// This is a good place to register custom task runners and plugins.
+    /// </summary>
     public Action<NodeStore>? OnStoreInit { get; set; }
+    /// <summary>
+    /// Gets or sets the callback to invoke when the database is closed.
+    /// </summary>
+    /// <remarks>Assign a delegate to perform custom actions when the associated store is closed. The provided
+    /// callback receives the closed store as a parameter. If not set, no action is taken on store closure.</remarks>
     public Action<NodeStore>? OnStoreClose { get; set; }
+    /// <summary>
+    /// Gets or sets the callback that is invoked when the database is opened.
+    /// </summary>
+    /// <remarks>Assign a delegate to perform custom actions when a store of type NodeStore is opened. The
+    /// callback receives the opened NodeStore instance as a parameter. If not set, no action is taken when the store
+    /// opens.</remarks>
     public Action<NodeStore>? OnStoreOpen { get; set; }
+    /// <summary>
+    /// Custom storage for server settings. 
+    /// If not set, settings will be stored in a file named "relatude.db.json" in the root data folder.
+    /// </summary>
+    public ISettingsLoader? SettingsLoader { get; set; } = null;
+    /// <summary>
+    /// Default relative or absolute path to default data folder
+    /// </summary>
+    public string? DefaultDataFolderPath { get; set; } = null;
+    /// <summary>
+    /// Default relative or absolute path to temporary folder, used for uploads etc.
+    /// </summary>
+    public string? DefaultTempFolderPath { get; set; } = null;
 }

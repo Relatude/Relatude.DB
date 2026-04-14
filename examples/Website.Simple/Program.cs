@@ -4,10 +4,16 @@ using Relatude.DB.Demo.Models;
 using Relatude.DB.NodeServer;
 using System.Diagnostics;
 using System.Text;
+using WebApplication1;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddRelatudeDB();
+builder.AddRelatudeDB(
+    options => {
+        options.OnStoreInit = (db) => {
+            db.RegisterRunner(new DemoTaskRunner(db));
+        };      
+    });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
 builder.Services.AddCors(options => {
@@ -28,8 +34,19 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-app.MapGet("/test", (RelatudeDBContext ctx) => {
-    var sb= new StringBuilder();
+
+
+app.MapGet("/Test", async (RelatudeDBContext ctx) => {
+    var noTasks = 1000;
+    var db = ctx.Database;
+    for (int i = 0; i < noTasks; i++) {
+        await db.EnqueueTaskAsync(new DemoTask { MyId = i, DemoText = "This is task number " + i });
+    }
+    return "Enqueued " + noTasks + " tasks!";
+});
+
+app.MapGet("/test2", (RelatudeDBContext ctx) => {
+    var sb = new StringBuilder();
     var db = ctx.Database;
     var art1 = new DemoArticle {
         Title = "Test Article",
@@ -44,12 +61,12 @@ app.MapGet("/test", (RelatudeDBContext ctx) => {
         DisplayName = "Another Article Display Name",
     };
     db.Insert([art1, art2]);
-    
+
     db.UpdateDisplayName(art1, "asdælk aksøldølas ");
     db.UpdateDisplayName(art2, "asdasdasd");
 
 
-    if(db.TryGetFromAddress<DemoArticle>(null, out var fromAddress1)) {
+    if (db.TryGetFromAddress<DemoArticle>(null, out var fromAddress1)) {
         sb.AppendLine("Successfully got from new address: " + fromAddress1.Id);
     } else {
         sb.AppendLine("Failed to get from new address");

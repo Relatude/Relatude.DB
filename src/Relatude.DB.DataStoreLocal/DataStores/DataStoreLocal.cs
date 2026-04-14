@@ -232,8 +232,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         _variables = getRootVariables();
         _nodeWriteLocks = new();
         PersistedIndexStore?.ReOpen();
-        TaskQueue?.ReOpen();
-        TaskQueuePersisted?.ReOpen();
         logLine___________________________();
         LogInfo("Database intialized");
         _state = DataStoreState.Closed; // ready to be opened
@@ -252,6 +250,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             _state = DataStoreState.Opening;
             _wal.EnsureSecondaryLogFile(activityId, this, false);
             readState(throwOnBadStateFile, currentModelHash, activityId);
+            TaskQueue?.ReOpen();
+            TaskQueuePersisted?.ReOpen();
             _state = DataStoreState.Open;
             _startUpTimeMs = sw.ElapsedMilliseconds;
             LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
