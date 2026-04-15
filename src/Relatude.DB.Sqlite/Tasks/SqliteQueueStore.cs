@@ -230,4 +230,5 @@ public class SqliteQueueStore : IQueueStore {
         _connection.Open();
         executeNonQuery("PRAGMA journal_mode=WAL;"); // reapply WAL mode
     }
+
 }

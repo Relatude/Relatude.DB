@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using System.Collections;
 using System.Diagnostics;
 using System.Text;
 
@@ -222,7 +223,7 @@ public class TaskQueue : IDisposable {
             var batches = _queue.GetBatchInfo([BatchState.Running], [], [], 0, int.MaxValue, out _);
             foreach (var batch in batches) {
                 if (!_runners.TryGetValue(batch.TaskTypeId, out var runner)) continue; // ignore if no runner for this type
-                if (runner.RestartIfAbortedDuringShutdown) {
+                if (runner.RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted) {
                     _queue.Set([batch.BatchId], BatchState.Pending);
                     restaredCount++;
                     restaredTaskCount += batch.TaskCount;

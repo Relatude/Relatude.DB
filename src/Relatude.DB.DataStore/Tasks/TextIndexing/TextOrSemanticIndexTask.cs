@@ -68,7 +68,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
     }
     public override bool DeleteOnSuccess => true;
     public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(1);
-    public override bool RestartIfAbortedDuringShutdown { get; set; } = true;
+    public override bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; set; } = true;
     public override TextOrSemanticIndexTask TaskFromBytes(byte[] bytes) {
         using var ms = new MemoryStream(bytes);
         using var reader = new BinaryReader(ms);

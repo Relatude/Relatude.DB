@@ -1,6 +1,4 @@
-﻿using static System.Formats.Asn1.AsnWriter;
-
-namespace Relatude.DB.Tasks;
+﻿namespace Relatude.DB.Tasks;
 // Not threadsafe
 public interface IQueueStore : IDisposable {
     void Enqueue(IBatch task, ITaskRunner runner);

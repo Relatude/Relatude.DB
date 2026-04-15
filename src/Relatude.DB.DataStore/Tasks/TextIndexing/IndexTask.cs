@@ -39,7 +39,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
     }
     public override bool DeleteOnSuccess => true;
     public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(1);
-    public override bool RestartIfAbortedDuringShutdown { get; set; } = true;
+    public override bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; set; } = true;
     public override IndexTask TaskFromBytes(byte[] bytes) {
         using var ms = new MemoryStream(bytes);
         using var reader = new BinaryReader(ms);
