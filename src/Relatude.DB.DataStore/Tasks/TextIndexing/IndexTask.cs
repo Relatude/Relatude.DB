@@ -11,7 +11,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.Low;
     public override int MaxTaskCountPerBatch => 100;
     public override bool PersistToDisk => true; //Random.Shared.Next(0, 100) < 50;
-    public override Task ExecuteAsync(Batch<IndexTask> batch, TaskLogger? taskLogger) {
+    public override async Task ExecuteAsync(Batch<IndexTask> batch, TaskLogger? taskLogger) {
 
         // Only text index, update now
         var onlyTextIndex = batch.Tasks.Where(t => t.TextIndex && !t.VectorIndex);
@@ -35,7 +35,7 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
                 db.EnqueueTask(new TextOrSemanticIndexTask(task.NodeId, text));
             }
         }
-        return Task.CompletedTask;
+        
     }
     public override bool DeleteOnSuccess => true;
     public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(1);

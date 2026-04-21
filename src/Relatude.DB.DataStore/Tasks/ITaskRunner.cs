@@ -1,11 +1,19 @@
 ﻿using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Tasks;
+
 public delegate void TaskLogger(bool success, string id, string details);
+public class RemainingTasks {
+    public RemainingTasks(IEnumerable<TaskData> tasks) {
+        Tasks = [.. tasks];
+    }
+    public TaskData[] Tasks { get; }
+    public static RemainingTasks None = new([]);
+}
 public interface ITaskRunner {
     string TaskTypeId { get; }
     BatchTaskPriority Priority { get; }
-    Task ExecuteAsyncGeneric(IBatch tasks, TaskLogger? taskLogger);
+    Task<RemainingTasks> ExecuteAsyncGeneric(IBatch tasks, TaskLogger? taskLogger, CancellationToken cancellationToken);
     void LogTask(string id, string title, string category, string details, string error, bool success);
     byte[] TaskToBytesGeneric(TaskData task);
     TaskData TaskFromBytesGeneric(byte[] bytes);
@@ -20,7 +28,7 @@ public interface ITaskRunner {
 public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string TaskTypeId { get; } = typeof(TTask).FullName ?? throw new InvalidOperationException("Task type must have a valid FullName.");
     public abstract BatchTaskPriority Priority { get; }
-    public virtual bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted{ get; set; } = true;
+    public virtual bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; set; } = true;
     public abstract TimeSpan GetMaximumAgeInQueueAfterExecution();
     public abstract bool PersistToDisk { get; }
     public virtual TimeSpan GetMaximumAgeInQueuePerState(BatchState state) {
@@ -34,7 +42,13 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
             _ => TimeSpan.MaxValue
         };
     }
-    public async Task ExecuteAsyncGeneric(IBatch batch, TaskLogger? taskLogger) => await ExecuteAsync((Batch<TTask>)batch, taskLogger);
+    public async Task<RemainingTasks> ExecuteAsyncGeneric(IBatch batch, TaskLogger? taskLogger, CancellationToken cancellationToken)
+        => await ExecuteAsyncDetailed((Batch<TTask>)batch, taskLogger, cancellationToken);
+
+    public virtual async Task<RemainingTasks> ExecuteAsyncDetailed(Batch<TTask> batch, TaskLogger? taskLogger, CancellationToken cancellationToken) {
+        await ExecuteAsync(batch, taskLogger);
+        return RemainingTasks.None;
+    }
     public abstract Task ExecuteAsync(Batch<TTask> batch, TaskLogger? taskLogger);
     public byte[] TaskToBytesGeneric(TaskData task) => TaskToBytes((TTask)task);
     public TaskData TaskFromBytesGeneric(byte[] bytes) => TaskFromBytes(bytes);

@@ -133,12 +133,21 @@ public class TaskQueue : IDisposable {
                     sb.Append(name + " - " + batch.Count + "");
                 }
                 childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, sb.ToString());
-                await runner.ExecuteAsyncGeneric(nextBatch, taskLogging);
+                var remaining = await runner.ExecuteAsyncGeneric(nextBatch, taskLogging, CancellationToken.None);
                 lock (_lock) {
                     if (runner.DeleteOnSuccess) {
-                        _queue.Delete([nextBatch.Meta.BatchId]);
+                        _queue.Delete([nextBatch.Meta.BatchId]);                        
                     } else {
                         _queue.Set([nextBatch.Meta.BatchId], BatchState.Completed);
+                    }
+                }
+                if (remaining != null && remaining.Tasks.Length > 0) {
+                    // this part is not 100% complete and needs refinement
+                    // should change or log the fact that previous batch was not fully completed
+                    // and that these tasks are being re-enqueued as a new batch
+                    // also, they should be added to the top of the queue, not the bottom
+                    foreach (var task in remaining.Tasks) {
+                        Enqueue(task);
                     }
                 }
                 result = new BatchTaskResult(nextBatch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, nextBatch.TaskCount);

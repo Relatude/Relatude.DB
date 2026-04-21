@@ -15,7 +15,7 @@ public class RewriteTask : TaskData {
 }
 public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.High;
-    public override Task ExecuteAsync(Batch<RewriteTask> batch, TaskLogger? taskLogger) {
+    public override async Task ExecuteAsync(Batch<RewriteTask> batch, TaskLogger? taskLogger) {
         foreach (var t in batch.Tasks) {
             if (t.NewLogFileKey == null) {
                 t.NewLogFileKey = db.FileKeys.WAL_NextFileKey(db.IO);
@@ -41,7 +41,6 @@ public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
                 db.Log(SystemLogEntryType.Info, $"Rewrite completed in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
             }
         }
-        return Task.CompletedTask;
     }
     public override bool PersistToDisk => false;
     public override bool DeleteOnSuccess => true;
