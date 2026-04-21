@@ -23,7 +23,8 @@ public static class UtilsText {
             if (prop is not RelationPropertyModel rm) {
                 if (node.TryGetValue(prop.Id, out var value)) {
                     sb.AppendLine(prop.GetTextIndex(value));
-                    for (int i = 0; i < prop.IndexBoost; i++) sb.AppendLine(prop.GetTextIndex(value)); // temporary method for boosting a field
+                    // temporary method for boosting a field:
+                    for (int i = 0; i < prop.IndexBoost; i++) sb.AppendLine(prop.GetTextIndex(value)); 
                 }
             } else {
                 if (rm.TextIndexRelatedContent) {
