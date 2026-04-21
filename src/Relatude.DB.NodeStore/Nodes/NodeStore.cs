@@ -297,8 +297,11 @@ public class NodeStore : IDisposable {
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureCode), flushToDisk);
     public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, string? cultureCode, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, newRevisionId, cultureCode), flushToDisk);
+
     public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId, Guid? cultureId = null, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, cultureId), flushToDisk);
+    public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId)
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, Guid.Empty), default);
     public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId, Guid? cultureId = null, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, cultureId), flushToDisk);
     public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId, string? cultureCode, bool flushToDisk = false)

@@ -1,6 +1,7 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Demo.Models;
+using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
 using System.Diagnostics;
 using System.Text;
@@ -12,7 +13,7 @@ builder.AddRelatudeDB(
     options => {
         options.OnStoreInit = (db) => {
             db.RegisterRunner(new DemoTaskRunner(db));
-        };      
+        };
     });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -36,16 +37,23 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 
-app.MapGet("/Test", async (RelatudeDBContext ctx) => {
-    var noTasks = 1000;
+app.MapGet("/Add", (RelatudeDBContext ctx) => {
+  
     var db = ctx.Database;
-    for (int i = 0; i < noTasks; i++) {
-        await db.EnqueueTaskAsync(new DemoTask { MyId = i, DemoText = "This is task number " + i });
+
+    var art = db.CreateAndInsert<DemoArticle>(a => {
+        a.Content = "TEst example";
+    });
+    db.CreateRevision(art.Id, Guid.Empty, RevisionType.Preliminary, out var revId);
+    var revs = db.GetRevisions<DemoArticle>(art.Id);
+    var sb = new StringBuilder();
+    foreach (var rev in revs) {
+        sb.AppendLine(rev.Meta.CultureId.ToString());
     }
-    return "Enqueued " + noTasks + " tasks!";
+    return sb.ToString();
 });
 
-app.MapGet("/test2", (RelatudeDBContext ctx) => {
+app.MapGet("/testDisolayName", (RelatudeDBContext ctx) => {
     var sb = new StringBuilder();
     var db = ctx.Database;
     var art1 = new DemoArticle {
