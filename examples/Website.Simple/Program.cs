@@ -4,8 +4,6 @@ using Relatude.DB.NodeServer;
 using System.Text;
 using WebApplication1;
 
-const string noLangId = "";
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(
@@ -17,7 +15,7 @@ builder.AddRelatudeDB(
             db.Datastore.SetDefaultQueryContext(qx);
         };
         options.OnStoreOpen = (db) => {
-            db.EnsureCultures([{ "no","123123-123123-12312"}, "en"]);
+            db.EnsureCultures(["en"]);
         };
     });
 

@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
+using static Relatude.DB.Native.Models.CollectionsToCultures;
 
 
 namespace Relatude.DB.Nodes;
@@ -615,13 +616,32 @@ public class NodeStore : IDisposable {
 
     public long Timestamp => Datastore.Timestamp;
     public void Dispose() => Datastore.Dispose();
-    
+
     public void EnsureCultures(SystemCulture[] cultures) {
+        var existing = Query<ISystemCulture>().Execute();
+        var toCreate = cultures.Where(c => existing.All(ec => ec.Id != c.Id));
+        var toUpdate = cultures.Where(c => existing.Any(ec => ec.Id == c.Id && ec.CultureCode != c.Code));
+        foreach (var cult in toCreate) {
+            CreateAndInsert<ISystemCulture>(newCult => {
+                newCult.Id = cult.Id;
+                newCult.CultureCode = cult.Code;
+                try {
+                    var cultureInfo = new CultureInfo(cult.Code);
+                    newCult.NativeName = cultureInfo.NativeName;
+                    newCult.EnglishName = cultureInfo.EnglishName;
+                } catch {
+                    throw new Exception("Invalid culture code: " + cult.Code);
+                }
+            });
+        }
+        foreach (var cult in toUpdate) {
+            UpdateProperty<ISystemCulture, string>(cult.Id, c => c.CultureCode, cult.Code);
+        }
     }
     public void EnsureCultures(string[] cultureCodes) {
-        var existingCultures = Query<ISystemCulture>().Execute();
-        var culturesToCreate = cultureCodes.Except(existingCultures.Select(c => c.CultureCode)).ToArray();
-        foreach (var cultureCode in culturesToCreate) {
+        var existing = Query<ISystemCulture>().Execute();
+        var toCreate = cultureCodes.Except(existing.Select(c => c.CultureCode));
+        foreach (var cultureCode in toCreate) {
             CreateAndInsert<ISystemCulture>(c => {
                 c.CultureCode = cultureCode;
                 try {
@@ -629,7 +649,7 @@ public class NodeStore : IDisposable {
                     c.NativeName = cultureInfo.NativeName;
                     c.EnglishName = cultureInfo.EnglishName;
                 } catch {
-                    throw new Exception("
+                    throw new Exception("Invalid culture code: " + cultureCode);
                 }
             });
         }

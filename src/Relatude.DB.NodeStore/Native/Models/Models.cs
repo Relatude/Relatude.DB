@@ -47,6 +47,20 @@ public class CollectionsToCultures : ManyToMany<ISystemCollection, ISystemCultur
     public class Cultures : ManyTo { }
 }
 
+public class SystemCulture {
+    public SystemCulture(Guid id, string code) {
+        if(string.IsNullOrWhiteSpace(code)) {
+            throw new ArgumentException("Culture code cannot be null or whitespace.", nameof(code));
+        }
+        if(id == Guid.Empty) {
+            throw new ArgumentException("Id cannot be empty.", nameof(id));
+        }
+        Id = id;
+        Code = code;
+    }
+    public Guid Id {  get; }
+    public string Code { get; }
+}
 
 
 
