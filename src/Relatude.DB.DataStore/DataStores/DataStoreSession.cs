@@ -11,13 +11,13 @@ namespace Relatude.DB.DataStores;
 
 public class DataStoreSession : IDataStore {
     private readonly IDataStore _datastore;
-    public QueryContext DefaultQueryContext { get; }
-
     public DataStoreSession(QueryContext context, IDataStore datastore) {
         DefaultQueryContext = context;
         _datastore = datastore;
     }
+    public QueryContext DefaultQueryContext { get; }
 
+    public void SetDefaultQueryContext(QueryContext ctx) => _datastore.SetDefaultQueryContext(ctx);
     public void Dispose() => _datastore.Dispose();
     public void LogInfo(string text, string? details = null, bool replace = false) => _datastore.LogInfo(text, details, replace);
     public void LogWarning(string text, string? details = null) => _datastore.LogWarning(text, details);

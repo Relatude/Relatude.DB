@@ -19,7 +19,8 @@ public static partial class FromBytes {
 
         return version switch {
             NodeDataStorageVersions.Legacy1 => read_Legacy_1(datamodel, stream, guid, __id, nodeTypeId),
-            NodeDataStorageVersions.NodeData => read_NodeData_Legacy2(datamodel, stream, guid, __id, nodeTypeId),
+            //NodeDataStorageVersions.l => read_NodeData_Legacy2(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
             NodeDataStorageVersions.RevisionContainer => read_NodeDataRevisions(datamodel, stream, guid, __id, nodeTypeId),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
@@ -138,9 +139,11 @@ public static partial class FromBytes {
         var newNodeData = new NodeDataRevision(guid, __id, nodeTypeId, createdUtc, changedUtc, values, meta, revisionGuid);
         return newNodeData;
     }
-    static NodeData read_NodeData_Legacy2(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
+    static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId) {
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
+        string? displayName = stream.ReadStringOrNull();
+        string? address = stream.ReadStringOrNull();
 
         // Node data meta:
         var metaArray = stream.ReadByteArray();

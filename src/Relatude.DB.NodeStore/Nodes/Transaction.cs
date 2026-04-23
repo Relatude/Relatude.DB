@@ -652,11 +652,11 @@ public partial class Transaction {
         _transactionData.EnableRevisions(nodeId, newRevisionId);
         return this;
     }
-    public Transaction DisableRevisions(Guid nodeId, Guid revisionIdToKeep) {
+    public Transaction DisableRevisions(Guid nodeId, Guid? revisionIdToKeep = null) {
         _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
         return this;
     }
-    public Transaction DisableRevisions(int nodeId, Guid revisionIdToKeep) {
+    public Transaction DisableRevisions(int nodeId, Guid? revisionIdToKeep = null) {
         _transactionData.DisableRevisions(nodeId, revisionIdToKeep);
         return this;
     }

@@ -15,6 +15,7 @@ public interface IDataStore : IDisposable {
     Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     QueryContext DefaultQueryContext { get; }
+    void SetDefaultQueryContext(QueryContext ctx);
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);

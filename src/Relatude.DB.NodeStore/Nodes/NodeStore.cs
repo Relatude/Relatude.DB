@@ -5,11 +5,13 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
+using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq.Expressions;
 
 
@@ -61,6 +63,8 @@ public class NodeStore : IDisposable {
         plugin.Store = this;
     }
     public void RegisterRunner(ITaskRunner runner) => Datastore.RegisterRunner(runner);
+    public QueryContext DefaultQueryContext => Datastore.DefaultQueryContext;
+    public void SetDefaultQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
 
     public NodeStore NewContext(QueryContext ctx) {
         return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
@@ -274,8 +278,8 @@ public class NodeStore : IDisposable {
     public TransactionResult EnableRevisions(Guid id, out Guid newRevisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, out newRevisionId), flushToDisk);
     public TransactionResult EnableRevisions(int id, out Guid newRevisionId, bool flushToDisk = false) => Execute(new Transaction(this).EnableRevisions(id, out newRevisionId), flushToDisk);
 
-    public TransactionResult DisableRevisions(Guid id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
-    public TransactionResult DisableRevisions(int id, Guid revisionIdToKeep, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult DisableRevisions(Guid id, Guid? revisionIdToKeep = null, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
+    public TransactionResult DisableRevisions(int id, Guid? revisionIdToKeep = null, bool flushToDisk = false) => Execute(new Transaction(this).DisableRevisions(id, revisionIdToKeep), flushToDisk);
 
     public TransactionResult UpdateMeta(Guid id, Guid revisionId, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, metaProperties), flushToDisk);
     public TransactionResult UpdateMeta(int id, Guid revisionId, KeyValuePair<string, object>[] metaProperties, bool flushToDisk = false) => Execute(new Transaction(this).UpdateMeta(id, revisionId, metaProperties), flushToDisk);
@@ -611,5 +615,24 @@ public class NodeStore : IDisposable {
 
     public long Timestamp => Datastore.Timestamp;
     public void Dispose() => Datastore.Dispose();
+    
+    public void EnsureCultures(SystemCulture[] cultures) {
+    }
+    public void EnsureCultures(string[] cultureCodes) {
+        var existingCultures = Query<ISystemCulture>().Execute();
+        var culturesToCreate = cultureCodes.Except(existingCultures.Select(c => c.CultureCode)).ToArray();
+        foreach (var cultureCode in culturesToCreate) {
+            CreateAndInsert<ISystemCulture>(c => {
+                c.CultureCode = cultureCode;
+                try {
+                    var cultureInfo = new CultureInfo(cultureCode);
+                    c.NativeName = cultureInfo.NativeName;
+                    c.EnglishName = cultureInfo.EnglishName;
+                } catch {
+                    throw new Exception("
+                }
+            });
+        }
+    }
 
 }

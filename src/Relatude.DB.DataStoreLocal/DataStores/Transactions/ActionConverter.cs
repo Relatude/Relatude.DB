@@ -150,7 +150,7 @@ internal class ActionConverter {
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                                 db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
-                                if(addressWasChanged) newNode.Address = newAddress;
+                                if (addressWasChanged) newNode.Address = newAddress;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
                                 if (node is not INodeDataInner nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
@@ -436,7 +436,7 @@ internal class ActionConverter {
 
                     if (existingNode is not NodeDataRevisions revs) {
                         if (!_forgivingRevisionActions) throw new Exception("Cannot create revision for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. ");
-                        if (sourceRevisionId == null) sourceRevisionId = Guid.NewGuid();
+                        if (sourceRevisionId == null || sourceRevisionId == Guid.Empty) sourceRevisionId = Guid.NewGuid();
                         var enableAction = NodeRevisionAction.EnableRevisions(a.NodeIdKey, sourceRevisionId);
                         foreach (var subAction in toPrimitiveActions(db, enableAction, transformValues, key, newTasks)) yield return subAction;
                         existingNode = db._nodes.Get(nodeId, out _); // get the newly created revisions node
@@ -445,7 +445,13 @@ internal class ActionConverter {
                     }
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     if (a.RevisionId == null) throw new Exception("RevisionId must be given to create a new revision. ");
-                    if (sourceRevisionId == null) throw new Exception("SourceRevisionId must be given to create a new revision. ");
+                    if (sourceRevisionId == null || sourceRevisionId == Guid.Empty) {
+                        if (revs.Revisions.Length > 1) {
+                            throw new Exception("SourceRevisionId must be given to create a new revision when there are multiple existing revisions, to determine which revision to copy. ");
+                        } else {
+                            sourceRevisionId = revs.Revisions[0].RevisionId; // if there is only one revision, we can use that one as source even if no source revision id is given
+                        }
+                    }
                     if (sourceRevisionId == a.RevisionId) throw new Exception("SourceRevisionId cannot be the same as the new revision id. ");
                     var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == sourceRevisionId);
                     if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");

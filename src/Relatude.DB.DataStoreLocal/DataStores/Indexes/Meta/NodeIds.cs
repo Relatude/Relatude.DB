@@ -347,17 +347,17 @@ internal class NodeTypesByIds {
     public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> log) {
         try {
             if (na.Operation == PrimitiveOperation.Add) {
-                if (na.Node is NodeData nd) Index(nd);
+                if (na.Node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta);
                 else if (na.Node is NodeDataRevisions ndr) {
                     foreach (var rev in ndr.Revisions) {
-                        Index(rev);
+                        index(rev.__Id, rev.NodeType, rev.Meta);
                     }
                 } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             } else if (na.Operation == PrimitiveOperation.Remove) {
-                if (na.Node is NodeData nd) DeIndex(nd);
+                if (na.Node is NodeData nd) deIndex(nd.__Id, nd.NodeType, nd.Meta);
                 else if (na.Node is NodeDataRevisions ndr) {
                     foreach (var rev in ndr.Revisions) {
-                        DeIndex(rev);
+                        deIndex(rev.__Id, rev.NodeType, rev.Meta);
                     }
                 } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
             }
@@ -381,7 +381,7 @@ internal class NodeTypesByIds {
             foreach (var rev in ndr.Revisions) {
                 index(rev.__Id, rev.NodeType, rev.Meta);
             }
-        } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + node.GetType().FullName);
+        } else throw new Exception("Internal error. Unsupported node data type in primitive action during indexing: " + node.GetType().FullName);
     }
     void index(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
         metaAndType mt = new(meta ?? IInnerNodeMeta.Empty, nodeTypeId);

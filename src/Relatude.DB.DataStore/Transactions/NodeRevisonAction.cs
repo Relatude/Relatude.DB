@@ -22,7 +22,7 @@ public class NodeRevisionAction : ActionBase {
         => new(NodeRevisionOperation.DeleteRevision, key, revisionId, null, null, null, null, null);
     public static NodeRevisionAction EnableRevisions(IdKey key, Guid? revisionId = null)
         => new(NodeRevisionOperation.EnableRevisions, key, revisionId, null, null, null, null, null);
-    public static NodeRevisionAction DisableRevisions(IdKey key, Guid revisionIdToKeep)
+    public static NodeRevisionAction DisableRevisions(IdKey key, Guid? revisionIdToKeep)
         => new(NodeRevisionOperation.DisableRevisions, key, revisionIdToKeep, null, null, null, null, null);
     public static NodeRevisionAction CreateRevision(IdKey key, Guid sourceRevisionId, RevisionType revisionType, Guid? newRevisionId, Guid? cultureId)
         => new(NodeRevisionOperation.CreateRevision, key, newRevisionId ?? Guid.NewGuid(), revisionType, sourceRevisionId, cultureId, null, null);

@@ -1,11 +1,10 @@
-using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores.Stores;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
-using System.Diagnostics;
 using System.Text;
 using WebApplication1;
+
+const string noLangId = "";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +12,12 @@ builder.AddRelatudeDB(
     options => {
         options.OnStoreInit = (db) => {
             db.RegisterRunner(new DemoTaskRunner(db));
+            var qx = db.Datastore.DefaultQueryContext;
+            qx = qx.Culture(Guid.Empty);
+            db.Datastore.SetDefaultQueryContext(qx);
+        };
+        options.OnStoreOpen = (db) => {
+            db.EnsureCultures([{ "no","123123-123123-12312"}, "en"]);
         };
     });
 
@@ -35,109 +40,29 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-
-
-app.MapGet("/Add", (RelatudeDBContext ctx) => {
-  
+app.MapGet("/Get", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-
+    var sb = new StringBuilder();
+    var arts = db.Query<DemoArticle>().Execute();
+    foreach (var art in arts) {
+        var revs = db.GetRevisions<DemoArticle>(art.Id);
+        foreach (var rev in revs) {
+            sb.AppendLine(rev.Meta.CultureId.ToString());
+        }
+    }
+    return sb.ToString();
+});
+app.MapGet("/Add", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
     var art = db.CreateAndInsert<DemoArticle>(a => {
         a.Content = "TEst example";
     });
-    db.CreateRevision(art.Id, Guid.Empty, RevisionType.Preliminary, out var revId);
+    db.EnableRevisions(art.Id);
     var revs = db.GetRevisions<DemoArticle>(art.Id);
     var sb = new StringBuilder();
     foreach (var rev in revs) {
         sb.AppendLine(rev.Meta.CultureId.ToString());
     }
-    return sb.ToString();
-});
-
-app.MapGet("/testDisolayName", (RelatudeDBContext ctx) => {
-    var sb = new StringBuilder();
-    var db = ctx.Database;
-    var art1 = new DemoArticle {
-        Title = "Test Article",
-        Content = "This is a test article.",
-        Size = 123,
-        DisplayName = "Test Article Display Name",
-    };
-    var art2 = new DemoArticle {
-        Title = "Another Article",
-        Content = "This is another test article.",
-        Size = 456,
-        DisplayName = "Another Article Display Name",
-    };
-    db.Insert([art1, art2]);
-
-    db.UpdateDisplayName(art1, "asdælk aksøldølas ");
-    db.UpdateDisplayName(art2, "asdasdasd");
-
-
-    if (db.TryGetFromAddress<DemoArticle>(null, out var fromAddress1)) {
-        sb.AppendLine("Successfully got from new address: " + fromAddress1.Id);
-    } else {
-        sb.AppendLine("Failed to get from new address");
-    }
-
-    foreach (var a in db.Query<DemoArticle>().Execute()) {
-        sb.AppendLine($"Article: {a.Title}, Address: {(a.Address == null ? "null" : a.Address)}, DisplayName: {a.DisplayName}, Id: {a.Id}");
-    }
-    return sb.ToString();
-
-});
-bool firstUpload = true;
-app.MapGet("/testUpload", async (RelatudeDBContext ctx) => {
-    //if (!firstUpload) return "Already uploaded. Restart the app to upload again.";
-    firstUpload = false;
-    var db = ctx.Database;
-    var files = Directory.GetFiles("C:\\UploadTest");
-    var sw = Stopwatch.StartNew();
-    //foreach (var file in files) {
-    await Parallel.ForEachAsync(files, async (file, cancellationToken) => {
-        var a = db.CreateAndInsert<DemoArticle>(a => {
-            a.Title = Path.GetFileNameWithoutExtension(file);
-            a.Content = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
-        });
-        await db.FileUploadAsync(a, a => a.File, file);
-    });
-    sw.Stop();
-    Console.WriteLine("Uploaded: " + files.Length + " files in " + sw.ElapsedMilliseconds + " ms.");
-    return "Uploaded: " + files.Length + " files in " + sw.ElapsedMilliseconds + " ms.";
-});
-app.MapGet("/testDelete", async (RelatudeDBContext ctx) => {
-    var db = ctx.Database;
-    var sw = Stopwatch.StartNew();
-    Parallel.ForEach(db.Query<DemoArticle>().Execute(), async (a) => {
-        db.DeleteIfExists(a.Id);
-    });
-    db.Maintenance(Relatude.DB.DataStores.MaintenanceAction.TruncateLog);
-    sw.Stop();
-    Console.WriteLine("Deleted in " + sw.ElapsedMilliseconds + " ms.");
-    return "Deleted in " + sw.ElapsedMilliseconds + " ms.";
-});
-bool firstDownload = true;
-app.MapGet("/testDownload", async (RelatudeDBContext ctx) => {
-    //if (!firstDownload) return "Done";
-    firstDownload = false;
-    var db = ctx.Database;
-    var tempOutput = "C:\\DownloadTest";
-    //if (Directory.Exists(tempOutput)) Directory.Delete(tempOutput, true);
-    //Directory.CreateDirectory(tempOutput);
-    StringBuilder sb = new StringBuilder();
-    var sw = Stopwatch.StartNew();
-    await Parallel.ForEachAsync(db.Query<DemoArticle>().Execute(), async (a, cancellationToken) => {
-        //foreach (var a in db.Query<DemoArticle>().Execute()) {
-        //sb.Append(a.File.FileId);
-        if (!a.File.IsEmpty) {
-            var bytes = await db.FileDownloadAsync(a, a => a.File);
-            Console.WriteLine("Bytes: " + bytes.Length);
-            //File.WriteAllBytes(Path.Combine(tempOutput, a.File.Name), bytes);
-        }
-    });
-    sw.Stop();
-    Console.WriteLine("Downloaded: " + db.Query<DemoArticle>().Count() + " files in " + sw.ElapsedMilliseconds + " ms. Saved to folder: " + tempOutput);
-    sb.AppendLine($"Downloaded: {db.Query<DemoArticle>().Count()} files in {sw.ElapsedMilliseconds} ms. Saved to folder: {tempOutput}");
     return sb.ToString();
 });
 

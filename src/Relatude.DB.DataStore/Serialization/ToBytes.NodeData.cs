@@ -32,7 +32,9 @@ public static partial class ToBytes {
 
         stream.WriteDateTime(nodeData.CreatedUtc); // could be needed dropped, but saves little space
         stream.WriteDateTime(nodeData.ChangedUtc); // needed for sync scenarios
-        
+        stream.WriteStringOrNull(nodeData.DisplayName);
+        stream.WriteStringOrNull(nodeData.Address);
+
         // Node data meta
         stream.WriteByteArray(IInnerNodeMeta.ToBytes(nodeData.Meta));
 
