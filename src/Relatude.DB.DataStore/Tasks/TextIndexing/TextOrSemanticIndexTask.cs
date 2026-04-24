@@ -1,11 +1,12 @@
 ﻿using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Tasks.TextIndexing;
-public class TextOrSemanticIndexTask(int nodeId, string? textIndex) : TaskData() {
+public class TextOrSemanticIndexTask(int nodeId, TextExtract[]? textIndex) : TaskData() {
     public int NodeId { get; } = nodeId;
-    public string? TextIndex { get; } = textIndex;
+    public TextExtract[]? TextExtract { get; } = textIndex;
 }
 public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<TextOrSemanticIndexTask> {
     public override BatchTaskPriority Priority => BatchTaskPriority.Medium;
@@ -13,9 +14,9 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
     public override bool PersistToDisk => true;
     public override async Task ExecuteAsync(Batch<TextOrSemanticIndexTask> batch, TaskLogger? taskLogger) {
         var t = new TransactionData();
-        var onlySemanticIndex = batch.Tasks.Where(t => t.TextIndex == null).ToList();
+        var onlySemanticIndex = batch.Tasks.Where(t => t.TextExtract == null).ToList();
         if(onlySemanticIndex.Count > 0) await updateSemanticIndexOnly(onlySemanticIndex, t);
-        var withTextIndex = batch.Tasks.Where(t => t.TextIndex != null).ToList();
+        var withTextIndex = batch.Tasks.Where(t => t.TextExtract != null).ToList();
         if(withTextIndex.Count > 0) await updateTextAndMaybeSemanticIndex(withTextIndex, t);
         if (t.Actions.Count > 0) db.Execute(t);
     }
@@ -23,38 +24,40 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
         if (ai == null) throw new Exception("AI service is not available in this DataStore.");
         var ids = tasks.Select(b => b.NodeId).ToArray();
         var nodesAndSemText = db.GetSemanticTextExtractsForExistingNodesAndWhereContent(ids);
-        var texts = nodesAndSemText.Select(n => n.Text).ToArray();
-        var vector = await ai.GetEmbeddingsAsync(texts);
-        for (int i = 0; i < nodesAndSemText.Length; i++) {
+        var texts = nodesAndSemText.SelectMany(n => n.TextExtract.Select(te => new {n.NodeId, te.RevisionId, te.Text } )).ToArray();
+        var vector = await ai.GetEmbeddingsAsync(texts.Select(t => t.Text).ToArray());
+        for (int i = 0; i < texts.Length; i++) {
             if (vector[i] == null) continue; // Skip if no vector was generated
-            t.ForceUpdateProperty(nodesAndSemText[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, vector[i]);
+            t.ForceUpdateProperty(texts[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, texts[i].RevisionId, vector[i]);
         }
     }
     async Task updateTextAndMaybeSemanticIndex(IEnumerable<TextOrSemanticIndexTask> tasks, TransactionData t) {
         if (ai == null) throw new Exception("AI service is not available in this DataStore.");
         var ids = tasks.Select(b => b.NodeId).ToArray();
         var nodesAndSemText = db.GetSemanticTextExtractsForExistingNodesAndWhereContent(ids);
-        var texts = nodesAndSemText.Select(n => n.Text).ToArray();
-        var vectors = await ai.GetEmbeddingsAsync(texts);
+        var texts = nodesAndSemText.SelectMany(n => n.TextExtract.Select(te => new { n.NodeId, te.RevisionId, te.Text })).ToArray();
+        var vectors = await ai.GetEmbeddingsAsync(texts.Select(t => t.Text).ToArray());
         var vectorsByNodeId = new Dictionary<int, float[]>();
-        for (int i = 0; i < nodesAndSemText.Length; i++) {
+        for (int i = 0; i < texts.Length; i++) {
             if (vectors[i] == null) continue; // Skip if no vector was generated
             vectorsByNodeId[nodesAndSemText[i].NodeId] = vectors[i];
         }
-        var textsByNodeId = new Dictionary<int, string>();
+        var textsByNodeId = new Dictionary<int, TextExtract[]>();
         foreach (var n in tasks) {
-            if (n.TextIndex != null) {
-                textsByNodeId[n.NodeId] = n.TextIndex;
+            if (n.TextExtract != null) {
+                textsByNodeId[n.NodeId] = n.TextExtract;
             }
         }
         foreach (var task in tasks) {
-            string? text = null;
+            TextExtract[]? text = null;
             textsByNodeId.TryGetValue(task.NodeId, out text);
             float[]? vector = null;
             vectorsByNodeId.TryGetValue(task.NodeId, out vector);
             if (text != null && vector != null) {
+
                 t.ForceUpdateProperties(task.NodeId,
                     [NodeConstants.SystemTextIndexPropertyId, NodeConstants.SystemVectorIndexPropertyId],
+                    
                     [text, vector]);
             } else if (text != null) {
                 t.ForceUpdateProperty(task.NodeId, NodeConstants.SystemTextIndexPropertyId, text);
@@ -80,7 +83,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine? ai) : TaskRunner<T
         using var ms = new MemoryStream();
         using var writer = new BinaryWriter(ms);
         writer.Write(task.NodeId);
-        if (task.TextIndex != null) writer.Write(task.TextIndex);
+        if (task.TextExtract != null) writer.Write(task.TextExtract);
         return ms.ToArray();
     }
 }

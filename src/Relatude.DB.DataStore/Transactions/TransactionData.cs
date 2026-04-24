@@ -53,38 +53,44 @@ public class TransactionData {
     public void AddRelation(Guid relationId, Guid source, Guid target) => Add(new RelationAction(RelationOperation.Add, relationId) { SourceGuid = source, TargetGuid = target, ChangeUtc = DateTime.UtcNow });
     public void AddRelation(Guid relationId, Guid source, Guid target, DateTime dtUtc, bool ensuring) => Add(new RelationAction(RelationOperation.Add, relationId) { SourceGuid = source, TargetGuid = target, ChangeUtc = dtUtc });
 
-    public void ForceUpdateProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null, propetyId, value));
-    public void ForceUpdateProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], propetyId, value));
-    public void ForceUpdateProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, propetyId, value));
-    public void ForceUpdateProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, propetyId, value));
+    public void ForceUpdateProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null, null, propetyId, value));
+    public void ForceUpdateProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], null, propetyId, value));
+    public void ForceUpdateProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, null, propetyId, value));
+    public void ForceUpdateProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, null, propetyId, value));
 
-    public void ForceUpdateProperties(Guid nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null, propetyIds, values));
-    public void ForceUpdateProperties(int nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], propetyIds, values));
-    public void ForceUpdateProperties(int[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, propetyIds, values));
-    public void ForceUpdateProperties(Guid[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, propetyIds, values));
+    public void ForceUpdateProperties(Guid nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null, null, propetyIds, values));
+    public void ForceUpdateProperties(int nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], null, propetyIds, values));
+    public void ForceUpdateProperties(int nodeId, Guid[] propetyIds, Guid revisionId, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], [revisionId], propetyIds, values));
+    public void ForceUpdateProperties(int[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, null, propetyIds, values));
+    public void ForceUpdateProperties(Guid[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, null, propetyIds, values));
 
-    public void UpdateIfDifferentProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, [nodeId], null, propetyId, value));
-    public void UpdateIfDifferentProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, [nodeId], propetyId, value));
-    public void UpdateIfDifferentProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, nodeIds, null, propetyId, value));
-    public void UpdateIfDifferentProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, nodeIds, propetyId, value));
+    public void ForceUpdateProperty(Guid nodeId, Guid propetyId, Guid? revisionId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null,revisionId.HasValue ? [revisionId.Value] : null, propetyId, value));
+    public void ForceUpdateProperty(int nodeId, Guid propetyId, Guid? revisionId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], revisionId.HasValue ? [revisionId.Value] : null, propetyId, value));
+    public void ForceUpdateProperty(Guid[] nodeIds, Guid propetyId, Guid[]? revisionIds, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, revisionIds, propetyId, value));
+    public void ForceUpdateProperty(int[] nodeIds, Guid propetyId, Guid[]? revisionIds, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, revisionIds, propetyId, value));
 
-    public void UpdateIfDifferentProperties(Guid nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, [nodeId], null, propetyIds, values));
-    public void UpdateIfDifferentProperties(int nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, [nodeId], propetyIds, values));
-    public void UpdateIfDifferentProperties(int[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, nodeIds, propetyIds, values));
-    public void UpdateIfDifferentProperties(Guid[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, nodeIds, null, propetyIds, values));
+    public void UpdateIfDifferentProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, [nodeId], null, null, propetyId, value));
+    public void UpdateIfDifferentProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, [nodeId], null, propetyId, value));
+    public void UpdateIfDifferentProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, nodeIds, null, null, propetyId, value));
+    public void UpdateIfDifferentProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, nodeIds, null, propetyId, value));
 
-    public void ResetProperty(Guid nodeId, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, [nodeId], null, propetyId, null));
-    public void ResetProperty(int nodeId, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, null, [nodeId], propetyId, null));
-    public void ResetProperty(Guid[] nodeIds, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, nodeIds, null, propetyId, null));
-    public void ResetProperty(int[] nodeIds, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, null, nodeIds, propetyId, null));
-    public void AddToProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, [nodeId], null, propetyId, value));
-    public void AddToProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, null, [nodeId], propetyId, value));
-    public void AddToProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, nodeIds, null, propetyId, value));
-    public void AddToProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, null, nodeIds, propetyId, value));
-    public void MultiplyProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, [nodeId], null, propetyId, value));
-    public void MultiplyProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, null, [nodeId], propetyId, value));
-    public void MultiplyProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, nodeIds, null, propetyId, value));
-    public void MultiplyProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, null, nodeIds, propetyId, value));
+    public void UpdateIfDifferentProperties(Guid nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, [nodeId], null, null, propetyIds, values));
+    public void UpdateIfDifferentProperties(int nodeId, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, [nodeId], null, propetyIds, values));
+    public void UpdateIfDifferentProperties(int[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, nodeIds, null, propetyIds, values));
+    public void UpdateIfDifferentProperties(Guid[] nodeIds, Guid[] propetyIds, object[] values) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, nodeIds, null, null, propetyIds, values));
+
+    public void ResetProperty(Guid nodeId, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, [nodeId], null, null, propetyId, null));
+    public void ResetProperty(int nodeId, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, null, [nodeId], null, propetyId, null));
+    public void ResetProperty(Guid[] nodeIds, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, nodeIds, null, null, propetyId, null));
+    public void ResetProperty(int[] nodeIds, Guid propetyId) => Add(new NodePropertyAction(NodePropertyOperation.Reset, null, null, nodeIds, null, propetyId, null));
+    public void AddToProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, [nodeId], null, null, propetyId, value));
+    public void AddToProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, null, [nodeId], null, propetyId, value));
+    public void AddToProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, nodeIds, null, null, propetyId, value));
+    public void AddToProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Add, null, null, nodeIds, null, propetyId, value));
+    public void MultiplyProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, [nodeId], null, null, propetyId, value));
+    public void MultiplyProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, null, [nodeId], null, propetyId, value));
+    public void MultiplyProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, nodeIds, null, null, propetyId, value));
+    public void MultiplyProperty(int[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.Multiply, null, null, nodeIds, null, propetyId, value));
 
     public void ValidateProperty(Guid nodeId, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, [nodeId], null, propetyId, value));
     public void ValidateProperty(int nodeId, Guid propetyId, ValueRequirement requirement, object value) => Add(new NodePropertyValidation(requirement, null, [nodeId], propetyId, value));

@@ -5,7 +5,7 @@ public class TextExtractInfo(int nodeId, TextExtract[] textExtract) {
     public int NodeId { get; } = nodeId;
     public TextExtract[] TextExtract { get; } = textExtract;
 }
-public class TextExtract(string text, Guid cultureId) {
+public class TextExtract(string text, Guid? revisionId) {
     public string Text { get; } = text;
-    public Guid CultureId { get; } = cultureId;
+    public Guid? RevisionId { get; } = revisionId;
 }

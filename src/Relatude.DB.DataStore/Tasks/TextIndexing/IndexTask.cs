@@ -1,7 +1,9 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Tasks.TextIndexing;
+
 public class IndexTask(int nodeId, bool textIndex, bool vectorIndex) : TaskData {
     public int NodeId { get; } = nodeId;
     public bool TextIndex { get; } = textIndex;
@@ -19,23 +21,25 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
             var ids = onlyTextIndex.Select(b => b.NodeId).ToArray();
             var idsAndText = db.GetTextExtractsForExistingNodesAndWhereContent(ids);
             var t = new TransactionData();
-            foreach (var n in idsAndText) {
-                t.ForceUpdateProperty(n.NodeId, NodeConstants.SystemTextIndexPropertyId, n.Text);
+            foreach (var info in idsAndText) {
+                foreach (var text in info.TextExtract) {
+                    t.ForceUpdateProperty(info.NodeId, NodeConstants.SystemTextIndexPropertyId, text.RevisionId, text.Text);
+                }
             }
             db.Execute(t);
         }
         var bothIndexes = batch.Tasks.Where(t => t.VectorIndex);
         {
             foreach (var task in bothIndexes) {
-                string? text = null;
+                TextExtract[]? text = null;
                 if (task.TextIndex) {
                     var idAndTexts = db.GetTextExtractsForExistingNodesAndWhereContent([task.NodeId]);
-                    if (idAndTexts.Length > 0) text = idAndTexts.First().Text;
+                    if (idAndTexts.Length > 0) text = idAndTexts.First().TextExtract;
                 }
                 db.EnqueueTask(new TextOrSemanticIndexTask(task.NodeId, text));
             }
         }
-        
+
     }
     public override bool DeleteOnSuccess => true;
     public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(1);
