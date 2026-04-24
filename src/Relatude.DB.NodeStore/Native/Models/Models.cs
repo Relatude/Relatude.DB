@@ -46,7 +46,7 @@ public class CollectionsToCultures : ManyToMany<ISystemCollection, ISystemCultur
     public class Collections : ManyFrom { }
     public class Cultures : ManyTo { }
 }
-
+[Exclude]
 public class SystemCulture {
     public SystemCulture(Guid id, string code) {
         if(string.IsNullOrWhiteSpace(code)) {

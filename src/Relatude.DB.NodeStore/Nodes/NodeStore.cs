@@ -120,8 +120,10 @@ public class NodeStore : IDisposable {
         t.Execute();
         return node; // Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
-    public T CreateAndInsert<T>(Action<T>? setProperties = null) where T : notnull {
-        var node = Mapper.NewObjectFromType<T>();
+    public T CreateAndInsert<T>(Action<T>? setProperties, Guid id) where T : notnull => CreateAndInsert<T>(setProperties, new IdKey(id));
+    public T CreateAndInsert<T>(Action<T>? setProperties, int id) where T : notnull => CreateAndInsert<T>(setProperties, new IdKey(id));
+    public T CreateAndInsert<T>(Action<T>? setProperties = null, IdKey? id = null) where T : notnull {
+        var node = Mapper.NewObjectFromType<T>(id);
         var t = CreateTransaction();
         t.Insert(node);
         if (setProperties != null) {
@@ -618,12 +620,12 @@ public class NodeStore : IDisposable {
     public void Dispose() => Datastore.Dispose();
 
     public void EnsureCultures(SystemCulture[] cultures) {
+        if (State != DataStoreState.Open) throw new Exception("DataStore must be open to ensure cultures.");
         var existing = Query<ISystemCulture>().Execute();
         var toCreate = cultures.Where(c => existing.All(ec => ec.Id != c.Id));
         var toUpdate = cultures.Where(c => existing.Any(ec => ec.Id == c.Id && ec.CultureCode != c.Code));
         foreach (var cult in toCreate) {
             CreateAndInsert<ISystemCulture>(newCult => {
-                newCult.Id = cult.Id;
                 newCult.CultureCode = cult.Code;
                 try {
                     var cultureInfo = new CultureInfo(cult.Code);
@@ -632,13 +634,14 @@ public class NodeStore : IDisposable {
                 } catch {
                     throw new Exception("Invalid culture code: " + cult.Code);
                 }
-            });
+            }, cult.Id);
         }
         foreach (var cult in toUpdate) {
             UpdateProperty<ISystemCulture, string>(cult.Id, c => c.CultureCode, cult.Code);
         }
     }
     public void EnsureCultures(string[] cultureCodes) {
+        if (State != DataStoreState.Open) throw new Exception("DataStore must be open to ensure cultures.");
         var existing = Query<ISystemCulture>().Execute();
         var toCreate = cultureCodes.Except(existing.Select(c => c.CultureCode));
         foreach (var cultureCode in toCreate) {

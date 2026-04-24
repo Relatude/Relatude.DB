@@ -136,10 +136,12 @@ internal static class BuildUtils {
         var all = new List<MemberInfo>();
 
         foreach (var f in type.GetFields()) {
+            if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
             firstTestForIllegalTypes(f.FieldType, f);
             if (f.IsPublic) all.Add(f);
         }
         foreach (var p in type.GetProperties()) {
+            if (p.GetCustomAttribute<ExcludeAttribute>() != null) continue;
             firstTestForIllegalTypes(p.PropertyType, p);
             if (p.GetGetMethod(true) != null) all.Add(p);
         }

@@ -17,9 +17,9 @@ public class IndexTaskRunner(IDataStore db) : TaskRunner<IndexTask> {
         var onlyTextIndex = batch.Tasks.Where(t => t.TextIndex && !t.VectorIndex);
         {
             var ids = onlyTextIndex.Select(b => b.NodeId).ToArray();
-            var nodesAndText = db.GetTextExtractsForExistingNodesAndWhereContent(ids);
+            var idsAndText = db.GetTextExtractsForExistingNodesAndWhereContent(ids);
             var t = new TransactionData();
-            foreach (var n in nodesAndText) {
+            foreach (var n in idsAndText) {
                 t.ForceUpdateProperty(n.NodeId, NodeConstants.SystemTextIndexPropertyId, n.Text);
             }
             db.Execute(t);

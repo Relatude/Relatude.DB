@@ -115,8 +115,8 @@ public interface IDataStore : IDisposable {
     void SetTimestamp(long timestamp);
     long Timestamp { get; }
     void Rollback(long timestamp);
-    (int NodeId, string Text)[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
-    (int NodeId, string Text)[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
+    TextExtractInfo[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
+    TextExtractInfo[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids);
 }
 
 public static class IDataStoreExtensions {

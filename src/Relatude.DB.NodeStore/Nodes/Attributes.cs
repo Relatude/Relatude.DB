@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Nodes;
+
 internal interface IAttrWithUniqueContraints {
     bool UniqueValues { get; set; }
 }
@@ -13,6 +14,13 @@ public enum BoolValue : int {
     False = 1,
     True = -1
 }
+/// <summary>
+/// Attribute used to exclude types and properties from being included in the datamodel. 
+/// </summary>
+public class ExcludeAttribute : Attribute { }
+/// <summary>
+/// Attribute used to mark a class or interface as a node type in the datamodel. Can be used on classes, interfaces and structs.
+/// </summary>
 [AttributeUsage(AttributeTargets.Interface | AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
 public class NodeAttribute : Attribute {
     public string? Id { get; set; }

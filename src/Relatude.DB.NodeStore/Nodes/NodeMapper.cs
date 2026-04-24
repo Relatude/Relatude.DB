@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Expressions;
@@ -124,11 +125,19 @@ public class NodeMapper {
         throw new Exception("Unable to find relation id for type: " + type.FullName);
     }
 
-    public T NewObjectFromType<T>() => CreateObjectFromType<T>(Guid.NewGuid());
-    public T CreateObjectFromType<T>(Guid guid) {
+    public T NewObjectFromType<T>(IdKey? key = null) {
+        Guid guid;
+        int id;
+        if (key == null) {
+            guid = Guid.NewGuid();
+            id = 0;
+        } else {
+            guid = key.Value.Guid != Guid.Empty ? key.Value.Guid : Guid.NewGuid();
+            id = key.Value.Int;
+        }
         var typeId = GetNodeTypeId(typeof(T));
         var nowUtc = DateTime.UtcNow;
-        var nodeData = new NodeData(guid, 0, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
+        var nodeData = new NodeData(guid, id, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
         return CreateObjectFromNodeData<T>(nodeData);
     }
 }

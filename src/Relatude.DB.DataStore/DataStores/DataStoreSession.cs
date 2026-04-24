@@ -155,9 +155,9 @@ public class DataStoreSession : IDataStore {
     public long Timestamp => _datastore.Timestamp;
     public void Rollback(long timestamp) => _datastore.Rollback(timestamp);
 
-    public (int NodeId, string Text)[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
+    public TextExtractInfo[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
         => _datastore.GetTextExtractsForExistingNodesAndWhereContent(ids);
-    public (int NodeId, string Text)[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
+    public TextExtractInfo[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
         => _datastore.GetSemanticTextExtractsForExistingNodesAndWhereContent(ids);
 
     INodeDataOuter IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);

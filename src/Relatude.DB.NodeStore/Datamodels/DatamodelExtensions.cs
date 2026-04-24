@@ -40,11 +40,16 @@ public static class DatamodelExtensions {
     static void addType(this Datamodel datamodel, Type t) {
         if (datamodel.HasInitialized()) throw new Exception("Datamodel is already initialized. Cannot add more types. " + t.FullName);
         if (t.InheritsFromOrImplements<IRelationProperty>()) return; // skip
+        if (t.GetCustomAttribute<ExcludeAttribute>() != null) return; // skip excluded types
         if (t.InheritsFromOrImplements<IRelation>()) {
             var r = BuildUtils.CreateRelationModelFromType(t);
             if (datamodel.Relations.ContainsKey(r.Id)) return;
             datamodel.Relations.Add(r.Id, r);
         } else {
+            bool noZeroArgConstructor = t.GetConstructors().All(c => c.GetParameters().Length > 0);
+            if (!t.IsInterface && noZeroArgConstructor) {
+                throw new Exception("Node type " + t.FullName + " must have a parameterless constructor. ");
+            }
             var c = BuildUtils.CreateNodeTypeModelFromType(t);
             if (datamodel.NodeTypes.TryGetValue(c.Id, out var c2)) {
                 if (c.FullName == c2.FullName) return; // ignore, allow same class more than one time
@@ -65,7 +70,7 @@ public static class DatamodelExtensions {
     }
     static void getReferencedTypes(Type t, HashSet<Type> types) {
         if (types.Contains(t)) return;
-        if (t == typeof(NodeMeta)) 
+        if (t == typeof(NodeMeta))
             return; // ignore special class
         types.Add(t);
         foreach (var m in t.GetMembers()) {
