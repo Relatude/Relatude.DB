@@ -268,7 +268,9 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             server.TempIO.DeleteFileIfItExists(uploadId.ToString());
         });
         app.MapPost(path("truncate-log"), (HttpContext ctx, Guid storeId, bool deleteOld) => {
-            db(storeId).MaintenanceAsync(MaintenanceAction.TruncateLog | MaintenanceAction.DeleteOldLogs);
+            var options = MaintenanceAction.TruncateLog;
+            if (deleteOld) options |= MaintenanceAction.DeleteOldLogs;
+            db(storeId).MaintenanceAsync(options);
         });
         app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh, bool nodeSegmentsOnly) => db(storeId).Datastore.SaveIndexStates(forceRefresh, nodeSegmentsOnly));
         app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));

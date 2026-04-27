@@ -6,7 +6,7 @@ public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueCo
     public DateTimeOffset MinValue { get; set; } = DateTimeOffset.MinValue;
     public DateTimeOffset MaxValue { get; set; } = DateTimeOffset.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static DateTimeOffset ForceValueType(object value, out bool changed) {
+    public static DateTimeOffset ForceValueType(object? value, out bool changed) {
         if (value is DateTimeOffset dt) {
             changed = false;
             return dt;

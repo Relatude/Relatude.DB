@@ -139,7 +139,6 @@ namespace Relatude.DB.DataStores.Definitions {
 
         public abstract PropertyType PropertyType { get; }
 
-        public abstract object GetDefaultValue();
         public void CompressMemory() {
             foreach (var item in AllIndexes) item.CompressMemory();
         }
@@ -150,7 +149,7 @@ namespace Relatude.DB.DataStores.Definitions {
             return false;
         }
         public virtual bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) => true;
-        public virtual bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+        public virtual bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
             throw new NotImplementedException("The property " + CodeName + " of type " + PropertyType + " cannot support value requirements. ");
         }
         public abstract bool AreValuesEqual(object v1, object v2);// => v1.Equals(v2);

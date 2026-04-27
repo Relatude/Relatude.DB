@@ -13,7 +13,6 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             return ByteArrayPropertyModel.ForceValueType(value, out changed);
         }
         public override void ValidateValue(object value) { }
-        public override object GetDefaultValue() => Array.Empty<byte>();
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = ByteArrayPropertyModel.ForceValueType(v1, out _);
             var b2 = ByteArrayPropertyModel.ForceValueType(v2, out _);

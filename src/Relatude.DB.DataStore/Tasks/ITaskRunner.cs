@@ -28,7 +28,7 @@ public interface ITaskRunner {
 public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string TaskTypeId { get; } = typeof(TTask).FullName ?? throw new InvalidOperationException("Task type must have a valid FullName.");
     public abstract BatchTaskPriority Priority { get; }
-    public virtual bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; set; } = true;
+    public virtual bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; } = true;
     public abstract TimeSpan GetMaximumAgeInQueueAfterExecution();
     public abstract bool PersistToDisk { get; }
     public virtual TimeSpan GetMaximumAgeInQueuePerState(BatchState state) {

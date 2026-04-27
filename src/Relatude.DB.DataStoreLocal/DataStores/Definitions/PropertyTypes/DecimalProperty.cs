@@ -24,7 +24,6 @@ internal class DecimalProperty : ValueProperty<decimal> {
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
-    public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) {
         return new decimal(
             BitConverter.ToInt32(bytes, 0),
@@ -33,7 +32,7 @@ internal class DecimalProperty : ValueProperty<decimal> {
             bytes[15] == 128,
             bytes[14]);
     }
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = DecimalPropertyModel.ForceValueType(value1, out _);
         var v2 = DecimalPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

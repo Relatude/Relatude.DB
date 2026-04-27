@@ -19,9 +19,8 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
-    public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = IntegerPropertyModel.ForceValueType(value1, out _);
         var v2 = IntegerPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

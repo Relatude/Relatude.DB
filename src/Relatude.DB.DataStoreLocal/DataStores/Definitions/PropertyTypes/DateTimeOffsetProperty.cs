@@ -21,8 +21,7 @@ internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
-    public override object GetDefaultValue() => DefaultValue;
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = DateTimeOffsetPropertyModel.ForceValueType(value1, out _);
         var v2 = DateTimeOffsetPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

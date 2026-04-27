@@ -25,7 +25,6 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             return Definition.NodeTypes[nodeTypeId].Model.SemanticIndex!.Value;
         }
         public override void ValidateValue(object value) { }
-        public override object GetDefaultValue() => Array.Empty<float>();
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = FloatArrayPropertyModel.ForceValueType(v1, out _);
             var b2 = FloatArrayPropertyModel.ForceValueType(v2, out _);

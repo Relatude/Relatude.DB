@@ -12,7 +12,7 @@ public class IntegerPropertyModel : PropertyModel, IPropertyModelUniqueContraint
     public int FacetRangeCount { get; set; }
 
     public override object GetDefaultValue() => DefaultValue;
-    public static int ForceValueType(object value, out bool changed) {
+    public static int ForceValueType(object? value, out bool changed) {
         if (value is int i) {
             changed = false;
             return i;

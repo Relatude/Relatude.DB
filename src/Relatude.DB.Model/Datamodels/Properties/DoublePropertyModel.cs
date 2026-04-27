@@ -6,7 +6,7 @@ public class DoublePropertyModel : PropertyModel {
     public double MinValue { get; set; } = double.MinValue;
     public double MaxValue { get; set; } = double.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static double ForceValueType(object value, out bool changed) {
+    public static double ForceValueType(object? value, out bool changed) {
         if (value is double d) {
             changed = false;
             return d;

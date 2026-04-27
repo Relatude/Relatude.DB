@@ -106,8 +106,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);
-        RegisterRunner(new IndexTaskRunner(this));
-        RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
+        RegisterRunner(new TextIndexTaskRunner(this));
+        if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
         TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
         if (queueStore == null) {

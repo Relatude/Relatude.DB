@@ -7,7 +7,7 @@ public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public long MinValue { get; set; } = int.MinValue;
     public long MaxValue { get; set; } = int.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static long ForceValueType(object value, out bool changed) {
+    public static long ForceValueType(object? value, out bool changed) {
         if (value is long l) {
             changed = false;
             return l;

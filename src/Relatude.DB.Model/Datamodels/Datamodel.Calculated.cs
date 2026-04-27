@@ -235,6 +235,7 @@ public partial class Datamodel {
         props.Add(vectorIndex);
         var address = new StringPropertyModel() {
             Id = NodeConstants.SystemAddressPropertyId,
+            DefaultValue = null,
             CodeName = NodeConstants.SystemAddressPropertyName,
             ExcludeFromTextIndex = true,
             Indexed = false,
@@ -301,13 +302,6 @@ public partial class Datamodel {
         } else {
             throw new Exception("Unknown property: " + idString);
         }
-    }
-    public Dictionary<Guid, object> CreateDefaultValues(Guid nodeTypeId) {
-        var values = new Dictionary<Guid, object>();
-        foreach (var p in NodeTypes[nodeTypeId].AllProperties.Values) {
-            values.Add(p.Id, p.GetDefaultValue());
-        }
-        return values;
     }
 
     // Helper Functions

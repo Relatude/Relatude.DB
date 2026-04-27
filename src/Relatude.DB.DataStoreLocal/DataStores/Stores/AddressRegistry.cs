@@ -49,30 +49,6 @@ public class AddressRegistry {
         return (byte)key;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static int getPositiveIntDigitCount(int value) {
-        if (value < 10) return 1;
-        if (value < 100) return 2;
-        if (value < 1_000) return 3;
-        if (value < 10_000) return 4;
-        if (value < 100_000) return 5;
-        if (value < 1_000_000) return 6;
-        if (value < 10_000_000) return 7;
-        if (value < 100_000_000) return 8;
-        if (value < 1_000_000_000) return 9;
-        return 10;
-    }
-
-    static string createSuffixedAddress(string address, int suffix) {
-        int digits = getPositiveIntDigitCount(suffix);
-        return string.Create(address.Length + 1 + digits, (address, suffix), static (span, state) => {
-            state.address.AsSpan().CopyTo(span);
-            int offset = state.address.Length;
-            span[offset] = '-';
-            state.suffix.TryFormat(span[(offset + 1)..], out _);
-        });
-    }
-
     bool tryGetCultureId(Guid? cultureCode, out byte cultureId) {
         if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             cultureId = 0;
@@ -249,7 +225,7 @@ public class AddressRegistry {
     }
     public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
         byte cultureId;
-        if (address is null) {
+        if (address == null) {
             if (!tryGetCultureId(cultureCode, out cultureId)) {
                 newAddress = null;
                 changedNewAddress = false;
@@ -274,13 +250,18 @@ public class AddressRegistry {
 
         var candidate = address;
         if (_idAndCultureByAddress.TryGetValue(candidate, out var owner) && owner != key) {
-            var suffix = 2;
+            var suffix = address == string.Empty ? id : 2;
+            var attemptCount = 0;
             while (true) {
-                candidate = createSuffixedAddress(address, suffix);
+                if (attemptCount < 3) {
+                    candidate = address.Length > 0 ? address + "-" + suffix : suffix.ToString();
+                } else {
+                    candidate = address + Guid.NewGuid().ToString("N"); // N format is compact, without dashes
+                }
                 if (!_idAndCultureByAddress.TryGetValue(candidate, out owner) || owner == key) {
                     break;
                 }
-
+                attemptCount++;
                 suffix++;
             }
         }

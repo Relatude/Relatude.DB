@@ -6,7 +6,7 @@
         public TimeSpan MinValue { get; set; } = TimeSpan.MinValue;
         public TimeSpan MaxValue { get; set; } = TimeSpan.MaxValue;
         public override object GetDefaultValue() => DefaultValue;
-        public static TimeSpan ForceValueType(object value, out bool changed) {
+        public static TimeSpan ForceValueType(object? value, out bool changed) {
             if (value is TimeSpan t) {
                 changed = false;
                 return t;

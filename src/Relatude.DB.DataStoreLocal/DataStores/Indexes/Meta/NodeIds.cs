@@ -325,8 +325,8 @@ internal class NodeTypesByIds {
         _cachedNodeIdsByCtx.Set(ctxAndTypeKey, ids, 1);
         return ids.AsUnmutableIdSet();
     }
-    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDecendants) {
-        return GetAllNodeIdsForTypeFilteredByContext(typeId, excludeDecendants ? QueryContext.AllExcludingDecendants : QueryContext.AllIncludingDescendants);
+    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool includeDecendants) {
+        return GetAllNodeIdsForTypeFilteredByContext(typeId, includeDecendants ? QueryContext.AllIncludingDescendants : QueryContext.AllExcludingDescendants);
     }
     public int GetCountForTypeForStatusInfo(Guid typeId) {
         if (_countByType.TryGetValue(typeId, out var count)) return count;

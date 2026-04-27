@@ -22,8 +22,8 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
 
     public string? RegularExpression { get; set; }
     public override string? GetDefaultDeclaration() => "string.Empty";
-    public override object GetDefaultValue() => DefaultValue ?? string.Empty;
-    public static string ForceValueType(object value, out bool changed) {
+    public override object? GetDefaultValue() => DefaultValue;
+    public static string ForceValueType(object? value, out bool changed) {
         if (value is null) {
             changed = true;
             return string.Empty;

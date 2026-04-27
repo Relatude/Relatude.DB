@@ -31,7 +31,7 @@ public abstract class PropertyModel {
     public Guid ReadAccess { get; set; }
     public Guid WriteAccess { get; set; }
     public bool CultureSpecific { get; set; }
-    public abstract object GetDefaultValue();
+    public abstract object? GetDefaultValue();
     public virtual string? GetDefaultDeclaration() => string.Empty;
     public bool Internal { get; set; }
     public virtual bool IsReferenceTypeAndMustCopy() => false;

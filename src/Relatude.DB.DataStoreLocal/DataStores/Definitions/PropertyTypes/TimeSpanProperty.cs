@@ -7,12 +7,10 @@ internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValu
     public TimeSpanProperty(TimeSpanPropertyModel pm, Definition def) : base(pm, def) {
         MinValue = pm.MinValue;
         MaxValue = pm.MaxValue;
-        DefaultValue = pm.DefaultValue;
     }
     protected override void WriteValue(TimeSpan v, IAppendStream stream) => stream.WriteLong(v.Ticks);
     protected override TimeSpan ReadValue(IReadStream stream) => TimeSpan.FromTicks(stream.ReadLong());
     public override PropertyType PropertyType => PropertyType.TimeSpan;
-    public TimeSpan DefaultValue;
     public TimeSpan MinValue = TimeSpan.MinValue;
     public TimeSpan MaxValue = TimeSpan.MaxValue;
     public override void ValidateValue(object value) {
@@ -20,10 +18,9 @@ internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValu
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
-    public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
 
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = TimeSpanPropertyModel.ForceValueType(value1, out _);
         var v2 = TimeSpanPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

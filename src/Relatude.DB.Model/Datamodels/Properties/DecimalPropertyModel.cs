@@ -6,7 +6,7 @@ public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraint
     public decimal MinValue { get; set; } = int.MinValue;
     public decimal MaxValue { get; set; } = int.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static decimal ForceValueType(object value, out bool changed) {
+    public static decimal ForceValueType(object? value, out bool changed) {
         if (value is decimal v) {
             changed = false;
             return v;

@@ -24,26 +24,21 @@ public class Properties<T> {
         _values = new PropertyEntry<T>[_size];
         Array.Copy(properties._values, _values, _size);
     }
-    public void Add(Guid key, T v) {
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Add(Guid key, T? v) {
+        if (v == null) return;
         if (_size == _values.Length) {
             var increase = _values.Length == 0 ? 1 : _values.Length;
             Array.Resize(ref _values, _values.Length + increase); // double the size ( like lists )
         }
         _values[_size++] = new(key, v);
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool ContainsKey(Guid key) {
         for (int i = 0; i < _size; i++) if (_values[i].PropertyId == key) return true;
         return false;
     }
-    public void AddOrUpdate(Guid key, T value) {
-        for (int i = 0; i < _size; i++) {
-            if (_values[i].PropertyId == key) {
-                _values[i] = new(key, value);
-                return;
-            }
-        }
-        Add(key, value);
-    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RemoveIfPresent(Guid key) {
         for (int i = 0; i < _size; i++) {
             if (_values[i].PropertyId == key) {
@@ -75,7 +70,13 @@ public class Properties<T> {
         if (value == null) {
             RemoveIfPresent(key);
         } else {
-            AddOrUpdate(key, value);
+            for (int i = 0; i < _size; i++) {
+                if (_values[i].PropertyId == key) {
+                    _values[i] = new(key, value);
+                    return;
+                }
+            }
+            Add(key, value);
         }
     }
     public IEnumerable<PropertyEntry<T>> Items {

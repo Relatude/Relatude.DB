@@ -170,7 +170,6 @@ public class FileKeyUtility {
     static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
 
     public static string FileTypeDescription(string fileKey) {
-        ValidateFileKeyString(fileKey);
         if (fileKey.MatchesWildcard(_anyPrefix.walFilePattern)) return "Database";
         if (fileKey.MatchesWildcard(_anyPrefix.walSecondaryFilePattern)) return "Transaction log";
         if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPattern)) return "Backup";

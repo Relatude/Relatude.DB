@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Nodes;
 
 namespace Relatude.DB.Datamodels;
+
 public interface INodeShellAccess {
     public NodeDataShell __NodeDataShell { get; }
 }
@@ -16,10 +17,10 @@ public class NodeDataShell {
         Store = store;
         _copyBeforeUpdate = copyBeforeUpdate;
     }
-    public T GetValue<T>(Guid propertyId) {
+    public T? GetValue<T>(Guid propertyId) {
         if (NodeData.TryGetValue(propertyId, out var value) && value is T typedValue) return typedValue;
         var prop = _dm.Properties[propertyId];
-        return (T)prop.GetDefaultValue();
+        return (T?)prop.GetDefaultValue();
     }
     public void SetValue(Guid propertyId, object newValue) {
         if (_copyBeforeUpdate) {

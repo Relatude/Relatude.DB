@@ -14,7 +14,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     public StringProperty(StringPropertyModel pm, Definition def) : base(pm, def) {
         _isSystemTextIndexPropertyId = pm.Id == NodeConstants.SystemTextIndexPropertyId;
         PrefixSearch = pm.PrefixSearch;
-        DefaultValue = pm.DefaultValue ?? string.Empty;
+        DefaultValue = pm.DefaultValue;
         _sets = def.Sets;
         InfixSearch = pm.InfixSearch;
         IndexedByWords = pm.IndexedByWords;
@@ -38,7 +38,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     }
     protected override void WriteValue(string v, IAppendStream stream) => stream.WriteString(v);
     protected override string ReadValue(IReadStream stream) => stream.ReadString();
-    readonly public string DefaultValue;
+    readonly public string? DefaultValue;
     readonly public int MinLength = 0;
     readonly public int MaxLength = int.MaxValue;
     readonly public StringValueType StringType = StringValueType.AnyString;
@@ -67,7 +67,6 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");
         if (_regEx != null && !_regEx.Match(v).Success) throw new Exception("Value does not match regular expression. ");
     }
-    public override object GetDefaultValue() => DefaultValue;
     SemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
         if (db._ai != null && IndexedBySemantic) {
             if (!db._definition.Properties.TryGetValue(this.PropertyIdForVectors, out var semProp))
@@ -201,7 +200,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         }
         throw new Exception("Internal text index property should only be indexed by semantic or word index. ");
     }
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = StringPropertyModel.ForceValueType(value1, out _);
         var v2 = StringPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

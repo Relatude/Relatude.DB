@@ -14,9 +14,8 @@ internal class BooleanProperty : ValueProperty<bool> {
     public bool DefaultValue;
     public override PropertyType PropertyType => PropertyType.Boolean;
     public override void ValidateValue(object value) { }
-    public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = BooleanPropertyModel.ForceValueType(value1, out _);
         var v2 = BooleanPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

@@ -57,7 +57,7 @@ public class QueryContext {
         SelectedRevisions = null
     };
     public static readonly QueryContext Default = new();
-    public static readonly QueryContext AllExcludingDecendants = new() {
+    public static readonly QueryContext AllExcludingDescendants = new() {
         UserId = NodeConstants.MasterAdminUserId,
         CultureCode = null,
         CultureId = null,

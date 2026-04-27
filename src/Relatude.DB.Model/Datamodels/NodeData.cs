@@ -116,7 +116,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     }
     public string? Address {
         get => _values.GetOrFallback<string?>(NodeConstants.SystemAddressPropertyId, null);
-        set => _values.SetOrRemoveIfNull(NodeConstants.SystemAddressPropertyId, string.IsNullOrEmpty(value) ? null : value);
+        set => _values.SetOrRemoveIfNull(NodeConstants.SystemAddressPropertyId, value);
     }
     public bool AutoAddress {
         get => _values.GetOrFallback<bool>(NodeConstants.SystemAutoAddressPropertyId, false);

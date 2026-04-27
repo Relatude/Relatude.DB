@@ -6,7 +6,7 @@ public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContrain
     public DateTime MinValue { get; set; } = DateTime.MinValue;
     public DateTime MaxValue { get; set; } = DateTime.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static DateTime ForceValueType(object value, out bool changed) {
+    public static DateTime ForceValueType(object? value, out bool changed) {
         if (value is DateTime dt) {
             changed = false;
             if (dt.Kind != DateTimeKind.Utc)

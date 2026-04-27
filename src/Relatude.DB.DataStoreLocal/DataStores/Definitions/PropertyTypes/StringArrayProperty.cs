@@ -26,7 +26,6 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         var v = StringPropertyModel.ForceValueType(value, out _);
         return index.ContainsValue(v);
     }
-    public override object GetDefaultValue() => Array.Empty<string>();
     public override bool CanBeFacet() => Indexed;
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var index = GetIndex(ctx);

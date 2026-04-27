@@ -1,23 +1,10 @@
 using Relatude.DB.Demo.Models;
-using Relatude.DB.Native.Models;
 using Relatude.DB.NodeServer;
 using System.Text;
-using WebApplication1;
 
 var builder = WebApplication.CreateBuilder(args);
-var noLang = Guid.Parse("add9c8e7-8c8e-4c8e-8c8e-4c8e8c8e8c8e");
-builder.AddRelatudeDB(
-    options => {
-        options.OnStoreInit = (db) => {
-            db.RegisterRunner(new DemoTaskRunner(db));
-        };
-        options.OnStoreOpen = (db) => {
-            db.EnsureCultures([new SystemCulture(noLang, "en")]);
-            var qx = db.Datastore.DefaultQueryContext;
-            qx = qx.Culture(noLang);
-            db.Datastore.SetDefaultQueryContext(qx);
-        };
-    });
+
+builder.AddRelatudeDB();
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
 builder.Services.AddCors(options => {

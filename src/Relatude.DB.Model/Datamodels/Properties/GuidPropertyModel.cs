@@ -5,7 +5,7 @@ public class GuidPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override PropertyType PropertyType { get => PropertyType.Guid; }
     public Guid DefaultValue { get; set; }
     public override object GetDefaultValue() => DefaultValue;
-    public static Guid ForceValueType(object value, out bool changed) {
+    public static Guid ForceValueType(object? value, out bool changed) {
         if (value is Guid v) {
             changed = false;
             return v;

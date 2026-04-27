@@ -155,10 +155,8 @@ public class DataStoreSession : IDataStore {
     public long Timestamp => _datastore.Timestamp;
     public void Rollback(long timestamp) => _datastore.Rollback(timestamp);
 
-    public TextExtractInfo[] GetTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
-        => _datastore.GetTextExtractsForExistingNodesAndWhereContent(ids);
-    public TextExtractInfo[] GetSemanticTextExtractsForExistingNodesAndWhereContent(IEnumerable<int> ids)
-        => _datastore.GetSemanticTextExtractsForExistingNodesAndWhereContent(ids);
+    public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
+        => _datastore.GetTextExtract(ids, indexType);
 
     INodeDataOuter IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
 
@@ -180,6 +178,6 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
-    public bool TryGetNodeDataFromAddress(string address, out INodeDataOuter nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
+    public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)]out INodeDataOuter nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
 
 }

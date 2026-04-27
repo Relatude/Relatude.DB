@@ -23,10 +23,6 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes
             throw new NotImplementedException();
         }
 
-        public override object GetDefaultValue() {
-            throw new NotImplementedException();
-        }
-
         public override void ValidateValue(object value) {
             throw new NotImplementedException();
         }

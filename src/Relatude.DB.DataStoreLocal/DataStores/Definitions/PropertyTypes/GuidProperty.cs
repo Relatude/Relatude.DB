@@ -16,10 +16,9 @@ internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     public Guid DefaultValue;
     public override void ValidateValue(object value) {
     }
-    public override object GetDefaultValue() => DefaultValue;
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
     public override bool CanBeFacet() => false;
-    public override bool SatisfyValueRequirement(object value1, object value2, ValueRequirement requirement) {
+    public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = GuidPropertyModel.ForceValueType(value1, out _);
         var v2 = GuidPropertyModel.ForceValueType(value2, out _);
         return requirement switch {

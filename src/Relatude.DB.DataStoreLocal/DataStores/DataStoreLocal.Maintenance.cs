@@ -136,7 +136,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             EnqueueTask(task);
         }
         if (a.HasFlag(MaintenanceAction.TruncateIndexes)) TruncateIndexes();
-        if (a.HasFlag(MaintenanceAction.DeleteOldLogs)) DeleteOldLogs();
+        if (a.HasFlag(MaintenanceAction.DeleteOldLogs) && !a.HasFlag(MaintenanceAction.TruncateLog)) DeleteOldLogs();
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();
         _lock.EnterWriteLock();
         try {

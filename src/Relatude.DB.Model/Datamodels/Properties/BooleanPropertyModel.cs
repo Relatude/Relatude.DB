@@ -1,10 +1,11 @@
 ﻿namespace Relatude.DB.Datamodels.Properties;
+
 public class BooleanPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.Boolean; }
     public bool DefaultValue { get; set; }
     public override object GetDefaultValue() => DefaultValue;
-    public static bool ForceValueType(object value, out bool changed) {
+    public static bool ForceValueType(object? value, out bool changed) {
         if (value is bool v) {
             changed = false;
             return v;

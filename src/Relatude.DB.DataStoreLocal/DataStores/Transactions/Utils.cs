@@ -46,7 +46,8 @@ internal static class Utils {
                         if (oldNode.TryGetValue(prop.Id, out var oldValue)) {
                             node.Add(prop.Id, oldValue);
                         } else {
-                            node.Add(prop.Id, prop.GetDefaultValue());
+                            var value = prop.Model.GetDefaultValue();
+                            if (value != null) node.Add(prop.Id, value);
                         }
                     }
                 }
@@ -73,17 +74,21 @@ internal static class Utils {
     public static void EnsureOrQueueIndex(DataStoreLocal db, INodeData node, Guid[]? omit, List<KeyValuePair<TaskData, string?>> newTasks) {
         evalIndexing(db, omit, node.NodeType, out var textIndex, out var vectorIndex, out var instantTextIndexing);
         if (!textIndex && !vectorIndex) return; // no indexing needed
-        if (instantTextIndexing) {
-            var text = UtilsText.GetTextExtract(db, node);
-            node.AddOrUpdate(NodeConstants.SystemTextIndexPropertyId, text);
-        } else {
-            newTasks.Add(new(new IndexTask(node.__Id, textIndex, vectorIndex), null));
+        if (textIndex) {
+            if (instantTextIndexing) {
+                var text = UtilsText.GetTextExtract(db, node);
+                node.AddOrUpdate(NodeConstants.SystemTextIndexPropertyId, text);
+            } else {
+                newTasks.Add(new(new TextIndexTask(node.__Id), null));
+            }
         }
+        if (vectorIndex) newTasks.Add(new(new SemanticIndexTask(node.__Id), null));
     }
     public static void QueueIndexing(DataStoreLocal db, int nodeId, Guid nodeTypeId, Guid[]? omit, List<KeyValuePair<TaskData, string?>> newTasks) {
-        evalIndexing(db, omit, nodeTypeId, out var textIndex, out var vectorIndex, out var instantTextIndexing);
+        evalIndexing(db, omit, nodeTypeId, out var textIndex, out var vectorIndex, out _);
         if (!textIndex && !vectorIndex) return; // no indexing needed
-        newTasks.Add(new(new IndexTask(nodeId, textIndex, vectorIndex), null));
+        if (textIndex) newTasks.Add(new(new TextIndexTask(nodeId), null));
+        if (vectorIndex) newTasks.Add(new(new SemanticIndexTask(nodeId), null));
     }
     public static bool AreDifferentIgnoringGeneratedPropsAndMeta(INodeData node1, INodeData node2, Definition dm) {
         if (node1.Id != node2.Id || node1.__Id != node2.__Id) return true;

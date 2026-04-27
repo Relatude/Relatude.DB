@@ -6,7 +6,7 @@ public class FloatPropertyModel : PropertyModel {
     public float MinValue { get; set; } = float.MinValue;
     public float MaxValue { get; set; } = float.MaxValue;
     public override object GetDefaultValue() => DefaultValue;
-    public static float ForceValueType(object value, out bool changed) {
+    public static float ForceValueType(object? value, out bool changed) {
         if (value is float f) {
             changed = false;
             return f;
