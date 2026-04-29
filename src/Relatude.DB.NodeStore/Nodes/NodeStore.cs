@@ -387,8 +387,8 @@ public class NodeStore : IDisposable {
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
     public bool Exists<T>(Guid id) => Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
 
-    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(Mapper.CreateObjectFromNodeData<T>);
-    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(Mapper.CreateObjectFromNodeData<T>);
+    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n));
+    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n));
 
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out object node) => TryGet<object>(id, out node);
     public bool TryGet<T>(Guid id, [MaybeNullWhen(false)] out T node) {

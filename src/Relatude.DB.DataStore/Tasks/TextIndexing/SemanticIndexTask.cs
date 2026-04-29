@@ -22,7 +22,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine ai) : TaskRunner<Se
         }
         var t = new TransactionData();
         for (int i = 0; i < extracts.Length; i++) {
-            t.ForceUpdateProperty(extracts[i].NodeId, NodeConstants.SystemTextIndexPropertyId, extracts[i].RevisionId, vectors[i]);
+            t.ForceUpdateProperty(extracts[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, extracts[i].RevisionId, vectors[i]);
         }
         db.Execute(t);
     }

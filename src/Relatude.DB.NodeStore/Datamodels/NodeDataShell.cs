@@ -3,6 +3,7 @@
 namespace Relatude.DB.Datamodels;
 
 public interface INodeShellAccess {
+    [System.Text.Json.Serialization.JsonIgnore]
     public NodeDataShell __NodeDataShell { get; }
 }
 public class NodeDataShell {

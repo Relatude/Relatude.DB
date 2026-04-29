@@ -61,6 +61,7 @@ namespace Relatude.DB.Nodes {
                 MetadataReference.CreateFromFile(typeof(Compiler).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(Datamodel).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(IDataStore).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.Json.Serialization.JsonAttribute).Assembly.Location),
                 MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "mscorlib.dll")),
                 MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.dll")),
                 MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Linq.dll")),

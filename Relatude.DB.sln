@@ -77,6 +77,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Relatude.DB.FileConverter",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Relatude.DB.UrlProvider", "src\Relatude.DB.UrlProvider\Relatude.DB.UrlProvider.csproj", "{4FE3945A-4F9D-4B5C-8884-3F44C6640DEE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FriluftServer", "..\..\Kunde\Friluftsliv.Undervisning\FriluftServer\FriluftServer.csproj", "{ECAF3425-B2F2-04EE-A730-BD1935F9360A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -179,6 +181,10 @@ Global
 		{4FE3945A-4F9D-4B5C-8884-3F44C6640DEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4FE3945A-4F9D-4B5C-8884-3F44C6640DEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4FE3945A-4F9D-4B5C-8884-3F44C6640DEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ECAF3425-B2F2-04EE-A730-BD1935F9360A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ECAF3425-B2F2-04EE-A730-BD1935F9360A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ECAF3425-B2F2-04EE-A730-BD1935F9360A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ECAF3425-B2F2-04EE-A730-BD1935F9360A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -208,6 +214,7 @@ Global
 		{551A45CA-4DD1-4536-A633-B4144182EBA1} = {A7EDF03D-19E7-46DF-BDCE-2F53AB84ED47}
 		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA} = {76CB41E2-ED98-46D8-896A-3D7711AF25EB}
 		{4FE3945A-4F9D-4B5C-8884-3F44C6640DEE} = {76CB41E2-ED98-46D8-896A-3D7711AF25EB}
+		{ECAF3425-B2F2-04EE-A730-BD1935F9360A} = {A7EDF03D-19E7-46DF-BDCE-2F53AB84ED47}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A16D0224-6A2F-4773-91F8-FC2C4D5479DD}

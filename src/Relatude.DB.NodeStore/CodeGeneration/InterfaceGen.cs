@@ -25,13 +25,15 @@ internal static class InterfaceGen {
         var inheritance = nodeDef.FullName + " ," + typeof(INodeShellAccess).Namespace + "." + nameof(INodeShellAccess);
         sb.AppendLine(inheritance + " {");
 
+        sb.AppendLine("[System.Text.Json.Serialization.JsonIgnore]");
         sb.AppendLine("public " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " " + nameof(INodeShellAccess.__NodeDataShell) + " { get; }");
-
+        sb.AppendLine("private bool _isPersisted;");
 
         var shellName = nameof(INodeShellAccess.__NodeDataShell);
         // constructor:
-        sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell){");
+        sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell, bool isPersisted){");
         sb.AppendLine("    this." + shellName + " = shell;");
+        sb.AppendLine("    this._isPersisted = isPersisted;");
 
         if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
             sb.AppendLine("    this." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(shell.NodeData);");
@@ -89,7 +91,7 @@ internal static class InterfaceGen {
 
         // regular properties:
         CodeUtils.Generate_CreateStaticGuids(sb, nodeDef, datamodel);
-        foreach (var p in nodeDef.Properties.Values.Where(p => !p.Internal)) {
+        foreach (var p in nodeDef.AllProperties.Values.Where(p => !p.Internal)) {
             var typeName = CodeUtils.GetTypeName(p, datamodel);
             var pIdName = CodeUtils.GuidName(p.Id);
             if (p.PropertyType == PropertyType.Relation) {
@@ -97,7 +99,11 @@ internal static class InterfaceGen {
 
                 sb.AppendLine("" + typeName + " _" + p.CodeName + " = null;");
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
-                sb.AppendLine("set{ throw new Exception(\"Relations properties cannot be set. \"); }");
+                if (rp.RelationValueType == RelationValueType.Native) {
+                    sb.AppendLine("set{ throw new Exception(\"Relations properties cannot be set. \"); }");
+                } else {
+                    sb.AppendLine("set{ _" + p.CodeName + " = value;}");
+                }                
                 sb.AppendLine("get{");
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
                 sb.AppendLine("var nodeData = this." + nameof(INodeShellAccess.__NodeDataShell) + "." + nameof(NodeDataShell.NodeData) + ";");
@@ -121,11 +127,11 @@ internal static class InterfaceGen {
                         if (rp.IsMany) {
                             sb.Append(nameof(IManyProperty.Initialize));
                             var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + CodeUtils.GuidName(p.Id);
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ");");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", _isPersisted);");
                         } else {
                             sb.Append(nameof(IOneProperty.Initialize));
                             var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + CodeUtils.GuidName(p.Id);
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true, _isPersisted);"); // Fix: isSet is always true.... 
                         }
                         sb.AppendLine("");
                     }
@@ -134,10 +140,10 @@ internal static class InterfaceGen {
                         sb.Append("_" + p.CodeName + ".");
                         if (rp.IsMany) {
                             sb.Append(nameof(IManyProperty.Initialize));
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, _isPersisted);");
                         } else {
                             sb.Append(nameof(IOneProperty.Initialize));
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null);");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null, _isPersisted);");
                         }
                         sb.AppendLine("");
                     }

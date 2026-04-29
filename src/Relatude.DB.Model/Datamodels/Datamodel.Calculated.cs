@@ -20,6 +20,13 @@ public partial class Datamodel {
         lock (_lock) {
             if (_hasInitialized) return;
 
+            // validate all class refernces:
+            foreach (var item in NodeTypes) {
+                foreach (var parentId in item.Value.Parents) {
+                    if (!NodeTypes.ContainsKey(parentId)) throw new Exception(item.Value.CodeName + " inherits from a parent that is not referenced in the datamodel: " + parentId);
+                }
+            }
+
             // ensuring textindex if semantic index:            
             foreach (var n in NodeTypes.Values) if (n.SemanticIndex.HasValue && n.SemanticIndex.Value)
                 n.TextIndex = true;

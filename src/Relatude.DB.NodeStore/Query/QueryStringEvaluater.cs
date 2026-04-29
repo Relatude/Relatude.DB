@@ -86,7 +86,7 @@ internal sealed class QueryStringEvaluater {
                 if (o is ObjectData od) {
                     if (ctor == null) ctor = typeof(T).GetConstructors().Single();
                     if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
-                    var values = od.GetValues(_store.Mapper.CreateObjectFromNodeData);
+                    var values = od.GetValues(n=>_store.Mapper.CreateObjectFromNodeData(n));
                     yield return (T)createAnonymousInstance(values!, propNameById, ctor);
                 } else if (o is IStoreNodeData no) {
                     yield return _store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);

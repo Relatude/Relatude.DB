@@ -101,14 +101,28 @@ internal static class CodeUtils {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneOne:
-                        code += "." + nameof(OneOne<object>.One);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { 
+                            code += "." + nameof(OneOne<object>.One);
+                        } else { 
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     case RelationType.OneToOne:
-                        if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.OneFrom);
-                        else code += "." + nameof(OneToOne<object, object>.OneTo);
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            if (rp.FromTargetToSource) code += "." + nameof(OneToOne<object, object>.OneFrom);
+                            else code += "." + nameof(OneToOne<object, object>.OneTo);
+                        } else {
+                            if (string.IsNullOrEmpty(relation.CodeNameTargets)) throw new Exception("Relation " + relation.CodeName + " is missing CodeNameTargets.");
+                            if (rp.FromTargetToSource) code += "." + relation.CodeNameSources;
+                            else code += "." + relation.CodeNameTargets;
+                        }
                         break;
                     case RelationType.OneToMany:
-                        code += "." + nameof(OneToMany<object, object>.One);
+                        if(string.IsNullOrEmpty(relation.CodeNameSources)) {
+                            code += "." + nameof(OneToMany<object, object>.One);
+                        } else {
+                            code += "." + relation.CodeNameSources;
+                        }
                         break;
                     default:
                         throw new NotSupportedException("The relation type " + relation.RelationType + " is not supported by the code generator.");

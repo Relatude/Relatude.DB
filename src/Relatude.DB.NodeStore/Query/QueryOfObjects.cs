@@ -43,7 +43,19 @@ public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
     internal QueryOfObjects(QueryStringBuilder q) {
         _q = q;
     }
-    public void Page(int pageIndex, int pageSize) => _q.Page(pageIndex, pageSize);
+    public QueryOfObjects<T> Page(int pageIndex, int pageSize) {
+        _q.Page(pageIndex, pageSize);
+        return this;
+    }
+    public QueryOfObjects<T> Take(int count) {
+        _q.Take(count);
+        return this;
+    }
+    public QueryOfObjects<T> Skip(int count) {
+        _q.Skip(count);
+        return this;
+    }
+
     public Task<ResultSet<T>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<T>()!;
     public ResultSet<T> Execute() => _q.Prepare().EvaluateSet<T>()!;
     public ResultSet<T> Execute(out int totalCount) { 

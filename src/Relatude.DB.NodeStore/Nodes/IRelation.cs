@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Query;
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Transactions;
 
@@ -14,30 +15,33 @@ public interface IRelationProperty {
 }
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet);
+    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet, bool isPersisted);
 }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas);
+    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas, bool isPersisted);
 }
 public interface IOneProperty<T> : IOneProperty {
 }
 public interface IManyProperty<T> : IManyProperty {
 }
-public class OneProperty<T>() : IOneProperty<T> {
+public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     NodeStore store = null!;
     Guid parentId;
     int parent__Id;
     Guid propertyId;
     INodeDataOuter? nodeData;
+    bool isPersisted;
+    internal T? _tempAdded;
     bool? isSet = false;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet) {
+    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet, bool isPersisted) {
         this.store = store;
         this.parent__Id = parent__Id;
         this.parentId = parentId;
         this.propertyId = propertyId;
         this.nodeData = nodeData;
         this.isSet = isSet;
+        this.isPersisted = isPersisted;
     }
     public bool IsSet() => (isSet.HasValue) ? isSet.Value : tryGet(out _);
     public int Count() => IsSet() ? 1 : 0;
@@ -74,6 +78,46 @@ public class OneProperty<T>() : IOneProperty<T> {
     public bool Contains(int id) => tryGet(out var nodeData) ? nodeData.__Id == id : false;
     public bool Contains(Guid id) => tryGet(out var nodeData) ? nodeData.Id == id : false;
 
+    //public void Relate(T node) {
+    //    if (!isPersisted) {
+    //        _tempAdded = node;
+    //    } else {
+    //        store.Relate(parentId, propertyId, store.Mapper.GetIdGuid(node!));
+    //    }
+    //    isSet = true;
+    //}
+    //public void Relate(Guid id) {
+    //    store.Relate(parentId, propertyId, id);
+    //    isSet = true;
+    //}
+    //public void Relate(int id) {
+    //    store.Relate(parent__Id, propertyId, id);
+    //    isSet = true;
+    //}
+
+    //public void Relate(T node, Transaction transaction) {
+    //    transaction.Relate(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
+    //    isSet = true;
+    //}
+    //public void Relate(Guid id, Transaction transaction) {
+    //    transaction.Relate(parentId, propertyId, id);
+    //    isSet = true;
+    //}
+    //public void Relate(int id, Transaction transaction) {
+    //    transaction.Relate(parent__Id, propertyId, id);
+    //    isSet = true;
+    //}
+
+    //public void Clear() {
+    //    store.ClearRelation(parentId, propertyId, Guid.Empty);
+    //    isSet = false;
+    //}
+
+    //public void Clear(Transaction transaction) {
+    //    transaction.ClearRelation(parentId, propertyId, Guid.Empty);
+    //    isSet = false;
+    //}
+
     public bool HasIncludedData() => isSet.HasValue;
     public object? GetIncludedData() {
         if (!isSet.HasValue) throw new Exception("No included data. ");
@@ -81,29 +125,40 @@ public class OneProperty<T>() : IOneProperty<T> {
         return store.Get<T>(nodeData);
     }
 
+    public IEnumerator<T> GetEnumerator() {
+        if (_tempAdded != null) yield return _tempAdded;
+        if (!HasIncludedData()) yield break;
+        if (TryGet(out T? value)) yield return value;
+    }
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
-public class ManyProperty<T>() : IManyProperty<T> {
+public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     int? _count;
     NodeStore store = null!;
     int parent__Id;
     Guid parentId;
     Guid propertyId;
+    bool isPersited;
     INodeDataOuter[]? nodeDatas;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas) {
+    internal List<T> _tempAdded = null;
+    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas, bool isPersited) {
         this.store = store;
         this.parent__Id = parent__Id;
         this.parentId = parentId;
         this.parent__Id = parent__Id;
         this.propertyId = propertyId;
         this.nodeDatas = nodeDatas;
+        this.isPersited = isPersited;
     }
     public bool IsSet() => Count() > 0;
     public int Count() {
+        if(_tempAdded != null) return _tempAdded.Count;
         if (_count.HasValue) return _count.Value;
         if (nodeDatas is not null) return (_count = nodeDatas.Length).Value;
         return (_count = store.Datastore.GetRelatedCountFromPropertyId(propertyId, parentId)).Value;
     }
     public IEnumerable<T> Get() {
+        if(_tempAdded != null) return _tempAdded;   
         if (_count.HasValue && _count == 0) return [];
         if (nodeDatas is null) nodeDatas = store.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId);
         return nodeDatas.Select(n => store.Get<T>(n));
@@ -115,38 +170,47 @@ public class ManyProperty<T>() : IManyProperty<T> {
     public IQueryOfNodes<T, T> Query(int id) => store.QueryRelated<T>(propertyId, parentId).Where(id);
     public IQueryOfNodes<T, T> Query(IEnumerable<int> ids) => store.QueryRelated<T>(propertyId, parentId).Where(ids);
 
-    public void Relate(T node) => store.Relate(parentId, propertyId, store.Mapper.GetIdGuid(node!));
-    public void Relate(Guid id) => store.Relate(parentId, propertyId, id);
-    public void Relate(int id) => store.Relate(parent__Id, propertyId, id);
+    //public void Relate(T node) {
+    //    if (!isPersited) {
+    //        if (_tempAdded == null) _tempAdded = [];
+    //        _tempAdded.Add(node!);
+    //    } else {
+    //        store.Relate(parentId, propertyId, store.Mapper.GetIdGuid(node!));
+    //    }
+    //}
+    //public void Relate(Guid id) => store.Relate(parentId, propertyId, id);
+    //public void Relate(int id) => store.Relate(parent__Id, propertyId, id);
 
-    public void Relate(T node, Transaction transaction) => transaction.Relate(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
-    public void Relate(Guid id, Transaction transaction) => transaction.Relate(parentId, propertyId, id);
-    public void Relate(int id, Transaction transaction) => transaction.Relate(parent__Id, propertyId, id);
+    //public void Relate(T node, Transaction transaction) => transaction.Relate(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
+    //public void Relate(Guid id, Transaction transaction) => transaction.Relate(parentId, propertyId, id);
+    //public void Relate(int id, Transaction transaction) => transaction.Relate(parent__Id, propertyId, id);
 
-    public void UnRelate(T node) => store.UnRelate(parentId, propertyId, store.Mapper.GetIdGuid(node!));
-    public void UnRelate(Guid id) => store.UnRelate(parentId, propertyId, id);
-    public void UnRelate(int id) => store.UnRelate(parent__Id, propertyId, id);
+    //public void UnRelate(T node) => store.UnRelate(parentId, propertyId, store.Mapper.GetIdGuid(node!));
+    //public void UnRelate(Guid id) => store.UnRelate(parentId, propertyId, id);
+    //public void UnRelate(int id) => store.UnRelate(parent__Id, propertyId, id);
 
-    public void UnRelate(T node, Transaction transaction) => transaction.UnRelate(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
-    public void UnRelate(Guid id, Transaction transaction) => transaction.UnRelate(parentId, propertyId, id);
-    public void UnRelate(int id, Transaction transaction) => transaction.UnRelate(parent__Id, propertyId, id);
+    //public void UnRelate(T node, Transaction transaction) => transaction.UnRelate(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
+    //public void UnRelate(Guid id, Transaction transaction) => transaction.UnRelate(parentId, propertyId, id);
+    //public void UnRelate(int id, Transaction transaction) => transaction.UnRelate(parent__Id, propertyId, id);
 
-    public void ClearRelation(T node) => store.ClearRelation(parentId, propertyId, store.Mapper.GetIdGuid(node!));
-    public void ClearRelation(Guid id) => store.ClearRelation(parentId, propertyId, id);
-    public void ClearRelation(int id) => store.ClearRelation(parent__Id, propertyId, id);
-    public void ClearAllRelation() => store.ClearRelation(parentId, propertyId, Guid.Empty);
+    //public void ClearRelation(T node) => store.ClearRelation(parentId, propertyId, store.Mapper.GetIdGuid(node!));
+    //public void ClearRelation(Guid id) => store.ClearRelation(parentId, propertyId, id);
+    //public void ClearRelation(int id) => store.ClearRelation(parent__Id, propertyId, id);
+    //public void Clear() => store.ClearRelation(parentId, propertyId, Guid.Empty);
 
-    public void ClearRelation(T node, Transaction transaction) => transaction.ClearRelation(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
-    public void ClearRelation(Guid id, Transaction transaction) => transaction.ClearRelation(parentId, propertyId, id);
-    public void ClearRelation(int id, Transaction transaction) => transaction.ClearRelation(parent__Id, propertyId, id);
-    public void ClearAllRelation(Transaction transaction) => transaction.ClearRelation(parentId, propertyId, Guid.Empty);
+    //public void ClearRelation(T node, Transaction transaction) => transaction.ClearRelation(parentId, propertyId, transaction.Store.Mapper.GetIdGuid(node!));
+    //public void ClearRelation(Guid id, Transaction transaction) => transaction.ClearRelation(parentId, propertyId, id);
+    //public void ClearRelation(int id, Transaction transaction) => transaction.ClearRelation(parent__Id, propertyId, id);
+    //public void Clear(Transaction transaction) => transaction.ClearRelation(parentId, propertyId, Guid.Empty);
 
     public bool Contains(int id) {
+        if(_tempAdded != null) throw new InvalidOperationException("Cannot check Contains by int id when there are temporary added nodes. ");
         if (_count.HasValue && _count == 0) return false;
         if (nodeDatas is not null) return nodeDatas.Any(n => n.__Id == id);
         return Query(id).Count() > 0;
     }
     public bool Contains(Guid id) {
+        if (_tempAdded != null) throw new InvalidOperationException("Cannot check Contains by Guid id when there are temporary added nodes. ");
         if (_count.HasValue && _count == 0) return false;
         if (nodeDatas is not null) return nodeDatas.Any(n => n.Id == id);
         return Query(id).Count() > 0;
@@ -158,6 +222,25 @@ public class ManyProperty<T>() : IManyProperty<T> {
             yield return store.Get<T>(nodeData)!;
         }
     }
+
+    public IEnumerator<T> GetEnumerator() {
+        if (_tempAdded != null) {
+            foreach (var item in _tempAdded) yield return item;
+            yield break;
+        }
+        if (nodeDatas is not null) {
+            foreach (var nodeData in nodeDatas) {
+                yield return store.Get<T>(nodeData)!;
+            }
+        } else {
+            foreach (var nodeData in store.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId)) {
+                yield return store.Get<T>(nodeData)!;
+            }
+        }
+
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 public interface IRelation { }
