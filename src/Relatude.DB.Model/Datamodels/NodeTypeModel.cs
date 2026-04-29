@@ -26,6 +26,7 @@ public partial class NodeTypeModel { // with default values
     public Guid Id { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
+    public bool IsInnerNode { get; set; } = false;
 
     public bool Hidden { get; set; } = false;
 

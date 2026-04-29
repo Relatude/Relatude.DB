@@ -15,11 +15,11 @@ public interface IRelationProperty {
 }
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet, bool isPersisted);
+    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet);
 }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
-    void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas, bool isPersisted);
+    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas);
 }
 public interface IOneProperty<T> : IOneProperty {
 }
@@ -28,20 +28,15 @@ public interface IManyProperty<T> : IManyProperty {
 public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     NodeStore store = null!;
     Guid parentId;
-    int parent__Id;
     Guid propertyId;
     INodeDataOuter? nodeData;
-    bool isPersisted;
-    internal T? _tempAdded;
     bool? isSet = false;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet, bool isPersisted) {
+    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet) {
         this.store = store;
-        this.parent__Id = parent__Id;
         this.parentId = parentId;
         this.propertyId = propertyId;
         this.nodeData = nodeData;
         this.isSet = isSet;
-        this.isPersisted = isPersisted;
     }
     public bool IsSet() => (isSet.HasValue) ? isSet.Value : tryGet(out _);
     public int Count() => IsSet() ? 1 : 0;
@@ -126,7 +121,6 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     }
 
     public IEnumerator<T> GetEnumerator() {
-        if (_tempAdded != null) yield return _tempAdded;
         if (!HasIncludedData()) yield break;
         if (TryGet(out T? value)) yield return value;
     }
@@ -135,30 +129,22 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
 public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     int? _count;
     NodeStore store = null!;
-    int parent__Id;
     Guid parentId;
     Guid propertyId;
-    bool isPersited;
     INodeDataOuter[]? nodeDatas;
-    internal List<T> _tempAdded = null;
-    public void Initialize(NodeStore store, int parent__Id, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas, bool isPersited) {
+    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas) {
         this.store = store;
-        this.parent__Id = parent__Id;
         this.parentId = parentId;
-        this.parent__Id = parent__Id;
         this.propertyId = propertyId;
         this.nodeDatas = nodeDatas;
-        this.isPersited = isPersited;
     }
     public bool IsSet() => Count() > 0;
     public int Count() {
-        if(_tempAdded != null) return _tempAdded.Count;
         if (_count.HasValue) return _count.Value;
         if (nodeDatas is not null) return (_count = nodeDatas.Length).Value;
         return (_count = store.Datastore.GetRelatedCountFromPropertyId(propertyId, parentId)).Value;
     }
     public IEnumerable<T> Get() {
-        if(_tempAdded != null) return _tempAdded;   
         if (_count.HasValue && _count == 0) return [];
         if (nodeDatas is null) nodeDatas = store.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId);
         return nodeDatas.Select(n => store.Get<T>(n));
@@ -204,13 +190,11 @@ public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     //public void Clear(Transaction transaction) => transaction.ClearRelation(parentId, propertyId, Guid.Empty);
 
     public bool Contains(int id) {
-        if(_tempAdded != null) throw new InvalidOperationException("Cannot check Contains by int id when there are temporary added nodes. ");
         if (_count.HasValue && _count == 0) return false;
         if (nodeDatas is not null) return nodeDatas.Any(n => n.__Id == id);
         return Query(id).Count() > 0;
     }
     public bool Contains(Guid id) {
-        if (_tempAdded != null) throw new InvalidOperationException("Cannot check Contains by Guid id when there are temporary added nodes. ");
         if (_count.HasValue && _count == 0) return false;
         if (nodeDatas is not null) return nodeDatas.Any(n => n.Id == id);
         return Query(id).Count() > 0;
@@ -224,10 +208,6 @@ public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     }
 
     public IEnumerator<T> GetEnumerator() {
-        if (_tempAdded != null) {
-            foreach (var item in _tempAdded) yield return item;
-            yield break;
-        }
         if (nodeDatas is not null) {
             foreach (var nodeData in nodeDatas) {
                 yield return store.Get<T>(nodeData)!;
@@ -237,7 +217,6 @@ public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
                 yield return store.Get<T>(nodeData)!;
             }
         }
-
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

@@ -98,14 +98,13 @@ internal static class MapperGen {
     static void generate_NodeDataToObject(StringBuilder sb, NodeTypeModel nodeDef, Datamodel dm) {
         sb.Append("public object " + nameof(IValueMapper.NodeDataToObject) + "(");
         sb.Append(typeof(INodeDataOuter).Namespace + "." + nameof(INodeDataOuter) + " nodeData, ");
-        sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store, ");
-        sb.Append("bool isPersisted");
+        sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
         sb.AppendLine("){");
         sb.AppendLine("var relations = nodeData." + nameof(INodeDataOuter.Relations) + ";");
         if (nodeDef.IsInterface) {
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? ("__" + nodeDef.CodeName) : (nsp + ".__" + nodeDef.CodeName);
-            sb.AppendLine("var obj = new " + classTypeName + "(new " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + "(store , nodeData, true), isPersisted);");
+            sb.AppendLine("var obj = new " + classTypeName + "(new " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + "(store , nodeData, true));");
         } else { // if interface, no need to create shell or set properties, except relations
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
@@ -161,11 +160,11 @@ internal static class MapperGen {
                             if (rp.IsMany) {
                                 sb.Append(nameof(IManyProperty.Initialize));
                                 var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + CodeUtils.GuidName(p.Id);
-                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", _isPersisted);");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ");");
                             } else {
                                 sb.Append(nameof(IOneProperty.Initialize));
                                 var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + CodeUtils.GuidName(p.Id);
-                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true, _isPersisted);"); // Fix: isSet is always true.... 
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
                             }
                             sb.AppendLine("");
                         }
@@ -174,10 +173,10 @@ internal static class MapperGen {
                             sb.Append("obj." + p.CodeName + ".");
                             if (rp.IsMany) {
                                 sb.Append(nameof(IManyProperty.Initialize));
-                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
                             } else {
                                 sb.Append(nameof(IOneProperty.Initialize));
-                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null, _isPersisted);");
+                                sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null);");
                             }
                             sb.AppendLine("");
                         }

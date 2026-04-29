@@ -18,6 +18,7 @@ public enum PropertyType : int {
     File = 13,
     FloatArray = 14,
     DateTimeOffset = 15,
+    InnerNodes = 50,
 
     Relation = 100,
     //Collection = 200,

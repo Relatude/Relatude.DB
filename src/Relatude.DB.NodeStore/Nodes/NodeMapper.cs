@@ -86,17 +86,17 @@ public class NodeMapper {
         }
         return mapper!;
     }
-    public object CreateObjectFromNodeData(INodeDataOuter nodeData, bool isPersisted = true) {
+    public object CreateObjectFromNodeData(INodeDataOuter nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
-        return mapper.NodeDataToObject(nodeData, _store, isPersisted);
+        return mapper.NodeDataToObject(nodeData, _store);
     }
-    public T CreateObjectFromNodeData<T>(INodeDataOuter nodeData, bool isPersisted = true) {
+    public T CreateObjectFromNodeData<T>(INodeDataOuter nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
-        return (T)mapper.NodeDataToObject(nodeData, _store, isPersisted);
+        return (T)mapper.NodeDataToObject(nodeData, _store);
     }
     public bool TryGetIdGuidAndCreateIfPossible(object node, out Guid id) {
         return getNodeValueMapper(node.GetType(), out _).TryGetIdGuidAndCreateIfPossible(node, out id);
@@ -138,7 +138,7 @@ public class NodeMapper {
         var typeId = GetNodeTypeId(typeof(T));
         var nowUtc = DateTime.UtcNow;
         var nodeData = new NodeData(guid, id, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
-        var node = CreateObjectFromNodeData<T>(nodeData, false);
+        var node = CreateObjectFromNodeData<T>(nodeData);
         return node;
     }
 }

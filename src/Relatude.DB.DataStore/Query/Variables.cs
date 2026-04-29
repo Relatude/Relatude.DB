@@ -57,7 +57,7 @@ namespace Relatude.DB.Query {
             }
             if (ParentScope != null) return ParentScope.get(name, ctx, metrics);
             if (name == "null") throw new Exception("Variable \"" + name + "\" is null. ");
-            throw new Exception("Idenitier \"" + name + "\" is unknown. ");
+            throw new Exception("Type \"" + name + "\" is not found in of the datamodel. ");
         }
         // Declares a new variable name and sets its value
         public void DeclarerAndSetConstant(string name, object? exp) {

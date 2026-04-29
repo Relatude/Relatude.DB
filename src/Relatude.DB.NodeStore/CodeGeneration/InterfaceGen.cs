@@ -27,13 +27,11 @@ internal static class InterfaceGen {
 
         sb.AppendLine("[System.Text.Json.Serialization.JsonIgnore]");
         sb.AppendLine("public " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " " + nameof(INodeShellAccess.__NodeDataShell) + " { get; }");
-        sb.AppendLine("private bool _isPersisted;");
 
         var shellName = nameof(INodeShellAccess.__NodeDataShell);
         // constructor:
-        sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell, bool isPersisted){");
+        sb.Append("public __" + nodeDef.CodeName + "(" + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + " shell){");
         sb.AppendLine("    this." + shellName + " = shell;");
-        sb.AppendLine("    this._isPersisted = isPersisted;");
 
         if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
             sb.AppendLine("    this." + nodeDef.NameOfMetaProperty + " = new " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + "(shell.NodeData);");
@@ -127,11 +125,11 @@ internal static class InterfaceGen {
                         if (rp.IsMany) {
                             sb.Append(nameof(IManyProperty.Initialize));
                             var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[])v" + CodeUtils.GuidName(p.Id);
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", _isPersisted);");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ");");
                         } else {
                             sb.Append(nameof(IOneProperty.Initialize));
                             var relVal = "(" + typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + ")v" + CodeUtils.GuidName(p.Id);
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true, _isPersisted);"); // Fix: isSet is always true.... 
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", " + relVal + ", true);"); // Fix: isSet is always true.... 
                         }
                         sb.AppendLine("");
                     }
@@ -140,16 +138,14 @@ internal static class InterfaceGen {
                         sb.Append("_" + p.CodeName + ".");
                         if (rp.IsMany) {
                             sb.Append(nameof(IManyProperty.Initialize));
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, _isPersisted);");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null);");
                         } else {
                             sb.Append(nameof(IOneProperty.Initialize));
-                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.__Id) + ", nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null, _isPersisted);");
+                            sb.AppendLine("(store, nodeData." + nameof(INodeDataOuter.Id) + ", " + CodeUtils.GuidName(p.Id) + ", null, null);");
                         }
                         sb.AppendLine("");
                     }
                     sb.AppendLine("}");
-
-
 
                 } else if (rp.IsMany) {  // but not native
                     sb.AppendLine("if(relations." + nameof(IRelations.TryGetManyRelation) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) {");

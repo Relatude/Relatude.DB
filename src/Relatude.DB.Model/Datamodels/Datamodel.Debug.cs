@@ -14,10 +14,7 @@ public partial class Datamodel {
                 foreach (var (pGuid, pModel) in nModel.Properties) {
                     string propertyType;
                     if (pModel is RelationPropertyModel rModel) {
-                        if (rModel.RelationValueType == RelationValueType.NotRelevant)
-                            propertyType = rModel.GetFullNameOfRelated(this);
-                        else
-                            propertyType = rModel.GetFullNameOfRelated(this) + "[]";
+                        propertyType = rModel.GetFullNameOfRelated(this) + "[]";
                     } else {
                         propertyType = pModel.PropertyType.ToString();
                     }
@@ -55,10 +52,7 @@ public partial class Datamodel {
             foreach (var (pGuid, pModel) in Properties) {
                 string propertyType;
                 if (pModel is RelationPropertyModel rModel) {
-                    if (rModel.RelationValueType == RelationValueType.NotRelevant)
-                        propertyType = rModel.GetFullNameOfRelated(this);
-                    else
-                        propertyType = rModel.GetFullNameOfRelated(this) + "[]";
+                    propertyType = rModel.GetFullNameOfRelated(this) + "[]";
                 } else {
                     propertyType = pModel.PropertyType.ToString();
                 }

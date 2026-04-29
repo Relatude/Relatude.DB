@@ -2,7 +2,6 @@
 
 namespace Relatude.DB.Datamodels.Properties;
 public enum RelationValueType {
-    NotRelevant,
     Collection,
     Enumerable,
     List,
@@ -16,7 +15,6 @@ public class RelationPropertyModel : PropertyModel {
     public int TextIndexRecursiveLevelLimit { get; set; } = 1;
     public override string? GetDefaultDeclaration() {
         switch (RelationValueType) {
-            case RelationValueType.NotRelevant:
             case RelationValueType.Collection:
             case RelationValueType.Enumerable:
             case RelationValueType.List:
@@ -38,9 +36,6 @@ public class RelationPropertyModel : PropertyModel {
     public bool AutoAssigned { get; internal set; }
 
     public override object GetDefaultValue() => throw new NotSupportedException();
-    public static object ForceCorrectValueType(object value) {
-        throw new NotSupportedException();
-    }
     public override string GetDefaultValueAsCode() => throw new NotSupportedException();
 
     internal string GetFullNameOfRelated(Datamodel m) {
