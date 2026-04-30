@@ -5,7 +5,7 @@ using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.Query.Data;
 internal static class IncludeUtil {
-    public static INodeDataOuter[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
+    public static INodeDataExternal[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
         metrics.NodeCount += _ids.Count;
         if (_includeBranches == null) {
             metrics.UniqueNodeCount += _ids.Count;

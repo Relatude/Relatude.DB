@@ -48,7 +48,7 @@ public static class RevisionUtil {
     }
 }
 
-public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
+public class NodeDataRevision : NodeDataAbstract, INodeDataExternal {
     public Guid CultureId => Meta?.CultureId ?? Guid.Empty;
     public Guid CollectionId => Meta?.CollectionId ?? Guid.Empty;
     public int RevisionKey => Meta?.RevisionKey ?? 0; // used for internal meta dictionary to save memory, the meta must be unique for each revisions
@@ -67,7 +67,7 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
         return new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), newMeta, RevisionId);
     }
     public NodeDataRevision CopyRevision() => new(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta, RevisionId);
-    public INodeDataOuter CopyOuter() => CopyRevision();
+    public INodeDataExternal CopyExternal() => CopyRevision();
 
     public NodeData CopyAndConvertToNodeData() {
         var meta = Meta;
@@ -79,7 +79,7 @@ public class NodeDataRevision : NodeDataAbstract, INodeDataOuter {
     }
 
 }
-public class NodeDataRevisions : INodeDataInner {
+public class NodeDataRevisions : INodeDataInternal {
     public NodeDataRevisions(Guid guid, int id, Guid typeId, NodeDataRevision[] revisions) {
         _id = id;
         _guid = guid;
@@ -114,7 +114,7 @@ public class NodeDataRevisions : INodeDataInner {
     public IInnerNodeMeta? Meta => throw new NA();
     public DateTime ChangedUtc => throw new NA();
     public DateTime CreatedUtc { get => throw new NA(); set => throw new NA(); }
-    public INodeDataInner CopyInner() => CopyRevisions();
+    public INodeDataInternal CopyInternal() => CopyRevisions();
     public NodeDataRevisions CopyRevisions() {
         var revs = new NodeDataRevision[Revisions.Length];
         for (int i = 0; i < Revisions.Length; i++) revs[i] = Revisions[i].CopyRevision();

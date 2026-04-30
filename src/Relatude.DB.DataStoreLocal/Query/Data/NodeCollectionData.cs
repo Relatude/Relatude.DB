@@ -13,7 +13,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     DataStoreLocal _db;
     Definition _def;
     NodeType _nodeType;
-    INodeDataOuter[]? _nodes;
+    INodeDataExternal[]? _nodes;
     Metrics _metrics;
     QueryContext _ctx;
 
@@ -40,7 +40,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         }
     }
 
-    public IEnumerable<INodeDataOuter> NodeValues {
+    public IEnumerable<INodeDataExternal> NodeValues {
         get {
             if (_nodes == null) _nodes = IncludeUtil.GetNodesWithIncludes(_metrics, _ids, _db, _includeBranches, _ctx);
             return _nodes;
@@ -112,7 +112,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         _ids = IdSet.UncachableSet(orderedSet);
         //if(_includeBranches!=null) foreach(var b in _includeBranches) b.Reset();
         if (_nodes != null) {
-            var newNodeDatas = new INodeDataOuter[_nodes.Length];
+            var newNodeDatas = new INodeDataExternal[_nodes.Length];
             i = 0;
             foreach (var pos in newPos) newNodeDatas[i++] = _nodes[pos];
             _nodes = newNodeDatas;

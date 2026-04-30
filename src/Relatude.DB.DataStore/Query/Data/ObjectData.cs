@@ -23,7 +23,7 @@ public class ObjectData {
     public object Evaluate(IVariables vars) {
         return this;
     }
-    object? convertIfNeeded(object? v, Func<INodeDataOuter, object?> convertNodeData) {
+    object? convertIfNeeded(object? v, Func<INodeDataExternal, object?> convertNodeData) {
         if (v is IStoreNodeData nd) return convertNodeData(nd.NodeData);
         if (v is IStoreNodeData[] arr) {
             var v2 = new object?[arr.Length];
@@ -32,7 +32,7 @@ public class ObjectData {
         }
         return v;
     }
-    public Tuple<string, object?>[] GetValues(Func<INodeDataOuter, object?> convertNodeData) {
+    public Tuple<string, object?>[] GetValues(Func<INodeDataExternal, object?> convertNodeData) {
         var values = new Tuple<string, object?>[Properties.Length];
         for (var n = 0; n < Properties.Length; n++) {
             values[n] = new(Properties[n].Key, convertIfNeeded(Values[n], convertNodeData));

@@ -435,12 +435,12 @@ internal class NodeTypesByIds {
         }
     }
 
-    public INodeDataOuter PickBestOuter(INodeDataInner node, QueryContextKey ctxKey, DateTime nowUtc) {
+    public INodeDataExternal PickBestOuter(INodeDataInternal node, QueryContextKey ctxKey, DateTime nowUtc) {
 
         // no access control, type, deteleted, as this is already taken care of in source of ids: nodesIds or relation
         // this is just picking the best revision for the context, which is based on culture and release/expire date
 
-        if (node is INodeDataOuter nd) return nd; // no revisions, return as is
+        if (node is INodeDataExternal nd) return nd; // no revisions, return as is
 
         if (node is not NodeDataRevisions ndr) throw new Exception("Internal error, expected NodeDataRevisions");
 

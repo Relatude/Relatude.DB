@@ -1,11 +1,11 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Datamodels;
 
-public class NodeDataWithRelations : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
-    INodeDataOuter _node;
+public class NodeDataWithRelations : INodeDataExternal { // readonly node data with possibility to add relations for use in "include" queries
+    INodeDataExternal _node;
     Relations _relations;
     static void throwReadOnlyError() => throw new Exception("Internal error. Should only be created with readonly inner node data. ");
-    public NodeDataWithRelations(INodeDataOuter nodeData) {
+    public NodeDataWithRelations(INodeDataExternal nodeData) {
         if (!nodeData.ReadOnly) throwReadOnlyError();
         _node = nodeData;
         _relations = new();
@@ -13,7 +13,7 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public int RevisionKey { get => _node.RevisionKey; }
     public RevisionType RevisionType { get => _node.RevisionType; }
 
-    public void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
+    public void SwapNodeData(Dictionary<int, INodeDataExternal> dic) {
         _node = dic[_node.__Id];
         _relations.SwapNodeData(dic);
     }
@@ -30,8 +30,8 @@ public class NodeDataWithRelations : INodeDataOuter { // readonly node data with
     public int ValueCount => _node.ValueCount;
     public bool ReadOnly => _node.ReadOnly;
     public IRelations Relations => _relations;
-    public INodeDataInner Copy() => throw new NA();
-    public INodeDataOuter CopyOuter() => throw new NA();
+    public INodeDataInternal Copy() => throw new NA();
+    public INodeDataExternal CopyExternal() => throw new NA();
     public void Add(Guid propertyId, object value) => throwReadOnlyError();
     public void AddOrUpdate(Guid propertyId, object value) => throwReadOnlyError();
     public void RemoveIfPresent(Guid propertyId) => throwReadOnlyError();
@@ -80,7 +80,7 @@ public class Relations : IRelations {
     }
     public bool TryGetOneRelation(Guid propertyId, out NodeDataWithRelations? value) => _oneRelations.TryGetValue(propertyId, out value);
     public bool TryGetManyRelation(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] value) => _manyRelations.TryGetValue(propertyId, out value);
-    internal void SwapNodeData(Dictionary<int, INodeDataOuter> dic) {
+    internal void SwapNodeData(Dictionary<int, INodeDataExternal> dic) {
         foreach (var kv in _oneRelations.Items) kv.Value?.SwapNodeData(dic);
         foreach (var kv in _manyRelations.Items) {
             foreach (var v in kv.Value) v.SwapNodeData(dic);

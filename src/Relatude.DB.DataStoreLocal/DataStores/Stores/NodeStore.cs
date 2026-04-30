@@ -18,7 +18,7 @@ internal sealed class NodeStore {
     object _lock = new();
     readonly static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
     readonly ReadSegmentsFunc _read;
-    readonly Cache<int, INodeDataInner> _cache; // threadsafe
+    readonly Cache<int, INodeDataInternal> _cache; // threadsafe
     readonly Dictionary<int, NodeSegment> _segments;  // NOT threadsafe, main store of all valid nodes
     Definition _definition;
     public NodeStore(Definition definition, SettingsLocal config, ReadSegmentsFunc read) {
@@ -35,16 +35,16 @@ internal sealed class NodeStore {
         }
     }
 
-    public INodeDataInner Get(int id, out bool didReadDisk) {
+    public INodeDataInternal Get(int id, out bool didReadDisk) {
         if (TryGet(id, out var node, out didReadDisk)) return node;
         throw new Exception("Node not found");
     }
-    public INodeDataInner[] Get(int[] ids) {
+    public INodeDataInternal[] Get(int[] ids) {
         int diskReads = 0;
         int nodesFromDisk = 0;
         return Get(ids, ref diskReads, ref nodesFromDisk);
     }
-    public INodeDataInner[] Get(int[] ids, ref int diskReads, ref int nodesFromDisk) {
+    public INodeDataInternal[] Get(int[] ids, ref int diskReads, ref int nodesFromDisk) {
         // first check cache to estimate missing
         var missing = _cache.GetMissing(ids);
         if (missing.Any()) { // load to cache
@@ -67,7 +67,7 @@ internal sealed class NodeStore {
                 }
             }
         }
-        var nodes = new INodeDataInner[ids.Length];
+        var nodes = new INodeDataInternal[ids.Length];
         for (var i = 0; i < ids.Length; i++) {
             nodes[i] = Get(ids[i], out var didReadDisk); // will read from log if not in cache            
             if (didReadDisk) {
@@ -77,7 +77,7 @@ internal sealed class NodeStore {
         }
         return nodes;
     }
-    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataInner node, out bool diskRead) {
+    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataInternal node, out bool diskRead) {
         diskRead = false;
         if (_cache.TryGet(id, out node)) return true;
         // if not in cache, it must be in log as items are kept in cache until written to log ( size ==0 )
@@ -103,14 +103,14 @@ internal sealed class NodeStore {
     public bool Contains(int id) {
         lock (_lock) return _segments.ContainsKey(id);
     }
-    public void Add(INodeDataInner node, NodeSegment? segment) {
+    public void Add(INodeDataInternal node, NodeSegment? segment) {
         lock (_lock) {
             node.EnsureReadOnly();
             _segments.Add(node.__Id, segment ?? (new()));
             _cache.Set(node.__Id, node, 0);
         }
     }
-    public void Remove(INodeDataInner node, out NodeSegment segmentInfoRemoved) {
+    public void Remove(INodeDataInternal node, out NodeSegment segmentInfoRemoved) {
         lock (_lock) {
             segmentInfoRemoved = _segments[node.__Id];
             _segments.Remove(node.__Id);

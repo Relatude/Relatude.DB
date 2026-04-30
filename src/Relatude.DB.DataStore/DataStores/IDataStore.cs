@@ -19,23 +19,23 @@ public interface IDataStore : IDisposable {
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
-    Task<INodeDataOuter> GetAsync(Guid id, QueryContext? ctx = null);
-    Task<IEnumerable<INodeDataOuter>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
-    Task<INodeDataOuter> GetAsync(int id, QueryContext? ctx = null);
-    INodeDataOuter Get(Guid id, QueryContext? ctx = null);
-    INodeDataOuter Get(int id, QueryContext? ctx = null);
-    INodeDataOuter Get(IdKey id, QueryContext? ctx = null);
-    bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null);
-    bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null);
+    Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null);
+    Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
+    Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null);
+    INodeDataExternal Get(Guid id, QueryContext? ctx = null);
+    INodeDataExternal Get(int id, QueryContext? ctx = null);
+    INodeDataExternal Get(IdKey id, QueryContext? ctx = null);
+    bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null);
+    bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null);
     bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null);
-    IEnumerable<INodeDataOuter> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
-    IEnumerable<INodeDataOuter> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
+    IEnumerable<INodeDataExternal> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
+    IEnumerable<INodeDataExternal> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
 
     bool Exists(Guid id, QueryContext? ctx = null);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
     bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null);
-    INodeDataOuter[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
-    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataOuter node, QueryContext? ctx = null);
+    INodeDataExternal[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
+    bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null);
     int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
     IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null);
 
@@ -58,7 +58,7 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode);
     bool TryGetNodeIdFromAddress(string address, out int nodeId);
     bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
-    bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataOuter nodeData);
+    bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
 
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);

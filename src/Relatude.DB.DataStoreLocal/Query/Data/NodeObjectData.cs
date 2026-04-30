@@ -9,20 +9,20 @@ namespace Relatude.DB.Query.Data;
 
 internal class NodeObjectData : IStoreNodeData {
     public double DurationMs { get; set; }
-    INodeDataOuter _nodeData;
+    INodeDataExternal _nodeData;
     Definition _def;
     Dictionary<string, Guid> _allPropertiesByName;
     DataStoreLocal _db;
     QueryContext _ctx;
     public IDataStore Store { get => _db; }
-    public NodeObjectData(DataStoreLocal db, INodeDataOuter nodeData, Definition def, Dictionary<string, Guid> allPropertiesByName, QueryContext ctx) {
+    public NodeObjectData(DataStoreLocal db, INodeDataExternal nodeData, Definition def, Dictionary<string, Guid> allPropertiesByName, QueryContext ctx) {
         _db = db;
         _nodeData = nodeData;
         _allPropertiesByName = allPropertiesByName;
         _ctx = ctx;
         _def = def;
     }
-    public INodeDataOuter NodeData { get => _nodeData; }
+    public INodeDataExternal NodeData { get => _nodeData; }
     public int Count() {
         throw new NotImplementedException();
     }

@@ -5,7 +5,7 @@ namespace Relatude.DB.Serialization;
 
 public static partial class FromBytes {
     // NodeData
-    public static INodeDataInner NodeData(Datamodel datamodel, Stream stream) { // Reading
+    public static INodeDataInternal NodeData(Datamodel datamodel, Stream stream) { // Reading
 
         // reading header:
         var guid = stream.ReadGuid();

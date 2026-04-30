@@ -8,11 +8,11 @@ public interface INodeShellAccess {
 }
 public class NodeDataShell {
     List<Guid>? changed;
-    public INodeDataOuter NodeData;
+    public INodeDataExternal NodeData;
     bool _copyBeforeUpdate;
     public NodeStore Store;
     Datamodel _dm;
-    public NodeDataShell(NodeStore store, INodeDataOuter nodeData, bool copyBeforeUpdate) {
+    public NodeDataShell(NodeStore store, INodeDataExternal nodeData, bool copyBeforeUpdate) {
         NodeData = nodeData;
         _dm = store.Datastore.Datamodel;
         Store = store;
@@ -26,7 +26,7 @@ public class NodeDataShell {
     public void SetValue(Guid propertyId, object newValue) {
         if (_copyBeforeUpdate) {
             _copyBeforeUpdate = false;
-            NodeData = NodeData.CopyOuter();
+            NodeData = NodeData.CopyExternal();
         }
         NodeData.AddOrUpdate(propertyId, newValue);
         changed ??= [];

@@ -86,13 +86,13 @@ public class NodeMapper {
         }
         return mapper!;
     }
-    public object CreateObjectFromNodeData(INodeDataOuter nodeData) {
+    public object CreateObjectFromNodeData(INodeDataExternal nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
         return mapper.NodeDataToObject(nodeData, _store);
     }
-    public T CreateObjectFromNodeData<T>(INodeDataOuter nodeData) {
+    public T CreateObjectFromNodeData<T>(INodeDataExternal nodeData) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
@@ -116,7 +116,7 @@ public class NodeMapper {
     public bool TryGetIdUInt(object node, out int id) {
         return getNodeValueMapper(node.GetType(), out _).TryGetIdUInt(node, out id);
     }
-    public INodeDataOuter CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection) {
+    public INodeDataExternal CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection) {
         return getNodeValueMapper(node.GetType(), out _).CreateNodeDataFromObject(node, relatedCollection);
     }
     public Guid GetRelationId<T>() => GetRelationId(typeof(T));

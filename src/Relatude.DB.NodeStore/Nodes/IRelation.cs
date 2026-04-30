@@ -15,11 +15,11 @@ public interface IRelationProperty {
 }
 public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
-    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet);
+    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet);
 }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
-    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas);
+    void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas);
 }
 public interface IOneProperty<T> : IOneProperty {
 }
@@ -29,9 +29,9 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     NodeStore store = null!;
     Guid parentId;
     Guid propertyId;
-    INodeDataOuter? nodeData;
+    INodeDataExternal? nodeData;
     bool? isSet = false;
-    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter? nodeData, bool? isSet) {
+    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet) {
         this.store = store;
         this.parentId = parentId;
         this.propertyId = propertyId;
@@ -44,7 +44,7 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
         if (TryGet(out T? value)) return value;
         throw new Exception($"Relation {store?.Datastore.Datamodel.Properties[propertyId].CodeName} is not set and empty. ");
     }
-    bool tryGet([MaybeNullWhen(false)] out INodeDataOuter value) {
+    bool tryGet([MaybeNullWhen(false)] out INodeDataExternal value) {
         if (isSet.HasValue) {
             if (isSet.Value) {
                 value = nodeData!; // _node is guaranteed to be not null if _isSet is true
@@ -63,7 +63,7 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
         return false;
     }
     public bool TryGet([MaybeNullWhen(false)] out T value) {
-        if (tryGet(out INodeDataOuter? nodeData)) {
+        if (tryGet(out INodeDataExternal? nodeData)) {
             value = store.Get<T>(nodeData);
             return true;
         }
@@ -131,8 +131,8 @@ public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     NodeStore store = null!;
     Guid parentId;
     Guid propertyId;
-    INodeDataOuter[]? nodeDatas;
-    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataOuter[]? nodeDatas) {
+    INodeDataExternal[]? nodeDatas;
+    public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas) {
         this.store = store;
         this.parentId = parentId;
         this.propertyId = propertyId;

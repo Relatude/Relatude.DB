@@ -28,7 +28,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    string getExtract(INodeDataInner node, TextIndexType indexType) {
+    string getExtract(INodeDataInternal node, TextIndexType indexType) {
         return indexType == TextIndexType.PlainTextSearch ? UtilsText.GetTextExtract(this, node) : UtilsText.GetSemanticExtract(this, node);
     }
 }

@@ -72,10 +72,10 @@ public class DataStoreSession : IDataStore {
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null)
         => _datastore.QueryAsync(query, parameters, userCtx ?? DefaultQueryContext);
 
-    public Task<INodeDataOuter> GetAsync(Guid id, QueryContext? ctx = null) => _datastore.GetAsync(id, ctx ?? DefaultQueryContext);
-    public Task<IEnumerable<INodeDataOuter>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null)
+    public Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null) => _datastore.GetAsync(id, ctx ?? DefaultQueryContext);
+    public Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null)
         => _datastore.GetAsync(__ids, ctx ?? DefaultQueryContext);
-    public Task<INodeDataOuter> GetAsync(int id, QueryContext? ctx = null)
+    public Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null)
         => _datastore.GetAsync(id, ctx ?? DefaultQueryContext);
     public INodeData Get(Guid id, QueryContext? ctx = null)
         => _datastore.Get(id, ctx ?? DefaultQueryContext);
@@ -83,9 +83,9 @@ public class DataStoreSession : IDataStore {
         => _datastore.Get(id, ctx ?? DefaultQueryContext);
     public INodeData Get(IdKey id, QueryContext? ctx = null)
         => _datastore.Get(id, ctx ?? DefaultQueryContext);
-    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null)
+    public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null)
         => _datastore.TryGet(id, out nodeData, ctx ?? DefaultQueryContext);
-    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataOuter nodeData, QueryContext? ctx = null)
+    public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null)
         => _datastore.TryGet(id, out nodeData, ctx ?? DefaultQueryContext);
     public bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null)
         => _datastore.TryGetGuid(id, out guid, ctx ?? DefaultQueryContext);
@@ -112,7 +112,7 @@ public class DataStoreSession : IDataStore {
     }
     public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
         => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx ?? DefaultQueryContext);
-    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataOuter node, QueryContext? ctx = null)
+    public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null)
         => _datastore.TryGetRelatedNodeFromPropertyId(propertyId, from, out node, ctx ?? DefaultQueryContext);
     public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
         => _datastore.GetRelatedCountFromPropertyId(propertyId, from, ctx ?? DefaultQueryContext);
@@ -158,13 +158,13 @@ public class DataStoreSession : IDataStore {
     public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
         => _datastore.GetTextExtract(ids, indexType);
 
-    INodeDataOuter IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
+    INodeDataExternal IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
 
-    INodeDataOuter IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx);
-    INodeDataOuter IDataStore.Get(IdKey id, QueryContext? ctx) => _datastore.Get(id, ctx);
-    IEnumerable<INodeDataOuter> IDataStore.Get(IEnumerable<int> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
-    IEnumerable<INodeDataOuter> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
-    INodeDataOuter[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
+    INodeDataExternal IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx);
+    INodeDataExternal IDataStore.Get(IdKey id, QueryContext? ctx) => _datastore.Get(id, ctx);
+    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<int> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
+    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
+    INodeDataExternal[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
 
     public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
     public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
@@ -178,6 +178,6 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
-    public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)]out INodeDataOuter nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
+    public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)]out INodeDataExternal nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
 
 }

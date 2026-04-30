@@ -36,7 +36,7 @@ internal class ActionConverter {
             }
         }
     }
-    void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeDataInner node) {
+    void ensureIdsAndCreateIdIfMissing(DataStoreLocal db, INodeDataInternal node) {
         if (node.Id == Guid.Empty) {
             if (node.__Id == 0) { // both emtpy, so create new for both
                 node.Id = Guid.NewGuid();
@@ -73,7 +73,7 @@ internal class ActionConverter {
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
-                    if (nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
+                    if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
                     db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
                     if (addressWasChanged) node.Address = newAddress;
@@ -153,7 +153,7 @@ internal class ActionConverter {
                                 if (addressWasChanged) newNode.Address = newAddress;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
-                                if (node is not INodeDataInner nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
+                                if (node is not INodeDataInternal nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
                                 Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
@@ -166,7 +166,7 @@ internal class ActionConverter {
                 }
                 break;
             case NodeOperation.Upsert: {
-                    if (nodeAction.Node is not INodeDataInner node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
+                    if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
@@ -295,7 +295,7 @@ internal class ActionConverter {
             uints.AddRange(db._definition.GetAllIdsForType(a.TypeId.Value, ctx).Enumerate());
         }
         // ignore nodes that does not exist, copy to avoid changing original node in case of error:
-        var nodesInner = db._nodes.Get([.. uints.Where(db._nodes.Contains)]).Select(n => n.CopyInner());
+        var nodesInner = db._nodes.Get([.. uints.Where(db._nodes.Contains)]).Select(n => n.CopyInternal());
         var nodesOuter = db.ToOuter(nodesInner, ctx);
         foreach (var node in nodesOuter) {
             switch (a.Operation) {
@@ -440,7 +440,7 @@ internal class ActionConverter {
                         var enableAction = NodeRevisionAction.EnableRevisions(a.NodeIdKey, sourceRevisionId);
                         foreach (var subAction in toPrimitiveActions(db, enableAction, transformValues, key, newTasks)) yield return subAction;
                         existingNode = db._nodes.Get(nodeId, out _); // get the newly created revisions node
-                        existingNode = existingNode.CopyInner();
+                        existingNode = existingNode.CopyInternal();
                         revs = existingNode as NodeDataRevisions ?? throw new Exception("Failed to enable revisions for node with id " + a.NodeIdKey + ", cannot create revision. ");
                     }
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);

@@ -9,7 +9,7 @@ public enum InnerNodeMetaType : byte {
     Full = 2,
 }
 public struct NodeAndMeta<T> {
-    public NodeAndMeta(T node, INodeDataOuter nodeData) {
+    public NodeAndMeta(T node, INodeDataExternal nodeData) {
         Node = node;
         Meta = new(nodeData);
     }
@@ -23,7 +23,7 @@ public class NodeMeta {
         DisplayName = string.Empty;
     }
     public static NodeMeta Empty { get; } = new NodeMeta();
-    public NodeMeta(INodeDataOuter node) {
+    public NodeMeta(INodeDataExternal node) {
         InnerMeta = node.Meta ?? IInnerNodeMeta.Empty;
         RevisionId = node is NodeDataRevision rev ? rev.RevisionId : Guid.Empty;
         CreatedUtc = node.CreatedUtc;

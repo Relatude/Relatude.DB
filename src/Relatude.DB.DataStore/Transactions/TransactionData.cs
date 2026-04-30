@@ -18,7 +18,7 @@ public class TransactionData {
 
     public void Add(ActionBase action) => Actions.Add(action);
 
-    void ensureCultureAndRevision(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+    void ensureCultureAndRevision(INodeDataExternal node, string? cultureCode, RevisionType? revisionType) {
         if (cultureCode != null) ChangeRevisionCulture(node.Id, cultureCode);
         if (revisionType != null && revisionType != RevisionType.Published) {
             var revisionId = Guid.NewGuid();
@@ -26,20 +26,20 @@ public class TransactionData {
             ChangeRevisionType(node.Id, revisionId, revisionType.Value);
         }
     }
-    public void InsertOrFail(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+    public void InsertOrFail(INodeDataExternal node, string? cultureCode, RevisionType? revisionType) {
         Add(NodeAction.InsertOrFail(node));
         ensureCultureAndRevision(node, cultureCode, revisionType);
     }
-    public void InsertIfNotExists(INodeDataOuter node, string? cultureCode, RevisionType? revisionType) {
+    public void InsertIfNotExists(INodeDataExternal node, string? cultureCode, RevisionType? revisionType) {
         Add(NodeAction.InsertIfNotExists(node));
         ensureCultureAndRevision(node, cultureCode, revisionType);
     }
-    public void ForceUpdateNode(INodeDataOuter node) => Add(NodeAction.ForceUpdate(node));
-    public void UpdateIfExists(INodeDataOuter node) => Add(NodeAction.UpdateIfExists(node));
-    public void UpdateOrFail(INodeDataOuter node) => Add(NodeAction.UpdateOrFail(node));
-    public void ForceUpsert(INodeDataOuter node) => Add(NodeAction.ForceUpsert(node));
+    public void ForceUpdateNode(INodeDataExternal node) => Add(NodeAction.ForceUpdate(node));
+    public void UpdateIfExists(INodeDataExternal node) => Add(NodeAction.UpdateIfExists(node));
+    public void UpdateOrFail(INodeDataExternal node) => Add(NodeAction.UpdateOrFail(node));
+    public void ForceUpsert(INodeDataExternal node) => Add(NodeAction.ForceUpsert(node));
 
-    public void Upsert(INodeDataOuter node) {
+    public void Upsert(INodeDataExternal node) {
         Add(NodeAction.Upsert(node));
     }
 

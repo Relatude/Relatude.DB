@@ -12,13 +12,13 @@ public enum NodeDataStorageVersions {
 internal class NA : Exception {
     public NA() : base("Access to property is not relevant in this context. Internal error. ") { }
 }
-public interface INodeDataInner : INodeData {
-    INodeDataInner CopyInner();
+public interface INodeDataInternal : INodeData {
+    INodeDataInternal CopyInternal();
 }
-public interface INodeDataOuter : INodeData {
+public interface INodeDataExternal : INodeData {
     int RevisionKey { get; }
     RevisionType RevisionType { get; }
-    INodeDataOuter CopyOuter();
+    INodeDataExternal CopyExternal();
 }
 public interface INodeData {
     Guid Id { get; set; }
@@ -123,7 +123,7 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
         set => _values.SetOrRemoveIfNull(NodeConstants.SystemAutoAddressPropertyId, value ? true : null);
     }
 }
-public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
+public class NodeData : NodeDataAbstract, INodeDataInternal, INodeDataExternal {
     public int RevisionKey => 0;
     public RevisionType RevisionType => RevisionType.Published;
     public NodeData(Guid guid, int id, Guid nodeType,
@@ -135,17 +135,17 @@ public class NodeData : NodeDataAbstract, INodeDataInner, INodeDataOuter {
         var rev = new NodeDataRevision(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta, revisionGuid);
         return rev;
     }
-    public INodeDataInner CopyAndChangeMeta(IInnerNodeMeta? meta) {
+    public INodeDataInternal CopyAndChangeMeta(IInnerNodeMeta? meta) {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), meta);
     }
-    public INodeDataInner CopyInner() {
+    public INodeDataInternal CopyInternal() {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
-    public INodeDataOuter CopyOuter() {
+    public INodeDataExternal CopyExternal() {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
 }
-public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyId : INodeDataExternal { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyId(Guid gid) => _gid = gid;
     public NodeDataOnlyId(int id) => _id = id;
     Guid _gid;
@@ -180,14 +180,14 @@ public class NodeDataOnlyId : INodeDataOuter { // readonly node data with possib
     public bool Contains(Guid propertyId) => throw new NA();
     public void EnsureReadOnly() => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
-    public INodeDataInner Copy() => throw new NA();
-    public INodeDataOuter CopyOuter() => throw new NA();
+    public INodeDataInternal Copy() => throw new NA();
+    public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
-public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndId : INodeDataExternal { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndId(int id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
@@ -217,14 +217,14 @@ public class NodeDataOnlyTypeAndId : INodeDataOuter { // readonly node data with
     public bool Contains(Guid propertyId) => throw new NA();
     public void EnsureReadOnly() => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
-    public INodeDataInner Copy() => throw new NA();
-    public INodeDataOuter CopyOuter() => throw new NA();
+    public INodeDataInternal Copy() => throw new NA();
+    public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
-public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data with possibility to add relations for use in "include" queries
+public class NodeDataOnlyTypeAndGuid : INodeDataExternal { // readonly node data with possibility to add relations for use in "include" queries
     public NodeDataOnlyTypeAndGuid(Guid id, Guid typeId) {
         _id = id;
         _nodeType = typeId;
@@ -254,8 +254,8 @@ public class NodeDataOnlyTypeAndGuid : INodeDataOuter { // readonly node data wi
     public bool Contains(Guid propertyId) => throw new NA();
     public void EnsureReadOnly() => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
-    public INodeDataInner Copy() => throw new NA();
-    public INodeDataOuter CopyOuter() => throw new NA();
+    public INodeDataInternal Copy() => throw new NA();
+    public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
     public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
