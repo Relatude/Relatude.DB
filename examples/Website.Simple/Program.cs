@@ -27,28 +27,14 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 app.MapGet("/Get", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-    var sb = new StringBuilder();
-    var arts = db.Query<DemoArticle>().Execute();
-    foreach (var art in arts) {
-        var revs = db.GetRevisions<DemoArticle>(art.Id);
-        foreach (var rev in revs) {
-            sb.AppendLine(rev.Meta.CultureId.ToString());
-        }
-    }
-    return sb.ToString();
+    var art = new DemoArticle();
+    art.Title = "Helene";
+    db.Insert(art);
 });
-app.MapGet("/Add", (RelatudeDBContext ctx) => {
+app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-    var art = db.CreateAndInsert<DemoArticle>(a => {
-        a.Content = "TEst example";
-    });
-    db.EnableRevisions(art.Id);
-    var revs = db.GetRevisions<DemoArticle>(art.Id);
-    var sb = new StringBuilder();
-    foreach (var rev in revs) {
-        sb.AppendLine(rev.Meta.CultureId.ToString());
-    }
-    return sb.ToString();
+    var results = db.Query<DemoArticle>().WhereSearch("Helene").Execute().ToArray();
+    return results;
 });
 
 

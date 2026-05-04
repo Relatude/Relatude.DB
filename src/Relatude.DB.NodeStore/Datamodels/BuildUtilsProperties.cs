@@ -236,25 +236,40 @@ internal static class BuildUtilsProperties {
         p.FileStorageProviderId = a.FileStorageProviderId;
         return p;
     }
+    static void addCommonInnerNodesProperties(InnerNodesPropertyAttribute a, InnerNodesPropertyModel p, Type valueType) {
+        if (a.InnerTypeIds != null) {
+            var ids = new List<Guid>();
+            var names = new List<string>();
+            foreach (var id in a.InnerTypeIds) {
+                if (Guid.TryParse(id, out var innerTypeGuid)) {
+                    ids.Add(innerTypeGuid);
+                } else if (!string.IsNullOrEmpty(id)) {
+                    names.Add(id);
+                }
+            }
+            if (ids.Count > 0) p.InnerNodeTypes = ids;
+            if (names.Count > 0) p.InnerNodeTypesNames = names;
+        }
+        if (a.InnerTypeIds == null) {
+            var nodeType = valueType.GetGenericArguments()[1];
+            p.InnerNodeTypesNames = [nodeType.FullName!];
+        }
+        p.IncludeTypes = a.IncludeTypes;
+    }
     static InnerNodesPropertyModel getInnerNodesPropertyModel(InnerNodesPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
+        addCommonInnerNodesProperties(a, p, valueType);
         return p;
     }
     static InnerNodesPropertyModel getInnerNodesMapPropertyModel(InnerNodesMapPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
+        addCommonInnerNodesProperties(a, p, valueType);
         if (a.KeyType == KeyPropertyType.NodeGuidId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
         else if (a.KeyType == KeyPropertyType.NodeIntegerId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeIntId;
         if (Guid.TryParse(a.KeyPropertyId, out var keyPropGuid)) {
             p.KeyProperty = keyPropGuid;
         } else {
             p.KeyPropertyName = a.KeyPropertyId;
-        }
-        if (Guid.TryParse(a.InnerTypeId, out var innerTypeGuid)) {
-            p.InnerNodeTypes = new List<Guid>() { innerTypeGuid };
-        } else if (!string.IsNullOrEmpty(a.InnerTypeId)) {
-            p.InnerNodeTypeName = a.InnerTypeId;
-        } else if (valueType.IsGenericType && valueType.GetGenericArguments().Length == 2) {
-            p.InnerNodeTypeName = valueType.GetGenericArguments()[1].FullName;
         }
         return p;
     }

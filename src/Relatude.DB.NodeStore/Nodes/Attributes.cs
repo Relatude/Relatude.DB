@@ -178,7 +178,8 @@ public class FilePropertyAttribute : PropertyAttribute {
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class InnerNodesPropertyAttribute : PropertyAttribute {
-    public string? InnerTypeId { get; set; }
+    public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
+    public string[]? InnerTypeIds { get; set; }    
 }
 public enum KeyPropertyType {
     NodeGuidId,
@@ -186,10 +187,9 @@ public enum KeyPropertyType {
     NodeProperty,
 }
 [AttributeUsage(AttributeTargets.Property)]
-public class InnerNodesMapPropertyAttribute : PropertyAttribute {
+public class InnerNodesMapPropertyAttribute : InnerNodesPropertyAttribute {
     public KeyPropertyType KeyType { get; set; }
-    public string? KeyPropertyId { get; set; }
-    public string? InnerTypeId { get; set; }
+    public string? KeyPropertyId { get; set; }    
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {

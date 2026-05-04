@@ -18,7 +18,7 @@ public class DemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
 
-    public InnerNodes<DemoParagraph> Paragraphs { get; set; } = [];
+    //public InnerNodes<DemoParagraph> Paragraphs { get; set; } = [];
 
     public Tree.Parent Parent { get; set; } = new();
     public Tree.Children Children { get; set; } = new();
@@ -31,8 +31,8 @@ public class DemoArticle {
 
 }
 
-public class DemoParagraph {
-}
+//public class DemoParagraph {
+//}
 
 public class Tree : OneToMany<DemoArticle, DemoArticle> {
     public class Parent : One { }

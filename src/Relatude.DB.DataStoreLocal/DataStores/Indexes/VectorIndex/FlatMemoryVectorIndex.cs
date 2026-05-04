@@ -19,6 +19,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     }
     public void Clear(int nodeId) => _index.Remove(nodeId);
     public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
+        if (_index.Count == 0) return [];
         if (minCosineSimilarity >= 1f) minCosineSimilarity = 0.9999f;
         else if (minCosineSimilarity <= -1f) minCosineSimilarity = -0.9999f; // avoid precision issues
 #if DEBUG
@@ -78,7 +79,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         // (also avoids enumeration invalidation if the index changes concurrently)
         var snapshot = _index.ToArray();
 
-        if (_multiThreaded) {
+        if (_multiThreaded && _index.Count > 100) {
             // Thread-local top-k; merge at the end.
             var merged = new ConcurrentBag<(int id, float sim)>();
 
