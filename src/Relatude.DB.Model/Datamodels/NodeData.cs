@@ -141,6 +141,9 @@ public class NodeData : NodeDataAbstract, INodeDataInternal, INodeDataExternal {
     public INodeDataInternal CopyInternal() {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }
+    public NodeData Copy() {
+        return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
+    }
     public INodeDataExternal CopyExternal() {
         return new NodeData(Id, __Id, NodeType, CreatedUtc, ChangedUtc, new(_values), Meta);
     }

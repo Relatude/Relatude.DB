@@ -75,6 +75,13 @@ public partial class Datamodel {
                 }
             }
 
+            // looking up KeyPropertyId for InnerNodesPropertyModel:
+            foreach(var p in Properties.Values) {
+                if (p.PropertyType == PropertyType.InnerNodes) {
+
+                }
+            }
+
             _hasInitialized = true;
         }
     }

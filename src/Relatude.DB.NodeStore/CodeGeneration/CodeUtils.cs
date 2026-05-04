@@ -166,8 +166,6 @@ internal static class CodeUtils {
     public static bool IsFirstClassUsingName_NameOfAddressProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfAddressProperty!, nodeDef, datamodel, n => n.NameOfAddressProperty!);
     }
-
-
     static bool isFirstClassInParentsThatUseThisName(string propName, NodeTypeModel nodeDef, Datamodel datamodel, Func<NodeTypeModel, string> getPropName) {
         if (nodeDef.Parents.Count == 0) return true;
         foreach (var parentId in nodeDef.Parents) {
@@ -177,5 +175,4 @@ internal static class CodeUtils {
         }
         return true;
     }
-
 }

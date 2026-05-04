@@ -4,6 +4,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 using System.Text;
 using System.Xml.Linq;
+using static System.Formats.Asn1.AsnWriter;
 
 namespace Relatude.DB.CodeGeneration;
 
@@ -72,12 +73,12 @@ internal static class MapperGen {
             }
         }
 
-        void helper(string name, string? prop, string val, string typeDec="var") =>
+        void helper(string name, string? prop, string val, string typeDec = "var") =>
             sb.AppendLine($"{typeDec} {name} = {(string.IsNullOrEmpty(prop) ? val : $"node.{prop}")};");
 
         helper("createdUtc", nodeDef.NameOfCreatedUtcProperty, "DateTime.MinValue");
         helper("changedUtc", nodeDef.NameOfChangedUtcProperty, "DateTime.UtcNow");
-        
+
         sb.Append("var nodeData = new " + typeof(NodeData).Namespace + "." + nameof(NodeData) + "(");
         sb.Append("gid, uid, " + CodeUtils.GuidName(nodeDef.Id));
         //sb.Append(", collectionId, lcid, derivedFromLCID, readAccess, writeAccess, ");
@@ -206,11 +207,27 @@ internal static class MapperGen {
                         sb.Append("obj." + p.CodeName + " = ");
                         sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")v" + CodeUtils.GuidName(p.Id) + ");");
                     }
+                } else if (p.PropertyType == PropertyType.InnerNodes) {
+                    sb.AppendLine("{");
+                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                    //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
+                    //sb.Append(";");
+                    //sb.AppendLine("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
+                    sb.AppendLine("} else{ ");
+                    //obj.Paragraphs = new(g01e7e657f942ed3263a374e100cefe27, (InnerNodeDataMap<Guid>)v, store.Mapper);
+
+                    sb.AppendLine("obj." + p.CodeName + " = [];");
+                    sb.AppendLine("}");
                 } else {
-                    sb.Append("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
-                    if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
-                    sb.AppendLine(";");
-                    sb.Append("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
+                    //sb.Append("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
+                    //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
+                    //sb.Append(";");
+                    //sb.AppendLine("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
+                    sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
+                    if (p.IsReferenceTypeAndMustCopy()) sb.Append("(");
+                    sb.Append("(" + CodeUtils.GetTypeName(p, dm) + ")v");
+                    if (p.IsReferenceTypeAndMustCopy()) sb.Append(").Copy()");
+                    sb.AppendLine(" : " + p.GetDefaultValueAsCode() + "; }");
                 }
             }
         }

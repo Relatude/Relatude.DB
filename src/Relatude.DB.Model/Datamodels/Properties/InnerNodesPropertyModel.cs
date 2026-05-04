@@ -10,9 +10,15 @@ public enum InnerNodesValueType {
 
 public class InnerNodesPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; } = false;
-    public List<Guid> InnerNodeTypes { get; set; } = new();
+
+    public List<Guid>? InnerNodeTypes { get; set; }
+    public List<string>? InnerNodeTypesNames { get; set; }
+    public bool IncludeDescendingTypes { get; set; }
+
     public Guid KeyProperty { get; set; } = Guid.Empty;
-    public bool PrependOnAdd{ get; set; } = false;
+    public string? KeyPropertyName { get; set; }
+
+    public bool PrependOnAdd { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.InnerNodes; }
     public override string? GetDefaultDeclaration() => "[]";
     public override object? GetDefaultValue() => null;

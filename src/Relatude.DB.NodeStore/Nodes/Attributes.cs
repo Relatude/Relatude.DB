@@ -176,8 +176,21 @@ public class FilePropertyAttribute : PropertyAttribute {
     public Guid FileStorageProviderId { get; set; }
 
 }
-
-
+[AttributeUsage(AttributeTargets.Property)]
+public class InnerNodesPropertyAttribute : PropertyAttribute {
+    public string? InnerTypeId { get; set; }
+}
+public enum KeyPropertyType {
+    NodeGuidId,
+    NodeIntegerId,
+    NodeProperty,
+}
+[AttributeUsage(AttributeTargets.Property)]
+public class InnerNodesMapPropertyAttribute : PropertyAttribute {
+    public KeyPropertyType KeyType { get; set; }
+    public string? KeyPropertyId { get; set; }
+    public string? InnerTypeId { get; set; }
+}
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
     public string? Relation { get; set; }

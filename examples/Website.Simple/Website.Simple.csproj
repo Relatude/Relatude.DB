@@ -9,19 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="NewFolder\**" />
     <Compile Remove="relatude.db.index\**" />
     <Compile Remove="relatude.db.second\**" />
     <Compile Remove="relatude.db\**" />
-    <Content Remove="NewFolder\**" />
     <Content Remove="relatude.db.index\**" />
     <Content Remove="relatude.db.second\**" />
     <Content Remove="relatude.db\**" />
-    <EmbeddedResource Remove="NewFolder\**" />
     <EmbeddedResource Remove="relatude.db.index\**" />
     <EmbeddedResource Remove="relatude.db.second\**" />
     <EmbeddedResource Remove="relatude.db\**" />
-    <None Remove="NewFolder\**" />
     <None Remove="relatude.db.index\**" />
     <None Remove="relatude.db.second\**" />
     <None Remove="relatude.db\**" />
@@ -33,6 +29,11 @@
     <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.UrlProvider\Relatude.DB.UrlProvider.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="NewFolder\" />
+    <Folder Include="NewFolder\RelatudeDBCompiledModels\" />
   </ItemGroup>
 
 </Project>

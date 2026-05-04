@@ -45,6 +45,10 @@ internal static class BuildUtilsProperties {
             p = getStringArrayPropertyModel(cast<StringArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
+        } else if (valueType == typeof(IInnerNodes)) {
+            p = getInnerNodesPropertyModel(cast<InnerNodesPropertyAttribute>(a, m), valueType);
+        } else if (valueType == typeof(IInnerNodesMap)) {
+            p = getInnerNodesMapPropertyModel(cast<InnerNodesMapPropertyAttribute>(a, m), valueType);
         } else if (valueType.IsSubclassOf(typeof(object))) {
             // if not primitive, then it is assumed to be a relation
             p = getRelationPropertyModel(cast<RelationPropertyAttribute>(a, m), m, valueType);
@@ -232,7 +236,28 @@ internal static class BuildUtilsProperties {
         p.FileStorageProviderId = a.FileStorageProviderId;
         return p;
     }
-
+    static InnerNodesPropertyModel getInnerNodesPropertyModel(InnerNodesPropertyAttribute a, Type valueType) {
+        var p = new InnerNodesPropertyModel();
+        return p;
+    }
+    static InnerNodesPropertyModel getInnerNodesMapPropertyModel(InnerNodesMapPropertyAttribute a, Type valueType) {
+        var p = new InnerNodesPropertyModel();
+        if (a.KeyType == KeyPropertyType.NodeGuidId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
+        else if (a.KeyType == KeyPropertyType.NodeIntegerId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeIntId;
+        if (Guid.TryParse(a.KeyPropertyId, out var keyPropGuid)) {
+            p.KeyProperty = keyPropGuid;
+        } else {
+            p.KeyPropertyName = a.KeyPropertyId;
+        }
+        if (Guid.TryParse(a.InnerTypeId, out var innerTypeGuid)) {
+            p.InnerNodeTypes = new List<Guid>() { innerTypeGuid };
+        } else if (!string.IsNullOrEmpty(a.InnerTypeId)) {
+            p.InnerNodeTypeName = a.InnerTypeId;
+        } else if (valueType.IsGenericType && valueType.GetGenericArguments().Length == 2) {
+            p.InnerNodeTypeName = valueType.GetGenericArguments()[1].FullName;
+        }
+        return p;
+    }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {
         var p = new BooleanPropertyModel();
         p.DefaultValue = a.DefaultValue;
@@ -267,11 +292,11 @@ internal static class BuildUtilsProperties {
         relationType = null;
         reason = string.Empty;
         relationType = propValueType.DeclaringType;
-        if (relationType == null) { 
+        if (relationType == null) {
             reason = "The declaring property value type " + propValueType.Name + " does not have a declaring type.";
             return false;
         }
-        if (!relationType.InheritsFromOrImplements<IRelation>()) { 
+        if (!relationType.InheritsFromOrImplements<IRelation>()) {
             reason = "The declaring property value type " + propValueType.Name + " does not implement IRelation or inherit from a type that implements IRelation.";
             return false;
         }
