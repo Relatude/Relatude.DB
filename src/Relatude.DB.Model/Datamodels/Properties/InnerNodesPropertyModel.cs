@@ -2,8 +2,8 @@
 namespace Relatude.DB.Datamodels.Properties;
 
 public enum InnerNodesValueType {
-    Array,
-    List,
+    //Array,
+    //List,
     InnerNodeList,
     InnerNodeMap,
 }
@@ -15,8 +15,8 @@ public enum IncludeTypeOptions {
 
 public class InnerNodesPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; } = false;
-
-    public List<Guid>? InnerNodeTypes { get; set; }
+    public InnerNodesValueType InnerNodesValueType { get; set; }
+    public List<Guid> InnerNodeTypes { get; set; } = [];
     public List<string>? InnerNodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
 
