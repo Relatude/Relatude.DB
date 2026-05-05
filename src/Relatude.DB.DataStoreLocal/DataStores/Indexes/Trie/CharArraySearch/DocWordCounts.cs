@@ -18,10 +18,9 @@ internal class DocWordCounts {
         //if (!_counts.ContainsKey(id)) {
         if (!_counts.ContainsKey(id)) {
 #if DEBUG
-                throw new Exception("Trying to remove a non existing record. ");
-#else
-            return; // ignore
+                //throw new Exception("Trying to remove a non existing record. ");
 #endif
+            return; // ignore
         }
         if (_counts[id] != wordCount) throw new Exception("Deindex text has a different word count than the original indexed text. ");
 
