@@ -106,15 +106,47 @@ public partial class Datamodel {
                             }
                             inp.KeyProperty = keyProp.Id;
                         }
-                        if (!bestCommonBase.AllProperties.ContainsKey(inp.KeyProperty)) {
+                        Type? keyPropType;
+                        if (inp.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeGuidId) {
+                            keyPropType = typeof(Guid);
+                        } else if (inp.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeIntId) {
+                            keyPropType = typeof(int);
+                        } else if (!bestCommonBase.AllProperties.TryGetValue(inp.KeyProperty, out var keyprop)) {
                             throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a key property that is not found in the common base type of the inner node types: " + inp.KeyProperty);
+                        } else {
+                            keyPropType = GetBasicTypeOfPropertyIfPossible(keyprop.PropertyType);
+                        }
+                        if (inp._ValueTypeForLaterChecks != null) {
+                            var _valueTypeKey = inp._ValueTypeForLaterChecks.GetGenericArguments()[0];
+                            if (keyPropType != _valueTypeKey) throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has a key property type that does not match the expected value type for InnerNodeMap: " + keyPropType + " vs " + _valueTypeKey);
                         }
                         break;
                     default:
-                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has an unsupported InnerNodesValueType: " + inp.InnerNodesValueType);                        
+                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has an unsupported InnerNodesValueType: " + inp.InnerNodesValueType);
                 }
             }
         }
+    }
+    public static Type? GetBasicTypeOfPropertyIfPossible(PropertyType pt) {
+        return pt switch {
+            PropertyType.Any => typeof(object),
+            PropertyType.Boolean => typeof(bool),
+            PropertyType.Integer => typeof(int),
+            PropertyType.String => typeof(string),
+            PropertyType.StringArray => typeof(string[]),
+            PropertyType.Double => typeof(double),
+            PropertyType.Float => typeof(float),
+            PropertyType.Decimal => typeof(decimal),
+            PropertyType.DateTime => typeof(DateTime),
+            PropertyType.TimeSpan => typeof(TimeSpan),
+            PropertyType.Guid => typeof(Guid),
+            PropertyType.Long => typeof(long),
+            PropertyType.ByteArray => typeof(byte[]),
+            PropertyType.File => typeof(FileValue),
+            PropertyType.FloatArray => typeof(float[]),
+            PropertyType.DateTimeOffset => typeof(DateTimeOffset),
+            _ => null,
+        };
     }
     void identifyNameOfPropertyFromInheritance() {
         foreach (var nodeType in NodeTypes.Values) {
@@ -209,7 +241,7 @@ public partial class Datamodel {
         var propertiesAlreadyReferingToRelation = allRelationProperies.Where(p => p.RelationId == relationId);
         var propetiesInSameDirection = propertiesAlreadyReferingToRelation.Where(p => p.IsMany == thisProperty.IsMany);
         if (propetiesInSameDirection.Count() > 0) return false; // relation is not available
-        // ok, relation is a match:
+                                                                // ok, relation is a match:
         thisProperty.RelationId = relationId;
         thisProperty.AutoAssigned = true;
         thisProperty.FromTargetToSource = !thisProperty.IsMany;

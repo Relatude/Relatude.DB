@@ -18,7 +18,9 @@ public class DemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
 
-    public InnerNodes<DemoParagraph> Paragraphs { get; set; } = [];
+    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public InnerNodes<string, DemoParagraph> Paragraphs { get; set; } = [];
+
 
     public Tree.Parent Parent { get; set; } = new();
     public Tree.Children Children { get; set; } = new();
@@ -32,6 +34,7 @@ public class DemoArticle {
 }
 
 public class DemoParagraph {
+    public string Code { get; set; } = string.Empty;
 }
 
 public class Tree : OneToMany<DemoArticle, DemoArticle> {

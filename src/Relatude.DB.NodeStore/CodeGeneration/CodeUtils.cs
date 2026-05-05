@@ -59,7 +59,7 @@ internal static class CodeUtils {
             case InnerNodesValueType.InnerNodeMap:
                 typeName += nameWithoutGeneric<InnerNodes<object, object>>();
                 typeName += "<";
-                typeName += getKeyPropertyTypeName(inp, dm);
+                typeName += GetInnerPropertyKeyPropertyTypeName(inp, dm);
                 typeName += ", ";
                 typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
                 typeName += ">";
@@ -69,10 +69,10 @@ internal static class CodeUtils {
         }
         return typeName;
     }
-    static string getKeyPropertyTypeName(InnerNodesPropertyModel p, Datamodel dm) {
+    public static string GetInnerPropertyKeyPropertyTypeName(InnerNodesPropertyModel p, Datamodel dm) {
         switch (p.InnerNodesValueType) {
             case InnerNodesValueType.InnerNodeList:
-                throw new Exception("InnerNodeList does not have a key property");
+                return typeof(Guid).FullName!;
             case InnerNodesValueType.InnerNodeMap:
                 if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeGuidId) {
                     return typeof(Guid).FullName!;
@@ -83,7 +83,7 @@ internal static class CodeUtils {
                         if (dm.Properties.TryGetValue(p.KeyProperty, out var keyProp)) {
                             if (keyProp.PropertyType == PropertyType.InnerNodes) // prevent recursive loop....
                                 throw new Exception("Key property for InnerNodeMap cannot be of type InnerNodes.");
-                            return GetTypeName(p, dm);
+                            return GetTypeName(keyProp, dm);
                         } else {
                             throw new Exception($"Key property with id {p.KeyProperty} not found in datamodel");
                         }
@@ -195,6 +195,9 @@ internal static class CodeUtils {
         sb.AppendLine("static Guid " + GuidName(nodeDef.Id) + " = Guid.Parse(\"" + nodeDef.Id + "\");");
         foreach (var p in nodeDef.AllProperties) {
             sb.AppendLine("static Guid " + GuidName(p.Key) + " = Guid.Parse(\"" + p.Key + "\");");
+            if (p.Value is InnerNodesPropertyModel inp) {
+                sb.AppendLine("static Guid " + GuidName(p.Key) + "_KeyProperty = Guid.Parse(\"" + inp.KeyProperty + "\");");
+            }
         }
     }
     public static string? getDefaultDeclaration(string? currentNamespace, PropertyModel p, Datamodel dm) {

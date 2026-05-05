@@ -189,7 +189,7 @@ public enum KeyPropertyType {
 [AttributeUsage(AttributeTargets.Property)]
 public class InnerNodesMapPropertyAttribute : InnerNodesPropertyAttribute {
     public KeyPropertyType KeyType { get; set; }
-    public string? KeyPropertyId { get; set; }    
+    public string? KeyProperty { get; set; }    
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {

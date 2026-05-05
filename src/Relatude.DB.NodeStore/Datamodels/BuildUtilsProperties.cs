@@ -102,9 +102,17 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
-            else if (valueType.InheritsFromOrImplements<IInnerNodes>()) attr = new InnerNodesPropertyAttribute();
-            else if (valueType.InheritsFromOrImplements<IInnerNodesMap>()) attr = new InnerNodesMapPropertyAttribute();
-            else if (valueType.IsSubclassOf(typeof(object))) attr = new RelationPropertyAttribute();
+            else if (valueType.InheritsFromOrImplements<IInnerNodes>()) {
+                attr = new InnerNodesPropertyAttribute();                
+            } else if (valueType.InheritsFromOrImplements<IInnerNodesMap>()) {
+                var a = new InnerNodesMapPropertyAttribute();
+                // since no attribute was defined, key property is id as Guid or Id
+                var typeKey = valueType.GetGenericArguments()[0];
+                if (typeKey == typeof(int)) a.KeyType = KeyPropertyType.NodeIntegerId;
+                else if (typeKey == typeof(Guid)) a.KeyType = KeyPropertyType.NodeGuidId;
+                else throw new Exception("The key type " + typeKey.FullName + " of property '" + "" + member.DeclaringType?.FullName + "." + member.Name + "' is not supported for InnerNodesMapProperty. ");
+                attr = a;
+            } else if (valueType.IsSubclassOf(typeof(object))) attr = new RelationPropertyAttribute();
             else throw new NotSupportedException(member.DeclaringType?.FullName + "." + member.Name + " - The value type " + valueType.FullName + " is not supported as a member type. ");
         } else {
             if (attr is StringPropertyAttribute && valueType != typeof(string)
@@ -120,7 +128,7 @@ internal static class BuildUtilsProperties {
             || attr is GuidPropertyAttribute && valueType != typeof(Guid)
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
             || attr is FilePropertyAttribute && valueType != typeof(FileValue)
-            || attr is InnerNodesPropertyAttribute && !valueType.InheritsFromOrImplements<IInnerNodes>()
+            || attr is InnerNodesPropertyAttribute && !(valueType.InheritsFromOrImplements<IInnerNodes>() || valueType.InheritsFromOrImplements<IInnerNodesMap>())
             || attr is InnerNodesMapPropertyAttribute && !valueType.InheritsFromOrImplements<IInnerNodesMap>()
             || attr is RelationPropertyAttribute && !valueType.IsSubclassOf(typeof(object))
             ) {
@@ -264,18 +272,24 @@ internal static class BuildUtilsProperties {
     static InnerNodesPropertyModel getInnerNodesPropertyModel(InnerNodesPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
         addCommonInnerNodesProperties(a, p, valueType, false);
+        p.InnerNodesValueType = InnerNodesValueType.InnerNodeList;
         return p;
     }
     static InnerNodesPropertyModel getInnerNodesMapPropertyModel(InnerNodesMapPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
+        p.InnerNodesValueType = InnerNodesValueType.InnerNodeMap;
         addCommonInnerNodesProperties(a, p, valueType, true);
-        if (a.KeyType == KeyPropertyType.NodeGuidId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
-        else if (a.KeyType == KeyPropertyType.NodeIntegerId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeIntId;
-        if (Guid.TryParse(a.KeyPropertyId, out var keyPropGuid)) {
+        if (a.KeyType == KeyPropertyType.NodeGuidId) {
+            p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
+        } else if (a.KeyType == KeyPropertyType.NodeIntegerId) {
+            p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeIntId;
+        }
+        if (Guid.TryParse(a.KeyProperty, out var keyPropGuid)) {
             p.KeyProperty = keyPropGuid;
         } else {
-            p.KeyPropertyName = a.KeyPropertyId;
+            p.KeyPropertyName = a.KeyProperty;
         }
+        p._ValueTypeForLaterChecks = valueType;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {

@@ -25,7 +25,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-app.MapGet("/Get", (RelatudeDBContext ctx) => {
+app.MapGet("/Insert", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var art = new DemoArticle();
     art.Title = "Helene";

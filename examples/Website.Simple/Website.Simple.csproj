@@ -31,4 +31,9 @@
     <ProjectReference Include="..\..\src\Relatude.DB.UrlProvider\Relatude.DB.UrlProvider.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="NewFolder\" />
+    <Folder Include="NewFolder\RelatudeDBCompiledModels\" />
+  </ItemGroup>
+
 </Project>

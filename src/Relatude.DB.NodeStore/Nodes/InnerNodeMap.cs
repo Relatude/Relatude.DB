@@ -163,7 +163,21 @@ where TValue : notnull {
     IEnumerator IEnumerable.GetEnumerator() {
         return GetEnumerator();
     }
-
+    public InnerNodeDataMap<TKey> GetNodeDataMap(Guid keyPropertyId, NodeMapper mapper) {
+        if (_raw != null) {
+            var nodeDatas = _raw.Select(r => {
+                if (mapper.CreateNodeDataFromObject(r, null) is not NodeData nd)
+                    throw new ArgumentException("The Inner nodes must be of type NodeData and not use revisions etc.");
+                return nd;
+            }).ToList();
+            var nodeDataMap = new InnerNodeDataMap<TKey>(keyPropertyId, nodeDatas);
+            return nodeDataMap;
+        } else if (_nodeDataMap != null) {
+            return _nodeDataMap;
+        } else {
+            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+        }
+    }
     sealed class KeyCollection(InnerNodes<TKey, TValue> owner) : ICollection<TKey> {
         public int Count => owner._raw?.Count ?? owner._nodeDataMap?.Count ?? 0;
         public bool IsReadOnly => true;
@@ -188,7 +202,6 @@ where TValue : notnull {
         public bool Remove(TKey item) => throw new NotSupportedException();
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
-
     sealed class ValueCollection(InnerNodes<TKey, TValue> owner) : ICollection<TValue> {
         public int Count => owner._raw?.Count ?? owner._nodeDataMap?.Count ?? 0;
         public bool IsReadOnly => true;

@@ -49,7 +49,7 @@ public static partial class ToBytes {
         }
         stream.WriteInt(propsToStore.Count);
         foreach (var p in propsToStore) {
-            var bytes = serializePropertyValue(p.Value, p.Key.PropertyType);
+            var bytes = serializePropertyValue(p.Value, p.Key.PropertyType, datamodel);
             stream.WriteGuid(p.Key.Id);// prop ID
             stream.WriteUInt((uint)p.Key.PropertyType);// prop type
             stream.WriteByteArray(bytes); // data
@@ -66,7 +66,7 @@ public static partial class ToBytes {
         stream.WriteGuid(version.RevisionId);
         nodeData(version, datamodel, stream);
     }
-    static byte[] serializePropertyValue(object value, PropertyType propType) {
+    static byte[] serializePropertyValue(object value, PropertyType propType, Datamodel datamodel) {
         return propType switch {
             PropertyType.Integer => BitConverter.GetBytes((int)value),
             PropertyType.Guid => ((Guid)value).ToByteArray(),
@@ -82,8 +82,21 @@ public static partial class ToBytes {
             PropertyType.Float => BitConverter.GetBytes((float)value),
             PropertyType.StringArray => StringArrayPropertyModel.GetBytes((string[])value),
             PropertyType.File => FilePropertyModel.GetBytes((FileValue)value),
+            PropertyType.InnerNodes => innerNodesPropertyModelGetBytes((IInnerNodeDataMap)value, datamodel),
             _ => throw new NotSupportedException("Writing property type " + propType + " is not supported. "),
         };
     }
+    static byte[] innerNodesPropertyModelGetBytes(IInnerNodeDataMap value, Datamodel datamodel) {
+        var ms = new MemoryStream();
+        var bf = new BinaryWriter(ms);
+        bf.Write(value.Count);
+        foreach (var item in value) {
+            Checksums...
+            nodeData(item, datamodel, ms);
+        }
+        return ms.ToArray();
+    }
+
+
 }
 

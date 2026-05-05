@@ -38,7 +38,9 @@ internal static class MapperGen {
         var nsp = nodeDef.Namespace ?? string.Empty;
         var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
         sb.Append("public " + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
-        sb.AppendLine(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related){");
+        sb.Append(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related");
+        sb.Append(", " + typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
+        sb.AppendLine("){");
         var noneRelProps = nodeDef.AllProperties.Values
             .Where(p => (!p.Internal) && p.PropertyType != PropertyType.Relation);
         sb.AppendLine("var values = new " + typeof(Properties<>).FullName!.Replace("`1", "") + "<object>(" + noneRelProps.Count() + ");");
@@ -68,6 +70,9 @@ internal static class MapperGen {
         foreach (var p in noneRelProps) {
             if (p is IntegerPropertyModel intP && intP.IsEnum) { // if enum need cast to int
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (int)node." + p.CodeName + ");");
+            } else if (p is InnerNodesPropertyModel inp) {
+                var keyId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(InnerNodes<object>.GetNodeDataMap) + "(" + keyId + "," + "store.Mapper" + "));");
             } else {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
             }
@@ -210,12 +215,10 @@ internal static class MapperGen {
                 } else if (p.PropertyType == PropertyType.InnerNodes) {
                     sb.AppendLine("{");
                     sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
-                    //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
-                    //sb.Append(";");
-                    //sb.AppendLine("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
+                    var keyType = CodeUtils.GetInnerPropertyKeyPropertyTypeName((InnerNodesPropertyModel)p, dm);
+                    sb.AppendLine("var vT = (Relatude.DB.Datamodels.InnerNodeDataMap<" + keyType + ">)v;");
+                    sb.AppendLine("obj." + p.CodeName + " = new(" + CodeUtils.GuidName(p.Id) + "_KeyProperty, vT, store.Mapper);");
                     sb.AppendLine("} else{ ");
-                    //obj.Paragraphs = new(g01e7e657f942ed3263a374e100cefe27, (InnerNodeDataMap<Guid>)v, store.Mapper);
-
                     sb.AppendLine("obj." + p.CodeName + " = [];");
                     sb.AppendLine("}");
                     sb.AppendLine("}");

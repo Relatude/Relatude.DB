@@ -4,8 +4,11 @@ using System.Reflection.Metadata;
 
 namespace Relatude.DB.Datamodels;
 
+public interface IInnerNodeDataMap : IEnumerable<NodeData> {
+    int Count { get; }
+}
 // Thread-safe for concurrent reads. Not writes.
-public class InnerNodeDataMap<TKey> : IEnumerable<NodeData> where TKey : notnull {
+public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     public static Guid PropertyIdNodeGuidId = Guid.Empty;
     public static Guid PropertyIdNodeIntId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
     List<NodeData?> _nodes; // null means the node has been removed, but we keep the slot to avoid shifting indices of subsequent items
@@ -162,7 +165,7 @@ public class InnerNodeDataMap<TKey> : IEnumerable<NodeData> where TKey : notnull
     }
     public bool ContainsKey(TKey key) => getIdx().ContainsKey(key);
     public InnerNodeDataMap<TKey> Copy() {
-    throw new NotSupportedException();
+        throw new NotSupportedException();
     }
     public IEnumerator<NodeData> GetEnumerator() {
         foreach (var node in _nodes) {

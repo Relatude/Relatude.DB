@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using System.Text.Json.Serialization;
 namespace Relatude.DB.Datamodels.Properties;
 
 public enum InnerNodesValueType {
@@ -22,6 +23,9 @@ public class InnerNodesPropertyModel : PropertyModel {
 
     public Guid KeyProperty { get; set; } = Guid.Empty;
     public string? KeyPropertyName { get; set; }
+    [JsonIgnore]
+    public Type? _ValueTypeForLaterChecks;
+
 
     public bool PrependOnAdd { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.InnerNodes; }
@@ -45,4 +49,5 @@ public class InnerNodesPropertyModel : PropertyModel {
     }
     public override string GetDefaultValueAsCode() => typeof(FileValue).FullName + ".Empty";
     public override string? GetTextIndex(object value) => ForceValueType(value, out _).Name;
+
 }

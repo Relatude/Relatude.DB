@@ -2,6 +2,7 @@
 using System.Reflection;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes
@@ -61,7 +62,10 @@ public static class DatamodelExtensions {
         datamodel.Assemblies.Add(t.Assembly);
     }
     static HashSet<Type> standardPropertyObjectTypes = [ // not relations
-        typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal), typeof(FileValue)
+        typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal)
+        , typeof(FileValue)
+        , typeof(IInnerNodes)
+        , typeof(IInnerNodesMap)
     ];
     static HashSet<Type> getRefTypes(Type t) {
         var types = new HashSet<Type>();
@@ -76,7 +80,7 @@ public static class DatamodelExtensions {
         foreach (var m in t.GetMembers()) {
             var type = m is FieldInfo f ? f.FieldType : m is PropertyInfo p ? p.PropertyType : null;
             if (type == null) continue;
-            if (standardPropertyObjectTypes.Contains(type)) continue;
+            if (type.InheritsFromOrImplementsAny(standardPropertyObjectTypes)) continue;
             if (type.IsPrimitive)
                 continue;
             if (type.IsEnum) continue;
