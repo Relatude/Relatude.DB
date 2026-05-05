@@ -218,6 +218,7 @@ internal static class MapperGen {
 
                     sb.AppendLine("obj." + p.CodeName + " = [];");
                     sb.AppendLine("}");
+                    sb.AppendLine("}");
                 } else {
                     //sb.Append("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
                     //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");

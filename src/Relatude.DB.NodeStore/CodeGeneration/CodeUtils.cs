@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace Relatude.DB.CodeGeneration;
+
 internal static class CodeUtils {
     public static string FieldOrProperty(string type, string name, ModelType mType, string? defaultDeclaration = null) {
         switch (mType) {
@@ -40,9 +41,65 @@ internal static class CodeUtils {
             PropertyType.FloatArray => "float[]",
             PropertyType.Decimal => "decimal",
             PropertyType.File => "Relatude.DB.Common.FileValue",
+            PropertyType.InnerNodes => getTypeNameInnerNodes(p, datamodel),
             PropertyType.Relation => getTypeNameRelationCollection(p, datamodel),
             _ => throw new NotSupportedException("The type " + p.PropertyType + " is not supported by the code generator."),
         };
+    }
+    static string getTypeNameInnerNodes(PropertyModel p, Datamodel dm) {
+        if (p is not InnerNodesPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not an InnerNodesPropertyModel.");
+        var typeName = string.Empty;
+        switch (inp.InnerNodesValueType) {
+            case InnerNodesValueType.InnerNodeList:
+                typeName += nameWithoutGeneric<InnerNodes<object>>();
+                typeName += "<";
+                typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
+                typeName += ">";
+                break;
+            case InnerNodesValueType.InnerNodeMap:
+                typeName += nameWithoutGeneric<InnerNodes<object, object>>();
+                typeName += "<";
+                typeName += getKeyPropertyTypeName(inp, dm);
+                typeName += ", ";
+                typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
+                typeName += ">";
+                break;
+            default:
+                throw new Exception("Unknown InnerNodesValueType " + inp.InnerNodesValueType);
+        }
+        return typeName;
+    }
+    static string getKeyPropertyTypeName(InnerNodesPropertyModel p, Datamodel dm) {
+        switch (p.InnerNodesValueType) {
+            case InnerNodesValueType.InnerNodeList:
+                throw new Exception("InnerNodeList does not have a key property");
+            case InnerNodesValueType.InnerNodeMap:
+                if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeGuidId) {
+                    return typeof(Guid).FullName!;
+                } else if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeIntId) {
+                    return typeof(int).FullName!;
+                } else {
+                    if (p.KeyProperty != Guid.Empty) {
+                        if (dm.Properties.TryGetValue(p.KeyProperty, out var keyProp)) {
+                            if (keyProp.PropertyType == PropertyType.InnerNodes) // prevent recursive loop....
+                                throw new Exception("Key property for InnerNodeMap cannot be of type InnerNodes.");
+                            return GetTypeName(p, dm);
+                        } else {
+                            throw new Exception($"Key property with id {p.KeyProperty} not found in datamodel");
+                        }
+                    } else {
+                        throw new Exception("Key property not set for InnerNodeMap");
+                    }
+                }
+            default:
+                throw new Exception("Unknown InnerNodesValueType: " + p.InnerNodesValueType);
+        }
+    }
+    static string nameWithoutGeneric<T>() {
+        var fullName = typeof(T).FullName!;
+        var index = fullName.IndexOf('`');
+        if (index >= 0) return fullName.Substring(0, index);
+        return fullName;
     }
     static string getTypeNameRelationCollection(PropertyModel p, Datamodel dm) {
         if (p is not RelationPropertyModel rp) throw new Exception("PropertyModel " + p.ToString() + " is not a RelationPropertyModel.");
@@ -101,9 +158,9 @@ internal static class CodeUtils {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
                     case RelationType.OneOne:
-                        if (string.IsNullOrEmpty(relation.CodeNameSources)) { 
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
                             code += "." + nameof(OneOne<object>.One);
-                        } else { 
+                        } else {
                             code += "." + relation.CodeNameSources;
                         }
                         break;
@@ -118,7 +175,7 @@ internal static class CodeUtils {
                         }
                         break;
                     case RelationType.OneToMany:
-                        if(string.IsNullOrEmpty(relation.CodeNameSources)) {
+                        if (string.IsNullOrEmpty(relation.CodeNameSources)) {
                             code += "." + nameof(OneToMany<object, object>.One);
                         } else {
                             code += "." + relation.CodeNameSources;

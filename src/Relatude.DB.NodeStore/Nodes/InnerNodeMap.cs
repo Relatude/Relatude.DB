@@ -5,7 +5,7 @@ namespace Relatude.DB.Nodes;
 
 interface IInnerNodes { }
 interface IInnerNodesMap { }
-public class InnerNodes<TValue> : InnerNodes<Guid, TValue>, IInnerNodes {
+public class InnerNodes<TValue> : InnerNodes<Guid, TValue>, IInnerNodes where TValue : notnull {
     public InnerNodes() { }
     public InnerNodes(Guid keyPropertyId, InnerNodeDataMap<Guid> nodeDataMap, NodeMapper mapper) : base(keyPropertyId, nodeDataMap, mapper) {
     }

@@ -54,7 +54,7 @@ namespace Relatude.DB.Nodes {
                 }
             }
 #endif
-            var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp10);
+            var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp12);
             var syntaxTrees = codeStrings.Select(code => SyntaxFactory.ParseSyntaxTree(code.code, parseOptions, code.className + ".cs"));
             var assemblyPath = Path.GetDirectoryName(typeof(object).Assembly.Location) + string.Empty;
             var refs = new List<MetadataReference> {

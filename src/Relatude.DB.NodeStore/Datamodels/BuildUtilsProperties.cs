@@ -45,9 +45,9 @@ internal static class BuildUtilsProperties {
             p = getStringArrayPropertyModel(cast<StringArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
-        } else if (valueType == typeof(IInnerNodes)) {
+        } else if (valueType.InheritsFromOrImplements<IInnerNodes>()) {
             p = getInnerNodesPropertyModel(cast<InnerNodesPropertyAttribute>(a, m), valueType);
-        } else if (valueType == typeof(IInnerNodesMap)) {
+        } else if (valueType.InheritsFromOrImplements<IInnerNodesMap>()) {
             p = getInnerNodesMapPropertyModel(cast<InnerNodesMapPropertyAttribute>(a, m), valueType);
         } else if (valueType.IsSubclassOf(typeof(object))) {
             // if not primitive, then it is assumed to be a relation
@@ -102,6 +102,8 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
+            else if (valueType.InheritsFromOrImplements<IInnerNodes>()) attr = new InnerNodesPropertyAttribute();
+            else if (valueType.InheritsFromOrImplements<IInnerNodesMap>()) attr = new InnerNodesMapPropertyAttribute();
             else if (valueType.IsSubclassOf(typeof(object))) attr = new RelationPropertyAttribute();
             else throw new NotSupportedException(member.DeclaringType?.FullName + "." + member.Name + " - The value type " + valueType.FullName + " is not supported as a member type. ");
         } else {
@@ -117,6 +119,9 @@ internal static class BuildUtilsProperties {
             || attr is TimeSpanPropertyAttribute && valueType != typeof(TimeSpan)
             || attr is GuidPropertyAttribute && valueType != typeof(Guid)
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
+            || attr is FilePropertyAttribute && valueType != typeof(FileValue)
+            || attr is InnerNodesPropertyAttribute && !valueType.InheritsFromOrImplements<IInnerNodes>()
+            || attr is InnerNodesMapPropertyAttribute && !valueType.InheritsFromOrImplements<IInnerNodesMap>()
             || attr is RelationPropertyAttribute && !valueType.IsSubclassOf(typeof(object))
             ) {
                 throw new Exception("The type " + valueType.Name + " of property '" + "" + member.DeclaringType?.FullName + "." + member.Name + "' is not compatible with attribute " + attr.GetType().Name + ". ");
@@ -236,7 +241,7 @@ internal static class BuildUtilsProperties {
         p.FileStorageProviderId = a.FileStorageProviderId;
         return p;
     }
-    static void addCommonInnerNodesProperties(InnerNodesPropertyAttribute a, InnerNodesPropertyModel p, Type valueType) {
+    static void addCommonInnerNodesProperties(InnerNodesPropertyAttribute a, InnerNodesPropertyModel p, Type valueType, bool isMap) {
         if (a.InnerTypeIds != null) {
             var ids = new List<Guid>();
             var names = new List<string>();
@@ -251,19 +256,19 @@ internal static class BuildUtilsProperties {
             if (names.Count > 0) p.InnerNodeTypesNames = names;
         }
         if (a.InnerTypeIds == null) {
-            var nodeType = valueType.GetGenericArguments()[1];
+            var nodeType = valueType.GetGenericArguments()[isMap ? 1 : 0];
             p.InnerNodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;
     }
     static InnerNodesPropertyModel getInnerNodesPropertyModel(InnerNodesPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
-        addCommonInnerNodesProperties(a, p, valueType);
+        addCommonInnerNodesProperties(a, p, valueType, false);
         return p;
     }
     static InnerNodesPropertyModel getInnerNodesMapPropertyModel(InnerNodesMapPropertyAttribute a, Type valueType) {
         var p = new InnerNodesPropertyModel();
-        addCommonInnerNodesProperties(a, p, valueType);
+        addCommonInnerNodesProperties(a, p, valueType, true);
         if (a.KeyType == KeyPropertyType.NodeGuidId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
         else if (a.KeyType == KeyPropertyType.NodeIntegerId) p.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeIntId;
         if (Guid.TryParse(a.KeyPropertyId, out var keyPropGuid)) {

@@ -74,15 +74,46 @@ public partial class Datamodel {
                     }
                 }
             }
-
-            // looking up KeyPropertyId for InnerNodesPropertyModel:
-            foreach(var p in Properties.Values) {
-                if (p.PropertyType == PropertyType.InnerNodes) {
-
+            calculateInnerNodeTypesAndPropertyKeys();
+            _hasInitialized = true;
+        }
+    }
+    void calculateInnerNodeTypesAndPropertyKeys() {
+        // looking up KeyPropertyId for InnerNodesPropertyModel:
+        foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.InnerNodes)) {
+            if (p is not InnerNodesPropertyModel inp) throw new Exception("InnerNodes property is not an InnerNodesPropertyModel");
+            if (inp.InnerNodeTypesNames != null) {
+                foreach (var typeName in inp.InnerNodeTypesNames) {
+                    if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
+                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
+                    }
+                    inp.InnerNodeTypes.Add(nodeType.Id);
+                }
+                foreach (var typeId in inp.InnerNodeTypes) {
+                    if (!NodeTypes.TryGetValue(typeId, out var nodeType)) {
+                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
+                    }
+                }
+                switch (inp.InnerNodesValueType) {
+                    case InnerNodesValueType.InnerNodeList:
+                        inp.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
+                        break;
+                    case InnerNodesValueType.InnerNodeMap:
+                        var bestCommonBase = FindFirstCommonBase(inp.InnerNodeTypes);
+                        if (!string.IsNullOrWhiteSpace(inp.KeyPropertyName)) {
+                            if (!bestCommonBase.AllPropertiesByName.TryGetValue(inp.KeyPropertyName, out var keyProp)) {
+                                throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a key property name that is not found in the common base type of the inner node types: " + inp.KeyPropertyName);
+                            }
+                            inp.KeyProperty = keyProp.Id;
+                        }
+                        if (!bestCommonBase.AllProperties.ContainsKey(inp.KeyProperty)) {
+                            throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a key property that is not found in the common base type of the inner node types: " + inp.KeyProperty);
+                        }
+                        break;
+                    default:
+                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has an unsupported InnerNodesValueType: " + inp.InnerNodesValueType);                        
                 }
             }
-
-            _hasInitialized = true;
         }
     }
     void identifyNameOfPropertyFromInheritance() {
