@@ -29,11 +29,20 @@ app.MapGet("/Insert", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var art = new DemoArticle();
     art.Title = "Helene";
+    var paraGraph = new DemoParagraph();
+    paraGraph.Code = "dasdas";
+    art.Paragraphs.Add(paraGraph);
+    art.Paragraphs.Add(paraGraph);
     db.Insert(art);
 });
 app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var results = db.Query<DemoArticle>().WhereSearch("Helene").Execute().ToArray();
+    return results;
+});
+app.MapGet("/List", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var results = db.Query<DemoArticle>().Execute().ToArray();    
     return results;
 });
 

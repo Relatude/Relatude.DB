@@ -289,7 +289,7 @@ internal static class BuildUtilsProperties {
         } else {
             p.KeyPropertyName = a.KeyProperty;
         }
-        p._ValueTypeForLaterChecks = valueType;
+        p._keyTypeInCodeModelForLaterChecks = valueType;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {

@@ -11,9 +11,9 @@ internal class InnerNodesProperty : Property {
     }
     public override PropertyType PropertyType => PropertyType.InnerNodes;
     public override object ForceValueType(object value, out bool changed) {
-        if (value is IInnerNodeDataMap innerNodeDataMap) {
+        if (value is IInnerNodeDataMap ndm) {
             changed = false;
-            return innerNodeDataMap;
+            return ndm;
         }
         changed = true;
         return null!;

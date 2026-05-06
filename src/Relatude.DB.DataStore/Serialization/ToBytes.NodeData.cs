@@ -86,17 +86,22 @@ public static partial class ToBytes {
             _ => throw new NotSupportedException("Writing property type " + propType + " is not supported. "),
         };
     }
+    public const int innerNodesPropertyModelGetBytes_VERSION = 1;
     static byte[] innerNodesPropertyModelGetBytes(IInnerNodeDataMap value, Datamodel datamodel) {
-        var ms = new MemoryStream();
-        var bf = new BinaryWriter(ms);
+        using var main = new MemoryStream();
+        using var bf = new BinaryWriter(main);
+        bf.Write(innerNodesPropertyModelGetBytes_VERSION);
         bf.Write(value.Count);
+        bf.Write(value.Count);  // twice, just as a sanity check on read
         foreach (var item in value) {
-            Checksums...
-            nodeData(item, datamodel, ms);
+            // split each node into a byte array, so in case one fails to read we can skip it on read ( further optimization possible... )
+            using var sub = new MemoryStream();
+            NodeData(item, datamodel, sub);
+            var nodesBytes = sub.ToArray();
+            sub.WriteByteArray(nodesBytes);
         }
-        return ms.ToArray();
+        return main.ToArray();
     }
-
 
 }
 

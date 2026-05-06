@@ -47,8 +47,8 @@ public static partial class FromBytes {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
-            var value = toPropertyValue(bytes, propType);
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
+                var value = toPropertyValue(bytes, propType, datamodel, propDef);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -79,8 +79,8 @@ public static partial class FromBytes {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
-            var value = toPropertyValue(bytes, propType);
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
+                var value = toPropertyValue(bytes, propType, datamodel, propDef);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -120,8 +120,8 @@ public static partial class FromBytes {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
-            var value = toPropertyValue(bytes, propType);
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
+                var value = toPropertyValue(bytes, propType, datamodel, propDef);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -162,8 +162,8 @@ public static partial class FromBytes {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
-            var value = toPropertyValue(bytes, propType);
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
+                var value = toPropertyValue(bytes, propType, datamodel, propDef);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -187,10 +187,10 @@ public static partial class FromBytes {
         for (int v = 0; v < versionCount; v++) {
             versions[v] = read_NodeDataRevision(datamodel, stream, guid, __id, nodeTypeId);
         }
-        return new (guid, __id, nodeTypeId, versions);
+        return new(guid, __id, nodeTypeId, versions);
     }
 
-    static object toPropertyValue(byte[] bytes, PropertyType propType) {
+    static object toPropertyValue(byte[] bytes, PropertyType propType, Datamodel datamodel, PropertyModel propDef) {
         return propType switch {
             PropertyType.String => RelatudeDBGlobals.Encoding.GetString(bytes),
             PropertyType.Integer => BitConverter.ToInt32(bytes),
@@ -207,9 +207,27 @@ public static partial class FromBytes {
             PropertyType.File => FilePropertyModel.GetValue(bytes),
             PropertyType.ByteArray => bytes,
             PropertyType.FloatArray => FloatArrayPropertyModel.GetValue(bytes),
+            PropertyType.InnerNodes => innerNodesPropertyModelGetValue(bytes, datamodel, (InnerNodesPropertyModel)propDef),
             _ => throw new NotSupportedException("Reading property type " + propType + " is not supported. "),
         };
     }
+    private static IInnerNodeDataMap innerNodesPropertyModelGetValue(byte[] bytes, Datamodel datamodel, InnerNodesPropertyModel propDef) {
+        var ms = new MemoryStream(bytes);
+        var version = ms.ReadInt();
+        if (version != ToBytes.innerNodesPropertyModelGetBytes_VERSION)
+            throw new NotSupportedException("Version " + version + " of InnerNodes property type is not supported. ");
+        var count = ms.ReadInt();
+        var count2 = ms.ReadInt();
+        if (count != count2 || count > 100000 || count < 0) throw new Exception("Binary data corruption. ");
+        var nodes = new List<NodeData>(count);
+        for (int i = 0; i < count; i++) {
+            var nodeData = NodeData(datamodel, ms) as NodeData; // recursive ( inner of inner nodes )
+            if (nodeData is null) throw new Exception("Internal error. Failed to read inner node data. ");
+            nodes.Add(nodeData);
+        }
+        return propDef.CreateInnerNodeDataMap(nodes);
+    }
+
     static object forceValueType(PropertyType valueType, object value) {
         if (value is null) throw new Exception("Internal error. Property values cannot be null. ");
         return valueType switch {
@@ -228,6 +246,7 @@ public static partial class FromBytes {
             PropertyType.ByteArray => ByteArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.FloatArray => FloatArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.File => FilePropertyModel.ForceValueType(value, out _),
+            PropertyType.InnerNodes => InnerNodesPropertyModel.ForceValueType(value, out _),
             _ => throw new NotSupportedException("It is not possible to force type \"" + valueType + "\". "),
         };
     }
