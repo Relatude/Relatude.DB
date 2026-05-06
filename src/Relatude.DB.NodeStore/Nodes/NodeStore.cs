@@ -575,18 +575,18 @@ public class NodeStore : IDisposable {
     public void ReIndex(Guid id) => new Transaction(this).ReIndex(id);
 
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {
-        return Datastore.FileDownloadAsync(nodeId, propertyId, outStream);
+         return Datastore.FileDownloadAsync(new (nodeId, propertyId), outStream);
     }
     public async Task<byte[]> FileDownloadAsync(Guid nodeId, Guid propertyId) {
         using var ms = new MemoryStream();
         await FileDownloadAsync(nodeId, propertyId, ms);
         return ms.ToArray();
     }
-    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(nodeId, propertyId);
+    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(new (nodeId, propertyId));
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(nodeId, propertyId, source, sourceFileKey, fileName);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(nodeId, propertyId, source, fileName);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new (nodeId, propertyId), source, sourceFileKey, fileName);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
     public async Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
         using var stream = File.OpenRead(filePath);
         newFileName = newFileName ?? Path.GetFileName(filePath);
@@ -607,7 +607,7 @@ public class NodeStore : IDisposable {
     public Task<byte[]> FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression);
     public Task FileDeleteAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDeleteAsync(Mapper.GetIdGuid(node), expression);
 
-    public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(nodeId, propertyId);
+    public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(new(nodeId, propertyId));
     public Task<bool> FileUploadedAndAvailableAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileUploadedAndAvailableAsync(Mapper.GetIdGuid(node), Mapper.GetProperty(expression).Id);
 
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {

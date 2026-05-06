@@ -84,11 +84,11 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
-    Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null);
-    Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, QueryContext? ctx = null);
-    Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null);
-    Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null);
+    Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
+    Task FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null);
+    Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null);
+    Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
+    Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
 
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);

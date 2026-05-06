@@ -63,5 +63,12 @@ public partial class Datamodel {
             return builder.ToString();
         }
     }
-
+    Dictionary<Guid, Guid[]> _innerNodePropsByTypeId = [];
+    public Guid[] GetInnerNodesProps(Guid nodeType) {
+        if(!_innerNodePropsByTypeId.TryGetValue(nodeType, out var props)) {
+            props = [.. NodeTypes[nodeType].AllProperties.Values.Where(p => p.PropertyType == PropertyType.InnerNodes).Select(p => p.Id)];
+            _innerNodePropsByTypeId[nodeType] = props;
+        }
+        return props;
+    }
 }

@@ -185,6 +185,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         var value = action.Node.TryGetValue(p.Id, out var v) ? v : "";
                         throw new ValueConstraintException("The value: \"" + value + "\" of " + propName + " is not unique for node with ID: " + action.Node.__Id + "(" + action.Node.Id + ")", p.Id);
                     }
+                    validateInnerContentUniqueKeyConstrains(action.Node);
                     _nodes.Add(action.Node, action.Segment);
                     _index.Add(action.Node);
                 }
@@ -245,6 +246,22 @@ public sealed partial class DataStoreLocal : IDataStore {
             _nodeWriteLocks.Unlock(lockId);
         } finally {
             _lock.ExitWriteLock();
+        }
+    }
+
+    void validateInnerContentUniqueKeyConstrains(INodeDataInternal node) {
+        var props = Datamodel.GetInnerNodesProps(node.NodeType);
+        if (props.Length == 0) return;
+        try {
+            foreach (var item in props) {
+                if (node.TryGetValue(item, out var value)) {
+                    if (value is IInnerNodeDataMap inp) {
+                        inp.ValidateUniqueKeys();
+                    }
+                }
+            }
+        } catch (Exception err) {
+            throw new ExceptionWithoutIntegrityLoss("Inner content of node with ID: " + node.__Id + " violates unique key constraints. " + err.Message, err);
         }
     }
 }

@@ -16,9 +16,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileStore;
     }
-    public async Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null) {
+    public async Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
-        var node = Get(nodeId);
+        var node = Get(target, ctx);
         if (!node.TryGetValue(propertyId, out var value)) return;
         var fileValue = FilePropertyModel.ForceValueType(value, out _);
         if (fileValue.IsEmpty) return;
@@ -28,7 +28,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(nodeId, propertyId, FileValue.Empty);
         execute_outer(t, false, true, ctx, out _);
     }
-    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
+    public async Task FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -43,7 +43,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
-    public async Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, QueryContext? ctx = null) {
+    public async Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -56,7 +56,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(nodeId, propertyId, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
-    public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null) {
+    public Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) {
         var node = Get(nodeId, ctx);
         if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
         var fileValue = FilePropertyModel.ForceValueType(value, out _);
@@ -64,7 +64,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileValue.StorageId);
         return fileStore.ExtractAsync(fileValue, outStream);
     }
-    public async Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null) {
+    public async Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) {
         var node = Get(nodeId, ctx);
         if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
         var fileValue = FilePropertyModel.ForceValueType(value, out _);

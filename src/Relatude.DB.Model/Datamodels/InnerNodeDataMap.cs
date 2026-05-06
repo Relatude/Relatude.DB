@@ -6,30 +6,49 @@ namespace Relatude.DB.Datamodels;
 
 public interface IInnerNodeDataMap : IEnumerable<NodeData> {
     int Count { get; }
+    void ValidateUniqueKeys();
+    bool TryGetById(Guid nodeId, [MaybeNullWhen(false)]out NodeData nodeData);
 }
 // Thread-safe for concurrent reads. Not writes.
 public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     public static Guid PropertyIdNodeGuidId = Guid.Empty;
     public static Guid PropertyIdNodeIntId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
     List<NodeData?> _nodes; // null means the node has been removed, but we keep the slot to avoid shifting indices of subsequent items
+    public void ValidateUniqueKeys() {
+        getIdx();
+    }
+    public bool TryGetById(Guid nodeId, [MaybeNullWhen(false)]out NodeData nodeData) {
+        // could be optimized....
+        lock (_nodes) {
+            foreach (var node in _nodes) {
+                if (node != null && node.Id == nodeId) {
+                    nodeData = node;
+                    return true;
+                }
+            }
+            nodeData = null;
+            return false;
+        }
+    }
     Dictionary<TKey, int>? __indexByKey;
     Dictionary<TKey, int> getIdx() { // measure to delay or avoid building the index if not needed
         lock (_nodes) {
             if (__indexByKey == null) {
                 __indexByKey = new(_nodes.Count);
-                for (int i = 0; i < _nodes.Count; i++) if (_nodes[i] is NodeData node) __indexByKey.Add(EvalKey(node), i);
+                for (int i = 0; i < _nodes.Count; i++) {
+                    if (_nodes[i] is NodeData node) {
+                        var key = EvalKey(node);
+                        if (!__indexByKey.TryAdd(key, i)) {
+                            throw new Exception("Duplicate inner node key: \"" + key + "\". ");
+                        }
+                    }
+                }
             }
             return __indexByKey;
         }
     }
     Guid _keyPropertyId;
     public InnerNodeDataMap(Guid keyPropertyId, ICollection<NodeData> nodes) {
-        //if (keyPropertyId == PropertyIdNodeGuidId && typeof(TKey) != typeof(Guid)) {
-        //    throw new ArgumentException("Key property ID cannot be empty when key type is not Guid. ");
-        //}
-        //if (keyPropertyId == PropertyIdNodeIntId && typeof(TKey) != typeof(int)) {
-        //    throw new ArgumentException("Key property ID cannot be empty when key type is not int. ");
-        //}
         _keyPropertyId = keyPropertyId;
         _nodes = [.. nodes];
     }

@@ -55,12 +55,7 @@ public class DataStoreSession : IDataStore {
         => _datastore.ExecuteAsync(transaction, flushToDisk, ctx ?? DefaultQueryContext);
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null)
         => _datastore.Execute(transaction, flushToDisk, ctx ?? DefaultQueryContext);
-    public Task FileDeleteAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null)
-        => _datastore.FileDeleteAsync(nodeId, propertyId, ctx ?? DefaultQueryContext);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string fileKey, string? fileName = null, QueryContext? ctx = null)
-        => _datastore.FileUploadAsync(nodeId, propertyId, source, fileKey, fileName, ctx ?? DefaultQueryContext);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, QueryContext? ctx = null)
-        => _datastore.FileUploadAsync(nodeId, propertyId, source, fileName, ctx ?? DefaultQueryContext);
+
 
     // Revisions:
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null)
@@ -93,10 +88,18 @@ public class DataStoreSession : IDataStore {
         => _datastore.Get(__ids, ctx ?? DefaultQueryContext);
     public IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null)
         => _datastore.Get(__ids, ctx ?? DefaultQueryContext);
-    public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream, QueryContext? ctx = null)
-        => _datastore.FileDownloadAsync(nodeId, propertyId, outStream, ctx ?? DefaultQueryContext);
-    public Task<bool> IsFileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId, QueryContext? ctx = null)
-        => _datastore.IsFileUploadedAndAvailableAsync(nodeId, propertyId, ctx ?? DefaultQueryContext);
+
+
+    public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null)
+        => _datastore.FileDeleteAsync(target, ctx ?? DefaultQueryContext);
+    public Task FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, QueryContext? ctx = null)
+        => _datastore.FileUploadAsync(target, source, fileKey, fileName, ctx ?? DefaultQueryContext);
+    public Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null)
+        => _datastore.FileUploadAsync(target, source, fileName, ctx ?? DefaultQueryContext);
+    public Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null)
+        => _datastore.FileDownloadAsync(target, outStream, ctx ?? DefaultQueryContext);
+    public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null)
+        => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? DefaultQueryContext);
 
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId)
         => _datastore.TryGetNodeType(id, out nodeTypeId);

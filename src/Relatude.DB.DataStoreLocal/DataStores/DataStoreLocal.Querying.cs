@@ -66,6 +66,34 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids, ctx));
     }
+
+    public INodeDataExternal Get(NodePath path, QueryContext? ctx = null) {
+        if (TryGet(path, out var node, ctx)) return node;
+        throw new Exception("Node not found.");
+    }
+    public bool TryGet(NodePath path, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
+        if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
+        else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
+        foreach (var inProp in path.Path) {
+            if (!node.TryGetValue(inProp.PropertyId, out var v)) return false;
+            if (v is not IInnerNodeDataMap inv) return false;
+            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
+            node = innerNode;
+        }
+        return true;
+    }
+    public bool TryGet(PropertyPath path, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
+        if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
+        else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
+        foreach (var inProp in path.Path) {
+            if (!node.TryGetValue(inProp.PropertyId, out var v)) return false;
+            if (v is not IInnerNodeDataMap inv) return false;
+            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
+            node = innerNode;
+        }
+        return true;
+    }
+
     public INodeDataExternal Get(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
@@ -93,7 +121,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public INodeDataExternal Get(IdKey id, QueryContext? ctx = null) {
-        if (id.Int == 0) return Get(id.Guid, ctx);
+        if (id.HasGuid) return Get(id.Guid, ctx);
         return Get(id.Int, ctx);
     }
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId) {

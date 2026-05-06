@@ -34,7 +34,13 @@ public class DemoArticle {
 }
 
 public class DemoParagraph {
+    public Guid Id { get; set; }
+    public FileValue File { get; set; }
     public string Code { get; set; } = string.Empty;
+
+    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
+
 }
 
 public class Tree : OneToMany<DemoArticle, DemoArticle> {
