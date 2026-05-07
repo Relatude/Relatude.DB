@@ -44,20 +44,20 @@ public class InnerNodesPropertyModel : PropertyModel {
     public override string GetDefaultValueAsCode() => typeof(FileValue).FullName + ".Empty";
     public override string? GetTextIndex(object value) => "";
 
-    public IInnerNodeDataMap CreateInnerNodeDataMap(ICollection<NodeData> nodes) {
+    public IInnerNodeDataMap CreateInnerNodeDataMap(PropertyPath path, ICollection<NodeData> nodes) {
         if (_cachedKeyPropType == null) throw new Exception("Key property type is not calculated. ");
         return _cachedKeyPropType switch {
-            PropertyType.Boolean => new InnerNodeDataMap<bool>(KeyProperty, nodes),
-            PropertyType.Integer => new InnerNodeDataMap<int>(KeyProperty, nodes),
-            PropertyType.String => new InnerNodeDataMap<string>(KeyProperty, nodes),
-            PropertyType.Double => new InnerNodeDataMap<double>(KeyProperty, nodes),
-            PropertyType.Float => new InnerNodeDataMap<float>(KeyProperty, nodes),
-            PropertyType.Decimal => new InnerNodeDataMap<decimal>(KeyProperty, nodes),
-            PropertyType.DateTime => new InnerNodeDataMap<DateTime>(KeyProperty, nodes),
-            PropertyType.TimeSpan => new InnerNodeDataMap<TimeSpan>(KeyProperty, nodes),
-            PropertyType.Guid => new InnerNodeDataMap<Guid>(KeyProperty, nodes),
-            PropertyType.Long => new InnerNodeDataMap<long>(KeyProperty, nodes),
-            PropertyType.DateTimeOffset => new InnerNodeDataMap<DateTimeOffset>(KeyProperty, nodes),
+            PropertyType.Boolean => new InnerNodeDataMap<bool>(path, KeyProperty, nodes),
+            PropertyType.Integer => new InnerNodeDataMap<int>(path, KeyProperty, nodes),
+            PropertyType.String => new InnerNodeDataMap<string>(path, KeyProperty, nodes),
+            PropertyType.Double => new InnerNodeDataMap<double>(path, KeyProperty, nodes),
+            PropertyType.Float => new InnerNodeDataMap<float>(path, KeyProperty, nodes),
+            PropertyType.Decimal => new InnerNodeDataMap<decimal>(path, KeyProperty, nodes),
+            PropertyType.DateTime => new InnerNodeDataMap<DateTime>(path, KeyProperty, nodes),
+            PropertyType.TimeSpan => new InnerNodeDataMap<TimeSpan>(path, KeyProperty, nodes),
+            PropertyType.Guid => new InnerNodeDataMap<Guid>(path, KeyProperty, nodes),
+            PropertyType.Long => new InnerNodeDataMap<long>(path, KeyProperty, nodes),
+            PropertyType.DateTimeOffset => new InnerNodeDataMap<DateTimeOffset>(path, KeyProperty, nodes),
             _ => throw new Exception("Key property " + KeyProperty + " for inner nodes property " + CodeName + " has unsupported type " + _cachedKeyPropType)
         };
     }

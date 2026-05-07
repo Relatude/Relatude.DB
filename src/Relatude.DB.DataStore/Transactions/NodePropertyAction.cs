@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.Transactions;
 
@@ -10,6 +11,12 @@ public enum NodePropertyOperation : byte {
     Multiply, // multiply the existing value with the new value, for numeric properties only or strings that parse to numeric values.
 }
 public class NodePropertyAction : ActionBase {
+    public NodePropertyAction(NodePropertyOperation operation, PropertyPath? propertyPath, object? value)
+      : base(ActionTarget.NodeProperty) {
+        Operation = operation;
+        PropertyPath = propertyPath;
+        Values = value == null ? null : [value];
+    }
     public NodePropertyAction(NodePropertyOperation operation, Guid? typeId, Guid[]? guids, int[]? nodeIds, Guid[]? revisionIds, Guid propertyId, object? value)
       : base(ActionTarget.NodeProperty) {
         Operation = operation;
@@ -34,6 +41,7 @@ public class NodePropertyAction : ActionBase {
         Values = values;
     }
     public NodePropertyOperation Operation { get; }
+    public PropertyPath? PropertyPath { get; }
     public Guid? TypeId { get; }
     public Guid[]? NodeGuids { get; } = null;
     public Guid[]? RevisionIds { get; } = null;

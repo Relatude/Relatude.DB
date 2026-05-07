@@ -1,8 +1,9 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.Nodes;
 public interface IValueMapper {
-    INodeDataExternal CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection, NodeStore store);
+    INodeDataExternal CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection, NodeStore store, PropertyPath? propertyPath);
     bool TryGetIdGuidAndCreateIfPossible(object node, out Guid id);
     bool TryGetIdUInt(object node, out int id);
     bool TryGetIdGuid(object node, out Guid id);

@@ -53,6 +53,7 @@ public class TransactionData {
     public void AddRelation(Guid relationId, Guid source, Guid target) => Add(new RelationAction(RelationOperation.Add, relationId) { SourceGuid = source, TargetGuid = target, ChangeUtc = DateTime.UtcNow });
     public void AddRelation(Guid relationId, Guid source, Guid target, DateTime dtUtc, bool ensuring) => Add(new RelationAction(RelationOperation.Add, relationId) { SourceGuid = source, TargetGuid = target, ChangeUtc = dtUtc });
 
+    public void ForceUpdateProperty(PropertyPath target, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, target, value));
     public void ForceUpdateProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [nodeId], null, null, propetyId, value));
     public void ForceUpdateProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, [nodeId], null, propetyId, value));
     public void ForceUpdateProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, null, propetyId, value));

@@ -288,6 +288,15 @@ internal class ActionConverter {
     }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
         List<int> uints = [];
+        if (a.PropertyPath != null) {
+            if (a.Values == null) throw new("Value cannot be null if updating a property. ");
+            var node = db.Get(a.PropertyPath.NodePath, ctx);
+            node.AddOrUpdate(a.PropertyPath.PropertyId, a.Values[0]);
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
+            var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
+            foreach (var action in actions) yield return action;
+            yield break;
+        }
         if (a.NodeIds != null) uints.AddRange(a.NodeIds);
         if (a.NodeGuids != null) uints.AddRange(a.NodeGuids.Select(db._guids.GetId));
         if (a.TypeId != null) {

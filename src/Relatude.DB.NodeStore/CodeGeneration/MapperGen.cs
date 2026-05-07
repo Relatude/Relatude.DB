@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
@@ -40,6 +41,7 @@ internal static class MapperGen {
         sb.Append("public " + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + " " + nameof(IValueMapper.CreateNodeDataFromObject) + "(object obj");
         sb.Append(", " + typeof(RelatedCollection).Namespace + "." + nameof(RelatedCollection) + " related");
         sb.Append(", " + typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
+        sb.Append(", " + typeof(PropertyPath).Namespace + "." + nameof(PropertyPath) + "? propertyPath");
         sb.AppendLine("){");
         var noneRelProps = nodeDef.AllProperties.Values
             .Where(p => (!p.Internal) && p.PropertyType != PropertyType.Relation);
@@ -67,12 +69,14 @@ internal static class MapperGen {
             sb.AppendLine("int uid = 0;");
         }
         sb.AppendLine("if(uid == 0 && gid == Guid.Empty) gid = Guid.NewGuid();"); // ensure that at least one gid is set
+        sb.AppendLine(typeof(NodePath).Namespace + "." + nameof(NodePath) + " nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
         foreach (var p in noneRelProps) {
             if (p is IntegerPropertyModel intP && intP.IsEnum) { // if enum need cast to int
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (int)node." + p.CodeName + ");");
-            } else if (p is InnerNodesPropertyModel inp) {
-                var keyId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(InnerNodes<object>.GetNodeDataMap) + "(" + keyId + "," + "store.Mapper" + "));");
+            } else if (p is InnerNodesPropertyModel) {
+                var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
+                var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(InnerNodes<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
             } else {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
             }

@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Nodes;
@@ -15,8 +16,6 @@ where TValue : notnull {
     InnerNodeDataMap<TKey>? _nodeDataMap;
     NodeMapper? _mapper;
     List<TValue>? _raw;
-    ICollection<TKey>? _keys;
-    ICollection<TValue>? _values;
     public InnerNodes() {
         _raw = [];
     }
@@ -123,7 +122,7 @@ where TValue : notnull {
                     throw new ArgumentException("The Inner nodes must be of type NodeData and not use revisions etc.");
                 return nd;
             }).ToList();
-            return new InnerNodeDataMap<TKey>(keyPropertyId, nodeDatas);
+            return new InnerNodeDataMap<TKey>(null, keyPropertyId, nodeDatas);
         } else if (_nodeDataMap != null) {
             return _nodeDataMap;
         } else {
@@ -131,7 +130,7 @@ where TValue : notnull {
         }
     }
 
-    IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() {
+    public IEnumerator<TValue> GetEnumerator() {
         if (_raw != null) {
             throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
@@ -142,6 +141,9 @@ where TValue : notnull {
             throw new InvalidOperationException("InnerNodes is not properly initialized. ");
         }
     }
-    public IEnumerator GetEnumerator() => GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() {
+        return GetEnumerator();
+    }
 
 }

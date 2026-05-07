@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using Relatude.DB.Common;
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 
@@ -8,12 +9,20 @@ public interface IInnerNodeDataMap : IEnumerable<NodeData> {
     int Count { get; }
     void ValidateUniqueKeys();
     bool TryGetById(Guid nodeId, [MaybeNullWhen(false)]out NodeData nodeData);
+    PropertyPath? PropertyPath { get; }
 }
 // Thread-safe for concurrent reads. Not writes.
 public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     public static Guid PropertyIdNodeGuidId = Guid.Empty;
     public static Guid PropertyIdNodeIntId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
     List<NodeData?> _nodes; // null means the node has been removed, but we keep the slot to avoid shifting indices of subsequent items
+    Guid _keyPropertyId;
+    public InnerNodeDataMap(PropertyPath? propertyPath, Guid keyPropertyId, ICollection<NodeData> nodes) {
+        PropertyPath = propertyPath;
+        _keyPropertyId = keyPropertyId;
+        _nodes = [.. nodes];
+    }
+    public PropertyPath? PropertyPath { get; }
     public void ValidateUniqueKeys() {
         getIdx();
     }
@@ -46,11 +55,6 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
             }
             return __indexByKey;
         }
-    }
-    Guid _keyPropertyId;
-    public InnerNodeDataMap(Guid keyPropertyId, ICollection<NodeData> nodes) {
-        _keyPropertyId = keyPropertyId;
-        _nodes = [.. nodes];
     }
     public TKey EvalKey(NodeData node) {
         if (_keyPropertyId == PropertyIdNodeGuidId) {

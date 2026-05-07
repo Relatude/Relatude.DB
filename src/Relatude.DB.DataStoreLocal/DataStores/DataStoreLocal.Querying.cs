@@ -66,7 +66,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids, ctx));
     }
-
+    public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) {
+        if (!TryGetValue<T>(path, out var value, ctx)) throw new Exception("Property value not found.");
+        return value;
+    }
     public INodeDataExternal Get(NodePath path, QueryContext? ctx = null) {
         if (TryGet(path, out var node, ctx)) return node;
         throw new Exception("Node not found.");
@@ -75,23 +78,27 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
         else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
         foreach (var inProp in path.Path) {
-            if (!node.TryGetValue(inProp.PropertyId, out var v)) return false;
+            if (!node.TryGetValue(inProp.ParentPropertyId, out var v)) return false;
             if (v is not IInnerNodeDataMap inv) return false;
             if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
             node = innerNode;
         }
         return true;
     }
-    public bool TryGet(PropertyPath path, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
-        if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
-        else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
-        foreach (var inProp in path.Path) {
-            if (!node.TryGetValue(inProp.PropertyId, out var v)) return false;
-            if (v is not IInnerNodeDataMap inv) return false;
-            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
-            node = innerNode;
+    public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) {
+        if (TryGet(path.NodePath, out var node, ctx)) {
+            if (node.TryGetValue(path.PropertyId, out var v)) {
+                if (v is not T) {
+                    var propName = Datamodel.Properties[path.PropertyId].CodeName;
+                    throw new Exception("Value is not a value of the expected type: "
+                        + typeof(T).FullName + " for property: " + propName);
+                }
+                value = (T)v;
+                return true;
+            }
         }
-        return true;
+        value = default;
+        return false;
     }
 
     public INodeDataExternal Get(Guid id, QueryContext? ctx = null) {

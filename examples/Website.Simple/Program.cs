@@ -46,15 +46,15 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
 
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
 
-    id = db.FileUploadAsync();
+    id = db.FileUploadAsync()
 
     art = db.Get<DemoArticle>(art.Id);
 
 
     art.Id = Guid.NewGuid();
-    foreach(var p in art.Paragraphs.KeysAndValues()) {
-        foreach (var sub in p.Value.SubParagraphs) {
-            db.FileUploadAsync(p.Value.SubParagraphs, s=>s.File, sub, filePath);
+    foreach(var p in art.Paragraphs) {
+        foreach (var sub in p.SubParagraphs) {
+            db.FileUploadAsync(p.SubParagraphs, s=>s.File, sub, filePath);
         }
     }
 

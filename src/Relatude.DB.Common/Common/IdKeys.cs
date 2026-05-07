@@ -1,8 +1,8 @@
-﻿using System.Reflection.Metadata;
+﻿using System.Runtime.InteropServices;
 
 namespace Relatude.DB.Common;
 
-public readonly struct IdKey {
+public readonly struct IdKey : IEquatable<IdKey> {
     public IdKey(Guid guid, int integer) { Guid = guid; Int = integer; }
     public IdKey(Guid guid) => Guid = guid;
     public IdKey(int integer) => Int = integer;
@@ -10,6 +10,7 @@ public readonly struct IdKey {
     public int Int { get; }
     public bool HasGuid => Guid != Guid.Empty;
     public bool HasInt => Int != 0;
+
     public override string ToString() {
         if (HasGuid && HasInt) {
             return Guid + " (" + Int + ")";
@@ -21,11 +22,43 @@ public readonly struct IdKey {
             return string.Empty;
         }
     }
+    public static IdKey FromBytes(byte[] bytes) {
+        var s = bytes.AsSpan();
+        return new IdKey(MemoryMarshal.Read<Guid>(s), MemoryMarshal.Read<int>(s[16..]));
+    }
+    internal byte[] ToBytes() {
+        var bytes = new byte[20];
+        var s = bytes.AsSpan();
+        MemoryMarshal.Write(s, Guid);
+        MemoryMarshal.Write(s[16..], Int);
+        return bytes;
+    }
+    public bool Equals(IdKey other) => Guid == other.Guid && Int == other.Int;
+    public override bool Equals(object? obj) => obj is IdKey other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(Guid, Int);
+    public static bool operator ==(IdKey a, IdKey b) => a.Equals(b);
+    public static bool operator !=(IdKey a, IdKey b) => !a.Equals(b);
 }
 
-public readonly struct InnerProperty(Guid propertyId, Guid innerNodeId) {
-    public Guid PropertyId { get; } = propertyId;
+public readonly struct InnerProperty(Guid parentPropertyId, Guid innerNodeId) : IEquatable<InnerProperty> {
+    public Guid ParentPropertyId { get; } = parentPropertyId;
     public Guid InnerNodeId { get; } = innerNodeId;
+    public static InnerProperty FromBytes(byte[] bytes) {
+        var s = bytes.AsSpan();
+        return new InnerProperty(MemoryMarshal.Read<Guid>(s), MemoryMarshal.Read<Guid>(s[16..]));
+    }
+    internal byte[] ToBytes() {
+        var bytes = new byte[32];
+        var s = bytes.AsSpan();
+        MemoryMarshal.Write(s, ParentPropertyId);
+        MemoryMarshal.Write(s[16..], InnerNodeId);
+        return bytes;
+    }
+    public bool Equals(InnerProperty other) => ParentPropertyId == other.ParentPropertyId && InnerNodeId == other.InnerNodeId;
+    public override bool Equals(object? obj) => obj is InnerProperty other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(ParentPropertyId, InnerNodeId);
+    public static bool operator ==(InnerProperty a, InnerProperty b) => a.Equals(b);
+    public static bool operator !=(InnerProperty a, InnerProperty b) => !a.Equals(b);
 }
 
 /// <summary>
@@ -50,40 +83,101 @@ public class NodePath {
     public NodePath(IdKey nodeId, InnerProperty[] path) {
         NodeKey = nodeId; Path = path;
     }
+    public PropertyPath CreatePropertyPath(Guid propertyId) => new(this, propertyId);
     public IdKey NodeKey { get; }
-    public InnerProperty[] Path { get; } 
+    public InnerProperty[] Path { get; }
+    public static NodePath FromBytes(byte[] bytes) {
+        var s = bytes.AsSpan();
+        var key = new IdKey(MemoryMarshal.Read<Guid>(s), MemoryMarshal.Read<int>(s[16..]));
+        var count = MemoryMarshal.Read<int>(s[20..]);
+        var path = new InnerProperty[count];
+        for (int i = 0; i < count; i++) { var ps = s[(24 + i * 32)..]; path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..])); }
+        return new NodePath(key, path);
+    }
+    internal byte[] ToBytes() {
+        var bytes = new byte[24 + Path.Length * 32];
+        var s = bytes.AsSpan();
+        MemoryMarshal.Write(s, NodeKey.Guid);
+        MemoryMarshal.Write(s[16..], NodeKey.Int);
+        MemoryMarshal.Write(s[20..], Path.Length);
+        for (int i = 0; i < Path.Length; i++) { 
+            var ps = s[(24 + i * 32)..]; 
+            MemoryMarshal.Write(ps, Path[i].ParentPropertyId); 
+            MemoryMarshal.Write(ps[16..], Path[i].InnerNodeId); 
+        }
+        return bytes;
+    }
+    public override bool Equals(object? obj) =>
+        obj is NodePath other &&
+        NodeKey == other.NodeKey &&
+        Path.AsSpan().SequenceEqual(other.Path.AsSpan());
+    public override int GetHashCode() => HashCode.Combine(NodeKey);
+
 }
 
 /// <summary>
 /// Reference to the property on a node or an inner node
 /// </summary>
 public class PropertyPath {
+    public PropertyPath(NodePath nodePath, Guid propertyId) {
+        NodePath = nodePath; PropertyId = propertyId;
+    }
     public PropertyPath(Guid nodeId, Guid propertyId) {
-        NodeId = new(nodeId); Path = []; PropertyId = propertyId;
+        NodePath = new(nodeId); PropertyId = propertyId;
     }
     public PropertyPath(int nodeId, Guid propertyId) {
-        NodeId = new(nodeId); Path = []; PropertyId = propertyId;
+        NodePath = new(nodeId); PropertyId = propertyId;
     }
     public PropertyPath(IdKey nodeId, Guid propertyId) {
-        NodeId = nodeId; Path = []; PropertyId = propertyId;
+        NodePath = new(nodeId); PropertyId = propertyId;
     }
     public PropertyPath(Guid nodeId, InnerProperty[] path, Guid propertyId) {
-        NodeId = new(nodeId); Path = path; PropertyId = propertyId;
+        NodePath = new(nodeId, path); PropertyId = propertyId;
     }
     public PropertyPath(int nodeId, InnerProperty[] path, Guid propertyId) {
-        NodeId = new(nodeId); Path = path; PropertyId = propertyId;
+        NodePath = new(nodeId, path); PropertyId = propertyId;
     }
     public PropertyPath(IdKey nodeId, InnerProperty[] path, Guid propertyId) {
-        NodeId = nodeId; Path = path; PropertyId = propertyId;
+        NodePath = new(nodeId, path); PropertyId = propertyId;
     }
-    public NodePath;
-    public IdKey NodeId { get; }
-    public InnerProperty[] Path { get; }
+    public NodePath CreateInnerNodePath(Guid innerNodeId) {
+        var newPath = new InnerProperty[NodePath.Path.Length + 1];
+        NodePath.Path.AsSpan().CopyTo(newPath);
+        newPath[^1] = new InnerProperty(PropertyId, innerNodeId);
+        return new NodePath(NodePath.NodeKey, newPath);
+    }
+    public NodePath NodePath { get; set; }
     public Guid PropertyId { get; }
+    
 
+    public static PropertyPath FromBytes(byte[] bytes) {
+        var s = bytes.AsSpan();
+        var key = new IdKey(MemoryMarshal.Read<Guid>(s), MemoryMarshal.Read<int>(s[16..]));
+        var count = MemoryMarshal.Read<int>(s[20..]);
+        var path = new InnerProperty[count];
+        for (int i = 0; i < count; i++) { var ps = s[(24 + i * 32)..]; path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..])); }
+        return new PropertyPath(key, path, MemoryMarshal.Read<Guid>(s[(24 + count * 32)..]));
+    }
+    internal byte[] ToBytes() {
+        var nodePath = NodePath.ToBytes();
+        var bytes = new byte[nodePath.Length + 16];
+        nodePath.CopyTo(bytes, 0);
+        MemoryMarshal.Write(bytes.AsSpan(nodePath.Length), PropertyId);
+        return bytes;
+    }
+    public override bool Equals(object? obj) =>
+        obj is PropertyPath other &&
+        PropertyId == other.PropertyId &&
+        NodePath.Equals(other.NodePath);
+    public override int GetHashCode() => HashCode.Combine(NodePath.NodeKey, PropertyId);
 }
-public readonly struct IdKeyWithCultureId {
+public readonly struct IdKeyWithCultureId : IEquatable<IdKeyWithCultureId> {
     public IdKeyWithCultureId(IdKey idKey, Guid cultureId) { IdKey = idKey; CultureId = cultureId; }
     public IdKey IdKey { get; }
     public Guid CultureId { get; }
+    public bool Equals(IdKeyWithCultureId other) => IdKey == other.IdKey && CultureId == other.CultureId;
+    public override bool Equals(object? obj) => obj is IdKeyWithCultureId other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(IdKey, CultureId);
+    public static bool operator ==(IdKeyWithCultureId a, IdKeyWithCultureId b) => a.Equals(b);
+    public static bool operator !=(IdKeyWithCultureId a, IdKeyWithCultureId b) => !a.Equals(b);
 }

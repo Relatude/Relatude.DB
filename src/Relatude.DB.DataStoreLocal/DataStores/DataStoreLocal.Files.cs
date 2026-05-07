@@ -18,19 +18,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public async Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
-        var node = Get(target, ctx);
-        if (!node.TryGetValue(propertyId, out var value)) return;
-        var fileValue = FilePropertyModel.ForceValueType(value, out _);
+        if (!TryGetValue<FileValue>(target, out var fileValue, ctx)) throw new Exception("File property not found");
         if (fileValue.IsEmpty) return;
         var fileStore = getFileStore(fileValue.StorageId);
         await fileStore.DeleteAsync(fileValue);
         var t = new TransactionData();
-        t.ForceUpdateProperty(nodeId, propertyId, FileValue.Empty);
+        t.ForceUpdateProperty(target, FileValue.Empty);
         execute_outer(t, false, true, ctx, out _);
     }
     public async Task FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
-        if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
+        if (!Datamodel.Properties.TryGetValue(target.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
@@ -39,35 +37,31 @@ public sealed partial class DataStoreLocal : IDataStore {
         fileName ??= sourceFileKey;
         var r = await fileStore.InsertAsync(newFileId, inputStream, fileName);
         var t = new TransactionData();
-        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey);
-        t.ForceUpdateProperty(nodeId, propertyId, fileValue);
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, target);
+        t.ForceUpdateProperty(target, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
     public async Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
-        if (!Datamodel.Properties.TryGetValue(propertyId, out var prop)) throw new Exception("Property not found");
+        if (!Datamodel.Properties.TryGetValue(target.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         var r = await fileStore.InsertAsync(newFileId, source, fileName);
         var t = new TransactionData();
-        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey);
-        t.ForceUpdateProperty(nodeId, propertyId, fileValue);
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, target);
+        t.ForceUpdateProperty(target, fileValue);
         execute_outer(t, false, true, ctx, out _);
     }
     public Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) {
-        var node = Get(nodeId, ctx);
-        if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
-        var fileValue = FilePropertyModel.ForceValueType(value, out _);
+        var fileValue = GetValue<FileValue>(target, ctx);
         if (fileValue.IsEmpty) throw new Exception("File value is empty");
         var fileStore = getFileStore(fileValue.StorageId);
         return fileStore.ExtractAsync(fileValue, outStream);
     }
     public async Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) {
-        var node = Get(nodeId, ctx);
-        if (!node.TryGetValue(propertyId, out var value)) throw new Exception("Property not found");
-        var fileValue = FilePropertyModel.ForceValueType(value, out _);
+        var fileValue = GetValue<FileValue>(target, ctx);
         if (fileValue.IsEmpty) return false;
         var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.ContainsFileAsync(fileValue);
