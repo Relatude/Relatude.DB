@@ -799,7 +799,7 @@ public partial class Transaction {
 
         var related = ignoreRelated ? null : new RelatedCollection();
         Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        var nodeData = Store.Mapper.CreateNodeDataFromObject(node, related);
+        var nodeData = Store.Mapper.CreateNodeDataFromObject(node, related, null);
         id = nodeData.Id;
         if (inserted == null) { // root node, insert or fail depending on insertIfNotExists flag
             if (insertIfNotExists) {
@@ -832,7 +832,7 @@ public partial class Transaction {
     }
     public Transaction ForceUpsert(object node) {
         Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null,null));
         return this;
     }
     public Transaction Upsert(IEnumerable<object> nodes) {
@@ -841,22 +841,22 @@ public partial class Transaction {
     }
     public Transaction Upsert(object node) {
         Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.Upsert(Store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.Upsert(Store.Mapper.CreateNodeDataFromObject(node, null, null));
         return this;
     }
 
     public Transaction Update(object node) => UpdateOrFail(node);
     public Transaction Update(IEnumerable node) => UpdateOrFail(node);
     public Transaction UpdateOrFail(object node) {
-        _transactionData.UpdateOrFail(Store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.UpdateOrFail(Store.Mapper.CreateNodeDataFromObject(node, null, null));
         return this;
     }
     public Transaction UpdateIfExists(object node) {
-        _transactionData.UpdateIfExists(Store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.UpdateIfExists(Store.Mapper.CreateNodeDataFromObject(node, null, null));
         return this;
     }
     public Transaction ForceUpdate(object node) {
-        _transactionData.ForceUpdateNode(Store.Mapper.CreateNodeDataFromObject(node, null));
+        _transactionData.ForceUpdateNode(Store.Mapper.CreateNodeDataFromObject(node, null, null));
         return this;
     }
     public Transaction UpdateOrFail(IEnumerable node) {

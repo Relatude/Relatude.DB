@@ -20,7 +20,7 @@ namespace Relatude.DB.Serialization {
         static PrimitiveNodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
             var operation = (PrimitiveOperation)stream.ReadOneByte();
             nodeSegmentRelativeOffset = stream.Position;
-            var nodeData = FromBytes.NodeData(datamodel, stream);
+            var nodeData = FromBytes.NodeData(datamodel, stream, null);
             long length = stream.Position - nodeSegmentRelativeOffset;
             if (length > int.MaxValue) throw new Exception("Node data exceeds max size of 4GB");
             nodeSegmentLength = (int)length;

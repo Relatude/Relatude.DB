@@ -44,23 +44,31 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
 
     db.Insert(art);
 
-    var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-
-    id = db.FileUploadAsync()
-
     art = db.Get<DemoArticle>(art.Id);
 
+    var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
+    await db.Datastore.FileUploadAsync(art.File.PropertyPath, filePath);
 
-    art.Id = Guid.NewGuid();
-    foreach(var p in art.Paragraphs) {
-        foreach (var sub in p.SubParagraphs) {
-            db.FileUploadAsync(p.SubParagraphs, s=>s.File, sub, filePath);
-        }
-    }
+
+
+
+    //var id = db.FileUploadAsync();
+
+    //art = db.Get<DemoArticle>(art.Id);
+
+
+    //art.Id = Guid.NewGuid();
+    //foreach(var p in art.Paragraphs) {
+    //    foreach (var sub in p.SubParagraphs) {
+    //        db.FileUploadAsync(sub.File, filePath);
+
+    //        db.UpdateProperty(sub, p.SubParagraphs, s=>s.File);
+    //    }
+    //}
 
     
 
-    db.Insert(art);
+    //&db.Insert(art);
 
 
 });

@@ -5,7 +5,7 @@ namespace Relatude.DB.Serialization;
 
 public static partial class FromBytes {
     // NodeData
-    public static INodeDataInternal NodeData(Datamodel datamodel, Stream stream) { // Reading
+    public static INodeDataInternal NodeData(Datamodel datamodel, Stream stream, PropertyPath? propertyPath) { // Reading
 
         // reading header:
         var guid = stream.ReadGuid();
@@ -20,7 +20,7 @@ public static partial class FromBytes {
         return version switch {
             NodeDataStorageVersions.Legacy1 => read_Legacy_1(datamodel, stream, guid, __id, nodeTypeId),
             //NodeDataStorageVersions.l => read_NodeData_Legacy2(datamodel, stream, guid, __id, nodeTypeId),
-            NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId),
+            NodeDataStorageVersions.NodeData => read_NodeData(datamodel, stream, guid, __id, nodeTypeId, propertyPath),
             NodeDataStorageVersions.RevisionContainer => read_NodeDataRevisions(datamodel, stream, guid, __id, nodeTypeId),
             _ => throw new NotSupportedException("NodeData version " + version + " is not supported. "),
         };
@@ -43,12 +43,13 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
+        var nodePath = new NodePath(new IdKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
-                var value = toPropertyValue(bytes, propType, datamodel, propDef);
+                var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -75,12 +76,13 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
+        var nodePath = new NodePath(new IdKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
-                var value = toPropertyValue(bytes, propType, datamodel, propDef);
+                var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -115,13 +117,14 @@ public static partial class FromBytes {
             nodeType = datamodel.NodeTypes[NodeConstants.BaseNodeTypeId]; // fallback if unknown
         }
         var allProps = nodeType.AllProperties;
+        var nodePath = new NodePath(new IdKey(guid, __id));
         // adding only valid props and force type if needed, adding default for missing:            
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
-                var value = toPropertyValue(bytes, propType, datamodel, propDef);
+                var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
             }
         }
@@ -222,7 +225,7 @@ public static partial class FromBytes {
         if (count != count2 || count > 100000 || count < 0) throw new Exception("Binary data corruption. ");
         var nodes = new List<NodeData>(count);
         for (int i = 0; i < count; i++) {
-            var nodeData = NodeData(datamodel, ms) as NodeData; // recursive ( inner of inner nodes )
+            var nodeData = NodeData(datamodel, ms, parent.CreatePropertyPath(propDef.Id)) as NodeData; // recursive ( inner of inner nodes )
             if (nodeData is null) throw new Exception("Internal error. Failed to read inner node data. ");
             nodes.Add(nodeData);
         }

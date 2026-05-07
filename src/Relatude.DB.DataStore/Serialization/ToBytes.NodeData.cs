@@ -98,7 +98,7 @@ public static partial class ToBytes {
             using var sub = new MemoryStream();
             NodeData(item, datamodel, sub);
             var nodesBytes = sub.ToArray();
-            sub.WriteByteArray(nodesBytes);
+            main.WriteByteArray(nodesBytes);
         }
         return main.ToArray();
     }

@@ -4,8 +4,11 @@ using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Nodes;
 
-interface IInnerNodes { }
-interface IInnerNodesMap { }
+interface IInnerNodesMap {
+    PropertyPath? PropertyPath { get; }
+}
+interface IInnerNodes {
+}
 public class InnerNodes<TValue> : InnerNodes<Guid, TValue>, IInnerNodes where TValue : notnull {
     public InnerNodes() { }
     public InnerNodes(Guid keyPropertyId, InnerNodeDataMap<Guid> nodeDataMap, NodeMapper mapper) : base(keyPropertyId, nodeDataMap, mapper) {
@@ -19,6 +22,7 @@ where TValue : notnull {
     public InnerNodes() {
         _raw = [];
     }
+    public PropertyPath? PropertyPath => _nodeDataMap?.PropertyPath;
     public InnerNodes(Guid keyPropertyId, InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
         _nodeDataMap = nodeDataMap;
         _mapper = mapper;
@@ -36,7 +40,7 @@ where TValue : notnull {
         }
         set {
             if (_nodeDataMap != null && _mapper != null) {
-                var nodeData = _mapper.CreateNodeDataFromObject(value, null);
+                var nodeData = _mapper.CreateNodeDataFromObject(value, null, _nodeDataMap.PropertyPath);
                 if (nodeData is not NodeData nd) throw new ArgumentException("The value must be of type NodeData.");
                 if (!EqualityComparer<TKey>.Default.Equals(_nodeDataMap.EvalKey(nd), key)) throw new ArgumentException("The provided key does not match the value key.", nameof(key));
                 _nodeDataMap[key] = nd;
@@ -54,7 +58,7 @@ where TValue : notnull {
             _raw.Add(value);
             return;
         } else if (_nodeDataMap != null && _mapper != null) {
-            var data = _mapper.CreateNodeDataFromObject(value, null);
+            var data = _mapper.CreateNodeDataFromObject(value, null, _nodeDataMap.PropertyPath);
             if (data is not NodeData nodeData) throw new ArgumentException("The value must be of type NodeData.");
             _nodeDataMap.Add(nodeData);
         } else {
@@ -115,14 +119,14 @@ where TValue : notnull {
             throw new InvalidOperationException("InnerNodes is not properly initialized. ");
         }
     }
-    public InnerNodeDataMap<TKey> GetNodeDataMap(Guid keyPropertyId, NodeMapper mapper) {
+    public InnerNodeDataMap<TKey> GetNodeDataMap(PropertyPath propPath, Guid keyPropertyId, NodeMapper mapper) {
         if (_raw != null) {
             var nodeDatas = _raw.Select(r => {
-                if (mapper.CreateNodeDataFromObject(r, null) is not NodeData nd)
+                if (mapper.CreateNodeDataFromObject(r, null, propPath) is not NodeData nd)
                     throw new ArgumentException("The Inner nodes must be of type NodeData and not use revisions etc.");
                 return nd;
             }).ToList();
-            return new InnerNodeDataMap<TKey>(null, keyPropertyId, nodeDatas);
+            return new InnerNodeDataMap<TKey>(propPath, keyPropertyId, nodeDatas);
         } else if (_nodeDataMap != null) {
             return _nodeDataMap;
         } else {

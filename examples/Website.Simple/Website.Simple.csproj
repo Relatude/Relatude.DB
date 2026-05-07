@@ -31,4 +31,8 @@
     <ProjectReference Include="..\..\src\Relatude.DB.UrlProvider\Relatude.DB.UrlProvider.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="NewFolder\" />
+  </ItemGroup>
+
 </Project>

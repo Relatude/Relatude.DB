@@ -38,8 +38,8 @@ public class DemoParagraph {
     public FileValue File { get; set; }
     public string Code { get; set; } = string.Empty;
 
-    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
+    //[InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    //public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
 
 }
 

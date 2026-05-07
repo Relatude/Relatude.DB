@@ -60,7 +60,7 @@ internal sealed class NodeStore {
                 var b = bytes[i++];
                 if (!_cache.Contains(id)) { // additional check in case other thread have added it to cache
                     var ms = new MemoryStream(b, false);
-                    var node = FromBytes.NodeData(_definition.Datamodel, ms);
+                    var node = FromBytes.NodeData(_definition.Datamodel, ms, null);
                     if (node.__Id != id) throw new Exception("Internal error");
                     node.EnsureReadOnly();
                     _cache.Set(node.__Id, node, b.Length);
@@ -90,7 +90,7 @@ internal sealed class NodeStore {
         }
         var ms = new MemoryStream(_read([segment], out _).First(), false);
         diskRead = true;
-        node = FromBytes.NodeData(_definition.Datamodel, ms);
+        node = FromBytes.NodeData(_definition.Datamodel, ms, null);
         if (node.__Id != id) throw new Exception("Internal error");
         node.EnsureReadOnly(); // Making it immutable, as it is shared through the cache for other queries
         _cache.Set(node.__Id, node, estimateSize(segment.Length));

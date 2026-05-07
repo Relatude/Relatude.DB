@@ -68,7 +68,7 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
     public Guid GetPropertyId(Expression<Func<T, object>> expression) => store.Mapper.GetProperty(expression).Id;
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
     public T GetNode() => store.Mapper.CreateObjectFromNodeData<T>(action.Node);
-    public void SetNode(T node) => action.Node = store.Mapper.CreateNodeDataFromObject(node, null);
+    public void SetNode(T node) => action.Node = store.Mapper.CreateNodeDataFromObject(node, null, null);
     public bool HasPropertyChanged(Expression<Func<T, object>> expression) {
         var nodeData = action.Node;
         var oldNodeData = store.Datastore.Get(nodeData.Id);

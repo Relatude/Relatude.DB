@@ -42,17 +42,17 @@ namespace Relatude.DB.Nodes {
         }
         static byte[] compileCode(List<(string className, string code)> codeStrings, Datamodel datamodel) {
 #if DEBUG
-            //if (true) {
-            //    //var path = Path.GetTempPath();
-            //    var path = "C:\\WAF\\Code\\Relatude.DB\\examples\\Website.Simple\\NewFolder";
-            //    path = Path.Combine(path, "RelatudeDBCompiledModels");
-            //    if (Directory.Exists(path)) Directory.Delete(path, true);
-            //    Directory.CreateDirectory(path);
-            //    foreach (var code in codeStrings) {
-            //        var filePath = Path.Combine(path, code.className + ".cs");
-            //        File.WriteAllText(filePath, code.code);
-            //    }
-            //}
+            if (false) {
+                //var path = Path.GetTempPath();
+                var path = "C:\\WAF\\Code\\Relatude.DB\\examples\\Website.Simple\\NewFolder";
+                path = Path.Combine(path, "RelatudeDBCompiledModels");
+                if (Directory.Exists(path)) Directory.Delete(path, true);
+                Directory.CreateDirectory(path);
+                foreach (var code in codeStrings) {
+                    var filePath = Path.Combine(path, code.className + ".cs");
+                    File.WriteAllText(filePath, code.code);
+                }
+            }
 #endif
             var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp12);
             var syntaxTrees = codeStrings.Select(code => SyntaxFactory.ParseSyntaxTree(code.code, parseOptions, code.className + ".cs"));

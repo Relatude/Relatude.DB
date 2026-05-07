@@ -95,7 +95,7 @@ internal class LogRewriter {
             var segmentBytes = _threadSafeReadSegments(chunk.Select(c => c.segment).ToArray(), out _);
             var actions = new List<PrimitiveActionBase>(segmentBytes.Length);
             foreach (var bytes in segmentBytes) {
-                var node = FromBytes.NodeData(dm, new MemoryStream(bytes));
+                var node = FromBytes.NodeData(dm, new MemoryStream(bytes), null);
                 var action = new PrimitiveNodeAction(PrimitiveOperation.Add, node);
                 actions.Add(action);
             }
