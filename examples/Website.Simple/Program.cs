@@ -26,30 +26,29 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
+
+
+
+
+
+
+
+
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-    
-
-    var art = new DemoArticle();
+    //var art = new DemoArticle();
+    var art = db.Create<IDemoArticle>();
     art.Title = "Ole";
-
-
-
-
-    var paraGraph = new DemoParagraph();
+    //var paraGraph = new DemoParagraph();
+    var paraGraph = db.Create<IDemoParagraph>();
     paraGraph.Code = "dasdas";
     art.Paragraphs.Add(paraGraph);
-
-    
-
-    db.Insert(node:art, flushToDisk: true);
-    ////db.Maintenance(Relatude.DB.DataStores.MaintenanceAction.ClearCache);
-    //art = db.Get<DemoArticle>(art.Id);
-
+    db.Insert(art);
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
     await db.FileUploadAsync(art.File, filePath);
+    await db.FileUploadAsync(art.Paragraphs.First().File, filePath);
 
-
+    art.File.Name = "dddd";
 
 
     //var id = db.FileUploadAsync();
@@ -66,7 +65,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //    }
     //}
 
-    
+
 
     //&db.Insert(art);
 
@@ -79,7 +78,7 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
 });
 app.MapGet("/List", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
-    var results = db.Query<DemoArticle>().Execute().ToArray();    
+    var results = db.Query<IDemoArticle>().Execute().ToArray();    
     return results;
 });
 

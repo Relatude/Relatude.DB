@@ -592,7 +592,7 @@ public class NodeStore : IDisposable {
         await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
     }
     public async Task FileUploadAsync(FileValue file, string localFilePath, string? fileName = null) {
-        if (file.PropertyPath == null) throw new Exception("PropertyPath is null. Insert node to data store first. ");
+        if (file.PropertyPath == null) throw new Exception("File cannot be uploaded as node is not yet inserted to the database. ");
         using var stream = File.OpenRead(localFilePath);
         await Datastore.FileUploadAsync(file.PropertyPath, stream, fileName ?? Path.GetFileName(localFilePath));
     }

@@ -77,13 +77,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public bool TryGet(NodePath path, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
         if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
         else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
-        foreach (var inProp in path.Path) {
-            if (!node.TryGetValue(inProp.ParentPropertyId, out var v)) return false;
-            if (v is not IInnerNodeDataMap inv) return false;
-            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
-            node = innerNode;
-        }
-        return true;
+        return node.TryGetInnerNode(path, out node);
     }
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) {
         if (TryGet(path.NodePath, out var node, ctx)) {

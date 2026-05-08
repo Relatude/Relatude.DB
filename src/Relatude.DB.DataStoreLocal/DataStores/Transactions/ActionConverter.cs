@@ -290,10 +290,13 @@ internal class ActionConverter {
         List<int> uints = [];
         if (a.PropertyPath != null) {  // temporary fix, look more at this later, what abou multiple props, what about copy inner outer etc.. (CopyExternal_>CopyInner)
             if (a.Values == null) throw new("Value cannot be null if updating a property. ");
-            var node = db.Get(a.PropertyPath.NodePath, ctx).CopyExternal();
-            node.AddOrUpdate(a.PropertyPath.PropertyId, a.Values[0]);
+            var key = a.PropertyPath.NodePath.NodeKey;
+            var rootNode = db.Get(key, ctx);
+            rootNode = rootNode.CopyExternal(); // make it non readonly
+            var innerNode = rootNode.GetInnerNode(a.PropertyPath.NodePath);
+            innerNode.AddOrUpdate(a.PropertyPath.PropertyId, a.Values[0]);
             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
-            var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
+            var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(rootNode), transformValues, newTasks, a.PropertyIds);
             foreach (var action in actions) yield return action;
             yield break;
         }

@@ -1,13 +1,11 @@
 ﻿using Relatude.DB.Common;
 namespace Relatude.DB.FileConverter;
-
 public class DefaultImageConverter : IFileConverter {
     public bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed) {
         // basically only image conversions between the supported formats
         if (inBase != FileBaseFormats.Image || outBase != FileBaseFormats.Image) {
             return false;
         }
-
         switch (inDetailed) {
             case FileFormat.Jpeg:
             case FileFormat.Png:
@@ -35,15 +33,12 @@ public class DefaultImageConverter : IFileConverter {
     public Task<bool> CancelAsync(string key) {
         throw new NotImplementedException();
     }
-
     public Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
         throw new NotImplementedException();
     }
-
     public Task<FileConversionProgressInfo> GetStatusAsync(FileIdWithAdjustment fileIdWithAdjustment) {
         throw new NotImplementedException();
     }
-
     public Task<Stream> GetStreamAsync(FileIdWithAdjustment fileIdWithAdjustment) {
         throw new NotImplementedException();
     }

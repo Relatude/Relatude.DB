@@ -84,7 +84,9 @@ internal static class MapperGen {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
                 var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(node." + p.CodeName + ", " + newPath + "));");
+                sb.AppendLine("node." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(node." + p.CodeName + ", " + newPath + ");");
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
+
                 sb.AppendLine("}");
             } else {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");

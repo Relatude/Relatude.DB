@@ -33,7 +33,8 @@ values.Add(g762fce84b9aa1c3d1c5ce667a0ac14fd, node.CreatedAt);
 values.Add(gd43c6743c0dede84d40e328841b430a1, node.UpdatedAt);
 {
 var nodePath = propertyPath == null ? new (gid) : propertyPath.CreateInnerNodePath(gid);
-values.Add(gd65cef817660f343fa7cb9591c47239c, Relatude.DB.Common.FileValue.CopyAndEnsurePropertyPath(node.File, nodePath.CreatePropertyPath(gd65cef817660f343fa7cb9591c47239c)));
+node.File = Relatude.DB.Common.FileValue.CopyAndEnsurePropertyPath(node.File, nodePath.CreatePropertyPath(gd65cef817660f343fa7cb9591c47239c));
+values.Add(gd65cef817660f343fa7cb9591c47239c, node.File);
 }
 {
 var nodePath = propertyPath == null ? new (gid) : propertyPath.CreateInnerNodePath(gid);

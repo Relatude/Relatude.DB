@@ -5,9 +5,39 @@ using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
 
+public interface IDemoArticle {
+
+    public Guid Id { get; set; }
+
+    public string Title { get; set; } 
+    public string Content { get; set; } 
+    public int Size { get; set; }
+
+    public NodeMeta Meta { get; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public FileValue File { get; set; }
+
+    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public InnerNodes<string, IDemoParagraph> Paragraphs { get; } 
+
+}
+public interface IDemoParagraph {
+    public Guid Id { get; set; }
+    public FileValue File { get; set; }
+    public string Code { get; set; } 
+
+    //[InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    //public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
+
+}
+
+
 public class DemoArticle {
 
     public Guid Id { get; set; }
+
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public int Size { get; set; }

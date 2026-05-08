@@ -3,6 +3,36 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 namespace Relatude.DB.Datamodels;
 
+public static class INodeExt {
+    public static INodeData GetInnerNode(this INodeData rootNode, NodePath path) {
+        if (TryGetInnerNode(rootNode, path, out var node)) return node;
+        throw new Exception($"Inner node not found for path {path.NodeKey} and root node {rootNode.Id}. ");
+    }
+    public static INodeDataExternal GetInnerNode(this INodeDataExternal rootNode, NodePath path) {
+        if (TryGetInnerNode(rootNode, path, out var node)) return node;
+        throw new Exception($"Inner node not found for path {path.NodeKey} and root node {rootNode.Id}. ");
+    }
+    public static bool TryGetInnerNode(this INodeData rootNode, NodePath path, [MaybeNullWhen(false)] out INodeData node) {
+        node = rootNode;
+        foreach (var inProp in path.Path) {
+            if (!node.TryGetValue(inProp.ParentPropertyId, out var v)) return false;
+            if (v is not IInnerNodeDataMap inv) return false;
+            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
+            node = innerNode;
+        }
+        return true;
+    }
+    public static bool TryGetInnerNode(this INodeDataExternal rootNode, NodePath path, [MaybeNullWhen(false)] out INodeDataExternal node) {
+        node = rootNode;
+        foreach (var inProp in path.Path) {
+            if (!node.TryGetValue(inProp.ParentPropertyId, out var v)) return false;
+            if (v is not IInnerNodeDataMap inv) return false;
+            if (!inv.TryGetById(inProp.InnerNodeId, out var innerNode)) return false;
+            node = innerNode;
+        }
+        return true;
+    }
+}
 public enum NodeDataStorageVersions {
     Legacy0 = 0,
     Legacy1 = 1,

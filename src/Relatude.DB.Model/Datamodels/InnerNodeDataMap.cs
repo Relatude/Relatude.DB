@@ -8,8 +8,9 @@ namespace Relatude.DB.Datamodels;
 public interface IInnerNodeDataMap : IEnumerable<NodeData> {
     int Count { get; }
     void ValidateUniqueKeys();
-    bool TryGetById(Guid nodeId, [MaybeNullWhen(false)]out NodeData nodeData);
+    bool TryGetById(Guid nodeId, [MaybeNullWhen(false)] out NodeData nodeData);
     PropertyPath? PropertyPath { get; }
+    IInnerNodeDataMap Copy();
 }
 // Thread-safe for concurrent reads. Not writes.
 public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
@@ -26,7 +27,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     public void ValidateUniqueKeys() {
         getIdx();
     }
-    public bool TryGetById(Guid nodeId, [MaybeNullWhen(false)]out NodeData nodeData) {
+    public bool TryGetById(Guid nodeId, [MaybeNullWhen(false)] out NodeData nodeData) {
         // could be optimized....
         lock (_nodes) {
             foreach (var node in _nodes) {
@@ -187,9 +188,6 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         __indexByKey?.Clear();
     }
     public bool ContainsKey(TKey key) => getIdx().ContainsKey(key);
-    public InnerNodeDataMap<TKey> Copy() {
-        throw new NotSupportedException();
-    }
     public IEnumerator<NodeData> GetEnumerator() {
         foreach (var node in _nodes) {
             if (node != null) yield return node;
@@ -198,5 +196,14 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     IEnumerator IEnumerable.GetEnumerator() {
         return GetEnumerator();
 
+    }
+    public IInnerNodeDataMap Copy() {
+        List<NodeData> nodes = new(_nodes.Count);
+        foreach (var n in _nodes) {
+            if (n != null) {
+                nodes.Add(n.Copy());
+            }
+        }
+        return new InnerNodeDataMap<TKey>(PropertyPath, _keyPropertyId, nodes);
     }
 }

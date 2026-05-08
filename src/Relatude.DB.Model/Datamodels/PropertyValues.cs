@@ -10,7 +10,7 @@ namespace Relatude.DB.Datamodels;
 
 public struct PropertyEntry<T>(Guid key, T value) {
     public Guid PropertyId = key;
-    public T Value = value;
+    public T Value { get; set; } = value;
 }
 public class Properties<T> {
     PropertyEntry<T>[] _values;
@@ -23,6 +23,11 @@ public class Properties<T> {
         _size = properties._size;
         _values = new PropertyEntry<T>[_size];
         Array.Copy(properties._values, _values, _size);
+        for (int i = 0; i < _size; i++) {
+            if (_values[i].Value is IInnerNodeDataMap imp) {
+                _values[i].Value = (T)imp.Copy();
+            }
+        }
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(Guid key, T? v) {

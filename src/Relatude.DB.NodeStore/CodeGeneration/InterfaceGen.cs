@@ -57,7 +57,7 @@ internal static class InterfaceGen {
             sb.AppendLine(" }");
         }
         if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {
-            sb.AppendLine("public " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + " " + nodeDef.NameOfMetaProperty + "{ get; }");
+            sb.AppendLine("public " + typeof(NodeMeta).Namespace + "." + nameof(NodeMeta) + " " + nodeDef.NameOfMetaProperty + "{ get; set; }");
         }
         if (!string.IsNullOrEmpty(nodeDef.NameOfCreatedUtcProperty)) {
             sb.AppendLine("public DateTime " + nodeDef.NameOfCreatedUtcProperty + "{ ");
@@ -101,7 +101,7 @@ internal static class InterfaceGen {
                     sb.AppendLine("set{ throw new Exception(\"Relations properties cannot be set. \"); }");
                 } else {
                     sb.AppendLine("set{ _" + p.CodeName + " = value;}");
-                }                
+                }
                 sb.AppendLine("get{");
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
                 sb.AppendLine("var nodeData = this." + nameof(INodeShellAccess.__NodeDataShell) + "." + nameof(NodeDataShell.NodeData) + ";");
@@ -174,10 +174,23 @@ internal static class InterfaceGen {
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine(" }");
                 sb.AppendLine(" }");
+            } else if (p.PropertyType == PropertyType.InnerNodes) {
+                sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                sb.AppendLine("get {");
+                sb.AppendLine(" var v= " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ");");
+                sb.AppendLine("if(v == null) {");
+                sb.AppendLine("v = [];");
+                sb.AppendLine(shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ", v);");
+                sb.AppendLine("}");
+                sb.AppendLine("return v;");
+                sb.AppendLine("} ");
+
+                sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");
+                sb.AppendLine(" }");
+
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.Append("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ")");
-                //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
                 sb.AppendLine("; } ");
 
                 sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");

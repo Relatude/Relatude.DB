@@ -136,10 +136,13 @@ where TValue : notnull {
 
     public IEnumerator<TValue> GetEnumerator() {
         if (_raw != null) {
-            throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            foreach (var node in _raw) {
+                yield return node;
+            }
+            //throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
-            foreach (var node in _nodeDataMap) {
-                yield return (TValue)_mapper.CreateObjectFromNodeData(node, _nodeDataMap.PropertyPath);
+            foreach (var nodeData in _nodeDataMap) {
+                yield return (TValue)_mapper.CreateObjectFromNodeData(nodeData, _nodeDataMap.PropertyPath);
             }
         } else {
             throw new InvalidOperationException("InnerNodes is not properly initialized. ");
