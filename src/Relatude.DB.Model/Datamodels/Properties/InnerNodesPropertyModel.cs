@@ -32,7 +32,6 @@ public class InnerNodesPropertyModel : PropertyModel {
 
     public override string? GetDefaultDeclaration() => "[]";
     public override object? GetDefaultValue() => null;
-    public override bool IsReferenceTypeAndMustCopy() => true;
     public static IInnerNodeDataMap ForceValueType(object value, out bool changed) {
         if (value is IInnerNodeDataMap ndm) {
             changed = false;

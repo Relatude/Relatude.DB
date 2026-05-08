@@ -69,14 +69,23 @@ internal static class MapperGen {
             sb.AppendLine("int uid = 0;");
         }
         sb.AppendLine("if(uid == 0 && gid == Guid.Empty) gid = Guid.NewGuid();"); // ensure that at least one gid is set
-        sb.AppendLine(typeof(NodePath).Namespace + "." + nameof(NodePath) + " nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
+
         foreach (var p in noneRelProps) {
             if (p is IntegerPropertyModel intP && intP.IsEnum) { // if enum need cast to int
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (int)node." + p.CodeName + ");");
             } else if (p is InnerNodesPropertyModel) {
+                sb.AppendLine("{");
+                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
                 var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
                 var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(InnerNodes<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
+                sb.AppendLine("}");
+            } else if (p is FilePropertyModel) {
+                sb.AppendLine("{");
+                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
+                var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(node." + p.CodeName + ", " + newPath + "));");
+                sb.AppendLine("}");
             } else {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
             }
@@ -108,7 +117,8 @@ internal static class MapperGen {
     static void generate_NodeDataToObject(StringBuilder sb, NodeTypeModel nodeDef, Datamodel dm) {
         sb.Append("public object " + nameof(IValueMapper.NodeDataToObject) + "(");
         sb.Append(typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + " nodeData, ");
-        sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
+        sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store,");
+        sb.Append(typeof(PropertyPath).Namespace + "." + nameof(PropertyPath) + "? propertyPath");
         sb.AppendLine("){");
         sb.AppendLine("var relations = nodeData." + nameof(INodeDataExternal.Relations) + ";");
         if (nodeDef.IsInterface) {
@@ -226,15 +236,29 @@ internal static class MapperGen {
                     sb.AppendLine("obj." + p.CodeName + " = [];");
                     sb.AppendLine("}");
                     sb.AppendLine("}");
+                } else if (p.PropertyType == PropertyType.File) {
+                    // Example:
+                    //{
+                    //    var nodePath = propertyPath == null ? new(nodeData.Id) : propertyPath.CreateInnerNodePath(nodeData.Id);
+                    //    var filePropertyPath = nodePath.CreatePropertyPath(gd65cef817660f343fa7cb9591c47239c);
+                    //    if (nodeData.TryGetValue(gd65cef817660f343fa7cb9591c47239c, out var v) && v is FileValue fv) {
+                    //        obj.File = FileValue.CopyAndEnsurePropertyPath(fv, filePropertyPath);
+                    //    } else {
+                    //        obj.File = FileValue.CreateEmptyWithPropertyPath(filePropertyPath);
+                    //    }
+                    //}
+                    sb.AppendLine("{");
+                    sb.AppendLine("var nodePath = propertyPath == null ? new(nodeData.Id) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(nodeData.Id);");
+                    sb.AppendLine("var filePropertyPath = nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ");");
+                    sb.AppendLine("if (nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) && v is " + typeof(FileValue).Namespace + "." + nameof(FileValue) + " fv) {");
+                    sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(fv, filePropertyPath);");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CreateEmptyWithPropertyPath) + "(filePropertyPath);");
+                    sb.AppendLine("}");
+                    sb.AppendLine("}");
                 } else {
-                    //sb.Append("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v" + CodeUtils.GuidName(p.Id) + ")) obj." + p.CodeName + " = ((" + CodeUtils.GetTypeName(p, dm) + ")v" + CodeUtils.GuidName(p.Id) + ")");
-                    //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
-                    //sb.Append(";");
-                    //sb.AppendLine("else obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
                     sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
-                    if (p.IsReferenceTypeAndMustCopy()) sb.Append("(");
                     sb.Append("(" + CodeUtils.GetTypeName(p, dm) + ")v");
-                    if (p.IsReferenceTypeAndMustCopy()) sb.Append(").Copy()");
                     sb.AppendLine(" : " + p.GetDefaultValueAsCode() + "; }");
                 }
             }

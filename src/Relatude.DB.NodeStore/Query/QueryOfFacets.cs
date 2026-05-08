@@ -181,7 +181,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     IEnumerable<TCast> toEnumerable<TCast>(object data) {
         if (data is IStoreNodeDataCollection coll) {
             foreach (var nodeData in coll.NodeValues) {
-                yield return _query.Store.Mapper.CreateObjectFromNodeData<TCast>(nodeData);
+                yield return _query.Store.Mapper.CreateObjectFromNodeData<TCast>(nodeData, null);
             }
         }
     }

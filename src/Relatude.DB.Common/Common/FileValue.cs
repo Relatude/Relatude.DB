@@ -1,7 +1,7 @@
 ﻿namespace Relatude.DB.Common;
 
 public class FileValue {
-    private FileValue() {
+    FileValue() {
         IsEmpty = true;
         Name = string.Empty;
         Indexed = false;
@@ -17,7 +17,7 @@ public class FileValue {
         _fileKeyData = [];
         PropertyPath = null;
     }
-    private FileValue(string name, long size, string hash, Guid storageId, Guid fileId, byte[] storageKey, PropertyPath propertyPath) {
+    FileValue(string name, long size, string hash, Guid storageId, Guid fileId, byte[] storageKey, PropertyPath propertyPath) {
         IsEmpty = false;
         Name = name;
         TextExtract = string.Empty;
@@ -32,15 +32,28 @@ public class FileValue {
         _fileKeyData = storageKey;
         PropertyPath = propertyPath;
     }
-    public static FileValue Empty { get; } = new FileValue();
     public static FileValue CreateNew(string name, long size, string hash, Guid storageId, Guid fileId, byte[] storageKey, PropertyPath propertyPath) {
         return new FileValue(name, size, hash, storageId, fileId, storageKey, propertyPath);
     }
-    public static FileValue CreateMerge(FileValue old, FileValue newValue) {
+    public static FileValue CreateEmptyWithPropertyPath(PropertyPath propertyPath) {
+        return new FileValue() { PropertyPath = propertyPath };
+    }
+    static FileValue CreateEmptyWithNoPropertyPath() {
+        return new FileValue();
+    }
+    public static FileValue Empty { get; } = CreateEmptyWithNoPropertyPath();
+    public static FileValue CopyAndEnsurePropertyPath(FileValue? value, PropertyPath propertyPath) {
+        if (value == null || value.IsEmpty) {
+            return CreateEmptyWithPropertyPath(propertyPath);
+        } else {
+            return CreateNew(value.Name, value.Size, value.Hash, value.StorageId, value.FileId, value._fileKeyData, propertyPath);
+        }
+    }
+    public static FileValue BringChangesFromOuterToInner(FileValue old, FileValue newValue) {
+        // allowing only certain props to be changed:
         var f = new FileValue();
 
         // never set externally:
-        if (old.IsEmpty) return f; // return empty, not allowed to change if old is empty
         f.Size = old.Size;
         f.StorageId = old.StorageId;
         f.FileId = old.FileId;
@@ -100,7 +113,7 @@ public class FileValue {
         else bw.Write(PropertyPath.ToBytes());
         return ms.ToArray();
     }
-    public static FileValue FromBytes(byte[] bytes) {
+    public static FileValue FromBytes(byte[] bytes, PropertyPath? propertyPath) {
         if (bytes.Length == 0) return Empty;
         var ms = new MemoryStream(bytes);
         var br = new BinaryReader(ms);

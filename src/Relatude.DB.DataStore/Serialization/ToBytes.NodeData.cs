@@ -89,10 +89,9 @@ public static partial class ToBytes {
     public const int innerNodesPropertyModelGetBytes_VERSION = 1;
     static byte[] innerNodesPropertyModelGetBytes(IInnerNodeDataMap value, Datamodel datamodel) {
         using var main = new MemoryStream();
-        using var bf = new BinaryWriter(main);
-        bf.Write(innerNodesPropertyModelGetBytes_VERSION);
-        bf.Write(value.Count);
-        bf.Write(value.Count);  // twice, just as a sanity check on read
+        main.WriteInt(innerNodesPropertyModelGetBytes_VERSION);
+        main.WriteInt(value.Count);
+        main.WriteInt(value.Count);  // twice, just as a sanity check on read
         foreach (var item in value) {
             // split each node into a byte array, so in case one fails to read we can skip it on read ( further optimization possible... )
             using var sub = new MemoryStream();

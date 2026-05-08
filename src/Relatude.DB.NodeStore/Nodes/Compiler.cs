@@ -42,7 +42,7 @@ namespace Relatude.DB.Nodes {
         }
         static byte[] compileCode(List<(string className, string code)> codeStrings, Datamodel datamodel) {
 #if DEBUG
-            if (false) {
+            if (true) {
                 //var path = Path.GetTempPath();
                 var path = "C:\\WAF\\Code\\Relatude.DB\\examples\\Website.Simple\\NewFolder";
                 path = Path.Combine(path, "RelatudeDBCompiledModels");

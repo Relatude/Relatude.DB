@@ -34,7 +34,6 @@ public abstract class PropertyModel {
     public abstract object? GetDefaultValue();
     public virtual string? GetDefaultDeclaration() => string.Empty;
     public bool Internal { get; set; }
-    public virtual bool IsReferenceTypeAndMustCopy() => false;
     public bool TryParse(object anyFormat, [MaybeNullWhen(false)] out object value) {
         switch (PropertyType) {
             case PropertyType.Any:

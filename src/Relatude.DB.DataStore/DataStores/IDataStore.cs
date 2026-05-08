@@ -84,9 +84,9 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null);
     Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null);
+    Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
 

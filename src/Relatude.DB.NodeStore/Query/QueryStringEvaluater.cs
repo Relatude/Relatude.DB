@@ -23,7 +23,7 @@ internal sealed class QueryStringEvaluater {
                 return new ResultSetNotEnumerable<object?>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false, 0);
             }
         } else if (data is ISearchQueryResultData search) {
-            var hitValues = search.Hits.Select(h => new SearchResultHit<object?>(_store.Mapper.CreateObjectFromNodeData(h.NodeData), h.Score, h.Sample));
+            var hitValues = search.Hits.Select(h => new SearchResultHit<object?>(_store.Mapper.CreateObjectFromNodeData(h.NodeData, null), h.Score, h.Sample));
             return new ResultSetNotEnumerable<object?>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped, search.InnerSearchTimeMs);
         } else {
             return data;
@@ -64,7 +64,7 @@ internal sealed class QueryStringEvaluater {
         // temporary solution, should be replaced with a more efficient code
         // a collection of this type indicates that return type is a Node object, so use mapper to create the object
         if (data is IStoreNodeDataCollection coll) {
-            foreach (var nd in coll.NodeValues) yield return _store.Mapper.CreateObjectFromNodeData<T>(nd);
+            foreach (var nd in coll.NodeValues) yield return _store.Mapper.CreateObjectFromNodeData<T>(nd, null);
             yield break;
         }
         // a collection of this type indicates that return type is a plain value type
@@ -73,7 +73,7 @@ internal sealed class QueryStringEvaluater {
             yield break;
         }
         if (data is FacetQueryResultData facets) {
-            foreach (var f in facets.Result.NodeValues) yield return _store.Mapper.CreateObjectFromNodeData<T>(f);
+            foreach (var f in facets.Result.NodeValues) yield return _store.Mapper.CreateObjectFromNodeData<T>(f, null);
             yield break;
         }
         // a collection of this type is more complicated...
@@ -86,10 +86,10 @@ internal sealed class QueryStringEvaluater {
                 if (o is ObjectData od) {
                     if (ctor == null) ctor = typeof(T).GetConstructors().Single();
                     if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
-                    var values = od.GetValues(n=>_store.Mapper.CreateObjectFromNodeData(n));
+                    var values = od.GetValues(n=>_store.Mapper.CreateObjectFromNodeData(n, null));
                     yield return (T)createAnonymousInstance(values!, propNameById, ctor);
                 } else if (o is IStoreNodeData no) {
-                    yield return _store.Mapper.CreateObjectFromNodeData<T>(no.NodeData);
+                    yield return _store.Mapper.CreateObjectFromNodeData<T>(no.NodeData, null);
                 } else if (o is IEnumerable<IStoreNodeData> os) {
                     var t = typeof(T);
                     if (t.IsArray) {
@@ -97,14 +97,14 @@ internal sealed class QueryStringEvaluater {
                         if (tNode == null) throw new NotSupportedException();
                         var array = Array.CreateInstance(tNode, os.Count());
                         int i = 0;
-                        foreach (var nd in os) array.SetValue(_store.Mapper.CreateObjectFromNodeData(nd.NodeData), i++);
+                        foreach (var nd in os) array.SetValue(_store.Mapper.CreateObjectFromNodeData(nd.NodeData, null), i++);
                         yield return (T)(object)array;
                     } else if (typeof(IEnumerable).IsAssignableFrom(t) && t.IsGenericType) {
                         var tNode = typeof(T).GetGenericArguments().Single();
                         var listType = typeof(List<>).MakeGenericType([tNode]);
                         var ilist = Activator.CreateInstance(listType) as IList;
                         if (ilist == null) throw new NotSupportedException();
-                        foreach (var nd in os) ilist.Add(_store.Mapper.CreateObjectFromNodeData(nd.NodeData));
+                        foreach (var nd in os) ilist.Add(_store.Mapper.CreateObjectFromNodeData(nd.NodeData, null));
                         yield return (T)ilist;
                     } else {
                         throw new NotSupportedException();

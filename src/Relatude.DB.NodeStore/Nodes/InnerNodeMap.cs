@@ -31,7 +31,7 @@ where TValue : notnull {
         get {
             if (_nodeDataMap != null && _mapper != null) {
                 var nodeData = _nodeDataMap[key];
-                return (TValue)_mapper.CreateObjectFromNodeData(nodeData);
+                return (TValue)_mapper.CreateObjectFromNodeData(nodeData, _nodeDataMap.PropertyPath);
             } else if (_raw != null) {
                 throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
             } else {
@@ -89,7 +89,7 @@ where TValue : notnull {
         } else if (_nodeDataMap != null && _mapper != null) {
             foreach (var node in _nodeDataMap) {
                 var key = _nodeDataMap.EvalKey(node);
-                var value = (TValue)_mapper.CreateObjectFromNodeData(node);
+                var value = (TValue)_mapper.CreateObjectFromNodeData(node, _nodeDataMap.PropertyPath);
                 yield return new KeyValuePair<TKey, TValue>(key, value);
             }
         } else {
@@ -110,7 +110,7 @@ where TValue : notnull {
             throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
             if (_nodeDataMap.TryGetValue(key, out var node)) {
-                value = (TValue)_mapper.CreateObjectFromNodeData(node);
+                value = (TValue)_mapper.CreateObjectFromNodeData(node, _nodeDataMap.PropertyPath);
                 return true;
             }
             value = default;
@@ -139,7 +139,7 @@ where TValue : notnull {
             throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
             foreach (var node in _nodeDataMap) {
-                yield return (TValue)_mapper.CreateObjectFromNodeData(node);
+                yield return (TValue)_mapper.CreateObjectFromNodeData(node, _nodeDataMap.PropertyPath);
             }
         } else {
             throw new InvalidOperationException("InnerNodes is not properly initialized. ");

@@ -18,7 +18,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             if (value is not FileValue fileValue) throw new Exception("Value is not a file value. ");
             if (oldNodeData == null) return FileValue.Empty; // is insert, so must be empty|
             if (oldNodeData.TryGetValue(Id, out var oldFileValue) && oldFileValue is FileValue oldFv) {
-                return FileValue.CreateMerge(oldFv, fileValue); // stripping storage id etc, that is not allowed to be changed
+                return FileValue.BringChangesFromOuterToInner(oldFv, fileValue); // stripping storage id etc, that is not allowed to be changed
             } else {
                 // Old node data does not contain a file value, so only allow empty
                 return FileValue.Empty;

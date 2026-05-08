@@ -42,12 +42,12 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
 
     
 
-    db.Insert(art);
-
-    art = db.Get<DemoArticle>(art.Id);
+    db.Insert(node:art, flushToDisk: true);
+    ////db.Maintenance(Relatude.DB.DataStores.MaintenanceAction.ClearCache);
+    //art = db.Get<DemoArticle>(art.Id);
 
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-    await db.Datastore.FileUploadAsync(art.File.PropertyPath, filePath);
+    await db.FileUploadAsync(art.File, filePath);
 
 
 

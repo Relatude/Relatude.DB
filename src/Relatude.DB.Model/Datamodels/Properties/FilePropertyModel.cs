@@ -6,7 +6,6 @@ public class FilePropertyModel : PropertyModel {
     public override string? GetDefaultDeclaration() => typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.Empty);
     public Guid FileStorageProviderId { get; set; }
     public override object GetDefaultValue() => FileValue.Empty;
-    public override bool IsReferenceTypeAndMustCopy() => true;
     public static FileValue ForceValueType(object value, out bool changed) {
         if (value is FileValue fileValue) {
             changed = false;
@@ -16,8 +15,8 @@ public class FilePropertyModel : PropertyModel {
         return FileValue.Empty;
     }
 
-    public static FileValue GetValue(byte[] bytes) {
-        return FileValue.FromBytes(bytes);
+    public static FileValue GetValue(byte[] bytes, PropertyPath? propertyPath) {
+        return FileValue.FromBytes(bytes, propertyPath);
     }
     public static byte[] GetBytes(FileValue value) {
         return value.ToBytes();

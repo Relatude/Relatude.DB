@@ -177,7 +177,7 @@ internal static class InterfaceGen {
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.Append("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ")");
-                if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
+                //if (p.IsReferenceTypeAndMustCopy()) sb.Append(".Copy()");
                 sb.AppendLine("; } ");
 
                 sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");

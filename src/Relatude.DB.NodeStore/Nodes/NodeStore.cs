@@ -318,7 +318,7 @@ public class NodeStore : IDisposable {
 
     public NodeAndMeta<T>[] GetRevisions<T>(Guid id) {
         var revisions = Datastore.GetRevisions(id);
-        return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r), r)).ToArray();
+        return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r, null), r)).ToArray();
     }
     public TransactionResult ChangeRevisionType(Guid id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
     public TransactionResult ChangeRevisionType(int id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
@@ -333,7 +333,7 @@ public class NodeStore : IDisposable {
     public void ChangeType<T>(Guid nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
     public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
 
-    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id));
+    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null);
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
     public IQueryOfNodes<object, object> Query(QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx);
     public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
@@ -358,21 +358,20 @@ public class NodeStore : IDisposable {
     public long Count() => Query<object>().Count();
     public long Count<T>() => Query<T>().Count();
 
-    public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id));
-    public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id));
-    public object Get(IdKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id));
+    public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(IdKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
 
-    public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
-    public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
-    public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id));
+    public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
 
-    public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
-    public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
-    public T Get<T>(IdKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)));
-
-    public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
-    public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
-    public T Get<T>(IdKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)));
+    public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(IdKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(IdKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
 
     public Type GetNodeType(Guid nodeId) => Mapper.GetNodeType(Datastore.GetNodeType(nodeId));
     public bool TryGetNodeType(Guid nodeId, [MaybeNullWhen(false)] out Type type) {
@@ -387,13 +386,13 @@ public class NodeStore : IDisposable {
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
     public bool Exists<T>(Guid id) => Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
 
-    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n));
-    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n));
+    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null));
+    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null));
 
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out object node) => TryGet<object>(id, out node);
     public bool TryGet<T>(Guid id, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGet(id, out var nodeData)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
         node = default;
@@ -401,13 +400,13 @@ public class NodeStore : IDisposable {
     }
     public bool TryGet<T>(int id, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGet((int)id, out var nodeData)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
         node = default;
         return false;
     }
-    public T Get<T>(INodeDataExternal nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData);
+    public T Get<T>(INodeDataExternal nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData, null);
     public IEnumerable<T> GetRelatedNodes<T>(Guid propertyId, Guid nodeId) { // used by mapper internally
         throw new NotImplementedException("GetRelated with propertyId is not implemented in NodeStore.");
     }
@@ -415,7 +414,7 @@ public class NodeStore : IDisposable {
         throw new NotImplementedException("GetRelated with propertyId is not implemented in NodeStore.");
     }
     public IEnumerable<T> GetRelated<T>(NodeDataWithRelations[] node) { // used by mapper internally
-        foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item);
+        foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item, null);
     }
 
     public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out Guid nodeId) {
@@ -432,7 +431,7 @@ public class NodeStore : IDisposable {
     }
     public bool TryGetFromAddress<T>(string address, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGetNodeDataFromAddress(address, out var nodeData)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
         node = default;
@@ -575,23 +574,31 @@ public class NodeStore : IDisposable {
     public void ReIndex(Guid id) => new Transaction(this).ReIndex(id);
 
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {
-         return Datastore.FileDownloadAsync(new (nodeId, propertyId), outStream);
+        return Datastore.FileDownloadAsync(new(nodeId, propertyId), outStream);
     }
     public async Task<byte[]> FileDownloadAsync(Guid nodeId, Guid propertyId) {
         using var ms = new MemoryStream();
         await FileDownloadAsync(nodeId, propertyId, ms);
         return ms.ToArray();
     }
-    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(new (nodeId, propertyId));
+    public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(new(nodeId, propertyId));
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new (nodeId, propertyId), source, sourceFileKey, fileName);
+    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
     public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
     public async Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
         using var stream = File.OpenRead(filePath);
         newFileName = newFileName ?? Path.GetFileName(filePath);
         await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
     }
+    public async Task FileUploadAsync(FileValue file, string localFilePath, string? fileName = null) {
+        if (file.PropertyPath == null) throw new Exception("PropertyPath is null. Insert node to data store first. ");
+        using var stream = File.OpenRead(localFilePath);
+        await Datastore.FileUploadAsync(file.PropertyPath, stream, fileName ?? Path.GetFileName(localFilePath));
+    }
+
+
+
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream source, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileName);
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileName);
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, sourceFileKey, fileName);

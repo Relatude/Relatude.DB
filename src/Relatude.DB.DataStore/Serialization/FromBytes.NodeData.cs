@@ -208,7 +208,7 @@ public static partial class FromBytes {
             PropertyType.Double => BitConverter.ToDouble(bytes),
             PropertyType.Float => BitConverter.ToSingle(bytes),
             PropertyType.TimeSpan => new TimeSpan(BitConverter.ToInt64(bytes)),
-            PropertyType.File => FilePropertyModel.GetValue(bytes),
+            PropertyType.File => FilePropertyModel.GetValue(bytes, parent.CreatePropertyPath(propDef.Id)),
             PropertyType.ByteArray => bytes,
             PropertyType.FloatArray => FloatArrayPropertyModel.GetValue(bytes),
             PropertyType.InnerNodes => innerNodesPropertyModelGetValue(bytes, datamodel, (InnerNodesPropertyModel)propDef, parent),
@@ -225,9 +225,15 @@ public static partial class FromBytes {
         if (count != count2 || count > 100000 || count < 0) throw new Exception("Binary data corruption. ");
         var nodes = new List<NodeData>(count);
         for (int i = 0; i < count; i++) {
-            var nodeData = NodeData(datamodel, ms, parent.CreatePropertyPath(propDef.Id)) as NodeData; // recursive ( inner of inner nodes )
-            if (nodeData is null) throw new Exception("Internal error. Failed to read inner node data. ");
-            nodes.Add(nodeData);
+            var nodeDataArray = ms.ReadByteArray();
+            try {
+                using var nodeMemStr = new MemoryStream(nodeDataArray);
+                var nodeData = NodeData(datamodel, nodeMemStr, parent.CreatePropertyPath(propDef.Id)) as NodeData; // recursive ( inner of inner nodes )
+                if (nodeData is null) throw new Exception("Internal error. Failed to read inner node data. ");
+                nodes.Add(nodeData);
+            } catch (Exception ex) { // just skip?...
+                throw new Exception("Failed to read inner node data at index " + i + ". ", ex);
+            }
         }
         var propertyPath = parent.CreatePropertyPath(propDef.Id);
         return propDef.CreateInnerNodeDataMap(propertyPath, nodes);
