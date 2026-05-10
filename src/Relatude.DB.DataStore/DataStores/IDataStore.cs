@@ -31,6 +31,9 @@ public interface IDataStore : IDisposable {
     IEnumerable<INodeDataExternal> Get(IEnumerable<int> __ids, QueryContext? ctx = null);
     IEnumerable<INodeDataExternal> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null);
 
+    bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null);
+    T GetValue<T>(PropertyPath path, QueryContext? ctx = null);
+
     bool Exists(Guid id, QueryContext? ctx = null);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
     bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null);

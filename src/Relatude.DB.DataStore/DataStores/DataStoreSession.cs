@@ -89,6 +89,8 @@ public class DataStoreSession : IDataStore {
     public IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null)
         => _datastore.Get(__ids, ctx ?? DefaultQueryContext);
 
+    public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) => _datastore.TryGetValue(path, out value, ctx ?? DefaultQueryContext);
+    public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) => _datastore.GetValue<T>(path, ctx ?? DefaultQueryContext);
 
     public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileKey, fileName, ctx ?? DefaultQueryContext);
     public Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileName, ctx ?? DefaultQueryContext);

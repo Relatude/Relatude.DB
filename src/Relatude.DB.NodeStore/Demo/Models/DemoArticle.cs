@@ -4,7 +4,6 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
-
 public interface IDemoArticle {
 
     public Guid Id { get; set; }

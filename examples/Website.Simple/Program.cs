@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
@@ -38,7 +39,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     art.Paragraphs.Add(paraGraph);
     db.Insert(art);
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-    var fv=await db.FileUploadAsync(art.File, filePath);
+    var fv = await db.FileUploadAsync(art.File, filePath);
     await db.FileUploadAsync(art.Paragraphs.First().File, filePath);
     return art.File.IsEmpty ? "File upload failed" : "Inserted article with file";
 
@@ -48,10 +49,44 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var results = db.Query<DemoArticle>().WhereSearch("Ole").Execute().ToArray();
     return results;
 });
-app.MapGet("/List", (RelatudeDBContext ctx) => {
+app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     var db = ctx.Database;
-    var results = db.Query<IDemoArticle>().Execute().ToArray();    
-    return results;
+    var results = db.Query<IDemoArticle>().Execute().ToArray();
+    var html = new StringBuilder();
+    html.Append("<html><body>");
+    foreach (var item in results) {
+        html.Append($"<h2>{item.Title}</h2>");
+        html.Append($"<p>{item.Content}</p>");
+        if (!item.File.IsEmpty) {
+            var fileUrl = $"Image/{item.File.PropertyPath}";
+            // thumbnail::
+            html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
+            html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
+        }
+        foreach (var para in item.Paragraphs) {
+            html.Append($"<h3>Paragraph: {para.Code}</h3>");
+            if (!para.File.IsEmpty) {
+                var fileUrl = $"Image/{para.File.PropertyPath}";
+                // thumbnail::
+                html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
+                html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
+            }
+        }
+    }
+    html.Append("</body></html>");
+    res.Headers.ContentType = "text/html; charset=utf-8";
+    return html.ToString();
+});
+app.MapGet("/Image/{propPath}", async (RelatudeDBContext ctx, string propPath) => {
+    //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
+    //return Results.File(filePath, "image/png");
+    var db = ctx.Database;
+    if (!PropertyPath.TryParse(propPath, out var propertyPath)) {
+        return Results.BadRequest("Invalid property path");
+    }
+    var fileValue = db.GetValue<FileValue>(propertyPath);
+    var stream = await db.GetFileDownloadStream(fileValue);
+    return Results.Stream(stream, fileValue.Name);
 });
 
 

@@ -12,6 +12,7 @@ using Relatude.DB.Transactions;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.IO.Pipelines;
 using System.Linq.Expressions;
 using static Relatude.DB.Native.Models.CollectionsToCultures;
 
@@ -418,6 +419,10 @@ public class NodeStore : IDisposable {
         foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item, null);
     }
 
+    public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value) => Datastore.TryGetValue(path, out value);
+    public T GetValue<T>(PropertyPath path) => Datastore.GetValue<T>(path);
+    public T GetValue<T>(string path) => Datastore.GetValue<T>(PropertyPath.Parse(path));
+
     public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out Guid nodeId) {
         return Datastore.TryGetNodeIdFromAddress(address, out nodeId);
     }
@@ -613,6 +618,18 @@ public class NodeStore : IDisposable {
     public Task<byte[]> FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id);
     public Task FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression, Stream outStream) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression, outStream);
     public Task<byte[]> FileDownloadAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDownloadAsync(Mapper.GetIdGuid(node), expression);
+    public async Task<FileValue> FileDownloadAsync(FileValue file, string localFilePath, string? fileName = null) {
+        if (file.PropertyPath == null) throw new Exception("File cannot be uploaded as node is not yet inserted to the database. ");
+        using var stream = File.OpenRead(localFilePath);
+        return await Datastore.FileDownloadAsync(file.PropertyPath, stream);
+    }
+    public Task<Stream> GetFileDownloadStream(FileValue file) {
+        if (file.PropertyPath == null) throw new Exception("File cannot be downloaded as node is not yet inserted to the database. ");
+        var pipe = new Pipe();
+        _ = Datastore.FileDownloadAsync(file.PropertyPath, pipe.Writer.AsStream())
+            .ContinueWith(t => pipe.Writer.CompleteAsync(t.IsFaulted ? t.Exception : null));
+        return Task.FromResult(pipe.Reader.AsStream());
+    }
     public Task FileDeleteAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDeleteAsync(Mapper.GetIdGuid(node), expression);
 
     public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(new(nodeId, propertyId));
