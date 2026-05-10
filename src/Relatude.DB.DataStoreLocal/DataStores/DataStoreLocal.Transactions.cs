@@ -250,7 +250,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     void validateInnerContentUniqueKeyConstrains(INodeDataInternal node) {
-        var props = Datamodel.GetInnerNodesProps(node.NodeType);
+        var props = Datamodel.GetEmbeddedProps(node.NodeType);
         if (props.Length == 0) return;
         try {
             foreach (var item in props) {

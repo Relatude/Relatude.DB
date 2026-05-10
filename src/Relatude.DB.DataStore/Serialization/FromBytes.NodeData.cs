@@ -211,15 +211,15 @@ public static partial class FromBytes {
             PropertyType.File => FilePropertyModel.GetValue(bytes, parent.CreatePropertyPath(propDef.Id)),
             PropertyType.ByteArray => bytes,
             PropertyType.FloatArray => FloatArrayPropertyModel.GetValue(bytes),
-            PropertyType.InnerNodes => innerNodesPropertyModelGetValue(bytes, datamodel, (InnerNodesPropertyModel)propDef, parent),
+            PropertyType.Embedded => innerNodesPropertyModelGetValue(bytes, datamodel, (EmbeddedPropertyModel)propDef, parent),
             _ => throw new NotSupportedException("Reading property type " + propType + " is not supported. "),
         };
     }
-    private static IInnerNodeDataMap innerNodesPropertyModelGetValue(byte[] bytes, Datamodel datamodel, InnerNodesPropertyModel propDef, NodePath parent) {
+    private static IInnerNodeDataMap innerNodesPropertyModelGetValue(byte[] bytes, Datamodel datamodel, EmbeddedPropertyModel propDef, NodePath parent) {
         var ms = new MemoryStream(bytes);
         var version = ms.ReadInt();
         if (version != ToBytes.innerNodesPropertyModelGetBytes_VERSION)
-            throw new NotSupportedException("Version " + version + " of InnerNodes property type is not supported. ");
+            throw new NotSupportedException("Version " + version + " of Embedded property type is not supported. ");
         var count = ms.ReadInt();
         var count2 = ms.ReadInt();
         if (count != count2 || count > 100000 || count < 0) throw new Exception("Binary data corruption. ");
@@ -257,7 +257,7 @@ public static partial class FromBytes {
             PropertyType.ByteArray => ByteArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.FloatArray => FloatArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.File => FilePropertyModel.ForceValueType(value, out _),
-            PropertyType.InnerNodes => InnerNodesPropertyModel.ForceValueType(value, out _),
+            PropertyType.Embedded => EmbeddedPropertyModel.ForceValueType(value, out _),
             _ => throw new NotSupportedException("It is not possible to force type \"" + valueType + "\". "),
         };
     }

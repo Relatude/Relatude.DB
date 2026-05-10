@@ -4,26 +4,26 @@ using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Nodes;
 
-interface IInnerNodesMap {
+interface IEmbeddedMap {
     PropertyPath? PropertyPath { get; }
 }
-interface IInnerNodes {
+interface IEmbedded {
 }
-public class InnerNodes<TValue> : InnerNodes<Guid, TValue>, IInnerNodes where TValue : notnull {
-    public InnerNodes() { }
-    public InnerNodes(Guid keyPropertyId, InnerNodeDataMap<Guid> nodeDataMap, NodeMapper mapper) : base(keyPropertyId, nodeDataMap, mapper) {
+public class Embedded<TValue> : Embedded<Guid, TValue>, IEmbedded where TValue : notnull {
+    public Embedded() { }
+    public Embedded(Guid keyPropertyId, InnerNodeDataMap<Guid> nodeDataMap, NodeMapper mapper) : base(keyPropertyId, nodeDataMap, mapper) {
     }
 }
-public class InnerNodes<TKey, TValue> : IEnumerable<TValue>, IInnerNodesMap where TKey : notnull
+public class Embedded<TKey, TValue> : IEnumerable<TValue>, IEmbeddedMap where TKey : notnull
 where TValue : notnull {
     InnerNodeDataMap<TKey>? _nodeDataMap;
     NodeMapper? _mapper;
     List<TValue>? _raw;
-    public InnerNodes() {
+    public Embedded() {
         _raw = [];
     }
     public PropertyPath? PropertyPath => _nodeDataMap?.PropertyPath;
-    public InnerNodes(Guid keyPropertyId, InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
+    public Embedded(Guid keyPropertyId, InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
         _nodeDataMap = nodeDataMap;
         _mapper = mapper;
     }
@@ -33,9 +33,9 @@ where TValue : notnull {
                 var nodeData = _nodeDataMap[key];
                 return (TValue)_mapper.CreateObjectFromNodeData(nodeData, _nodeDataMap.PropertyPath);
             } else if (_raw != null) {
-                throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+                throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
             } else {
-                throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+                throw new InvalidOperationException("Embedded is not properly initialized. ");
             }
         }
         set {
@@ -45,9 +45,9 @@ where TValue : notnull {
                 if (!EqualityComparer<TKey>.Default.Equals(_nodeDataMap.EvalKey(nd), key)) throw new ArgumentException("The provided key does not match the value key.", nameof(key));
                 _nodeDataMap[key] = nd;
             } else if (_raw != null) {
-                throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+                throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
             } else {
-                throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+                throw new InvalidOperationException("Embedded is not properly initialized. ");
             }
         }
     }
@@ -62,7 +62,7 @@ where TValue : notnull {
             if (data is not NodeData nodeData) throw new ArgumentException("The value must be of type NodeData.");
             _nodeDataMap.Add(nodeData);
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public void Clear() {
@@ -71,21 +71,21 @@ where TValue : notnull {
         } else if (_nodeDataMap != null) {
             _nodeDataMap.Clear();
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public bool Contains(TKey key) {
         if (_raw != null) {
-            throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null) {
             return _nodeDataMap.ContainsKey(key);
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public IEnumerable<KeyValuePair<TKey, TValue>> KeysAndValues() {
         if (_raw != null) {
-            throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
             foreach (var node in _nodeDataMap) {
                 var key = _nodeDataMap.EvalKey(node);
@@ -93,21 +93,21 @@ where TValue : notnull {
                 yield return new KeyValuePair<TKey, TValue>(key, value);
             }
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public bool Remove(TKey key) {
         if (_raw != null) {
-            throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null) {
             return _nodeDataMap.Remove(key);
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value) {
         if (_raw != null) {
-            throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
             if (_nodeDataMap.TryGetValue(key, out var node)) {
                 value = (TValue)_mapper.CreateObjectFromNodeData(node, _nodeDataMap.PropertyPath);
@@ -116,7 +116,7 @@ where TValue : notnull {
             value = default;
             return false;
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
     public InnerNodeDataMap<TKey> GetNodeDataMap(PropertyPath propPath, Guid keyPropertyId, NodeMapper mapper) {
@@ -130,7 +130,7 @@ where TValue : notnull {
         } else if (_nodeDataMap != null) {
             return _nodeDataMap;
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
 
@@ -139,13 +139,13 @@ where TValue : notnull {
             foreach (var node in _raw) {
                 yield return node;
             }
-            //throw new InvalidOperationException("Cannot access InnerNodes by key until node is persisted to datastore. ");
+            //throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null && _mapper != null) {
             foreach (var nodeData in _nodeDataMap) {
                 yield return (TValue)_mapper.CreateObjectFromNodeData(nodeData, _nodeDataMap.PropertyPath);
             }
         } else {
-            throw new InvalidOperationException("InnerNodes is not properly initialized. ");
+            throw new InvalidOperationException("Embedded is not properly initialized. ");
         }
     }
 

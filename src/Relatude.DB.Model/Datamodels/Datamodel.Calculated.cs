@@ -80,41 +80,41 @@ public partial class Datamodel {
         }
     }
     void calculateInnerNodeTypesAndPropertyKeys() {
-        // looking up KeyPropertyId for InnerNodesPropertyModel:
-        foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.InnerNodes)) {
-            if (p is not InnerNodesPropertyModel inp) throw new Exception("InnerNodes property is not an InnerNodesPropertyModel");
+        // looking up KeyPropertyId for EmbeddedPropertyModel:
+        foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.Embedded)) {
+            if (p is not EmbeddedPropertyModel inp) throw new Exception("Embedded property is not an EmbeddedPropertyModel");
             if (inp.InnerNodeTypesNames != null) {
                 foreach (var typeName in inp.InnerNodeTypesNames) {
                     if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
-                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
+                        throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
                     }
                     inp.InnerNodeTypes.Add(nodeType.Id);
                 }
                 foreach (var typeId in inp.InnerNodeTypes) {
                     if (!NodeTypes.TryGetValue(typeId, out var nodeType)) {
-                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
+                        throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
                     }
                 }
-                switch (inp.InnerNodesValueType) {
-                    case InnerNodesValueType.InnerNodeList:
+                switch (inp.EmbeddedValueType) {
+                    case EmbeddedValueType.InnerNodeList:
                         inp.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
                         break;
-                    case InnerNodesValueType.InnerNodeMap:
+                    case EmbeddedValueType.InnerNodeMap:
                         var bestCommonBase = FindFirstCommonBase(inp.InnerNodeTypes);
                         if (!string.IsNullOrWhiteSpace(inp.KeyPropertyName)) {
                             if (!bestCommonBase.AllPropertiesByName.TryGetValue(inp.KeyPropertyName, out var keyProp)) {
-                                throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " refers to a key property name that is not found in the common base type of the inner node types: " + inp.KeyPropertyName);
+                                throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a key property name that is not found in the common base type of the inner node types: " + inp.KeyPropertyName);
                             }
                             inp.KeyProperty = keyProp.Id;
                         }
                         Type keyPropType = inp.GetKeyTypeOfPropertyIfPossible(this);
                         if (inp._keyTypeInCodeModelForLaterChecks != null) {
                             var _valueTypeKey = inp._keyTypeInCodeModelForLaterChecks.GetGenericArguments()[0];
-                            if (keyPropType != _valueTypeKey) throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has a key property type that does not match the expected value type for InnerNodeMap: " + keyPropType + " vs " + _valueTypeKey);
+                            if (keyPropType != _valueTypeKey) throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " has a key property type that does not match the expected value type for InnerNodeMap: " + keyPropType + " vs " + _valueTypeKey);
                         }
                         break;
                     default:
-                        throw new Exception("InnerNodes property " + p.GetFullNameBaseType(this) + " has an unsupported InnerNodesValueType: " + inp.InnerNodesValueType);
+                        throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " has an unsupported EmbeddedValueType: " + inp.EmbeddedValueType);
                 }
             }
         }

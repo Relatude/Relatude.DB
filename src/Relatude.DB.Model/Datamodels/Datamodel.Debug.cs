@@ -64,9 +64,9 @@ public partial class Datamodel {
         }
     }
     Dictionary<Guid, Guid[]> _innerNodePropsByTypeId = [];
-    public Guid[] GetInnerNodesProps(Guid nodeType) {
+    public Guid[] GetEmbeddedProps(Guid nodeType) {
         if(!_innerNodePropsByTypeId.TryGetValue(nodeType, out var props)) {
-            props = [.. NodeTypes[nodeType].AllProperties.Values.Where(p => p.PropertyType == PropertyType.InnerNodes).Select(p => p.Id)];
+            props = [.. NodeTypes[nodeType].AllProperties.Values.Where(p => p.PropertyType == PropertyType.Embedded).Select(p => p.Id)];
             _innerNodePropsByTypeId[nodeType] = props;
         }
         return props;

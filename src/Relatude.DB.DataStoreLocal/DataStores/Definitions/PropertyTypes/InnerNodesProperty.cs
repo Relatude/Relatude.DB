@@ -6,10 +6,10 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class InnerNodesProperty : Property {
-    public InnerNodesProperty(PropertyModel pm, Definition def) : base(pm, def) {
+internal class EmbeddedProperty : Property {
+    public EmbeddedProperty(PropertyModel pm, Definition def) : base(pm, def) {
     }
-    public override PropertyType PropertyType => PropertyType.InnerNodes;
+    public override PropertyType PropertyType => PropertyType.Embedded;
     public override object ForceValueType(object value, out bool changed) {
         if (value is IInnerNodeDataMap ndm) {
             changed = false;

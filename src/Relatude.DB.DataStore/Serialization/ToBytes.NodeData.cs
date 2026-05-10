@@ -82,7 +82,7 @@ public static partial class ToBytes {
             PropertyType.Float => BitConverter.GetBytes((float)value),
             PropertyType.StringArray => StringArrayPropertyModel.GetBytes((string[])value),
             PropertyType.File => FilePropertyModel.GetBytes((FileValue)value),
-            PropertyType.InnerNodes => innerNodesPropertyModelGetBytes((IInnerNodeDataMap)value, datamodel),
+            PropertyType.Embedded => innerNodesPropertyModelGetBytes((IInnerNodeDataMap)value, datamodel),
             _ => throw new NotSupportedException("Writing property type " + propType + " is not supported. "),
         };
     }

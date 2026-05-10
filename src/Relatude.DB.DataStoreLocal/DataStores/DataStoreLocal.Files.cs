@@ -16,7 +16,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileStore;
     }
-    public async Task FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
+    public async Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(target.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -30,8 +30,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, target);
         t.ForceUpdateProperty(target, fileValue);
         execute_outer(t, false, true, ctx, out _);
+        return fileValue;
     }
-    public async Task FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) {
+    public async Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(target.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -43,6 +44,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, target);
         t.ForceUpdateProperty(target, fileValue);
         execute_outer(t, false, true, ctx, out _);
+        return fileValue;
     }
     public async Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
@@ -54,11 +56,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(target, FileValue.Empty);
         execute_outer(t, false, true, ctx, out _);
     }
-    public Task FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) {
+    public async Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(target, ctx);
         if (fileValue.IsEmpty) throw new Exception("File value is empty");
         var fileStore = getFileStore(fileValue.StorageId);
-        return fileStore.ExtractAsync(fileValue, outStream);
+        await fileStore.ExtractAsync(fileValue, outStream);
+        return fileValue;
     }
     public async Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(target, ctx);

@@ -41,23 +41,23 @@ internal static class CodeUtils {
             PropertyType.FloatArray => "float[]",
             PropertyType.Decimal => "decimal",
             PropertyType.File => "Relatude.DB.Common.FileValue",
-            PropertyType.InnerNodes => getTypeNameInnerNodes(p, datamodel),
+            PropertyType.Embedded => getTypeNameEmbedded(p, datamodel),
             PropertyType.Relation => getTypeNameRelationCollection(p, datamodel),
             _ => throw new NotSupportedException("The type " + p.PropertyType + " is not supported by the code generator."),
         };
     }
-    static string getTypeNameInnerNodes(PropertyModel p, Datamodel dm) {
-        if (p is not InnerNodesPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not an InnerNodesPropertyModel.");
+    static string getTypeNameEmbedded(PropertyModel p, Datamodel dm) {
+        if (p is not EmbeddedPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not an EmbeddedPropertyModel.");
         var typeName = string.Empty;
-        switch (inp.InnerNodesValueType) {
-            case InnerNodesValueType.InnerNodeList:
-                typeName += nameWithoutGeneric<InnerNodes<object>>();
+        switch (inp.EmbeddedValueType) {
+            case EmbeddedValueType.InnerNodeList:
+                typeName += nameWithoutGeneric<Embedded<object>>();
                 typeName += "<";
                 typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
                 typeName += ">";
                 break;
-            case InnerNodesValueType.InnerNodeMap:
-                typeName += nameWithoutGeneric<InnerNodes<object, object>>();
+            case EmbeddedValueType.InnerNodeMap:
+                typeName += nameWithoutGeneric<Embedded<object, object>>();
                 typeName += "<";
                 typeName += GetInnerPropertyKeyPropertyTypeName(inp, dm);
                 typeName += ", ";
@@ -65,15 +65,15 @@ internal static class CodeUtils {
                 typeName += ">";
                 break;
             default:
-                throw new Exception("Unknown InnerNodesValueType " + inp.InnerNodesValueType);
+                throw new Exception("Unknown EmbeddedValueType " + inp.EmbeddedValueType);
         }
         return typeName;
     }
-    public static string GetInnerPropertyKeyPropertyTypeName(InnerNodesPropertyModel p, Datamodel dm) {
-        switch (p.InnerNodesValueType) {
-            case InnerNodesValueType.InnerNodeList:
+    public static string GetInnerPropertyKeyPropertyTypeName(EmbeddedPropertyModel p, Datamodel dm) {
+        switch (p.EmbeddedValueType) {
+            case EmbeddedValueType.InnerNodeList:
                 return typeof(Guid).FullName!;
-            case InnerNodesValueType.InnerNodeMap:
+            case EmbeddedValueType.InnerNodeMap:
                 if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeGuidId) {
                     return typeof(Guid).FullName!;
                 } else if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeIntId) {
@@ -81,8 +81,8 @@ internal static class CodeUtils {
                 } else {
                     if (p.KeyProperty != Guid.Empty) {
                         if (dm.Properties.TryGetValue(p.KeyProperty, out var keyProp)) {
-                            if (keyProp.PropertyType == PropertyType.InnerNodes) // prevent recursive loop....
-                                throw new Exception("Key property for InnerNodeMap cannot be of type InnerNodes.");
+                            if (keyProp.PropertyType == PropertyType.Embedded) // prevent recursive loop....
+                                throw new Exception("Key property for InnerNodeMap cannot be of type Embedded.");
                             return GetTypeName(keyProp, dm);
                         } else {
                             throw new Exception($"Key property with id {p.KeyProperty} not found in datamodel");
@@ -92,7 +92,7 @@ internal static class CodeUtils {
                     }
                 }
             default:
-                throw new Exception("Unknown InnerNodesValueType: " + p.InnerNodesValueType);
+                throw new Exception("Unknown EmbeddedValueType: " + p.EmbeddedValueType);
         }
     }
     static string nameWithoutGeneric<T>() {
@@ -195,7 +195,7 @@ internal static class CodeUtils {
         sb.AppendLine("static Guid " + GuidName(nodeDef.Id) + " = Guid.Parse(\"" + nodeDef.Id + "\");");
         foreach (var p in nodeDef.AllProperties) {
             sb.AppendLine("static Guid " + GuidName(p.Key) + " = Guid.Parse(\"" + p.Key + "\");");
-            if (p.Value is InnerNodesPropertyModel inp) {
+            if (p.Value is EmbeddedPropertyModel inp) {
                 sb.AppendLine("static Guid " + GuidName(p.Key) + "_KeyProperty = Guid.Parse(\"" + inp.KeyProperty + "\");");
             }
         }

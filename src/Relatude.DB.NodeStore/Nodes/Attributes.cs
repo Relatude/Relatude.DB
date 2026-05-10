@@ -177,7 +177,7 @@ public class FilePropertyAttribute : PropertyAttribute {
 
 }
 [AttributeUsage(AttributeTargets.Property)]
-public class InnerNodesPropertyAttribute : PropertyAttribute {
+public class EmbeddedPropertyAttribute : PropertyAttribute {
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
     public string[]? InnerTypeIds { get; set; }    
 }
@@ -187,7 +187,7 @@ public enum KeyPropertyType {
     NodeProperty,
 }
 [AttributeUsage(AttributeTargets.Property)]
-public class InnerNodesMapPropertyAttribute : InnerNodesPropertyAttribute {
+public class EmbeddedMapPropertyAttribute : EmbeddedPropertyAttribute {
     public KeyPropertyType KeyType { get; set; }
     public string? KeyProperty { get; set; }    
 }

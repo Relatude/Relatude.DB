@@ -43,6 +43,16 @@ internal static class MapperGen {
         sb.Append(", " + typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store");
         sb.Append(", " + typeof(PropertyPath).Namespace + "." + nameof(PropertyPath) + "? propertyPath");
         sb.AppendLine("){");
+
+        if (nodeDef.IsInterface && false) { // TODO: in progress.. would optimize interface models, and introduce changetracking
+            var shellTypeName = typeof(INodeShellAccess).Namespace + "." + nameof(INodeShellAccess);
+            sb.AppendLine("if(obj is not " + shellTypeName + " shell) throw new ArgumentException(\"Expected type: " + shellTypeName + "\");");
+            sb.AppendLine("return shell.__NodeDataShell.NodeData;");
+            sb.AppendLine("}"); // end method
+            return;
+        }
+
+
         var noneRelProps = nodeDef.AllProperties.Values
             .Where(p => (!p.Internal) && p.PropertyType != PropertyType.Relation);
         sb.AppendLine("var values = new " + typeof(Properties<>).FullName!.Replace("`1", "") + "<object>(" + noneRelProps.Count() + ");");
@@ -73,12 +83,12 @@ internal static class MapperGen {
         foreach (var p in noneRelProps) {
             if (p is IntegerPropertyModel intP && intP.IsEnum) { // if enum need cast to int
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (int)node." + p.CodeName + ");");
-            } else if (p is InnerNodesPropertyModel) {
+            } else if (p is EmbeddedPropertyModel) {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
                 var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
                 var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(InnerNodes<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(Embedded<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
                 sb.AppendLine("}");
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
@@ -228,11 +238,12 @@ internal static class MapperGen {
                         sb.Append("obj." + p.CodeName + " = ");
                         sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")v" + CodeUtils.GuidName(p.Id) + ");");
                     }
-                } else if (p.PropertyType == PropertyType.InnerNodes) {
+                } else if (p.PropertyType == PropertyType.Embedded) {
                     sb.AppendLine("{");
                     sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
-                    var keyType = CodeUtils.GetInnerPropertyKeyPropertyTypeName((InnerNodesPropertyModel)p, dm);
-                    sb.AppendLine("var vT = (Relatude.DB.Datamodels.InnerNodeDataMap<" + keyType + ">)v;");
+                    var keyType = CodeUtils.GetInnerPropertyKeyPropertyTypeName((EmbeddedPropertyModel)p, dm);
+                    var innerTypeMapName = typeof(InnerNodeDataMap<object>).Namespace + "." + nameof(InnerNodeDataMap<object>) + "<" + keyType + ">";
+                    sb.AppendLine("var vT = (" + innerTypeMapName + ")v;");
                     sb.AppendLine("obj." + p.CodeName + " = new(" + CodeUtils.GuidName(p.Id) + "_KeyProperty, vT, store.Mapper);");
                     sb.AppendLine("} else{ ");
                     sb.AppendLine("obj." + p.CodeName + " = [];");

@@ -2,7 +2,7 @@
 using System.Text.Json.Serialization;
 namespace Relatude.DB.Datamodels.Properties;
 
-public enum InnerNodesValueType {
+public enum EmbeddedValueType {
     //Array,
     //List,
     InnerNodeList,
@@ -14,9 +14,9 @@ public enum IncludeTypeOptions {
     DescendingTypesOnly
 }
 
-public class InnerNodesPropertyModel : PropertyModel {
+public class EmbeddedPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; } = false;
-    public InnerNodesValueType InnerNodesValueType { get; set; }
+    public EmbeddedValueType EmbeddedValueType { get; set; }
     public List<Guid> InnerNodeTypes { get; set; } = [];
     public List<string>? InnerNodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
@@ -28,7 +28,7 @@ public class InnerNodesPropertyModel : PropertyModel {
 
 
     public bool PrependOnAdd { get; set; } = false;
-    public override PropertyType PropertyType { get => PropertyType.InnerNodes; }
+    public override PropertyType PropertyType { get => PropertyType.Embedded; }
 
     public override string? GetDefaultDeclaration() => "[]";
     public override object? GetDefaultValue() => null;
@@ -71,7 +71,7 @@ public class InnerNodesPropertyModel : PropertyModel {
         } else {
             var bestCommonBase = dm.FindFirstCommonBase(InnerNodeTypes);
             if (!bestCommonBase.AllProperties.TryGetValue(KeyProperty, out var keyPropDef))
-                throw new Exception("InnerNodes property " + GetFullNameBaseType(dm) + " refers to a key property that is not found in the common base type of the inner node types: " + KeyProperty);
+                throw new Exception("Embedded property " + GetFullNameBaseType(dm) + " refers to a key property that is not found in the common base type of the inner node types: " + KeyProperty);
             var keyType = keyPropDef.PropertyType;
             _cachedKeyPropType = keyType;
             return keyType switch {

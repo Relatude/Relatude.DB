@@ -9,8 +9,8 @@ public interface IDemoArticle {
 
     public Guid Id { get; set; }
 
-    public string Title { get; set; } 
-    public string Content { get; set; } 
+    public string Title { get; set; }
+    public string Content { get; set; }
     public int Size { get; set; }
 
     public NodeMeta Meta { get; }
@@ -19,18 +19,16 @@ public interface IDemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; }
 
-    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public InnerNodes<string, IDemoParagraph> Paragraphs { get; } 
+    [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public Embedded<string, IDemoParagraph> Paragraphs { get; }
 
 }
 public interface IDemoParagraph {
     public Guid Id { get; set; }
     public FileValue File { get; set; }
-    public string Code { get; set; } 
-
-    //[InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    //public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
-
+    public string Code { get; set; }
+    //[EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    //public Embedded<string, DemoParagraph> SubParagraphs { get; set; } = [];
 }
 
 
@@ -48,8 +46,8 @@ public class DemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
 
-    [InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public InnerNodes<string, DemoParagraph> Paragraphs { get; set; } = [];
+    [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public Embedded<string, DemoParagraph> Paragraphs { get; set; } = [];
 
 
     public Tree.Parent Parent { get; set; } = new();
@@ -68,8 +66,8 @@ public class DemoParagraph {
     public FileValue File { get; set; }
     public string Code { get; set; } = string.Empty;
 
-    //[InnerNodesMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    //public InnerNodes<string, DemoParagraph> SubParagraphs { get; set; } = [];
+    //[EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    //public Embedded<string, DemoParagraph> SubParagraphs { get; set; } = [];
 
 }
 

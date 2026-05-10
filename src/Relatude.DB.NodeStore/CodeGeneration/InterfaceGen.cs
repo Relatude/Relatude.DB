@@ -174,18 +174,20 @@ internal static class InterfaceGen {
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine(" }");
                 sb.AppendLine(" }");
-            } else if (p.PropertyType == PropertyType.InnerNodes) {
+            } else if (p.PropertyType == PropertyType.Embedded) {
+                sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.AppendLine("get {");
-                sb.AppendLine(" var v= " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ");");
-                sb.AppendLine("if(v == null) {");
-                sb.AppendLine("v = [];");
-                sb.AppendLine(shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ", v);");
+                var keyType = CodeUtils.GetInnerPropertyKeyPropertyTypeName((EmbeddedPropertyModel)p, datamodel);
+                var innerTypeMapName = typeof(InnerNodeDataMap<object>).Namespace + "." + nameof(InnerNodeDataMap<object>) + "<" + keyType + ">";
+                sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + innerTypeMapName + ">(" + pIdName + ");");
+                sb.AppendLine("if (v == null) _" + p.CodeName + " = [];");
+                sb.AppendLine("else _" + p.CodeName + " = new (" + CodeUtils.GuidName(p.Id) + "_KeyProperty, v, __NodeDataShell.Store.Mapper);");
                 sb.AppendLine("}");
-                sb.AppendLine("return v;");
+                sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine("} ");
-
-                sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");
+                //sb.AppendLine("set { throw new Exception(\"Inner nodes properties cannot be set. \"); } ");
                 sb.AppendLine(" }");
 
             } else {

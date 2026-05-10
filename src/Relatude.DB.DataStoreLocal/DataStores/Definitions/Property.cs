@@ -120,7 +120,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is RelationPropertyModel ra) return new RelationProperty(ra, def);
             if (pm is FilePropertyModel fa) return new FileProperty(fa, def);
             if (pm is FloatArrayPropertyModel far) return new FloatArrayProperty(far, def);
-            if(pm is InnerNodesPropertyModel inn) return new InnerNodesProperty(inn, def);
+            if(pm is EmbeddedPropertyModel inn) return new EmbeddedProperty(inn, def);
             throw new Exception("Unknown property type. ");
         }
         public abstract void ValidateValue(object value);

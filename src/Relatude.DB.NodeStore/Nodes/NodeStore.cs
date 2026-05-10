@@ -362,6 +362,7 @@ public class NodeStore : IDisposable {
     public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
     public object Get(IdKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
 
+    public T Get<T>(T node) where T : notnull => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(Mapper.GetIdGuid(node)), null);
     public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
     public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
     public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
@@ -584,17 +585,17 @@ public class NodeStore : IDisposable {
     public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(new(nodeId, propertyId));
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
-    public Task FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
-    public async Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
+    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
+    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
+    public async Task<FileValue> FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
         using var stream = File.OpenRead(filePath);
         newFileName = newFileName ?? Path.GetFileName(filePath);
-        await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
+        return await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
     }
-    public async Task FileUploadAsync(FileValue file, string localFilePath, string? fileName = null) {
+    public async Task<FileValue> FileUploadAsync(FileValue file, string localFilePath, string? fileName = null) {
         if (file.PropertyPath == null) throw new Exception("File cannot be uploaded as node is not yet inserted to the database. ");
         using var stream = File.OpenRead(localFilePath);
-        await Datastore.FileUploadAsync(file.PropertyPath, stream, fileName ?? Path.GetFileName(localFilePath));
+        return await Datastore.FileUploadAsync(file.PropertyPath, stream, fileName ?? Path.GetFileName(localFilePath));
     }
 
 
