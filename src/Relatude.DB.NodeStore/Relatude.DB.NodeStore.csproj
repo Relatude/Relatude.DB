@@ -17,10 +17,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="System.IO.Pipelines" Version="8.0.0" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
 	</ItemGroup>
 

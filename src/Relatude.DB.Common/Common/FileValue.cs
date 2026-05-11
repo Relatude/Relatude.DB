@@ -7,7 +7,7 @@ public class FileValue {
         Indexed = false;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileBaseFormats.Unknown;
+        Type = FileType.Unknown;
         Size = 0;
         Height = 0;
         Width = 0;
@@ -22,7 +22,7 @@ public class FileValue {
         Name = name;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileBaseFormats.Unknown;
+        Type = FileType.Unknown;
         Size = size;
         Height = 0;
         Width = 0;
@@ -81,7 +81,17 @@ public class FileValue {
     public string Name { get; set; }
     public string TextExtract { get; set; }
     public string MetaJSON { get; set; }
-    public FileBaseFormats Type { get; set; }
+    public FileType Type { get; set; }
+    public FileFormat Format {
+        get {
+            return FileFormatUtil.GetDetailedFormatFromFileName(Name);
+        }
+    }
+    public string ContentType{
+        get {
+            return FileFormatUtil.GetContentTypeFromFormat(Format);
+        }
+    }
     public int Height { get; set; }
     public int Width { get; set; }
 
@@ -124,7 +134,7 @@ public class FileValue {
         v.Name = br.ReadString();
         v.TextExtract = br.ReadString();
         v.MetaJSON = br.ReadString();
-        v.Type = (FileBaseFormats)br.ReadInt32();
+        v.Type = (FileType)br.ReadInt32();
         v.Size = br.ReadInt64();
         v.Height = br.ReadInt32();
         v.Width = br.ReadInt32();

@@ -84,9 +84,10 @@ app.MapGet("/Image/{propPath}", async (RelatudeDBContext ctx, string propPath) =
     if (!PropertyPath.TryParse(propPath, out var propertyPath)) {
         return Results.BadRequest("Invalid property path");
     }
-    var fileValue = db.GetValue<FileValue>(propertyPath);
-    var stream = await db.GetFileDownloadStream(fileValue);
-    return Results.Stream(stream, fileValue.Name);
+    var f = db.GetValue<FileValue>(propertyPath);
+    var stream = await db.OpenFileDownloadStreamAsync(f);
+    
+    return Results.Stream(stream, f.ContentType, enableRangeProcessing: true);
 });
 
 

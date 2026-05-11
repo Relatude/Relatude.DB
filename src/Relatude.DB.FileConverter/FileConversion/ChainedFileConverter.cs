@@ -2,12 +2,12 @@
 namespace Relatude.DB.FileConverter;
 
 public class ChainedFileConverter : IFileConverter {
-    public bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed) {
+    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         // Only support Document to Text conversion, and only for specific formats
-        if (outBase != FileBaseFormats.Document || outDetailed != FileFormat.Txt) {
+        if (outBase != FileType.Document || outDetailed != FileFormat.Txt) {
             return false;
         }
-        if (inBase == FileBaseFormats.Document) {
+        if (inBase == FileType.Document) {
             return inDetailed switch {
                 FileFormat.Doc => true,
                 FileFormat.Docx => true,

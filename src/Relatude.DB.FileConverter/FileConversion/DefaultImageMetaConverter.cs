@@ -2,11 +2,11 @@
 namespace Relatude.DB.FileConverter;
 
 public class DefaultImageMetaConverter : IFileConverter {
-    public bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed) {
-        if (outBase != FileBaseFormats.Image || outDetailed != FileFormat.Txt) {
+    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
+        if (outBase != FileType.Image || outDetailed != FileFormat.Txt) {
             return false;
         }
-        if (inBase == FileBaseFormats.Image) {
+        if (inBase == FileType.Image) {
             return inDetailed switch {
                 FileFormat.Jpeg => true,
                 FileFormat.Png => true,

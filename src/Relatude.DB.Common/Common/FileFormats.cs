@@ -1,6 +1,6 @@
 ﻿namespace Relatude.DB.Common;
 
-public enum FileBaseFormats {
+public enum FileType {
     Unknown,
     Document,
     Image,
@@ -39,7 +39,7 @@ public enum FileFormat {
     Unknown,
 }
 public static class FileFormatUtil {
-    public static FileBaseFormats GetBaseFormatFromFileName(string fileNameWithExtension) {
+    public static FileType GetBaseFormatFromFileName(string fileNameWithExtension) {
         var detailedFormat = GetDetailedFormatFromFileName(fileNameWithExtension);
         return GetBaseFormatFromDetailedFormat(detailedFormat);
     }
@@ -72,16 +72,43 @@ public static class FileFormatUtil {
             _ => FileFormat.Unknown, // This should probably be a different value or throw an exception since it's not a detailed format
         };
     }
-    public static FileBaseFormats GetBaseFormatFromDetailedFormat(FileFormat format) {
+    public static FileType GetBaseFormatFromDetailedFormat(FileFormat format) {
         return format switch {
-            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp => FileBaseFormats.Image,
-            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv => FileBaseFormats.Video,
-            FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileBaseFormats.Audio,
-            FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileBaseFormats.Document,
-            FileFormat.Unknown => FileBaseFormats.Unknown,
+            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp => FileType.Image,
+            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv => FileType.Video,
+            FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
+            FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
+            FileFormat.Unknown => FileType.Unknown,
             _ => throw new Exception("Internal error. Unhandled FileFormat value: " + format.ToString()), // This should never happen if all FileFormat values are covered
         };
     }
+
+    public static string GetContentTypeFromFormat(FileFormat fileFormat) => fileFormat switch {
+        FileFormat.Jpeg => "image/jpeg",
+        FileFormat.Png => "image/png",
+        FileFormat.Gif => "image/gif",
+        FileFormat.Bmp => "image/bmp",
+        FileFormat.Svg => "image/svg+xml",
+        FileFormat.Webp => "image/webp",
+        FileFormat.Mp4 => "video/mp4",
+        FileFormat.Avi => "video/x-msvideo",
+        FileFormat.Mov => "video/quicktime",
+        FileFormat.Wmv => "video/x-ms-wmv",
+        FileFormat.Flv => "video/x-flv",
+        FileFormat.Mp3 => "audio/mpeg",
+        FileFormat.Wav => "audio/wav",
+        FileFormat.Aac => "audio/aac",
+        FileFormat.Flac => "audio/flac",
+        FileFormat.Pdf => "application/pdf",
+        FileFormat.Doc => "application/msword",
+        FileFormat.Docx => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        FileFormat.Xls => "application/vnd.ms-excel",
+        FileFormat.Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        FileFormat.Ppt => "application/vnd.ms-powerpoint",
+        FileFormat.Pptx => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        FileFormat.Txt => "text/plain",
+        _ => "application/octet-stream",
+    };
 }
 public struct FormatPair : IEquatable<FormatPair> {
     public FormatPair(FileFormat from, FileFormat to) {

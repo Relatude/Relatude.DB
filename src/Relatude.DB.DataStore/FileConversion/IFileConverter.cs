@@ -18,7 +18,7 @@ public class FileConversionResult(FileConversionProgressInfo progressInfo, Strea
     public Stream? Output { get; } = output;
 }
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing
-    bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed);
+    bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(string key);
     Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs);
     Task<FileConversionProgressInfo> GetStatusAsync(FileIdWithAdjustment fileIdWithAdjustment);

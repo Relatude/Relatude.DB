@@ -1,9 +1,9 @@
 ﻿using Relatude.DB.Common;
 namespace Relatude.DB.FileConverter;
 public class DefaultImageConverter : IFileConverter {
-    public bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed) {
+    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         // basically only image conversions between the supported formats
-        if (inBase != FileBaseFormats.Image || outBase != FileBaseFormats.Image) {
+        if (inBase != FileType.Image || outBase != FileType.Image) {
             return false;
         }
         switch (inDetailed) {

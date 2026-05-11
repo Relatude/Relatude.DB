@@ -2,9 +2,9 @@
 namespace Relatude.DB.FileConverter;
 
 public class DefaultVideoConverter : IFileConverter {
-    public bool SupportsConversion(FileBaseFormats inBase, FileFormat inDetailed, FileBaseFormats outBase, FileFormat outDetailed) {
+    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         // basically only video conversions, but also thumbnail generation (video to image) is supported 
-        if (inBase != FileBaseFormats.Video || (outBase != FileBaseFormats.Video && outBase != FileBaseFormats.Image)) {
+        if (inBase != FileType.Video || (outBase != FileType.Video && outBase != FileType.Image)) {
             return false;
         }
         switch (inDetailed) {

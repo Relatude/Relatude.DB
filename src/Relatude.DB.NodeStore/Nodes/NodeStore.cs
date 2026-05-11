@@ -12,9 +12,7 @@ using Relatude.DB.Transactions;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.IO.Pipelines;
 using System.Linq.Expressions;
-using static Relatude.DB.Native.Models.CollectionsToCultures;
 
 
 namespace Relatude.DB.Nodes;
@@ -623,12 +621,12 @@ public class NodeStore : IDisposable {
         using var stream = File.OpenRead(localFilePath);
         return await Datastore.FileDownloadAsync(file.PropertyPath, stream);
     }
-    public Task<Stream> GetFileDownloadStream(FileValue file) {
+    public Task<Stream> OpenFileDownloadStreamAsync(FileValue file) {
         if (file.PropertyPath == null) throw new Exception("File cannot be downloaded as node is not yet inserted to the database. ");
-        var pipe = new Pipe();
-        _ = Datastore.FileDownloadAsync(file.PropertyPath, pipe.Writer.AsStream())
-            .ContinueWith(t => pipe.Writer.CompleteAsync(t.IsFaulted ? t.Exception : null));
-        return Task.FromResult(pipe.Reader.AsStream());
+        var stream = new WriteToReadStream();
+        _ = Datastore.FileDownloadAsync(file.PropertyPath, stream)
+            .ContinueWith(t => stream.Complete(t.IsFaulted ? t.Exception : null));
+        return Task.FromResult<Stream>(stream);
     }
     public Task FileDeleteAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileDeleteAsync(Mapper.GetIdGuid(node), expression);
 
