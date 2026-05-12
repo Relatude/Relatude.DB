@@ -21,7 +21,7 @@ public class MultiFileStore : IDisposable, IFileStore {
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, IReadStream sourceStream, string? fileName) {
         return await insertAsync(newFileId, sourceStream.Length, sourceStream.ReadAsync, fileName);
     }
-    public async Task<FileInsertResult> insertAsync(Guid fileId, long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
+    async Task<FileInsertResult> insertAsync(Guid fileId, long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
         var usedFileName = getSafeFilename(fileId, friendlyFileName);
         var fullPath = getFullPath(fileId, usedFileName);
         using var outStream = _ioProvider.OpenAppend(fullPath);
@@ -48,7 +48,7 @@ public class MultiFileStore : IDisposable, IFileStore {
     public async Task ExtractAsync(FileValue value, IAppendStream outStream) {
         await extractAsync(value, outStream.AppendAsyncNoChecksumOrLock);
     }
-    public async Task extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
+    async Task extractAsync(FileValue value, Func<byte[], int, Task> writeAsync) {
         var path = getFullPath(value);
         using var inStream = _ioProvider.OpenRead(path, 0);
         var bufferSize = 5 * 1024 * 1024; // 5MB buffer
@@ -101,7 +101,6 @@ public class MultiFileStore : IDisposable, IFileStore {
     }
     static byte[] stringToBytes(string value) => Encoding.UTF8.GetBytes(value);
     static string stringFromBytes(byte[] bytes) => Encoding.UTF8.GetString(bytes);
-
     public void Dispose() {
         _ioProvider.CloseAllOpenStreams();
     }

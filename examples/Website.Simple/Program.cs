@@ -39,7 +39,8 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     art.Paragraphs.Add(paraGraph);
     db.Insert(art);
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-    var fv = await db.FileUploadAsync(art.File, filePath);
+    var videoFilePath = @"C:\Users\ogulb\Videos\Captures\https___oslohificenterdemo.azurewebsites.net - Google Chrome 2023-04-28 15-24-26.mp4";
+    var fv = await db.FileUploadAsync(art.File, videoFilePath);
     await db.FileUploadAsync(art.Paragraphs.First().File, filePath);
     return art.File.IsEmpty ? "File upload failed" : "Inserted article with file";
 

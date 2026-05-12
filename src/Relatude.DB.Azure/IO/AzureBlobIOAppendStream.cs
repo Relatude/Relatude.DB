@@ -3,7 +3,7 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using System.Diagnostics;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+
 namespace Relatude.DB.IO {
     // this is optmized for append operations and scattered reads
     // it uses a write buffer to accumulate data before uploading to blob, reducing the effect of latency
@@ -21,10 +21,10 @@ namespace Relatude.DB.IO {
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
         long _maxBufferBeforeFlush = 1024 * 1024 * 20; // 20 mb
-        int _readBufferSize = 1024 * 50 * 2; // 50KB
+        int _readBufferSize = 1024 * 50 * 2; // 100KB
         long _readBufferOffset = 0;
-        byte[]? _readBuffer; // 50KB
-        object _lock = new();
+        byte[]? _readBuffer; // 100KB
+        readonly object _lock = new();
         ChecksumUtil _checkSum = new();
         public string FileKey { get; }
         public AzureBlobIOAppendStream(BlobContainerClient container, string blobName, string fileKey, bool lockBlob, Action<long> disposeCallback) {
@@ -96,7 +96,6 @@ namespace Relatude.DB.IO {
                         segmengStream.Write(segment, 0, read);
                         segmengStream.Position = 0;
                         segmengStream.SetLength(read);
-                        Stopwatch sw = Stopwatch.StartNew();
                         _appendBlobClient.AppendBlock(segmengStream, options);
                     }
                 }
@@ -120,7 +119,6 @@ namespace Relatude.DB.IO {
                     segmengStream.Write(segment, 0, read);
                     segmengStream.Position = 0;
                     segmengStream.SetLength(read);
-                    Stopwatch sw = Stopwatch.StartNew();
                     await _appendBlobClient.AppendBlockAsync(segmengStream, options);
                 }
             }
@@ -156,7 +154,6 @@ namespace Relatude.DB.IO {
                 // Download from blob:
                 var fitsInReadBuffer = count <= _readBufferSize;
                 var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
-                var sw = Stopwatch.StartNew();
                 if (fitsInReadBuffer) {
                     _readBufferOffset = position;
                     var lengthToRead = (int)Math.Min(this._length - position, _readBufferSize);
@@ -169,12 +166,10 @@ namespace Relatude.DB.IO {
             }
         }
         void download(byte[] buffer, long offset, int length) {
-            var sw = Stopwatch.StartNew();
             var options = new BlobDownloadOptions { Range = new HttpRange(offset, length), Conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId } };
             var binaryData = _appendBlobClient.DownloadContent(options).Value.Content;
             var stream = binaryData.ToStream();
             stream.Read(buffer, 0, length);
-            // _log(" - Appender Downloaded " + FileKey + " " + length.ToTransferString(sw)+ " offset:" + offset.To1000N());
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();
         public void WriteChecksum() => _checkSum.WriteChecksum(this);

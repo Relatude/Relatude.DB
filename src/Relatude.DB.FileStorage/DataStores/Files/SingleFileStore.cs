@@ -48,6 +48,7 @@ public class SingleFileStore : IDisposable, IFileStore {
         if (totalBytesRead != length) throw new Exception("Length mismatch");
         file.WriteByteArray(checksum);
         file.WriteByteArray(_fileEndMarker);
+        file.Flush(true);
         var hashString = Convert.ToHexString(checksum);
         return new FileInsertResult(hashString, longToBytes(offset), length);
     }
