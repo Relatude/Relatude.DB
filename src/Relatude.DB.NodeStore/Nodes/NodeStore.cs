@@ -179,6 +179,7 @@ public class NodeStore : IDisposable {
     public Task<TransactionResult> ForceUpdateAsync(object node, bool flushToDisk = false) => ExecuteAsync(new Transaction(this).ForceUpdate(node), flushToDisk);
     public Task<TransactionResult> ForceUpdateAsync<T>(IEnumerable<T> nodes, bool flushToDisk = false) where T : notnull => ExecuteAsync(new Transaction(this).ForceUpdate(nodes), flushToDisk);
 
+
     public void DeleteMany<T>(Expression<Func<T, bool>> expression, bool flushDisk = false) {
         var ids = Query<T>().Where(expression).SelectId().Execute();
         DeleteIfExists(ids, flushDisk);

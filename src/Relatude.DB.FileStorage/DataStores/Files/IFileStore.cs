@@ -22,5 +22,5 @@ public interface IFileStore : IDisposable {
 
 public interface IFileStoreMultiPartSupport : IFileStore {
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
-    Task AppendDataAsync(Guid fileId, byte[] data);
+    Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer);
 }
