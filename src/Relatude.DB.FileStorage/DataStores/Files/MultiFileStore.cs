@@ -1,10 +1,11 @@
-﻿using Relatude.DB.IO;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
+using Relatude.DB.IO;
 using System.Security.Cryptography;
 using System.Text;
+using static System.Net.WebRequestMethods;
 namespace Relatude.DB.DataStores.Files;
 
-public class MultiFileStore : IDisposable, IFileStore {
+public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport {
     readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }
@@ -94,7 +95,7 @@ public class MultiFileStore : IDisposable, IFileStore {
         // originalFileName is "myfile.txt", the path will be "basePath/12/34/myfile.56781234123412341234567890.txt"
         var fileIdString = fileId.ToString("N");
         var path = new string[_basePath.Length + folderDepth + 1];
-        for(int i = 0; i < _basePath.Length; i++) path[i] = _basePath[i];
+        for (int i = 0; i < _basePath.Length; i++) path[i] = _basePath[i];
         for (int i = _basePath.Length; i < path.Length - 1; i++) path[i] = fileIdString.Substring((i - _basePath.Length) * 2, 2);
         path[^1] = safeFilename;
         return path;
@@ -103,6 +104,19 @@ public class MultiFileStore : IDisposable, IFileStore {
     static string stringFromBytes(byte[] bytes) => Encoding.UTF8.GetString(bytes);
     public void Dispose() {
         _ioProvider.CloseAllOpenStreams();
+    }
+
+    public async Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName) {
+        var usedFileName = getSafeFilename(fileId, fileName);
+        var fullPath = getFullPath(fileId, usedFileName);
+        using var outStream = _ioProvider.OpenAppend(fullPath); // create file
+        return stringToBytes(usedFileName);
+    }
+    public async Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer) {
+        var usedFileName = stringFromBytes(fileKey);
+        var fullPath = getFullPath(fileId, usedFileName);
+        using var outStream = _ioProvider.OpenAppend(fullPath);
+        await outStream.AppendAsyncNoChecksumOrLock(buffer, buffer.Length);
     }
 }
 

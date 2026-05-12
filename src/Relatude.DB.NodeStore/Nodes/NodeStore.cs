@@ -588,12 +588,12 @@ public class NodeStore : IDisposable {
     public Task FileDeleteAsync(Guid nodeId, Guid propertyId) => Datastore.FileDeleteAsync(new(nodeId, propertyId));
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
-    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
-    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
-    public async Task<FileValue> FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null) {
+    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null, bool noNodeUpdate = false) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName, noNodeUpdate);
+    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName, bool noNodeUpdate = false) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName, noNodeUpdate);
+    public async Task<FileValue> FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, string filePath, string? newFileName = null, bool noNodeUpdate = false) {
         using var stream = File.OpenRead(filePath);
         newFileName = newFileName ?? Path.GetFileName(filePath);
-        return await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName);
+        return await FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, stream, newFileName, noNodeUpdate);
     }
     public async Task<FileValue> FileUploadAsync(FileValue file, string localFilePath, string? fileName = null) {
         if (file.PropertyPath == null) throw new Exception("File cannot be uploaded as node is not yet inserted to the database. ");

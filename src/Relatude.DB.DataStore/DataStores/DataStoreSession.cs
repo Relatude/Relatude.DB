@@ -92,8 +92,8 @@ public class DataStoreSession : IDataStore {
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) => _datastore.TryGetValue(path, out value, ctx ?? DefaultQueryContext);
     public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) => _datastore.GetValue<T>(path, ctx ?? DefaultQueryContext);
 
-    public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileKey, fileName, ctx ?? DefaultQueryContext);
-    public Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileName, ctx ?? DefaultQueryContext);
+    public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, bool noNodeUpdate = false, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileKey, fileName, noNodeUpdate, ctx ?? DefaultQueryContext);
+    public Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, bool noNodeUpdate = false, QueryContext? ctx = null) => _datastore.FileUploadAsync(target, source, fileName, noNodeUpdate, ctx ?? DefaultQueryContext);
     public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.FileDeleteAsync(target, ctx ?? DefaultQueryContext);
     public Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) => _datastore.FileDownloadAsync(target, outStream, ctx ?? DefaultQueryContext);
     public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? DefaultQueryContext);

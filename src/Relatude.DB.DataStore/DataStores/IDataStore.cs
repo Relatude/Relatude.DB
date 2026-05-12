@@ -49,7 +49,7 @@ public interface IDataStore : IDisposable {
     Guid GetNodeType(IdKey id);
     Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids);
 
-    bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)]out NodeMeta meta, QueryContext? ctx = null);
+    bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
     bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
     bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
 
@@ -87,9 +87,9 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null);
-    Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null);
-    
+    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, bool noNodeUpdate=false, QueryContext? ctx = null);
+    Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, bool noNodeUpdate = false, QueryContext? ctx = null);
+
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);

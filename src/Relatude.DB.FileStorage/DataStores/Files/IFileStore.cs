@@ -7,6 +7,7 @@ public class FileInsertResult(string fileHash, byte[] storeKey, long length) {
     public byte[] StoreKey { get; } = storeKey;
     public long Length { get; } = length;
 }
+
 public interface IFileStore : IDisposable {
     Guid Id { get; }
     Task ExtractAsync(FileValue value, Stream outStream);
@@ -16,4 +17,10 @@ public interface IFileStore : IDisposable {
     Task<bool> ContainsFileAsync(FileValue fileValue);
     Task DeleteAsync(FileValue value);
     long GetSizeForMetrics();
+    bool SupportsMultipartUploads() => this is IFileStoreMultiPartSupport;
+}
+
+public interface IFileStoreMultiPartSupport : IFileStore {
+    Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
+    Task AppendDataAsync(Guid fileId, byte[] data);
 }

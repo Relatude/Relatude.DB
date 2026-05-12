@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using System.Text;
 using System.Security.Cryptography;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores.Files;
 
 public class SingleFileStore : IDisposable, IFileStore {
@@ -27,6 +28,8 @@ public class SingleFileStore : IDisposable, IFileStore {
     }
     public Guid Id { get; }
     async Task<FileInsertResult> insert(Guid fileId, Func<byte[], Task<byte[]>> readAsync, long length, string originalFileName) {
+        Console.WriteLine("Inserting file with id: " + fileId + ", length: " + length);
+        var sw = Stopwatch.StartNew();
         var offset = file.Length;
         var bufferSize = 5 * 1024 * 1024; // 5MB buffer 
         bufferSize = length < bufferSize ? (int)length : bufferSize;
@@ -50,6 +53,7 @@ public class SingleFileStore : IDisposable, IFileStore {
         file.WriteByteArray(_fileEndMarker);
         file.Flush(true);
         var hashString = Convert.ToHexString(checksum);
+        Console.WriteLine("Finished inserting file with id: " + fileId + ", length: " + length + ", hash: " + hashString + ", time taken: " + sw.Elapsed);
         return new FileInsertResult(hashString, longToBytes(offset), length);
     }
     async Task extract(Guid fileId, long offset, Func<byte[], Task> recieveAsync) {
