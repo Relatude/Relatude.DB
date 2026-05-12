@@ -161,7 +161,7 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
-        var nodePath = propertyPath == null ? new NodePath(new IdKey(guid, __id)) : propertyPath.CreateInnerNodePath(guid);
+        var nodePath = propertyPath == null ? new NodePath(new IdKey(guid, __id)) : propertyPath.CreatePathToInnerNode(guid);
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();

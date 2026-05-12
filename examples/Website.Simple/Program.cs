@@ -88,6 +88,7 @@ app.MapGet("/Image/{propPath}", async (RelatudeDBContext ctx, string propPath) =
     var stream = await db.OpenFileDownloadStreamAsync(f);
     
     return Results.Stream(stream, f.ContentType, enableRangeProcessing: true);
+
 });
 
 

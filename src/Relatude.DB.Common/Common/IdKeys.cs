@@ -3,6 +3,29 @@ using System.Runtime.InteropServices;
 
 namespace Relatude.DB.Common;
 
+public enum KeyType {
+    IdKey,
+    NodePath,
+    PropertyPath,
+}
+
+public static class KeyParser {
+    public static KeyType GetKeyType(string path) {
+        if (path.Contains('~')) return KeyType.PropertyPath;
+        if (path.Contains(':')) return KeyType.NodePath;
+        return KeyType.IdKey;
+    }
+    public static bool TryParse(string path, out KeyType keyType, [MaybeNullWhen(false)] out object result) {
+        keyType = GetKeyType(path);
+        return keyType switch {
+            KeyType.IdKey => IdKey.TryParse(path, out var idKey) ? (result = idKey) != null : (result = null) == null,
+            KeyType.NodePath => NodePath.TryParse(path, out var nodePath) ? (result = nodePath) != null : (result = null) == null,
+            KeyType.PropertyPath => PropertyPath.TryParse(path, out var propPath) ? (result = propPath) != null : (result = null) == null,
+            _ => (result = null) != null
+        };
+    }
+}
+
 file static class B64 {
     internal static string Encode(Guid g) {
         Span<byte> b = stackalloc byte[16];
@@ -19,7 +42,6 @@ file static class B64 {
         g = new Guid(bytes); return true;
     }
 }
-
 public readonly struct IdKey : IEquatable<IdKey> {
     public IdKey(Guid guid, int integer) { Guid = guid; Int = integer; }
     public IdKey(Guid guid) => Guid = guid;
@@ -49,12 +71,15 @@ public readonly struct IdKey : IEquatable<IdKey> {
         HasGuid && HasInt ? $"{B64.Encode(Guid)}.{Int}" :
         HasGuid ? B64.Encode(Guid) :
         HasInt ? Int.ToString() : "0";
-
     public static bool TryParse(string value, [MaybeNullWhen(false)] out IdKey result) {
         if (value.Length == 22 && B64.TryDecode(value, out var g)) { result = new IdKey(g); return true; }
         if (value.Length > 23 && value[22] == '.' && B64.TryDecode(value.AsSpan(0, 22), out g) && int.TryParse(value.AsSpan(23), out var n)) { result = new IdKey(g, n); return true; }
         if (int.TryParse(value, out n)) { result = new IdKey(n); return true; }
         result = default; return false;
+    }
+    public static IdKey Parse(string value) {
+        if (!TryParse(value, out var result)) throw new FormatException("Invalid IdKey format");
+        return result;
     }
 }
 
@@ -138,7 +163,6 @@ public class NodePath {
     public override int GetHashCode() => HashCode.Combine(NodeKey);
     public override string ToString() =>
         Path.Length == 0 ? NodeKey.ToString() : $"{NodeKey}:{string.Join(',', Path.Select(p => p.ToString()))}";
-
     public static bool TryParse(string value, [MaybeNullWhen(false)] out NodePath result) {
         var ci = value.IndexOf(':');
         if (!IdKey.TryParse(ci < 0 ? value : value[..ci], out var key)) { result = null; return false; }
@@ -147,6 +171,10 @@ public class NodePath {
         var path = new InnerProperty[parts.Length];
         for (int i = 0; i < parts.Length; i++) if (!InnerProperty.TryParse(parts[i], out path[i])) { result = null; return false; }
         result = new NodePath(key, path); return true;
+    }
+    public static NodePath Parse(string path) {
+        if (!TryParse(path, out var result)) throw new FormatException("Invalid node path format");
+        return result;
     }
 }
 
@@ -175,13 +203,13 @@ public class PropertyPath {
     public PropertyPath(IdKey nodeId, InnerProperty[] path, Guid propertyId) {
         NodePath = new(nodeId, path); PropertyId = propertyId;
     }
-    public NodePath CreateInnerNodePath(Guid innerNodeId) {
+    public NodePath CreatePathToInnerNode(Guid innerNodeId) {
         var newPath = new InnerProperty[NodePath.Path.Length + 1];
         NodePath.Path.AsSpan().CopyTo(newPath);
         newPath[^1] = new InnerProperty(PropertyId, innerNodeId);
         return new NodePath(NodePath.NodeKey, newPath);
     }
-    public NodePath NodePath { get; set; }
+    public NodePath NodePath { get; }
     public Guid PropertyId { get; }
     public override string ToString() => $"{NodePath}~{B64.Encode(PropertyId)}";
 

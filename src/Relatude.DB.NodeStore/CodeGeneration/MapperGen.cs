@@ -85,14 +85,14 @@ internal static class MapperGen {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (int)node." + p.CodeName + ");");
             } else if (p is EmbeddedPropertyModel) {
                 sb.AppendLine("{");
-                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
+                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");
                 var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
                 var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(Embedded<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
                 sb.AppendLine("}");
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
-                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(gid);");
+                sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");
                 var newPath = "nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ")";
                 sb.AppendLine("node." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(node." + p.CodeName + ", " + newPath + ");");
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
@@ -261,7 +261,7 @@ internal static class MapperGen {
                     //    }
                     //}
                     sb.AppendLine("{");
-                    sb.AppendLine("var nodePath = propertyPath == null ? new(nodeData.Id) : propertyPath." + nameof(PropertyPath.CreateInnerNodePath) + "(nodeData.Id);");
+                    sb.AppendLine("var nodePath = propertyPath == null ? new(nodeData.Id) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(nodeData.Id);");
                     sb.AppendLine("var filePropertyPath = nodePath." + nameof(NodePath.CreatePropertyPath) + "(" + CodeUtils.GuidName(p.Id) + ");");
                     sb.AppendLine("if (nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) && v is " + typeof(FileValue).Namespace + "." + nameof(FileValue) + " fv) {");
                     sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(fv, filePropertyPath);");
