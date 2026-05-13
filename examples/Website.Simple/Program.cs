@@ -29,6 +29,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
+    Console.WriteLine("Inserting article...");
     var db = ctx.Database;
     //var art = new DemoArticle();
     var art = db.Create<IDemoArticle>();
@@ -38,10 +39,26 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     paraGraph.Code = "dasdas";
     art.Paragraphs.Add(paraGraph);
     db.Insert(art);
-    var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-    var videoFilePath = @"C:\Users\ogulb\Videos\Captures\https___oslohificenterdemo.azurewebsites.net - Google Chrome 2023-04-28 15-24-26.mp4";
-    var fv = await db.FileUploadAsync(art.File, videoFilePath);
-    await db.FileUploadAsync(art.Paragraphs.First().File, filePath);
+    var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
+    //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
+    var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
+    await db.FileUploadAsync(art.File, filePath);
+    var p = art.Paragraphs.First();
+    if (db.FileStoreSupportsMultipartUploads(p.File)) {
+        using var stream = File.OpenRead(videoFilePath);
+        var fileId = await db.InitiatePartialUploadAsync(p.File, Path.GetFileName(videoFilePath));
+        var buffer = new byte[1024 * 1024*100]; // 1 MB buffer
+        while (true) {
+            var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+            if (bytesRead == 0) break; // End of file
+            await db.AppendPartialUploadAsync(fileId, buffer, bytesRead);
+            Console.WriteLine("File ID: " + fileId + ", bytes uploaded: " + bytesRead);
+        }
+        await db.FinalizePartialUploadAsync(fileId);
+    } else {
+        await db.FileUploadAsync(p.File, videoFilePath);
+    }
+    art = db.Get(art);
     return art.File.IsEmpty ? "File upload failed" : "Inserted article with file";
 
 });
@@ -64,15 +81,15 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
             html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
         }
-        foreach (var para in item.Paragraphs) {
-            html.Append($"<h3>Paragraph: {para.Code}</h3>");
-            if (!para.File.IsEmpty) {
-                var fileUrl = $"Image/{para.File.PropertyPath}";
-                // thumbnail::
-                html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
-                html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
-            }
-        }
+        //foreach (var para in item.Paragraphs) {
+        //    html.Append($"<h3>Paragraph: {para.Code}</h3>");
+        //    if (!para.File.IsEmpty) {
+        //        var fileUrl = $"Image/{para.File.PropertyPath}";
+        //        // thumbnail::
+        //        html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
+        //        html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
+        //    }
+        //}
     }
     html.Append("</body></html>");
     res.Headers.ContentType = "text/html; charset=utf-8";
@@ -85,9 +102,9 @@ app.MapGet("/Image/{propPath}", async (RelatudeDBContext ctx, string propPath) =
     if (!PropertyPath.TryParse(propPath, out var propertyPath)) {
         return Results.BadRequest("Invalid property path");
     }
-    var f = db.GetValue<FileValue>(propertyPath);
+    var f = db.GetValue<FileValue>(propertyPath!);
     var stream = await db.OpenFileDownloadStreamAsync(f);
-    
+
     return Results.Stream(stream, f.ContentType, enableRangeProcessing: true);
 
 });

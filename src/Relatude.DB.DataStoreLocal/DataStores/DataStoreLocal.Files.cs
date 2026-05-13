@@ -52,6 +52,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             t.ForceUpdateProperty(propertyPath, fileValue);
             execute_outer(t, false, true, ctx, out _);
         }
+
         return fileValue;
     }
     public async Task FileDeleteAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
@@ -71,20 +72,22 @@ public sealed partial class DataStoreLocal : IDataStore {
         await fileStore.ExtractAsync(fileValue, outStream);
         return fileValue;
     }
-    public async Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) {
-        var fileValue = GetValue<FileValue>(target, ctx);
+    public async Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
+        var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty) return false;
         var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.ContainsFileAsync(fileValue);
     }
-
-
-
-
-
+    public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) {
+        if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
+        if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
+        var fileProp = (FilePropertyModel)prop;
+        var fileStore = getFileStore(fileProp.FileStorageProviderId);
+        return fileStore.SupportsMultipartUploads();
+    }
 
     Dictionary<Guid, uploadSession> _uploadSessions = [];
-    public async Task<Guid> InitiatePartialUpload(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
+    public async Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
         await removeOldSessions();
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
@@ -100,43 +103,33 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileValue.FileId;
     }
-    public async Task AppendPartialUploadAsync(Guid fileId, byte[] data) {
+    public async Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length) {
         var session = getSession(fileId);
-        await session.Lock.WaitAsync();
-        try {
-            var fileKey = FileValue.GetFileKeyData(session.FileValue);
-            await getMultiPartStore(session).AppendDataAsync(fileId, fileKey, data);
-            session.Hash.AppendData(data);
-            var f = session.FileValue;
-            var key = FileValue.GetFileKeyData(f);
-            var newFileValue = FileValue.CreateNew(f.Name, f.Size + data.Length, f.Hash, f.StorageId, f.FileId, key, f.PropertyPath!);
-            session.FileValue = newFileValue;
-        } finally {
-            session.Lock.Release();
-        }
+        var fileKey = FileValue.GetFileKeyData(session.FileValue);
+        await getMultiPartStore(session).AppendDataAsync(fileId, fileKey, data, length);
+        session.Hash.AppendData(data, 0, length);
+        var f = session.FileValue;
+        var key = FileValue.GetFileKeyData(f);
+        var newFileValue = FileValue.CreateNew(f.Name, f.Size + length, f.Hash, f.StorageId, f.FileId, key, f.PropertyPath!);
+        session.FileValue = newFileValue;
     }
-    public async Task<FileValue> FinalizePartialUpload(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
+    public async Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         var session = getSession(fileId);
-        await session.Lock.WaitAsync();
         FileValue newFileValue;
-        try {
-            var propertyPath = session.FileValue.PropertyPath;
-            if (propertyPath == null) throw new Exception("File value does not have a property path");
-            if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
-            if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
-            removeSession(fileId);
-            var f = session.FileValue;
-            var fileHash = Convert.ToHexString(session.Hash.GetHashAndReset());
-            var key = FileValue.GetFileKeyData(f);
-            newFileValue = FileValue.CreateNew(f.Name, f.Size, fileHash, f.StorageId, f.FileId, key, propertyPath);
-            if (!noNodeUpdate) {
-                var t = new TransactionData();
-                t.ForceUpdateProperty(propertyPath, newFileValue);
-                execute_outer(t, false, true, ctx, out _);
-            }
-        } finally {
-            session.Lock.Release();
+        var propertyPath = session.FileValue.PropertyPath;
+        if (propertyPath == null) throw new Exception("File value does not have a property path");
+        if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
+        if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
+        var fileHash = Convert.ToHexString(session.Hash.GetHashAndReset());
+        removeSession(fileId);
+        var f = session.FileValue;
+        var key = FileValue.GetFileKeyData(f);
+        newFileValue = FileValue.CreateNew(f.Name, f.Size, fileHash, f.StorageId, f.FileId, key, propertyPath);
+        if (!noNodeUpdate) {
+            var t = new TransactionData();
+            t.ForceUpdateProperty(propertyPath, newFileValue);
+            execute_outer(t, false, true, ctx, out _);
         }
         return newFileValue;
     }
@@ -146,6 +139,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getMultiPartStore(session);
         await fileStore.DeleteAsync(session.FileValue);
     }
+
     IFileStoreMultiPartSupport getMultiPartStore(uploadSession session) {
         if (getFileStore(session.FileValue.StorageId) is not IFileStoreMultiPartSupport fileStore)
             throw new Exception("File store does not support multipart upload");
@@ -182,7 +176,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     class uploadSession(FileValue fileValue) {
-        public SemaphoreSlim Lock = new SemaphoreSlim(1, 1);
         public DateTime LastAccessed = DateTime.MinValue;
         public void Touch() => LastAccessed = DateTime.UtcNow;
         public FileValue FileValue { get; set; } = fileValue;

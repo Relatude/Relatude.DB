@@ -42,6 +42,12 @@ public class DataStoreSession : IDataStore {
     public void DeRegisterActivity(long activityId)
         => _datastore.DeRegisterActivity(activityId);
 
+    public Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => _datastore.InitiatePartialUploadAsync(propertyPath, fileName, ctx);
+    public Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length) => _datastore.AppendPartialUploadAsync(fileId, data, length);
+    public Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) => _datastore.FinalizePartialUploadAsync(fileId, noNodeUpdate, ctx);
+    public Task CancelPartialUpload(Guid fileId) => _datastore.CancelPartialUpload(fileId);
+    public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => _datastore.FileStoreSupportsMultipartUploads(propertyPath);
+
     public AIEngine AI => _datastore.AI;
     public IStoreLogger Logger => _datastore.Logger;
 

@@ -602,8 +602,6 @@ public class NodeStore : IDisposable {
         return await Datastore.FileUploadAsync(file.PropertyPath, stream, fileName ?? Path.GetFileName(localFilePath));
     }
 
-
-
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream source, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileName);
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileName);
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, sourceFileKey, fileName);
@@ -634,6 +632,13 @@ public class NodeStore : IDisposable {
     public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(new(nodeId, propertyId));
     public Task<bool> FileUploadedAndAvailableAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileUploadedAndAvailableAsync(Mapper.GetIdGuid(node), Mapper.GetProperty(expression).Id);
 
+    public Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => Datastore.InitiatePartialUploadAsync(propertyPath, fileName, ctx);
+    public Task<Guid> InitiatePartialUploadAsync(FileValue fileValue, string fileName, QueryContext? ctx = null) => Datastore.InitiatePartialUploadAsync(fileValue.PropertyPath!, fileName, ctx);
+    public Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length) => Datastore.AppendPartialUploadAsync(fileId, data, length);
+    public Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) => Datastore.FinalizePartialUploadAsync(fileId, noNodeUpdate, ctx);
+    public Task CancelPartialUploadAsync(Guid fileId) => Datastore.CancelPartialUpload(fileId);
+    public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => Datastore.FileStoreSupportsMultipartUploads(propertyPath);
+    public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {
         Datastore.EnqueueTask(task, jobId);
         return Task.CompletedTask;

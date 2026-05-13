@@ -86,15 +86,11 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public bool Exists(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_lock) {
-            return _container.GetBlobClient(fileKey).Exists();
-        }
+        return _container.GetBlobClient(fileKey).Exists();
     }
     public bool Exists(string[] path) {
         var blobName = getAndValidateBlobName(path);
-        lock (_lock) {
-            return _container.GetBlobClient(blobName).Exists();
-        }
+        return _container.GetBlobClient(blobName).Exists();
     }
     IReadStream openRead(long position, string blobName) {
         FileMeta meta;
@@ -147,36 +143,35 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public void DeleteFileIfItExists(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_lock) {
-            deleteFileIfItExists(fileKey);
-        }
+        deleteFileIfItExists(fileKey);
     }
     public void DeleteFileIfItExists(string[] path) {
         var blobName = getAndValidateBlobName(path);
-        lock (_lock) {
-            deleteFileIfItExists(blobName);
-        }
+        deleteFileIfItExists(blobName);
     }
     void deleteFileIfItExists(string fileKey) {
-        if (_files.TryGetValue(fileKey, out var meta)) {
-            if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-            if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+        FileMeta? meta;
+        lock (_lock) {
+            if (_files.TryGetValue(fileKey, out meta)) {
+                if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+                if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+            }
         }
         EnsureResetOfLeaseId(_container, fileKey);
         _container.DeleteBlobIfExists(fileKey);
-        if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
-    }
-    public bool DoesNotExistOrIsEmpty(string fileKey) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var client = _container.GetBlobClient(fileKey);
-            if (!client.Exists()) return true;
-            return client.GetProperties().Value.ContentLength == 0;
+            if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
         }
     }
+    public bool DoesNotExistOrIsEmpty(string fileKey) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        var client = _container.GetBlobClient(fileKey);
+        if (!client.Exists()) return true;
+        return client.GetProperties().Value.ContentLength == 0;
+    }
     public FileMeta[] GetFiles() {
+        var existing = _container.GetBlobs().ToArray();
         lock (_lock) {
-            var existing = _container.GetBlobs().ToArray();
             syncDirInfo(existing);
             return _files.Values.ToArray();
         }
@@ -189,9 +184,7 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {
         var blobName = getAndValidateBlobName(path);
-        lock (_lock) {
-            return getFileSizeOrZeroIfUnknown(blobName);
-        }
+        return getFileSizeOrZeroIfUnknown(blobName);
     }
     long getFileSizeOrZeroIfUnknown(string blobName) {
         var client = _container.GetBlobClient(blobName);
@@ -205,11 +198,12 @@ public class AzureBlobIOProvider : IIOProvider {
         }
     }
     public void CloseAllOpenStreams() {
+        IStream[] streams;
         lock (_lock) {
-            foreach (var stream in _openStreams.ToArray()) {
-                stream.Dispose();
-            }
-            if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
+            streams = _openStreams.ToArray();
+        }
+        foreach (var stream in streams) {
+            stream.Dispose();
         }
     }
 

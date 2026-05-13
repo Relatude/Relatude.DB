@@ -1,6 +1,8 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.DataStores.Files;
 using Relatude.DB.IO;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
@@ -87,12 +89,17 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, bool noNodeUpdate=false, QueryContext? ctx = null);
+    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, bool noNodeUpdate = false, QueryContext? ctx = null);
     Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, bool noNodeUpdate = false, QueryContext? ctx = null);
-
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
+
+    Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
+    Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length);
+    Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null);
+    Task CancelPartialUpload(Guid fileId);
+    bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath);
 
     long GetLastTimestampID();
     Task MaintenanceAsync(MaintenanceAction actions);

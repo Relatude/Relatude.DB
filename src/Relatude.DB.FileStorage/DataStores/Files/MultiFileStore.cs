@@ -112,11 +112,11 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         using var outStream = _ioProvider.OpenAppend(fullPath); // create file
         return stringToBytes(usedFileName);
     }
-    public async Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer) {
+    public async Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer, int length) {
         var usedFileName = stringFromBytes(fileKey);
         var fullPath = getFullPath(fileId, usedFileName);
         using var outStream = _ioProvider.OpenAppend(fullPath);
-        await outStream.AppendAsyncNoChecksumOrLock(buffer, buffer.Length);
+        await outStream.AppendAsyncNoChecksumOrLock(buffer, length);
     }
 }
 
