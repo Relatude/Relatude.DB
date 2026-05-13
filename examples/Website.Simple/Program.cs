@@ -47,7 +47,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     if (db.FileStoreSupportsMultipartUploads(p.File)) {
         using var stream = File.OpenRead(videoFilePath);
         var fileId = await db.InitiatePartialUploadAsync(p.File, Path.GetFileName(videoFilePath));
-        var buffer = new byte[1024 * 1024*100]; // 1 MB buffer
+        var buffer = new byte[1024*1024];
         while (true) {
             var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
             if (bytesRead == 0) break; // End of file
@@ -60,7 +60,6 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     }
     art = db.Get(art);
     return art.File.IsEmpty ? "File upload failed" : "Inserted article with file";
-
 });
 app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var db = ctx.Database;

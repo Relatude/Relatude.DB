@@ -22,7 +22,6 @@ internal class FileCacheSetResult(bool completed, Stream? stream) {
 internal class AsyncConcurrentFileCache {
     // Special file cache that ensures that a file are not written by multiple threads and read at the same time
     // It has functionality for waiting for a file to be written by another thread, but with a timeout, to avoid waiting to long so that a " in progress status" can be returned to the caller
-
     readonly IIOProvider _io;
     readonly Dictionary<string, SemaphoreSlim> _locks = new();
     public AsyncConcurrentFileCache(IIOProvider io) { _io = io; }
@@ -125,7 +124,7 @@ internal class ProgressEntry(
     public FileConversionInfo FileInfo { get; } = fileInfo;
     public int MaxWaitMs { get; } = maxWaitMs;
 }
-internal class ImageMetaResult(FileConversionResult result, ImageMeta? meta) {
+public class ImageMetaResult(FileConversionResult result, ImageMeta? meta) {
     public FileConversionProgressInfo ProgressInfo { get; } = result.ProgressInfo;
     public ImageMeta? Meta { get; } = meta;
 }
@@ -164,7 +163,7 @@ internal class FileConversionLibrary {
         }
     }
 }
-internal class FileConversionEngine : IDisposable {
+public class FileConversionEngine : IDisposable {
     // This Engine is designed to help keep track of longer running conversions
     // and to help web requests respond either with a progress image or a ready image
     // You can specify a max time limit for how long you want to wait for a conversion to complete
@@ -298,8 +297,14 @@ internal class FileConversionEngine : IDisposable {
         }
 
     }
-    public async Task<ImageMetaResult> TryGetImageMetaAsync(FileConversionInfo info, int maxWaitMs, Func<Stream> getInputStream) {
-        var result = await TryGetFormatAsync(info, maxWaitMs, getInputStream);
+    public void Dispose() {
+        _updateLookCancellationToken.Cancel();
+    }
+}
+
+public static class FileConversionEngineExt {
+    public static async Task<ImageMetaResult> TryGetImageMetaAsync(this FileConversionEngine eng, FileConversionInfo info, int maxWaitMs, Func<Stream> getInputStream) {
+        var result = await eng.TryGetFormatAsync(info, maxWaitMs, getInputStream);
         if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
             try {
                 if (result.Output == null) throw new Exception("Empty output of conversion");
@@ -313,8 +318,5 @@ internal class FileConversionEngine : IDisposable {
         } else {
             return new(result, null);
         }
-    }
-    public void Dispose() {
-        _updateLookCancellationToken.Cancel();
     }
 }
