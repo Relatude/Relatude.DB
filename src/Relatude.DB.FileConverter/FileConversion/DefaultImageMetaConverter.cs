@@ -35,4 +35,7 @@ public class DefaultImageMetaConverter : IFileConverter {
         throw new NotImplementedException();
     }
 
+    public Stream GetProgressStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+        throw new NotImplementedException();
+    }
 }

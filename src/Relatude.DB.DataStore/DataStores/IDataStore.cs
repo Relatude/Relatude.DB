@@ -3,10 +3,12 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
+using Relatude.DB.FileConverter;
 using Relatude.DB.IO;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using Relatude.DB.Web;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
@@ -64,6 +66,11 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeIdFromAddress(string address, out int nodeId);
     bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
     bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
+
+    string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null);
+    Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null);
+    Task<Stream> GetFile(PropertyPath propertyPath, QueryContext? ctx = null);
+    Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null);
 
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);

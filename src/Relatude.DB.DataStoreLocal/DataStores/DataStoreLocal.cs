@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Diagnostics;
+using System.Security.AccessControl;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -9,6 +10,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Scheduling;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
+using Relatude.DB.FileConverter;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Query;
@@ -16,6 +18,7 @@ using Relatude.DB.Query.Data;
 using Relatude.DB.Tasks;
 using Relatude.DB.Tasks.TextIndexing;
 using Relatude.DB.Transactions;
+using Relatude.DB.Web;
 
 namespace Relatude.DB.DataStores;
 
@@ -34,7 +37,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
-
+    readonly IUrlProvider _urlProvider;
+    readonly FileConversionEngine _fileConversionEngine;
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
     readonly IIOProvider _ioLog;
@@ -87,7 +91,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         IQueueStore? queueStore = null,
         IIOProvider? secondaryLogIO = null,
         IIOProvider? indexIO = null,
-        QueryContext? defaultQueryContext = null
+        QueryContext? defaultQueryContext = null,
+        IUrlProvider? urlProvider = null,
+        IFileConverter[]? fileConverters = null,
+        IIOProvider? converterIoProvider = null
         ) {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
@@ -98,7 +105,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
-
+        if (fileConverters == null) fileConverters = [];
+        _urlProvider = urlProvider ?? new DefaultUrlProvider(this, Guid.Empty);
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
@@ -106,6 +114,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);
+        if (converterIoProvider == null) converterIoProvider = _ioIndex;
+        _fileConversionEngine = new(fileConverters, converterIoProvider, _fileKeys);
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));

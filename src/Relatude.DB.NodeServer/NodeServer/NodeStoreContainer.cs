@@ -182,15 +182,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     queueStore,
                     ioSecondary,
                     ioIndexes,
-                    QueryContext.MasterAdmin
-                    );            
+                    QueryContext.MasterAdmin,
+                    null, server?.Options?.FileConverters.ToArray()
+
+                    );
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);
             //foreach (var runner in runners) datastore.RegisterRunner(runner);
             foreach (var msg in toLog) {
                 datastore.LogInfo(msg);
             }
-            Store = new NodeStore(datastore);            
+            Store = new NodeStore(datastore);
             server.RaiseEventStoreInit(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);

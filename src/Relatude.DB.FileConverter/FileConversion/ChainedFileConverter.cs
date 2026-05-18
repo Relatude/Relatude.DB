@@ -17,20 +17,15 @@ public class ChainedFileConverter : IFileConverter {
         }
         return false;
     }
-    public Task<bool> CancelAsync(string key) {
-        throw new NotImplementedException();
-    }
-
     public Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
         throw new NotImplementedException();
     }
 
-    public Task<FileConversionProgressInfo> GetStatusAsync(FileIdWithAdjustment fileIdWithAdjustment) {
+    public Task<bool> CancelAsync(string key) {
         throw new NotImplementedException();
     }
 
-    public Task<Stream> GetStreamAsync(FileIdWithAdjustment fileIdWithAdjustment) {
+    public Stream GetProgressStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
         throw new NotImplementedException();
     }
-
 }

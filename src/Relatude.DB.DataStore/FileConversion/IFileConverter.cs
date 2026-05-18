@@ -21,6 +21,5 @@ public interface IFileConverter { // just the conversion,  calling local image c
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(string key);
     Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs);
-    Task<FileConversionProgressInfo> GetStatusAsync(FileIdWithAdjustment fileIdWithAdjustment);
-    Task<Stream> GetStreamAsync(FileIdWithAdjustment fileIdWithAdjustment);
+    Stream GetProgressStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status);
 }

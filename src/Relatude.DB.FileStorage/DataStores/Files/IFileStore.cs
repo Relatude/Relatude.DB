@@ -19,6 +19,14 @@ public interface IFileStore : IDisposable {
     long GetSizeForMetrics();
     bool SupportsMultipartUploads() => this is IFileStoreMultiPartSupport;
 }
+public static class FileStoreExtensions {
+    public static async Task<Stream> GetFileStream(this IFileStore fs, FileValue file) {
+        var stream = new WriteToReadStream();
+        _ = fs.ExtractAsync(file, stream)
+            .ContinueWith(t => stream.Complete(t.IsFaulted ? t.Exception : null));
+        return stream;
+    }
+}
 
 public interface IFileStoreMultiPartSupport : IFileStore {
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);

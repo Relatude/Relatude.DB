@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 
 namespace Relatude.DB.Common;
 
@@ -70,9 +71,9 @@ public readonly struct IdKey : IEquatable<IdKey>, IKeySerializable<IdKey> {
     }
     public byte[] ToBytes() { var b = new byte[KeyUtil.IdKeySize(this) + 1]; KeyUtil.WriteIdKey(b, this); b[^1] = KeyUtil.Checksum(b.AsSpan(0, b.Length - 1)); return b; }
     public static IdKey FromBytes(byte[] bytes) => Deserialize(bytes);
-    public override string ToString() => B64.Encode(ToBytes());
+    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
     public static bool TryParse(string s, out IdKey result) {
-        try { if (B64.TryDecode(s, out var b)) { result = Deserialize(b); return true; } }
+        try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }
         result = default; return false;
     }
@@ -155,9 +156,9 @@ public class NodePath : IKeySerializable<NodePath> {
         bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
-    public override string ToString() => B64.Encode(ToBytes());
-    public static bool TryParse(string s, out NodePath? result) {
-        try { if (B64.TryDecode(s, out var b)) { result = Deserialize(b); return true; } }
+    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
+    public static bool TryParse(string s, [MaybeNullWhen(false)] out NodePath result) {
+        try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }
         result = null; return false;
     }
@@ -239,31 +240,15 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
         bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
-    public override string ToString() => B64.Encode(ToBytes());
-    public static bool TryParse(string s, out PropertyPath? result) {
-        try { if (B64.TryDecode(s, out var b)) { result = Deserialize(b); return true; } }
+    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
+    public static bool TryParse(string s, [MaybeNullWhen(false)] out PropertyPath result) {
+        try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }
         result = null; return false;
     }
     public static PropertyPath Parse(string s) => TryParse(s, out var r) ? r! : throw new FormatException($"Invalid PropertyPath: {s}");
 }
 
-file static class B64 {
-    public static string Encode(byte[] bytes) {
-        Span<char> buf = stackalloc char[(bytes.Length * 4 + 2) / 3 + 1];
-        Convert.TryToBase64Chars(bytes, buf, out int len);
-        for (int i = 0; i < len; i++) { if (buf[i] == '+') buf[i] = '-'; else if (buf[i] == '/') buf[i] = '_'; }
-        return new string(buf[..len]).TrimEnd('=');
-    }
-    public static bool TryDecode(string s, out byte[] result) {
-        try {
-            var padded = s.Replace('-', '+').Replace('_', '/');
-            var pad = padded.Length % 4;
-            if (pad != 0) padded += new string('=', 4 - pad);
-            result = Convert.FromBase64String(padded); return true;
-        } catch { result = []; return false; }
-    }
-}
 public readonly struct IdKeyWithCultureId : IEquatable<IdKeyWithCultureId> {
     public IdKeyWithCultureId(IdKey idKey, Guid cultureId) { IdKey = idKey; CultureId = cultureId; }
     public IdKey IdKey { get; }

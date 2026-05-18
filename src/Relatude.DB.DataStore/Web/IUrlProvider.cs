@@ -1,39 +1,43 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.FileConverter;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Web;
 
-public class UrlProviderSettings {
-    public Guid HaskKey { get; set; } = Guid.Empty;
-    public string[]? LocalDomainPatterns { get; set; } = null;
-    public bool EncryptAdjustments { get; set; } = true;
-}
 public enum UrlTargetType {
 
     LocalUrl,
     LocalNode,
-    LocalFile,
-    LocalAdjustedFile,
+    LocalEmbeddedNode,
+    LocalProperty,
+    LocalAdjusted,
     LocalEmail,
+    LocalOther,
 
     ExternalUrl,
     ExternalEmail,
+    ExternalOther,
 
 }
 public struct UrlBase {
     public UrlTargetType TargetType { get; init; }
 }
 public interface IUrlProvider {
-    /// <summary>
-    /// Pattern matching for internal urls. If the url matches the pattern, it will be treated as an internal url and processed when stored and regenerated when retrieved. The pattern can contain wildcards * for matching. 
-    /// </summary>
-    /// <param name="url">url string with wildcards * for pattern matching</param>
-    string GetUrl(FileIdWithAdjustment fileIdWithAdjustment);
-    string GetUrl(INodeData node);
-    UrlTargetType GetUrlTargetType(string url);
-    FileIdWithAdjustment GetFileIdWithAdjustment(string url);
-    IdKeyWithCultureId GetIdKeyWithCultureId(string url);
+    string GetExternalUrl(string internalUrl, bool absolute);
+    IdKey GetIdKey(string url);
+    string GetInternalUrl(IdKey idKey);
+    string GetInternalUrl(NodePath nodePath);
+    string GetInternalUrl(PropertyPath property);
+    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment);
+    string GetInternalUrl(string externalUrl);
+    NodePath GetNodePath(string url);
+    PropertyPath GetPropertyPath(string url);
+    bool TryParseAdjusted(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
+    bool TryParseIdKey(string localUrl, [MaybeNullWhen(false)] out IdKey idKey);
+    bool TryParseLocalUrlType(string localUrl, out UrlTargetType type);
+    bool TryParseNodePath(string localUrl, [MaybeNullWhen(false)] out NodePath nodePath);
+    bool TryParsePropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
 }
 
 

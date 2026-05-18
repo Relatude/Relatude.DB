@@ -1,12 +1,17 @@
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
+using Relatude.DB.FileConversion.Images;
+using Relatude.DB.FileConverter;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddRelatudeDB();
+builder.AddRelatudeDB(options => {
+    options.FileConverters.Add(new DefaultImageConverter());
+});
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
 builder.Services.AddCors(options => {
@@ -40,24 +45,24 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     art.Paragraphs.Add(paraGraph);
     db.Insert(art);
     var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
-    //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
-    var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
+    var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
+    //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
     await db.FileUploadAsync(art.File, filePath);
-    var p = art.Paragraphs.First();
-    if (db.FileStoreSupportsMultipartUploads(p.File)) {
-        using var stream = File.OpenRead(videoFilePath);
-        var fileId = await db.InitiatePartialUploadAsync(p.File, Path.GetFileName(videoFilePath));
-        var buffer = new byte[1024*1024];
-        while (true) {
-            var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-            if (bytesRead == 0) break; // End of file
-            await db.AppendPartialUploadAsync(fileId, buffer, bytesRead);
-            Console.WriteLine("File ID: " + fileId + ", bytes uploaded: " + bytesRead);
-        }
-        await db.FinalizePartialUploadAsync(fileId);
-    } else {
-        await db.FileUploadAsync(p.File, videoFilePath);
-    }
+    //var p = art.Paragraphs.First();
+    //if (db.FileStoreSupportsMultipartUploads(p.File)) {
+    //    using var stream = File.OpenRead(videoFilePath);
+    //    var fileId = await db.InitiatePartialUploadAsync(p.File, Path.GetFileName(videoFilePath));
+    //    var buffer = new byte[1024 * 1024];
+    //    while (true) {
+    //        var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+    //        if (bytesRead == 0) break; // End of file
+    //        await db.AppendPartialUploadAsync(fileId, buffer, bytesRead);
+    //        Console.WriteLine("File ID: " + fileId + ", bytes uploaded: " + bytesRead);
+    //    }
+    //    await db.FinalizePartialUploadAsync(fileId);
+    //} else {
+    //    await db.FileUploadAsync(p.File, videoFilePath);
+    //}
     art = db.Get(art);
     return art.File.IsEmpty ? "File upload failed" : "Inserted article with file";
 });
@@ -70,14 +75,24 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     var db = ctx.Database;
     var results = db.Query<IDemoArticle>().Execute().ToArray();
     var html = new StringBuilder();
-    html.Append("<html><body>");
+    html.Append("<html><body style='background-color:#f0f000'>");
     foreach (var item in results) {
         html.Append($"<h2>{item.Title}</h2>");
         html.Append($"<p>{item.Content}</p>");
+        var adj = new FileAdjustmentImage() {
+            CropMode = ImageCropMode.Fill,
+            Width = 200,
+            Height = 70,
+            FocusX = 0, FocusY = 0,
+            Zoom = 100,
+            BackgroundColor = "#ffffff",
+            RequestedFormat = FileFormat.Jpeg,
+            Quality = 90
+        };
         if (!item.File.IsEmpty) {
-            var fileUrl = $"Image/{item.File.PropertyPath}";
+            var fileUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
             // thumbnail::
-            html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
+            html.Append($"<p><img src='{fileUrl}'></p>");
             html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
         }
         //foreach (var para in item.Paragraphs) {
@@ -85,7 +100,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //    if (!para.File.IsEmpty) {
         //        var fileUrl = $"Image/{para.File.PropertyPath}";
         //        // thumbnail::
-        //        html.Append($"<p><img src='{fileUrl}' style='max-width:200px;'/></p>");
+        //        html.Append($"<p><img src='{fileUrl}'></p>");
         //        html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
         //    }
         //}
@@ -95,19 +110,11 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     return html.ToString();
 });
 app.MapGet("/Image/{propPath}", async (RelatudeDBContext ctx, string propPath) => {
-    //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\bar.png";
-    //return Results.File(filePath, "image/png");
     var db = ctx.Database;
-    if (!PropertyPath.TryParse(propPath, out var propertyPath)) {
-        return Results.BadRequest("Invalid property path");
-    }
-    var f = db.GetValue<FileValue>(propertyPath!);
-    var stream = await db.OpenFileDownloadStreamAsync(f);
-
-    return Results.Stream(stream, f.ContentType, enableRangeProcessing: true);
+    var stream = await db.Datastore.GetFile(propPath, 100); 
+    return Results.Stream(stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg), enableRangeProcessing: true);
 
 });
-
 
 app.UseRelatudeDB();
 

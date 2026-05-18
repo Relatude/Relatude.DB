@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.FileConverter;
 using Relatude.DB.IO;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
@@ -185,5 +186,11 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeIdFromAddress(string address, out int nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
+
+    public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? DefaultQueryContext);
+    public Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFile(url, maxWait, ctx ?? DefaultQueryContext);
+    public Task<Stream> GetFile(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFile(propertyPath, ctx ?? DefaultQueryContext);
+    public Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null) => _datastore.GetConvertedFile(propertyPath, adj, maxWait, ctx ?? DefaultQueryContext);
+
 
 }

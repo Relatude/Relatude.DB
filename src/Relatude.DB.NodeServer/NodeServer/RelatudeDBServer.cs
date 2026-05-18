@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Hosting.Server;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.FileConverter;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.EventHub;
@@ -321,4 +322,5 @@ public class ServerOptions {
     /// Default relative or absolute path to temporary folder, used for uploads etc.
     /// </summary>
     public string? DefaultTempFolderPath { get; set; } = null;
+    public List<IFileConverter> FileConverters { get; set; } = [];
 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Primitives;
+﻿
 using Relatude.DB.FileConverter;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -84,27 +84,27 @@ public class UrlFileAdjustmentEncoder(Guid key) {
         UrlQueryCodec.WriteObject(pairs, string.Empty, adj, metadata);
         return [.. pairs!];
     }
-    /// <summary>
-    /// Creates a dictionary of query parameter names and their corresponding string values based on the specified file
-    /// adjustment.
-    /// </summary>
-    /// <param name="adj">The file adjustment object from which to extract query parameter information. Cannot be null.</param>
-    /// <returns>A dictionary mapping query parameter names to their associated string values. The dictionary is empty if no
-    /// valid parameters are found.</returns>
-    public Dictionary<string, StringValues> GetFriendlyQueryParamsStringValues(FileAdjustmentBase adj) {
-        ArgumentNullException.ThrowIfNull(adj);
+    ///// <summary>
+    ///// Creates a dictionary of query parameter names and their corresponding string values based on the specified file
+    ///// adjustment.
+    ///// </summary>
+    ///// <param name="adj">The file adjustment object from which to extract query parameter information. Cannot be null.</param>
+    ///// <returns>A dictionary mapping query parameter names to their associated string values. The dictionary is empty if no
+    ///// valid parameters are found.</returns>
+    //public Dictionary<string, StringValues> GetFriendlyQueryParamsStringValues(FileAdjustmentBase adj) {
+    //    ArgumentNullException.ThrowIfNull(adj);
 
-        var pairs = GetFriendlyQueryParamsPairs(adj);
-        var map = new Dictionary<string, StringValues>(pairs.Length, StringComparer.Ordinal);
+    //    var pairs = GetFriendlyQueryParamsPairs(adj);
+    //    var map = new Dictionary<string, StringValues>(pairs.Length, StringComparer.Ordinal);
 
-        foreach (var pair in pairs) {
-            if (!string.IsNullOrEmpty(pair.Key)) {
-                map[pair.Key] = new StringValues(pair.Value ?? string.Empty);
-            }
-        }
+    //    foreach (var pair in pairs) {
+    //        if (!string.IsNullOrEmpty(pair.Key)) {
+    //            map[pair.Key] = new StringValues(pair.Value ?? string.Empty);
+    //        }
+    //    }
 
-        return map;
-    }
+    //    return map;
+    //}
 
     /// <summary>
     /// Creates a file adjustment instance from a set of URL-friendly query parameters.
@@ -140,43 +140,43 @@ public class UrlFileAdjustmentEncoder(Guid key) {
 
         throw new InvalidOperationException("The URL query parameters do not contain a valid adjustment.");
     }
-    /// <summary>
-    /// Creates a new file adjustment instance from the specified query parameters using friendly URL parameter names.
-    /// </summary>
-    /// <remarks>The method expects a 'Type' parameter in the query string to determine the adjustment type.
-    /// Only the first value for each parameter is used. This method is typically used to reconstruct adjustment objects
-    /// from URL query strings in web applications.</remarks>
-    /// <param name="queryParams">A dictionary containing query parameter names and their associated values. Keys represent parameter names;
-    /// values are collections of strings, where the first value is used for each parameter. Cannot be null.</param>
-    /// <returns>A new instance of a type derived from FileAdjustmentBase, populated with values from the query parameters.</returns>
-    /// <exception cref="InvalidOperationException">Thrown if the query parameters do not specify a valid adjustment type or cannot be mapped to a valid adjustment
-    /// instance.</exception>
-    public FileAdjustmentBase GetAdjustmentFromFriendlyQueryParams(Dictionary<string, StringValues> queryParams) {
-        ArgumentNullException.ThrowIfNull(queryParams);
+    ///// <summary>
+    ///// Creates a new file adjustment instance from the specified query parameters using friendly URL parameter names.
+    ///// </summary>
+    ///// <remarks>The method expects a 'Type' parameter in the query string to determine the adjustment type.
+    ///// Only the first value for each parameter is used. This method is typically used to reconstruct adjustment objects
+    ///// from URL query strings in web applications.</remarks>
+    ///// <param name="queryParams">A dictionary containing query parameter names and their associated values. Keys represent parameter names;
+    ///// values are collections of strings, where the first value is used for each parameter. Cannot be null.</param>
+    ///// <returns>A new instance of a type derived from FileAdjustmentBase, populated with values from the query parameters.</returns>
+    ///// <exception cref="InvalidOperationException">Thrown if the query parameters do not specify a valid adjustment type or cannot be mapped to a valid adjustment
+    ///// instance.</exception>
+    //public FileAdjustmentBase GetAdjustmentFromFriendlyQueryParams(Dictionary<string, StringValues> queryParams) {
+    //    ArgumentNullException.ThrowIfNull(queryParams);
 
-        var map = new Dictionary<string, string>(queryParams.Count, StringComparer.Ordinal);
-        foreach (var pair in queryParams) {
-            if (!string.IsNullOrEmpty(pair.Key)) {
-                var value = pair.Value.Count > 0 ? pair.Value[0] : string.Empty;
-                map[pair.Key] = value ?? string.Empty;
-            }
-        }
+    //    var map = new Dictionary<string, string>(queryParams.Count, StringComparer.Ordinal);
+    //    foreach (var pair in queryParams) {
+    //        if (!string.IsNullOrEmpty(pair.Key)) {
+    //            var value = pair.Value.Count > 0 ? pair.Value[0] : string.Empty;
+    //            map[pair.Key] = value ?? string.Empty;
+    //        }
+    //    }
 
-        if (!map.TryGetValue("Type", out var typeValue) || string.IsNullOrEmpty(typeValue)) {
-            throw new InvalidOperationException("The URL query parameters do not contain an adjustment type.");
-        }
+    //    if (!map.TryGetValue("Type", out var typeValue) || string.IsNullOrEmpty(typeValue)) {
+    //        throw new InvalidOperationException("The URL query parameters do not contain an adjustment type.");
+    //    }
 
-        var targetType = getTypeFromFriendlyString(typeValue);
-        var metadata = UrlTypeCache.GetOrAdd(targetType);
-        var instance = metadata.Creator();
-        UrlQueryCodec.ReadObject(map, string.Empty, instance, metadata);
+    //    var targetType = getTypeFromFriendlyString(typeValue);
+    //    var metadata = UrlTypeCache.GetOrAdd(targetType);
+    //    var instance = metadata.Creator();
+    //    UrlQueryCodec.ReadObject(map, string.Empty, instance, metadata);
 
-        if (instance is FileAdjustmentBase adjustment) {
-            return adjustment;
-        }
+    //    if (instance is FileAdjustmentBase adjustment) {
+    //        return adjustment;
+    //    }
 
-        throw new InvalidOperationException("The URL query parameters do not contain a valid adjustment.");
-    }
+    //    throw new InvalidOperationException("The URL query parameters do not contain a valid adjustment.");
+    //}
 
     /// <summary>
     /// Encodes the specified file adjustment object into a compact string format suitable for use in URLs. 
