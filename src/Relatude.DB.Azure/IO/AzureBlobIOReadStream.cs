@@ -10,7 +10,7 @@ public class AzureBlobIOReadStream : IReadStream {
     BlobLeaseClient? _blobLeaseClient;
     ChecksumUtil _checksum = new();
     readonly long _totalLength = 0;
-    readonly long _readAheadBufferSize = 1024 * 1024 * 5; // 5 mb read ahead buffer
+    readonly long _readAheadBufferSize = 1024 * 1024; // 1 mb read ahead buffer
     long _bufferStartPos;
     byte[] _readAheadBuffer;// mb read ahead buffer...
     readonly Action _disposeCallback;
@@ -32,6 +32,7 @@ public class AzureBlobIOReadStream : IReadStream {
         _readAheadBuffer = Array.Empty<byte>();
         _bufferStartPos = 0;
         if (_blobClient.Exists()) _totalLength = _blobClient.GetProperties().Value.ContentLength;
+        if(_readAheadBufferSize > _totalLength) _readAheadBufferSize = _totalLength;
         Position = position;
     }
     public string FileKey { get ; }
@@ -46,6 +47,7 @@ public class AzureBlobIOReadStream : IReadStream {
             var lengthToRead = Math.Max(length, _readAheadBufferSize);
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             var conditions = new BlobRequestConditions() { LeaseId = _blobLeaseClient?.LeaseId };
+            Console.WriteLine(" - Reader length " + length);
             var options = new BlobDownloadOptions { Range = new HttpRange(Position, lengthToRead), Conditions = conditions };
             var sw = Stopwatch.StartNew();
             _readAheadBuffer = _blobClient.DownloadContent(options).Value.Content.ToArray();

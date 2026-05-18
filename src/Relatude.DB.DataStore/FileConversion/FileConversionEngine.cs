@@ -24,6 +24,8 @@ internal class AsyncConcurrentFileCache {
     // Special file cache that ensures that a file are not written by multiple threads and read at the same time
     // It has functionality for waiting for a file to be written by another thread, but with a timeout, to avoid waiting to long so that a " in progress status" can be returned to the caller
     readonly IIOProvider _io;
+    readonly Cache<Guid, byte[]> _smallFileCache = new(1024 * 1024 * 50); // 50mb
+    readonly int _sizeLimitSmallCache = 300 * 1024; // 300kb, files smaller than this will be kept in memory for faster access
     readonly Dictionary<Guid, SemaphoreSlim> _locks = new();
     public AsyncConcurrentFileCache(IIOProvider io) { _io = io; }
     const int _folderDepth = 2;
@@ -37,9 +39,15 @@ internal class AsyncConcurrentFileCache {
         return path;
     }
     public async Task<FileCacheGetResult> TryGetStreamAsync(FileIdWithAdjustment adj, int maxWaitMs) {
+        var key = adj.GetKey();
+        lock (_smallFileCache) {
+            if (_smallFileCache.TryGet(key, out var data)) {
+                return new(FileCacheGetStatus.Ready, stream: new MemoryStream(data));
+            }
+        }
         SemaphoreSlim? writeLock = null;
         lock (_locks) {
-            _locks.TryGetValue(adj.GetKey(), out writeLock);
+            _locks.TryGetValue(key, out writeLock);
         }
         if (writeLock != null) { // file is locked, but wait for a bit
             if (!await writeLock.WaitAsync(maxWaitMs)) { // timed out, return with not ready flag
@@ -48,6 +56,15 @@ internal class AsyncConcurrentFileCache {
         }
         if (_io.DoesNotExistsOrIsEmpty(getFilePath(adj))) return new(FileCacheGetStatus.NotExisting, stream: null);
         var stream = _io.OpenRead(getFilePath(adj), 0)?.AsStream();
+        if (stream != null && stream.Length <= _sizeLimitSmallCache) {
+            var buffer = new byte[stream.Length];
+            stream.Read(buffer, 0, buffer.Length);
+            stream.Close();
+            lock (_smallFileCache) {
+                _smallFileCache.Set(key, buffer, buffer.Length);
+            }
+            return new(FileCacheGetStatus.Ready, stream: new MemoryStream(buffer));
+        }
         return new(FileCacheGetStatus.Ready, stream: stream);
     }
     public async Task<FileCacheSetResult> SetFromStreamAsync(FileIdWithAdjustment fileKey, Stream input, int maxWaitMs) {
@@ -258,23 +275,27 @@ public class FileConversionEngine : IDisposable {
         }
     }
 
-    public async Task<FileConversionResult> completeTaskIfPossible(Task<FileConversionResult> task, int maxWait, Func<FileConversionResult> fallbackIfTimeout) {
-        if (task == null) {
-            return fallbackIfTimeout();
-        }
-        var completedTask = await Task.WhenAny(task, Task.Delay(maxWait));
-        if (completedTask == task) {
-            return await task;
-        } else {
-            return fallbackIfTimeout();
-        }
-    }
 
-    public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int initialMaxWaitMs, Func<Task<Stream>> getInputStream) {
-        return await completeTaskIfPossible(tryGetFormatAsync(info, initialMaxWaitMs, getInputStream), initialMaxWaitMs, () => new(new(FileConversionStatus.InProgress)));
+    public Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, Func<Task<Stream>> getInputStream) {
+
+        // first fast path:
+        var first = tryGetFormatAsync(info, 0, getInputStream).Result;
+        if (first.ProgressInfo.Status == FileConversionStatus.Ready)
+            return Task.FromResult(first);
+
+        // if not ready, start the conversion in background and return a task that will complete when conversion is done or max wait time is reached:
+        var tcs = new TaskCompletionSource<FileConversionResult>();
+        ThreadPool.QueueUserWorkItem(async _ => {
+            try { tcs.SetResult(await tryGetFormatAsync(info, maxWaitMs, getInputStream)); } catch (Exception ex) { tcs.SetException(ex); }
+        });
+        return Task.WhenAny(tcs.Task, Task.Delay(maxWaitMs).ContinueWith(_ => new FileConversionResult(new(FileConversionStatus.InProgress))))
+            .Unwrap();
+
     }
 
     async Task<FileConversionResult> tryGetFormatAsync(FileConversionInfo info, int initialMaxWaitMs, Func<Task<Stream>> getInputStream) {
+
+        var key = info.IdWithAdjustment.GetKey();
 
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
             return new(new(FileConversionStatus.Unsupported, message: "No converter available for " + info.Formats.From + " to " + info.Formats.To + ". "));
@@ -282,8 +303,6 @@ public class FileConversionEngine : IDisposable {
 
         var stopWatch = Stopwatch.StartNew();
         var remainingWait = initialMaxWaitMs;
-
-        var key = info.IdWithAdjustment.GetKey();
 
         // check file cache first, and wait if it is already being written from converter to cache:
         var cacheResult = await _fileCache.TryGetStreamAsync(info.IdWithAdjustment, remainingWait); // check cache, leave some time in case conversion is done, but file is writing to disk
@@ -297,9 +316,7 @@ public class FileConversionEngine : IDisposable {
         remainingWait = initialMaxWaitMs - (int)stopWatch.ElapsedMilliseconds;
         if (remainingWait <= 0) return new(new(FileConversionStatus.InProgress)); // not in cache, but also no time left to wait, so return with in progress status
 
-
         // so, not in cache, start conversion if not already in progress
-
         bool conversionAlreadyInProgress = false;
         lock (_conversionsInProgress) {
             if (_conversionsInProgress.TryGetValue(key, out var entry)) {
@@ -317,7 +334,6 @@ public class FileConversionEngine : IDisposable {
         FileConversionResult? result = null;
         try {
             var inputStream = await getInputStream();
-
             result = await converter.ConvertAsync(inputStream, info, remainingWait);
         } catch (Exception error) {
             if (result != null && result.Output != null) result.Output.Dispose();

@@ -25,11 +25,13 @@ public abstract class FileAdjustmentBase {
     public Guid GetKey() {
         if (_key == null) {
             var stringKey = GetStringKey();
-            if (!_keyCache.TryGetValue(stringKey, out var guid)) {
-                guid = stringKey.GenerateHashGuid();
-                _keyCache[stringKey] = guid;
+            lock (_keyCache) {
+                if (!_keyCache.TryGetValue(stringKey, out var guid)) {
+                    guid = stringKey.GenerateHashGuid();
+                    _keyCache[stringKey] = guid;
+                }
+                _key = guid;
             }
-            _key = guid;
         }
         return _key.Value;
     }
@@ -61,23 +63,23 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (_key != null) return _key;
         Span<byte> buf = stackalloc byte[80];
         int p = 0;
-        BitConverter.TryWriteBytes(buf[p..], (int)RequestedFormat);          p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Width      ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Height     ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Scale      ?? double.NaN);      p += 8;
-        BitConverter.TryWriteBytes(buf[p..], Zoom       ?? double.NaN);      p += 8;
-        BitConverter.TryWriteBytes(buf[p..], FocusX     ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], FocusY     ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], OffsetX    ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], OffsetY    ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Rotation   ?? double.NaN);      p += 8;
-        BitConverter.TryWriteBytes(buf[p..], Brightness ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Contrast   ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Saturation ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Colorize   ?? int.MinValue);    p += 4;
-        BitConverter.TryWriteBytes(buf[p..], HueShift   ?? int.MinValue);    p += 4;
+        BitConverter.TryWriteBytes(buf[p..], (int)RequestedFormat); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Width ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Height ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Scale ?? double.NaN); p += 8;
+        BitConverter.TryWriteBytes(buf[p..], Zoom ?? double.NaN); p += 8;
+        BitConverter.TryWriteBytes(buf[p..], FocusX ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], FocusY ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], OffsetX ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], OffsetY ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Rotation ?? double.NaN); p += 8;
+        BitConverter.TryWriteBytes(buf[p..], Brightness ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Contrast ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Saturation ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Colorize ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], HueShift ?? int.MinValue); p += 4;
         BitConverter.TryWriteBytes(buf[p..], (int)(CropMode ?? (ImageCropMode)(-1))); p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Quality    ?? int.MinValue);
+        BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue);
         return _key = Convert.ToHexString(buf) + (BackgroundColor ?? "");
     }
 }

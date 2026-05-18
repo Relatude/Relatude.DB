@@ -74,15 +74,15 @@ public class AzureBlobIOProvider : IIOProvider {
 
     public IReadStream OpenRead(string fileKey, long position) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_lock) {
-            return openRead(position, fileKey);
-        }
+
+        return openRead(position, fileKey);
+
     }
     public IReadStream OpenRead(string[] path, long position) {
         var blobName = getAndValidateBlobName(path);
-        lock (_lock) {
-            return openRead(position, blobName);
-        }
+
+        return openRead(position, blobName);
+
     }
     public bool Exists(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
@@ -93,10 +93,13 @@ public class AzureBlobIOProvider : IIOProvider {
         return _container.GetBlobClient(blobName).Exists();
     }
     IReadStream openRead(long position, string blobName) {
+        Console.WriteLine("Opening read stream for " + blobName + " at position " + position);
         FileMeta meta;
-        if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");
-        if (meta.Writers > 0) throw new Exception($"File {blobName} is locked for writing. ");
-        meta.Readers++;
+        lock (_lock) {
+            if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");
+            if (meta.Writers > 0) throw new Exception($"File {blobName} is locked for writing. ");
+            meta.Readers++;
+        }
         AzureBlobIOReadStream? stream = null;
         stream = new AzureBlobIOReadStream(_container, blobName, position, _lockBlob, () => {
             lock (_lock) {
@@ -104,7 +107,9 @@ public class AzureBlobIOProvider : IIOProvider {
                 _openStreams.Remove(stream!);
             }
         });
-        _openStreams.Add(stream);
+        lock (_lock) {
+            _openStreams.Add(stream);
+        }
         return stream;
     }
     public IAppendStream OpenAppend(string fileKey) {

@@ -7,7 +7,7 @@ namespace Relatude.DB.FileConversion.Images;
 public static class SkiaImageConverter {
     public static Stream Convert(Stream input, FileAdjustmentImage adj) {
 
-        Thread.Sleep(2000);
+        //Thread.Sleep(2000);
 
         using var original = SKBitmap.Decode(input) ?? throw new InvalidOperationException("Failed to decode image.");
 
