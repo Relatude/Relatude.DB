@@ -10,6 +10,7 @@ public class FileInsertResult(string fileHash, byte[] storeKey, long length) {
 
 public interface IFileStore : IDisposable {
     Guid Id { get; }
+    //Task<Stream> OpenReadStream(FileValue value);
     Task ExtractAsync(FileValue value, Stream outStream);
     Task ExtractAsync(FileValue value, IAppendStream outStream);
     Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName = null);
@@ -27,7 +28,6 @@ public static class FileStoreExtensions {
         return stream;
     }
 }
-
 public interface IFileStoreMultiPartSupport : IFileStore {
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
     Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer, int length);

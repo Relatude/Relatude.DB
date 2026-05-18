@@ -12,7 +12,6 @@ public enum UrlTargetType {
     LocalEmbeddedNode,
     LocalProperty,
     LocalAdjusted,
-    LocalEmail,
     LocalOther,
 
     ExternalUrl,
@@ -24,20 +23,25 @@ public struct UrlBase {
     public UrlTargetType TargetType { get; init; }
 }
 public interface IUrlProvider {
+
     string GetExternalUrl(string internalUrl, bool absolute);
+    string GetInternalUrl(string externalUrl);
+    
     IdKey GetIdKey(string url);
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
     string GetInternalUrl(PropertyPath property);
     string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment);
-    string GetInternalUrl(string externalUrl);
+
     NodePath GetNodePath(string url);
     PropertyPath GetPropertyPath(string url);
-    bool TryParseAdjusted(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
-    bool TryParseIdKey(string localUrl, [MaybeNullWhen(false)] out IdKey idKey);
-    bool TryParseLocalUrlType(string localUrl, out UrlTargetType type);
-    bool TryParseNodePath(string localUrl, [MaybeNullWhen(false)] out NodePath nodePath);
-    bool TryParsePropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
+    
+    bool TryParseLocalUrlType(string internalUrl, out UrlTargetType type);
+
+    bool TryParseAdjusted(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
+    bool TryParseIdKey(string internalUrl, [MaybeNullWhen(false)] out IdKey idKey);
+    bool TryParseNodePath(string internalUrl, [MaybeNullWhen(false)] out NodePath nodePath);
+    bool TryParsePropertyPath(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
 }
 
 

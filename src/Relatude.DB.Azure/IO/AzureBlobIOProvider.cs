@@ -93,7 +93,7 @@ public class AzureBlobIOProvider : IIOProvider {
         return _container.GetBlobClient(blobName).Exists();
     }
     IReadStream openRead(long position, string blobName) {
-        Console.WriteLine("Opening read stream for " + blobName + " at position " + position);
+        //Console.WriteLine("Opening read stream for " + blobName + " at position " + position);
         FileMeta meta;
         lock (_lock) {
             if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");

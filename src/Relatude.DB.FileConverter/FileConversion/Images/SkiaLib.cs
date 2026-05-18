@@ -4,7 +4,7 @@ using SkiaSharp;
 
 namespace Relatude.DB.FileConversion.Images;
 
-public static class SkiaImageConverter {
+public static class SkiaLib {
     public static Stream Convert(Stream input, FileAdjustmentImage adj) {
 
         //Thread.Sleep(2000);

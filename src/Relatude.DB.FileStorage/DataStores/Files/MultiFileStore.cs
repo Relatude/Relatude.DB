@@ -2,7 +2,6 @@
 using Relatude.DB.IO;
 using System.Security.Cryptography;
 using System.Text;
-using static System.Net.WebRequestMethods;
 namespace Relatude.DB.DataStores.Files;
 
 public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport {

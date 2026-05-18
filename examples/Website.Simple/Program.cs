@@ -1,5 +1,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
+using Relatude.DB.FileConversion;
 using Relatude.DB.FileConverter;
 using Relatude.DB.NodeServer;
 using System.Text;
@@ -7,7 +8,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new DefaultImageConverter());
+    //options.FileConverters.Add(new ImageConverterSkia());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -31,7 +32,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    var articleCount = 20;
+    var articleCount = 10;
     for (int i = 0; i < articleCount; i++) {
         var db = ctx.Database;
         //var art = new DemoArticle();
@@ -42,8 +43,8 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         paraGraph.Code = "dasdas";
         art.Paragraphs.Add(paraGraph);
         db.Insert(art);
-         var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
-        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
+        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
+        var filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
         var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
 
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
@@ -83,13 +84,14 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         var adj = new FileAdjustmentImage() {
             CropMode = ImageCropMode.Fit,
             Width = 200,
-            Height = 70,
+            Height = 116,
             FocusX = 0, FocusY = 0,
             Zoom = 100,
-            BackgroundColor = "#ffffff",
+            BackgroundColor = "#FF0000",
             RequestedFormat = FileFormat.Jpeg,
             Quality = 90
         };
+
         if (!item.File.IsEmpty) {
             var fileUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
             // thumbnail::
@@ -112,7 +114,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, string propPathAndAdj) => {
     var db = ctx.Database;
-    var stream = await db.Datastore.GetFile(propPathAndAdj, 100); 
+    var stream = await db.Datastore.GetFile(propPathAndAdj, 10000);
     return Results.Stream(stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg), enableRangeProcessing: true);
 });
 
