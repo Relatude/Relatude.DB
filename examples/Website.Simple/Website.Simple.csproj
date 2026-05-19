@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.1.0.99</Version>
+    <Version>0.2.0.100</Version>
     <UserSecretsId>632dd380-1f0a-4c10-9ba8-613a16d4b33f</UserSecretsId>
   </PropertyGroup>
 
@@ -25,7 +25,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
-    <ProjectReference Include="..\..\src\Relatude.DB.FileConverter\Relatude.DB.FileConverter.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />

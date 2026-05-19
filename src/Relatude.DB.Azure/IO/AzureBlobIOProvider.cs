@@ -3,7 +3,7 @@ using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 namespace Relatude.DB.IO;
 
-public class AzureBlobIOProvider : IIOProvider {
+public class AzureBlobIOProvider : IIOProviderWithFolders {
     const string _virtualFolderChar = "/";
     string getAndValidateBlobName(string[] path) {
         FileKeyUtility.ValidateFileKeyPath(path);
@@ -212,4 +212,56 @@ public class AzureBlobIOProvider : IIOProvider {
         }
     }
 
+    public void DeleteFolderIfItExists(string[] path) {
+        lock (_lock) {
+            var prefix = getAndValidateBlobName(path) + _virtualFolderChar;
+            var blobsToDelete = _container.GetBlobs(prefix: prefix).Select(b => b.Name).ToArray();
+            foreach (var blobName in blobsToDelete) {
+                deleteFileIfItExists(blobName);
+            }
+        }
+    }
+    public void EnsureFolder(string[] path) {
+    }
+    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
+        var prefix = path.Length > 0 ? string.Join(_virtualFolderChar, path) + _virtualFolderChar : "";
+        var blobs = _container.GetBlobs(prefix: prefix).ToArray();
+        var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
+        addAzureSubFolders(root, prefix, blobs, recursive, withFiles);
+        return Task.FromResult(root.SubFolders);
+    }
+    void addAzureSubFolders(FolderMeta folder, string prefix, BlobItem[] blobs, bool recursive, bool withFiles) {
+        var directChildren = blobs
+            .Select(b => b.Name[prefix.Length..])
+            .Where(rel => rel.Length > 0);
+
+        var subFolderNames = directChildren
+            .Where(rel => rel.Contains(_virtualFolderChar))
+            .Select(rel => rel[..rel.IndexOf(_virtualFolderChar)])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var fileNames = directChildren
+            .Where(rel => !rel.Contains(_virtualFolderChar))
+            .ToArray();
+
+        if (withFiles)
+            folder.Files = [.. fileNames.Select(f => _files.TryGetValue(prefix + f, out var m) ? m : new FileMeta { Key = prefix + f })];
+
+        folder.HasFiles = fileNames.Length > 0;
+        folder.HasSubFolders = subFolderNames.Length > 0;
+
+        folder.SubFolders = [.. subFolderNames.Select(name => {
+            var subPrefix = prefix + name + _virtualFolderChar;
+            var subBlobs = blobs.Where(b => b.Name.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var sub = new FolderMeta {
+                Name = name,
+                Description = null,
+                HasFiles = subBlobs.Any(b => !b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
+                HasSubFolders = subBlobs.Any(b => b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
+            };
+            if (recursive) addAzureSubFolders(sub, subPrefix, subBlobs, recursive, withFiles);
+            return sub;
+        })];
+    }
 }

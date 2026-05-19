@@ -46,7 +46,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (result.Output == null) throw new Exception("File conversion output is null");
             return result.Output;
         } else {
-            return _fileConversionEngine.GetProgressStream(fileValue, adj, result.ProgressInfo);
+            return _fileConversionEngine.GetStatus(fileValue, adj, result.ProgressInfo);
         }
     }
 }

@@ -5,16 +5,23 @@ using Relatude.DB.FileConversion.DefaultImage.NativeImageLib;
 namespace Relatude.DB.FileConversion;
 
 public class DefaultImageConverter : IFileConverter {
+    public DefaultImageConverter() {
+        MaxConcurrentWork = Environment.ProcessorCount / 2;
+        MinIntervalBetweenCallsInMs = 0;
+    }
+    public int MaxConcurrentWork { get; set; }
+    public int MinIntervalBetweenCallsInMs { get; set; }
     public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         if (inBase != FileType.Image || outBase != FileType.Image) return false;
         return inDetailed is FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Webp
-            && outDetailed is FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Webp;
+            && outDetailed is FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp;
     }
-
-    public Task<bool> CancelAsync(string key) => Task.FromResult(false);
-
-    public Task<Stream> ConvertAsync(Stream input, FileConversionInfo info) {
-
+    public Task<bool> CancelAsync(Guid key) => Task.FromResult(false);
+    public async Task<ConversionProgress> DoConvertWork(Func<Task<Stream>> getInputStream, FileConversionInfo info) {
+        return await doConvertWorkAsync(getInputStream, info);
+    }
+    async Task<ConversionProgress> doConvertWorkAsync(Func<Task<Stream>> getInputStream, FileConversionInfo info) {
+        using var input = await getInputStream();
         var image = PureImage.Load(input);
         var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentImage;
 
@@ -53,9 +60,8 @@ public class DefaultImageConverter : IFileConverter {
         var outStream = new MemoryStream();
         ImageCodecs.FindEncoder(outFormat).Encode(image, outStream, saveOpts);
         outStream.Position = 0;
-        return Task.FromResult<Stream>(outStream);
+        return new(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), outStream);
     }
-
     static PureImage ResizeToFitCanvas(PureImage image, int canvasW, int canvasH, ColorRgba bg) {
         double scale = Math.Min((double)canvasW / image.Width, (double)canvasH / image.Height);
         var scaled = image.Resize(Math.Max(1, (int)Math.Round(image.Width * scale)), Math.Max(1, (int)Math.Round(image.Height * scale)));
@@ -99,7 +105,7 @@ public class DefaultImageConverter : IFileConverter {
         _ => ImageFormat.Jpeg
     };
 
-    public Stream GetProgressStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+    public Stream GetStatusRepresentation(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
         var imgAdj = adj as FileAdjustmentImage;
         int w = imgAdj?.Width ?? (fileValue.Width > 0 ? fileValue.Width : 200);
         int h = imgAdj?.Height ?? (fileValue.Height > 0 ? fileValue.Height : 200);
@@ -124,4 +130,5 @@ public class DefaultImageConverter : IFileConverter {
         outStream.Position = 0;
         return outStream;
     }
+
 }
