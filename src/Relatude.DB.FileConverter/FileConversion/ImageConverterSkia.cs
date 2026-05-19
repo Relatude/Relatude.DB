@@ -34,14 +34,10 @@ public class ImageConverterSkia : IFileConverter {
     public Task<bool> CancelAsync(string key) {
         throw new NotImplementedException();
     }
-    public async Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
-        try {
-            var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
-            var stream = SkiaLib.Convert(input, imgAdj);
-            return new(new(FileConversionStatus.Ready), stream);
-        } catch (Exception ex) {
-            return new(new(FileConversionStatus.Error, 0, 0, ex.Message));
-        }
+    public Task<Stream> ConvertAsync(Stream input, FileConversionInfo info) {
+        var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
+        var stream = SkiaLib.Convert(input, imgAdj);
+        return Task.FromResult(stream);
     }
     public Stream GetProgressStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
         var text = status.Status.ToString();

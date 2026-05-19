@@ -8,7 +8,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    //options.FileConverters.Add(new ImageConverterSkia());
+    options.FileConverters.Add(new ImageConverterSkia());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -32,7 +32,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    var articleCount = 10;
+    var articleCount = 30;
     for (int i = 0; i < articleCount; i++) {
         var db = ctx.Database;
         //var art = new DemoArticle();
@@ -43,8 +43,8 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         paraGraph.Code = "dasdas";
         art.Paragraphs.Add(paraGraph);
         db.Insert(art);
-        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
-        var filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
+        var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
+        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
         var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
 
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
@@ -114,7 +114,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, string propPathAndAdj) => {
     var db = ctx.Database;
-    var stream = await db.Datastore.GetFile(propPathAndAdj, 10000);
+    var stream = await db.Datastore.GetFile(propPathAndAdj, 50000);
     return Results.Stream(stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg), enableRangeProcessing: true);
 });
 

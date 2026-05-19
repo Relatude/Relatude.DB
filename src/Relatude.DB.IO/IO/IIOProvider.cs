@@ -37,9 +37,19 @@ public static class IIOProviderExtensions {
         using var stream = io.OpenRead(fileKey, 0);
         return stream.ReadString();
     }
+    public static string ReadString(this IIOProvider io, string[] path, string? fallback = null) {
+        if (io.GetFileSizeOrZeroIfUnknown(path) == 0) return fallback ?? string.Empty;
+        using var stream = io.OpenRead(path, 0);
+        return stream.ReadString();
+    }
     public static void WriteString(this IIOProvider io, string fileKey, string content) {
         io.DeleteFileIfItExists(fileKey);
         using var stream = io.OpenAppend(fileKey);
+        stream.WriteString(content);
+    }
+    public static void WriteString(this IIOProvider io, string[] path, string content) {
+        io.DeleteFileIfItExists(path);
+        using var stream = io.OpenAppend(path);
         stream.WriteString(content);
     }
     public static byte[] ReadAllBytes(this IIOProvider io, string fileKey) {

@@ -13,51 +13,47 @@ public class DefaultImageConverter : IFileConverter {
 
     public Task<bool> CancelAsync(string key) => Task.FromResult(false);
 
-    public Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
-        try {
-            var image = PureImage.Load(input);
-            var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentImage;
+    public Task<Stream> ConvertAsync(Stream input, FileConversionInfo info) {
 
-            if (adj != null) {
-                // Rotation
-                if (adj.Rotation is double rot && rot != 0)
-                    image = image.Rotate(rot);
+        var image = PureImage.Load(input);
+        var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentImage;
 
-                // Resize / crop
-                var cropMode = adj.CropMode ?? ImageCropMode.Fit;
-                int targetW, targetH;
-                bool onlyOneDim = (adj.Width == null) != (adj.Height == null);
-                if (onlyOneDim && (cropMode == ImageCropMode.Fit || cropMode == ImageCropMode.Fill)) {
-                    // Only one dimension given: derive the other from image proportions
-                    if (adj.Width.HasValue) { targetW = adj.Width.Value; targetH = Math.Max(1, (int)Math.Round(targetW * (double)image.Height / image.Width)); }
-                    else { targetH = adj.Height!.Value; targetW = Math.Max(1, (int)Math.Round(targetH * (double)image.Width / image.Height)); }
-                } else {
-                    targetW = adj.Width ?? (adj.Scale.HasValue ? (int)(image.Width * adj.Scale.Value / 100.0) : image.Width);
-                    targetH = adj.Height ?? (adj.Scale.HasValue ? (int)(image.Height * adj.Scale.Value / 100.0) : image.Height);
-                }
-                if (targetW != image.Width || targetH != image.Height) {
-                    image = cropMode switch {
-                        ImageCropMode.Fill => ResizeAndCropFill(image, targetW, targetH),
-                        ImageCropMode.Fit => ResizeToFitCanvas(image, targetW, targetH, ParseBackground(adj.BackgroundColor)),
-                        _ => image.Resize(targetW, targetH)
-                    };
-                }
+        if (adj != null) {
+            // Rotation
+            if (adj.Rotation is double rot && rot != 0)
+                image = image.Rotate(rot);
 
-                // Colour adjustments (values are -100..100, convert to -1..1)
-                if (adj.Brightness is int b && b != 0) image = image.AdjustBrightness(b / 100.0);
-                if (adj.Contrast is int c && c != 0) image = image.AdjustContrast(c / 100.0);
-                if (adj.Saturation is int s && s != 0) image = image.AdjustSaturation(s / 100.0);
+            // Resize / crop
+            var cropMode = adj.CropMode ?? ImageCropMode.Fit;
+            int targetW, targetH;
+            bool onlyOneDim = (adj.Width == null) != (adj.Height == null);
+            if (onlyOneDim && (cropMode == ImageCropMode.Fit || cropMode == ImageCropMode.Fill)) {
+                // Only one dimension given: derive the other from image proportions
+                if (adj.Width.HasValue) { targetW = adj.Width.Value; targetH = Math.Max(1, (int)Math.Round(targetW * (double)image.Height / image.Width)); } else { targetH = adj.Height!.Value; targetW = Math.Max(1, (int)Math.Round(targetH * (double)image.Width / image.Height)); }
+            } else {
+                targetW = adj.Width ?? (adj.Scale.HasValue ? (int)(image.Width * adj.Scale.Value / 100.0) : image.Width);
+                targetH = adj.Height ?? (adj.Scale.HasValue ? (int)(image.Height * adj.Scale.Value / 100.0) : image.Height);
+            }
+            if (targetW != image.Width || targetH != image.Height) {
+                image = cropMode switch {
+                    ImageCropMode.Fill => ResizeAndCropFill(image, targetW, targetH),
+                    ImageCropMode.Fit => ResizeToFitCanvas(image, targetW, targetH, ParseBackground(adj.BackgroundColor)),
+                    _ => image.Resize(targetW, targetH)
+                };
             }
 
-            var outFormat = ToImageFormat(info.Formats.To);
-            var saveOpts = new ImageSaveOptions { Quality = adj?.Quality ?? 90 };
-            var outStream = new MemoryStream();
-            ImageCodecs.FindEncoder(outFormat).Encode(image, outStream, saveOpts);
-            outStream.Position = 0;
-            return Task.FromResult(new FileConversionResult(new(FileConversionStatus.Ready), outStream));
-        } catch (Exception ex) {
-            return Task.FromResult(new FileConversionResult(new(FileConversionStatus.Error, message: ex.Message)));
+            // Colour adjustments (values are -100..100, convert to -1..1)
+            if (adj.Brightness is int b && b != 0) image = image.AdjustBrightness(b / 100.0);
+            if (adj.Contrast is int c && c != 0) image = image.AdjustContrast(c / 100.0);
+            if (adj.Saturation is int s && s != 0) image = image.AdjustSaturation(s / 100.0);
         }
+
+        var outFormat = ToImageFormat(info.Formats.To);
+        var saveOpts = new ImageSaveOptions { Quality = adj?.Quality ?? 90 };
+        var outStream = new MemoryStream();
+        ImageCodecs.FindEncoder(outFormat).Encode(image, outStream, saveOpts);
+        outStream.Position = 0;
+        return Task.FromResult<Stream>(outStream);
     }
 
     static PureImage ResizeToFitCanvas(PureImage image, int canvasW, int canvasH, ColorRgba bg) {

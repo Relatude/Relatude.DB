@@ -23,7 +23,7 @@ public class DefaultImageMetaConverter : IFileConverter {
         throw new NotImplementedException();
     }
 
-    public Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
+    public Task<Stream> ConvertAsync(Stream input, FileConversionInfo info) {
         throw new NotImplementedException();
     }
 

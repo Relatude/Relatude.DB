@@ -17,7 +17,7 @@ public class ChainedFileConverter : IFileConverter {
         }
         return false;
     }
-    public Task<FileConversionResult> ConvertAsync(Stream input, FileConversionInfo info, int maxWaitMs) {
+    public Task<Stream> ConvertAsync(Stream input, FileConversionInfo info) {
         throw new NotImplementedException();
     }
 
