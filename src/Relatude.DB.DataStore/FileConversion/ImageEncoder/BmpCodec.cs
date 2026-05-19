@@ -15,7 +15,7 @@ internal sealed class BmpCodec : IImageCodec
         return header.Length >= 2 && header[0] == (byte)'B' && header[1] == (byte)'M';
     }
 
-    public NativeRImage Decode(ReadOnlySpan<byte> data)
+    public InternalImage Decode(ReadOnlySpan<byte> data)
     {
         if (data.Length < 54 || !CanDecode(data))
         {
@@ -129,10 +129,10 @@ internal sealed class BmpCodec : IImageCodec
             }
         }
 
-        return new NativeRImage(width, height, rgba);
+        return new InternalImage(width, height, rgba);
     }
 
-    public void Encode(NativeRImage image, Stream stream, ImageSaveOptions options)
+    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options)
     {
         const int fileHeaderSize = 14;
         const int dibHeaderSize = 40;

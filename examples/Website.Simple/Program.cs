@@ -7,7 +7,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-   options.FileConverters.Add(new SkiaImageConverter());
+    options.FileConverters.Add(new SkiaImageConverter());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -81,13 +81,11 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //html.Append($"<h2>{item.Title}</h2>");
         //html.Append($"<p>{item.Content}</p>");
         var adj = new FileAdjustmentImage() {
-            CropMode = ImageCropMode.Fit,
+            CropMode = ImageCropMode.Fill,
             Width = 400,
-            Height = 316,
-            FocusX = 0, FocusY = 0,
-            Zoom = 100,
             BackgroundColor = "#FF0000",
-            RequestedFormat = FileFormat.Webp,
+            RequestedFormat = FileFormat.Png,
+            Sharpness = 10,
             Quality = 90
         };
 

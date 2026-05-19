@@ -2,10 +2,8 @@ using Relatude.DB.Common;
 
 namespace Relatude.DB.FileConversion;
 
-
-public interface IImage : IDisposable {
-
-    public static IImage Adjust(IImage source, FileAdjustmentImage adj) {
+public static class IImageExt {
+    public static IImage Adjust(this IImage source, FileAdjustmentImage adj) {
         var img = source;
 
         // 1. Rotation — applied first so subsequent resize works on the rotated canvas
@@ -19,6 +17,8 @@ public interface IImage : IDisposable {
             img = img.SetOffset(adj.OffsetX, adj.OffsetY);
 
         // 3. Zoom — scale the viewport before resize
+        if (adj.BackgroundColor != null || adj.AutoBackgroundColor == true)
+            img = img.SetBackgroundColor(adj.BackgroundColor);
         if (adj.Zoom is double zoom && zoom != 100)
             img = img.Zoom(zoom);
 
@@ -30,13 +30,15 @@ public interface IImage : IDisposable {
 
         // 5. Colour and tone adjustments (FileAdjustmentImage uses -100..100 / -180..180 ranges)
         if (adj.Brightness is double b && b != 0) img = img.AdjustBrightness(b);
-        if (adj.Contrast  is double c && c != 0) img = img.AdjustContrast(c);
+        if (adj.Contrast is double c && c != 0) img = img.AdjustContrast(c);
         if (adj.Saturation is double s && s != 0) img = img.AdjustSaturation(s);
-        if (adj.HueShift  is double h && h != 0) img = img.AdjustHue(h);
+        if (adj.HueShift is double h && h != 0) img = img.AdjustHue(h);
         if (adj.Sharpness is double sh && sh != 0) img = img.AdjustSharpness(sh);
 
         return img;
     }
+}
+public interface IImage : IDisposable {
 
     int Width { get; }
     int Height { get; }
@@ -46,6 +48,9 @@ public interface IImage : IDisposable {
 
     /// <summary>Zoom into/out of the image. 100 = 1:1, 200 = 2x, 50 = zoom out.</summary>
     IImage Zoom(double zoom);
+
+    /// <summary>Set the background color used when padding (e.g. zoom-out, fit). Hex #RRGGBB or #RRGGBBAA.</summary>
+    IImage SetBackgroundColor(string? color);
 
     /// <summary>Set the focus point (relative to the original image) used when cropping.</summary>
     IImage SetFocus(int? focusX, int? focusY);

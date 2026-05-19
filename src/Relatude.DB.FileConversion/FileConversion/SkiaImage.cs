@@ -11,24 +11,27 @@ internal sealed class SkiaImage : IImage {
     readonly int? _focusY;
     readonly int? _offsetX;
     readonly int? _offsetY;
+    readonly string? _backgroundColor;
 
     public int Width => _bitmap.Width;
     public int Height => _bitmap.Height;
 
-    public SkiaImage(SKBitmap bitmap, int? focusX = null, int? focusY = null, int? offsetX = null, int? offsetY = null) {
+    public SkiaImage(SKBitmap bitmap, int? focusX = null, int? focusY = null, int? offsetX = null, int? offsetY = null, string? backgroundColor = null) {
         _bitmap = bitmap;
         _focusX = focusX;
         _focusY = focusY;
         _offsetX = offsetX;
         _offsetY = offsetY;
+        _backgroundColor = backgroundColor;
     }
 
     public static SkiaImage Load(Stream stream) => new(SKBitmap.Decode(stream) ?? throw new InvalidOperationException("Failed to decode image."));
 
     // ── Crop hints ──────────────────────────────────────────────────────────
 
-    public IImage SetFocus(int? focusX, int? focusY) => new SkiaImage(_bitmap.Copy(), focusX, focusY, _offsetX, _offsetY);
-    public IImage SetOffset(int? offsetX, int? offsetY) => new SkiaImage(_bitmap.Copy(), _focusX, _focusY, offsetX, offsetY);
+    public IImage SetFocus(int? focusX, int? focusY) => new SkiaImage(_bitmap.Copy(), focusX, focusY, _offsetX, _offsetY, _backgroundColor);
+    public IImage SetOffset(int? offsetX, int? offsetY) => new SkiaImage(_bitmap.Copy(), _focusX, _focusY, offsetX, offsetY, _backgroundColor);
+    public IImage SetBackgroundColor(string? color) => new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY, color);
 
     // ── Geometry ────────────────────────────────────────────────────────────
 
@@ -57,7 +60,7 @@ internal sealed class SkiaImage : IImage {
     }
 
     public IImage Zoom(double zoom) {
-        if (zoom <= 0 || zoom == 100) return new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY);
+        if (zoom <= 0 || zoom == 100) return new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY, _backgroundColor);
         // Zoom > 100 = zoom in: crop to a smaller source window then scale up to original size
         // Zoom < 100 = zoom out: scale down the image onto a canvas the original size (with transparent border)
         if (zoom > 100) {
@@ -77,7 +80,7 @@ internal sealed class SkiaImage : IImage {
             using var scaled = ResizeBitmap(_bitmap, scaledW, scaledH);
             var canvas = new SKBitmap(Width, Height);
             using var c2 = new SKCanvas(canvas);
-            c2.Clear(SKColors.Transparent);
+            c2.Clear(ParseColor(_backgroundColor));
             c2.DrawBitmap(scaled, (Width - scaledW) / 2f, (Height - scaledH) / 2f);
             return new SkiaImage(canvas);
         }
@@ -123,9 +126,15 @@ internal sealed class SkiaImage : IImage {
 
     public IImage AdjustSharpness(double sharpness) {
         if (sharpness == 0) return new SkiaImage(_bitmap.Copy());
-        // Use unsharp-mask style: sharpen amount scales 0-100 → ImageFilter sigma
+        if (sharpness < 0) {
+            // Gaussian blur: map -1..-100 → sigma 0.5..20
+            float sigma = (float)(-sharpness / 100.0 * 19.5 + 0.5);
+            using var paint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(sigma, sigma) };
+            return DrawWithPaint(paint);
+        }
+        // Unsharp-mask sharpening: amount 0..1
         float amount = (float)(sharpness / 100.0);
-        using var paint = new SKPaint {
+        using var sharpenPaint = new SKPaint {
             ImageFilter = SKImageFilter.CreateMatrixConvolution(
             new SKSizeI(3, 3),
             [  0, -amount,        0,
@@ -133,7 +142,7 @@ internal sealed class SkiaImage : IImage {
                0, -amount,        0 ],
             1f, 0f, new SKPointI(1, 1), SKShaderTileMode.Clamp, true)
         };
-        return DrawWithPaint(paint);
+        return DrawWithPaint(sharpenPaint);
     }
 
     // ── Encode ──────────────────────────────────────────────────────────────

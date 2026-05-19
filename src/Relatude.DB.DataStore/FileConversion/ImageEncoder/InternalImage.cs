@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Relatude.DB.FileConversion.NativeImageEncoder;
 
-public sealed class NativeRImage
+internal sealed class InternalImage
 {
     private const int LinearShift = 14;
     private const int LinearOne = 1 << LinearShift;
@@ -14,12 +14,12 @@ public sealed class NativeRImage
 
     private readonly byte[] _rgba;
 
-    public NativeRImage(int width, int height)
+    public InternalImage(int width, int height)
         : this(width, height, new byte[CheckedPixelByteCount(width, height)])
     {
     }
 
-    public NativeRImage(int width, int height, byte[] rgba)
+    public InternalImage(int width, int height, byte[] rgba)
     {
         if (width <= 0 || height <= 0)
         {
@@ -41,23 +41,23 @@ public sealed class NativeRImage
     public ReadOnlySpan<byte> Pixels => _rgba;
     public Span<byte> MutablePixels => _rgba;
 
-    public static NativeRImage Load(string path, ImageLoadOptions? options = null)
+    public static InternalImage Load(string path, ImageLoadOptions? options = null)
     {
         byte[] data = File.ReadAllBytes(path);
-        NativeRImage image = ImageCodecs.FindDecoder(data).Decode(data);
+        InternalImage image = ImageCodecs.FindDecoder(data).Decode(data);
         return image.Apply(options);
     }
 
-    public static NativeRImage Load(Stream stream, ImageLoadOptions? options = null)
+    public static InternalImage Load(Stream stream, ImageLoadOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
         byte[] data = ReadStreamToEnd(stream);
-        NativeRImage image = ImageCodecs.FindDecoder(data).Decode(data);
+        InternalImage image = ImageCodecs.FindDecoder(data).Decode(data);
         return image.Apply(options);
     }
 
-    public static NativeRImage Create(int width, int height, Func<int, int, ColorRgba> fill)
+    public static InternalImage Create(int width, int height, Func<int, int, ColorRgba> fill)
     {
         ArgumentNullException.ThrowIfNull(fill);
         byte[] pixels = new byte[CheckedPixelByteCount(width, height)];
@@ -75,7 +75,7 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(width, height, pixels);
+        return new InternalImage(width, height, pixels);
     }
 
     public static ImageFormat DetectFormat(Stream stream)
@@ -111,12 +111,12 @@ public sealed class NativeRImage
         }
     }
 
-    public NativeRImage Clone()
+    public InternalImage Clone()
     {
-        return new NativeRImage(Width, Height, (byte[])_rgba.Clone());
+        return new InternalImage(Width, Height, (byte[])_rgba.Clone());
     }
 
-    public NativeRImage Crop(RectangleI rectangle)
+    public InternalImage Crop(RectangleI rectangle)
     {
         rectangle.ValidateInside(Width, Height);
         if (rectangle.X == 0 && rectangle.Y == 0 && rectangle.Width == Width && rectangle.Height == Height)
@@ -136,15 +136,15 @@ public sealed class NativeRImage
                 destinationStride);
         }
 
-        return new NativeRImage(rectangle.Width, rectangle.Height, pixels);
+        return new InternalImage(rectangle.Width, rectangle.Height, pixels);
     }
 
-    public NativeRImage Resize(int width, int height, ResizeKernel kernel = ResizeKernel.Lanczos3)
+    public InternalImage Resize(int width, int height, ResizeKernel kernel = ResizeKernel.Lanczos3)
     {
         return Resize(new ResizeOptions(width, height, kernel));
     }
 
-    public NativeRImage Resize(ResizeOptions options)
+    public InternalImage Resize(ResizeOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -162,37 +162,37 @@ public sealed class NativeRImage
         };
     }
 
-    public NativeRImage AdjustBrightness(double amount)
+    public InternalImage AdjustBrightness(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         int offset = (int)Math.Round(amount * 255);
         if (offset == 0) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplyRgbLut(destination, BuildOffsetLut(offset));
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage AdjustSaturation(double amount)
+    public InternalImage AdjustSaturation(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
         if (factor == 1) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplySaturation(destination, factor);
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage AdjustContrast(double amount)
+    public InternalImage AdjustContrast(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
         if (factor == 1) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplyRgbLut(destination, BuildContrastLut(factor));
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage FlipHorizontal()
+    public InternalImage FlipHorizontal()
     {
         byte[] destination = new byte[_rgba.Length];
         if (ShouldParallelize(Width, Height))
@@ -212,7 +212,7 @@ public sealed class NativeRImage
                 }
             }
 
-            return new NativeRImage(Width, Height, destination);
+            return new InternalImage(Width, Height, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -227,17 +227,17 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage FlipVertical()
+    public InternalImage FlipVertical()
     {
         byte[] destination = new byte[_rgba.Length];
         int stride = Width * 4;
         if (ShouldParallelize(Width, Height))
         {
             Parallel.For(0, Height, y => Buffer.BlockCopy(_rgba, (Height - 1 - y) * stride, destination, y * stride, stride));
-            return new NativeRImage(Width, Height, destination);
+            return new InternalImage(Width, Height, destination);
         }
 
         for (int y = 0; y < Height; y++)
@@ -245,17 +245,17 @@ public sealed class NativeRImage
             Buffer.BlockCopy(_rgba, (Height - 1 - y) * stride, destination, y * stride, stride);
         }
 
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage Invert()
+    public InternalImage Invert()
     {
         byte[] destination = new byte[_rgba.Length];
         InvertCore(destination);
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage Rotate90Clockwise()
+    public InternalImage Rotate90Clockwise()
     {
         byte[] destination = new byte[CheckedPixelByteCount(Height, Width)];
         if (ShouldParallelize(Width, Height))
@@ -271,7 +271,7 @@ public sealed class NativeRImage
                 }
             }
 
-            return new NativeRImage(Height, Width, destination);
+            return new InternalImage(Height, Width, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -287,10 +287,10 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(Height, Width, destination);
+        return new InternalImage(Height, Width, destination);
     }
 
-    public NativeRImage Rotate90CounterClockwise()
+    public InternalImage Rotate90CounterClockwise()
     {
         byte[] destination = new byte[CheckedPixelByteCount(Height, Width)];
         if (ShouldParallelize(Width, Height))
@@ -306,7 +306,7 @@ public sealed class NativeRImage
                 }
             }
 
-            return new NativeRImage(Height, Width, destination);
+            return new InternalImage(Height, Width, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -321,10 +321,10 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(Height, Width, destination);
+        return new InternalImage(Height, Width, destination);
     }
 
-    public NativeRImage Rotate180()
+    public InternalImage Rotate180()
     {
         byte[] destination = new byte[_rgba.Length];
         if (ShouldParallelize(Width, Height))
@@ -340,7 +340,7 @@ public sealed class NativeRImage
                 }
             }
 
-            return new NativeRImage(Width, Height, destination);
+            return new InternalImage(Width, Height, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -351,10 +351,10 @@ public sealed class NativeRImage
             destinationPixels[i] = sourcePixels[j];
         }
 
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage Rotate(double degrees, ColorRgba background = default, ResizeKernel interpolation = ResizeKernel.Bilinear)
+    public InternalImage Rotate(double degrees, ColorRgba background = default, ResizeKernel interpolation = ResizeKernel.Bilinear)
     {
         ValidateFinite(degrees, nameof(degrees));
         double normalized = NormalizeDegrees(degrees);
@@ -390,7 +390,7 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(destinationWidth, destinationHeight, destination);
+        return new InternalImage(destinationWidth, destinationHeight, destination);
 
         void ProcessNearestRow(int y)
         {
@@ -456,15 +456,15 @@ public sealed class NativeRImage
         }
     }
 
-    public NativeRImage Blur(double radius = 1)
+    public InternalImage Blur(double radius = 1)
     {
         ValidateFinite(radius, nameof(radius));
         if (radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius cannot be negative.");
         if (radius <= 0) return Clone();
-        return new NativeRImage(Width, Height, BlurPixels(radius));
+        return new InternalImage(Width, Height, BlurPixels(radius));
     }
 
-    public NativeRImage Sharpen(double amount = 1, double radius = 1)
+    public InternalImage Sharpen(double amount = 1, double radius = 1)
     {
         ValidateFinite(amount, nameof(amount));
         ValidateFinite(radius, nameof(radius));
@@ -473,12 +473,12 @@ public sealed class NativeRImage
         byte[] blurPixels = BlurPixels(radius);
         byte[] destination = new byte[_rgba.Length];
         ApplySharpen(destination, blurPixels, amount);
-        return new NativeRImage(Width, Height, destination);
+        return new InternalImage(Width, Height, destination);
     }
 
-    public NativeRImage AdjustSharpness(double amount = 1, double radius = 1) => Sharpen(amount, radius);
+    public InternalImage AdjustSharpness(double amount = 1, double radius = 1) => Sharpen(amount, radius);
 
-    public NativeRImage AdjustHue(double degrees)
+    public InternalImage AdjustHue(double degrees)
     {
         if (degrees == 0) return Clone();
         float rad = (float)(degrees * Math.PI / 180.0);
@@ -508,7 +508,7 @@ public sealed class NativeRImage
         }
         if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
         else for (int y = 0; y < Height; y++) ProcessRow(y);
-        return new NativeRImage(Width, Height, dst);
+        return new InternalImage(Width, Height, dst);
     }
 
     public void Save(string path, ImageFormat format, ImageSaveOptions? options = null)
@@ -521,7 +521,7 @@ public sealed class NativeRImage
     {
         ArgumentNullException.ThrowIfNull(stream);
         options ??= new ImageSaveOptions();
-        NativeRImage image = Apply(new ImageLoadOptions { Crop = options.Crop, Resize = options.Resize });
+        InternalImage image = Apply(new ImageLoadOptions { Crop = options.Crop, Resize = options.Resize });
         ImageCodecs.FindEncoder(format).Encode(image, stream, options);
     }
 
@@ -536,10 +536,10 @@ public sealed class NativeRImage
 
     internal int PixelOffset(int x, int y) => (y * Width + x) * 4;
 
-    private NativeRImage Apply(ImageLoadOptions? options)
+    private InternalImage Apply(ImageLoadOptions? options)
     {
         if (options is null) return this;
-        NativeRImage image = this;
+        InternalImage image = this;
         if (options.Crop is { } crop) image = image.Crop(crop);
         if (options.Resize is { } resize) image = image.Resize(resize);
         return image;
@@ -916,7 +916,7 @@ public sealed class NativeRImage
         }
     }
 
-    private NativeRImage ResizeNearest(int width, int height)
+    private InternalImage ResizeNearest(int width, int height)
     {
         byte[] destination = new byte[CheckedPixelByteCount(width, height)];
         int[] sourceXs = BuildNearestMap(Width, width);
@@ -943,7 +943,7 @@ public sealed class NativeRImage
                 }
             }
 
-            return new NativeRImage(width, height, destination);
+            return new InternalImage(width, height, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -958,10 +958,10 @@ public sealed class NativeRImage
             }
         }
 
-        return new NativeRImage(width, height, destination);
+        return new InternalImage(width, height, destination);
     }
 
-    private NativeRImage ResizeBilinear(int width, int height)
+    private InternalImage ResizeBilinear(int width, int height)
     {
         byte[] destination = new byte[CheckedPixelByteCount(width, height)];
         LinearContribution[] xMap = BuildLinearMap(Width, width);
@@ -970,7 +970,7 @@ public sealed class NativeRImage
         if (ShouldParallelize(width, height)) Parallel.For(0, height, ProcessRow);
         else for (int y = 0; y < height; y++) ProcessRow(y);
 
-        return new NativeRImage(width, height, destination);
+        return new InternalImage(width, height, destination);
 
         void ProcessRow(int y)
         {
@@ -998,15 +998,15 @@ public sealed class NativeRImage
         }
     }
 
-    private NativeRImage ResizeLanczos(int width, int height)
+    private InternalImage ResizeLanczos(int width, int height)
     {
         ResamplePlan horizontalPlan = BuildResamplePlan(Width, width);
         ResamplePlan verticalPlan = BuildResamplePlan(Height, height);
-        NativeRImage horizontal = ResizeLanczosHorizontal(horizontalPlan);
+        InternalImage horizontal = ResizeLanczosHorizontal(horizontalPlan);
         return horizontal.ResizeLanczosVertical(verticalPlan);
     }
 
-    private NativeRImage ResizeLanczosHorizontal(ResamplePlan plan)
+    private InternalImage ResizeLanczosHorizontal(ResamplePlan plan)
     {
         byte[] destination = new byte[CheckedPixelByteCount(plan.DestinationSize, Height)];
         int destinationStride = plan.DestinationSize * 4;
@@ -1014,7 +1014,7 @@ public sealed class NativeRImage
         if (ShouldParallelize(plan.DestinationSize, Height)) Parallel.For(0, Height, ProcessRow);
         else for (int y = 0; y < Height; y++) ProcessRow(y);
 
-        return new NativeRImage(plan.DestinationSize, Height, destination);
+        return new InternalImage(plan.DestinationSize, Height, destination);
 
         void ProcessRow(int y)
         {
@@ -1045,7 +1045,7 @@ public sealed class NativeRImage
         }
     }
 
-    private NativeRImage ResizeLanczosVertical(ResamplePlan plan)
+    private InternalImage ResizeLanczosVertical(ResamplePlan plan)
     {
         byte[] destination = new byte[CheckedPixelByteCount(Width, plan.DestinationSize)];
         int sourceStride = Width * 4;
@@ -1053,7 +1053,7 @@ public sealed class NativeRImage
         if (ShouldParallelize(Width, plan.DestinationSize)) Parallel.For(0, plan.DestinationSize, ProcessRow);
         else for (int y = 0; y < plan.DestinationSize; y++) ProcessRow(y);
 
-        return new NativeRImage(Width, plan.DestinationSize, destination);
+        return new InternalImage(Width, plan.DestinationSize, destination);
 
         void ProcessRow(int y)
         {

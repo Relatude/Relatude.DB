@@ -106,7 +106,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
-        //fileConverters = [.. (fileConverters ?? []), new DefaultImageConverter()];
+        fileConverters = [.. (fileConverters ?? []), new NativeImageConverter()];
         _urlProvider = urlProvider ?? new DefaultUrlProvider(this, Guid.Empty);
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;

@@ -37,7 +37,7 @@ internal sealed class WebpCodec : IImageCodec
             && BinaryPrimitives.ReadUInt32LittleEndian(header[8..]) == Webp;
     }
 
-    public NativeRImage Decode(ReadOnlySpan<byte> data)
+    public InternalImage Decode(ReadOnlySpan<byte> data)
     {
         if (!CanDecode(data))
         {
@@ -66,7 +66,7 @@ internal sealed class WebpCodec : IImageCodec
         throw new ImageFormatException("Only lossless WEBP VP8L chunks are supported.");
     }
 
-    public void Encode(NativeRImage image, Stream stream, ImageSaveOptions options)
+    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options)
     {
         if (image.Width > 16384 || image.Height > 16384)
         {
@@ -89,7 +89,7 @@ internal sealed class WebpCodec : IImageCodec
         }
     }
 
-    private static NativeRImage DecodeLossless(ReadOnlySpan<byte> payload)
+    private static InternalImage DecodeLossless(ReadOnlySpan<byte> payload)
     {
         if (payload.Length < 5 || payload[0] != 0x2f)
         {
@@ -182,10 +182,10 @@ internal sealed class WebpCodec : IImageCodec
             }
         }
 
-        return new NativeRImage(width, height, rgba);
+        return new InternalImage(width, height, rgba);
     }
 
-    private static byte[] EncodeLosslessPayload(NativeRImage image)
+    private static byte[] EncodeLosslessPayload(InternalImage image)
     {
         using MemoryStream memory = new();
         memory.WriteByte(0x2f);
@@ -360,7 +360,7 @@ internal sealed class WebpCodec : IImageCodec
         return distanceCode - 120;
     }
 
-    private static bool HasAlpha(NativeRImage image)
+    private static bool HasAlpha(InternalImage image)
     {
         ReadOnlySpan<byte> pixels = image.Pixels;
         for (int i = 3; i < pixels.Length; i += 4)

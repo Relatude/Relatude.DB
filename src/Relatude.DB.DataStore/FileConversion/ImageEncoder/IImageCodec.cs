@@ -4,6 +4,6 @@ internal interface IImageCodec
 {
     ImageFormat Format { get; }
     bool CanDecode(ReadOnlySpan<byte> header);
-    NativeRImage Decode(ReadOnlySpan<byte> data);
-    void Encode(NativeRImage image, Stream stream, ImageSaveOptions options);
+    InternalImage Decode(ReadOnlySpan<byte> data);
+    void Encode(InternalImage image, Stream stream, ImageSaveOptions options);
 }

@@ -1,5 +1,4 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.FileConversion;
 namespace Relatude.DB.FileConversion;
 
 public class SkiaImageConverter : IFileConverter {
@@ -46,8 +45,7 @@ public class SkiaImageConverter : IFileConverter {
             Interlocked.Increment(ref _concurrentCount);
             var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
             var input = await getInputStream();
-            var image = SkiaImage.Load(input);
-            IImage.Adjust(image, imgAdj);
+            var image = SkiaImage.Load(input).Adjust(imgAdj);
             var bytes = image.Encode(info.Formats.To);
             var stream = new MemoryStream(bytes);
             return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
