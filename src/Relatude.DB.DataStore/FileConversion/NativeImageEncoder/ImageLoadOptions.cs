@@ -1,4 +1,4 @@
-namespace Relatude.DB.FileConversion.DefaultImage.NativeImageLib;
+namespace Relatude.DB.FileConversion.NativeImageEncoder;
 
 public sealed record ImageLoadOptions
 {

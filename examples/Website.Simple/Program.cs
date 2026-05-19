@@ -1,14 +1,13 @@
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
-using Relatude.DB.FileConverter;
 using Relatude.DB.NodeServer;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    //options.FileConverters.Add(new ImageConverterSkia());
+   options.FileConverters.Add(new SkiaImageConverter());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -44,7 +43,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         art.Paragraphs.Add(paraGraph);
         db.Insert(art);
         var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
-        filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
+        // filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
         var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
 
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";

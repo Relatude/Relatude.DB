@@ -73,7 +73,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.RavenDB", "benchm
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmark.Site", "benchmarks\Benchmark.Site\Benchmark.Site.csproj", "{551A45CA-4DD1-4536-A633-B4144182EBA1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Relatude.DB.FileConverter", "src\Relatude.DB.FileConverter\Relatude.DB.FileConverter.csproj", "{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Relatude.DB.FileConversion", "src\Relatude.DB.FileConversion\Relatude.DB.FileConversion.csproj", "{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -200,7 +200,7 @@ Global
 		{3D0666D8-CE31-4FFB-A623-BA5626A66DEF} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{0828AB1F-FE7C-47A4-BB4A-96500129A653} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{551A45CA-4DD1-4536-A633-B4144182EBA1} = {A7EDF03D-19E7-46DF-BDCE-2F53AB84ED47}
-		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA} = {76CB41E2-ED98-46D8-896A-3D7711AF25EB}
+		{6D5F1D40-AFFA-4F45-B56C-738CEE54B4FA} = {C399E125-E96D-4B42-92F0-0AD14318DAA0}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A16D0224-6A2F-4773-91F8-FC2C4D5479DD}

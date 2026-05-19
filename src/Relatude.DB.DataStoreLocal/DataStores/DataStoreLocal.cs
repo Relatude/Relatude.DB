@@ -11,7 +11,7 @@ using Relatude.DB.DataStores.Scheduling;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.FileConversion;
-using Relatude.DB.FileConverter;
+using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Query;
@@ -106,7 +106,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
-        fileConverters = [.. (fileConverters ?? []), new DefaultImageConverter()];
+        //fileConverters = [.. (fileConverters ?? []), new DefaultImageConverter()];
         _urlProvider = urlProvider ?? new DefaultUrlProvider(this, Guid.Empty);
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;

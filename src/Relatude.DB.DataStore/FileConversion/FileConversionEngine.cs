@@ -4,7 +4,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Relatude.DB.FileConverter;
+namespace Relatude.DB.FileConversion;
 
 public class ProgressEntry(
     DateTime created,

@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 
-namespace Relatude.DB.FileConversion.DefaultImage.NativeImageLib;
+namespace Relatude.DB.FileConversion.NativeImageEncoder;
 
 internal sealed class JpegCodec : IImageCodec
 {
@@ -111,7 +111,7 @@ internal sealed class JpegCodec : IImageCodec
         return header.Length >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff;
     }
 
-    public PureImage Decode(ReadOnlySpan<byte> data)
+    public NativeRImage Decode(ReadOnlySpan<byte> data)
     {
         byte[] bytes = data.ToArray();
         if (!CanDecode(bytes))
@@ -123,7 +123,7 @@ internal sealed class JpegCodec : IImageCodec
         return decoder.Decode();
     }
 
-    public void Encode(PureImage image, Stream stream, ImageSaveOptions options)
+    public void Encode(NativeRImage image, Stream stream, ImageSaveOptions options)
     {
         int[] qY = ScaleQuantTable(LuminanceQuant, options.Quality);
         int[] qC = ScaleQuantTable(ChrominanceQuant, options.Quality);
@@ -210,7 +210,7 @@ internal sealed class JpegCodec : IImageCodec
     }
 
     private static void BuildEncodedBlocks(
-        PureImage image,
+        NativeRImage image,
         int blockX,
         int blockY,
         int[] luminanceQuant,
@@ -428,7 +428,7 @@ internal sealed class JpegCodec : IImageCodec
             _data = data;
         }
 
-        public PureImage Decode()
+        public NativeRImage Decode()
         {
             while (_offset < _data.Length)
             {
@@ -472,7 +472,7 @@ internal sealed class JpegCodec : IImageCodec
             throw new ImageFormatException("JPEG image is missing a baseline scan.");
         }
 
-        private PureImage DecodeScan()
+        private NativeRImage DecodeScan()
         {
             if (_width <= 0 || _height <= 0 || _components.Count is not (1 or 3))
             {
@@ -588,7 +588,7 @@ internal sealed class JpegCodec : IImageCodec
             }
         }
 
-        private PureImage ConvertToRgba(int maxH, int maxV)
+        private NativeRImage ConvertToRgba(int maxH, int maxV)
         {
             byte[] rgba = new byte[_width * _height * 4];
 
@@ -608,7 +608,7 @@ internal sealed class JpegCodec : IImageCodec
                     }
                 }
 
-                return new PureImage(_width, _height, rgba);
+                return new NativeRImage(_width, _height, rgba);
             }
 
             Component yComp = _components[0];
@@ -623,9 +623,9 @@ internal sealed class JpegCodec : IImageCodec
                     int cb = cbComp.Samples[(y * cbComp.V / maxV) * cbComp.Stride + (x * cbComp.H / maxH)] - 128;
                     int cr = crComp.Samples[(y * crComp.V / maxV) * crComp.Stride + (x * crComp.H / maxH)] - 128;
 
-                    int r = PureImage.ClampToByte(yy + ((91881 * cr + 32768) >> 16));
-                    int g = PureImage.ClampToByte(yy - ((22554 * cb + 46802 * cr + 32768) >> 16));
-                    int b = PureImage.ClampToByte(yy + ((116130 * cb + 32768) >> 16));
+                    int r = NativeRImage.ClampToByte(yy + ((91881 * cr + 32768) >> 16));
+                    int g = NativeRImage.ClampToByte(yy - ((22554 * cb + 46802 * cr + 32768) >> 16));
+                    int b = NativeRImage.ClampToByte(yy + ((116130 * cb + 32768) >> 16));
 
                     int destination = (y * _width + x) * 4;
                     rgba[destination] = (byte)r;
@@ -635,7 +635,7 @@ internal sealed class JpegCodec : IImageCodec
                 }
             }
 
-            return new PureImage(_width, _height, rgba);
+            return new NativeRImage(_width, _height, rgba);
         }
 
         private void ParseStartOfFrame(ReadOnlySpan<byte> segment)
@@ -1050,7 +1050,7 @@ internal sealed class JpegCodec : IImageCodec
                     sum += workspace[v * 8 + x] * DctMatrix[v * 8 + y];
                 }
 
-                output[outputBase + x] = PureImage.ClampToByte(sum + 128);
+                output[outputBase + x] = NativeRImage.ClampToByte(sum + 128);
             }
         }
     }

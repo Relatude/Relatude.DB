@@ -1,9 +1,9 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.FileConversion.Images;
-namespace Relatude.DB.FileConverter;
+using Relatude.DB.FileConversion;
+namespace Relatude.DB.FileConversion;
 
-public class ImageConverterSkia : IFileConverter {
-    public ImageConverterSkia() {
+public class SkiaImageConverter : IFileConverter {
+    public SkiaImageConverter() {
         MaxConcurrentWork = Environment.ProcessorCount / 2;
         MinIntervalBetweenCallsInMs = 0;
     }
@@ -46,7 +46,10 @@ public class ImageConverterSkia : IFileConverter {
             Interlocked.Increment(ref _concurrentCount);
             var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
             var input = await getInputStream();
-            var stream = SkiaLib.Convert(input, imgAdj);
+            var image = SkiaImage.Load(input);
+            IImage.Adjust(image, imgAdj);
+            var bytes = image.Encode(info.Formats.To);
+            var stream = new MemoryStream(bytes);
             return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
         } finally {
             Interlocked.Decrement(ref _concurrentCount);
@@ -57,6 +60,7 @@ public class ImageConverterSkia : IFileConverter {
         var imgAdj = (FileAdjustmentImage)adj;
         var w = imgAdj.Width ?? (fileValue.Width > 0 && fileValue.Width <= 1000 ? fileValue.Width : 200);
         var h = imgAdj.Height ?? (fileValue.Height > 0 && fileValue.Height <= 1000 ? fileValue.Height : 200);
-        return SkiaLib.CreateMessageImage(text, w, h, imgAdj.RequestedFormat);
+        return null;
+        //return SkiaLib.CreateMessageImage(text, w, h, imgAdj.RequestedFormat);
     }
 }

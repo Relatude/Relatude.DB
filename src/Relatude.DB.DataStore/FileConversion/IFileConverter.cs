@@ -1,6 +1,6 @@
 ﻿using Relatude.DB.Common;
 
-namespace Relatude.DB.FileConverter;
+namespace Relatude.DB.FileConversion;
 
 public class FileConversionProgressInfo(FileConversionStatus status = FileConversionStatus.InProgress, int progress = 0, int remaining = -1, string? message = null) {
     public FileConversionStatus Status { get; } = status;

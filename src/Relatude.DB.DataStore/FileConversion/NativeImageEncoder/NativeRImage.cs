@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.FileConversion.DefaultImage.NativeImageLib;
+namespace Relatude.DB.FileConversion.NativeImageEncoder;
 
-public sealed class PureImage
+public sealed class NativeRImage
 {
     private const int LinearShift = 14;
     private const int LinearOne = 1 << LinearShift;
@@ -14,12 +14,12 @@ public sealed class PureImage
 
     private readonly byte[] _rgba;
 
-    public PureImage(int width, int height)
+    public NativeRImage(int width, int height)
         : this(width, height, new byte[CheckedPixelByteCount(width, height)])
     {
     }
 
-    public PureImage(int width, int height, byte[] rgba)
+    public NativeRImage(int width, int height, byte[] rgba)
     {
         if (width <= 0 || height <= 0)
         {
@@ -41,23 +41,23 @@ public sealed class PureImage
     public ReadOnlySpan<byte> Pixels => _rgba;
     public Span<byte> MutablePixels => _rgba;
 
-    public static PureImage Load(string path, ImageLoadOptions? options = null)
+    public static NativeRImage Load(string path, ImageLoadOptions? options = null)
     {
         byte[] data = File.ReadAllBytes(path);
-        PureImage image = ImageCodecs.FindDecoder(data).Decode(data);
+        NativeRImage image = ImageCodecs.FindDecoder(data).Decode(data);
         return image.Apply(options);
     }
 
-    public static PureImage Load(Stream stream, ImageLoadOptions? options = null)
+    public static NativeRImage Load(Stream stream, ImageLoadOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
         byte[] data = ReadStreamToEnd(stream);
-        PureImage image = ImageCodecs.FindDecoder(data).Decode(data);
+        NativeRImage image = ImageCodecs.FindDecoder(data).Decode(data);
         return image.Apply(options);
     }
 
-    public static PureImage Create(int width, int height, Func<int, int, ColorRgba> fill)
+    public static NativeRImage Create(int width, int height, Func<int, int, ColorRgba> fill)
     {
         ArgumentNullException.ThrowIfNull(fill);
         byte[] pixels = new byte[CheckedPixelByteCount(width, height)];
@@ -75,7 +75,7 @@ public sealed class PureImage
             }
         }
 
-        return new PureImage(width, height, pixels);
+        return new NativeRImage(width, height, pixels);
     }
 
     public static ImageFormat DetectFormat(Stream stream)
@@ -111,12 +111,12 @@ public sealed class PureImage
         }
     }
 
-    public PureImage Clone()
+    public NativeRImage Clone()
     {
-        return new PureImage(Width, Height, (byte[])_rgba.Clone());
+        return new NativeRImage(Width, Height, (byte[])_rgba.Clone());
     }
 
-    public PureImage Crop(RectangleI rectangle)
+    public NativeRImage Crop(RectangleI rectangle)
     {
         rectangle.ValidateInside(Width, Height);
         if (rectangle.X == 0 && rectangle.Y == 0 && rectangle.Width == Width && rectangle.Height == Height)
@@ -136,15 +136,15 @@ public sealed class PureImage
                 destinationStride);
         }
 
-        return new PureImage(rectangle.Width, rectangle.Height, pixels);
+        return new NativeRImage(rectangle.Width, rectangle.Height, pixels);
     }
 
-    public PureImage Resize(int width, int height, ResizeKernel kernel = ResizeKernel.Lanczos3)
+    public NativeRImage Resize(int width, int height, ResizeKernel kernel = ResizeKernel.Lanczos3)
     {
         return Resize(new ResizeOptions(width, height, kernel));
     }
 
-    public PureImage Resize(ResizeOptions options)
+    public NativeRImage Resize(ResizeOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -162,67 +162,37 @@ public sealed class PureImage
         };
     }
 
-    public PureImage AdjustBrightness(double amount)
+    public NativeRImage AdjustBrightness(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         int offset = (int)Math.Round(amount * 255);
-        if (offset == 0)
-        {
-            return Clone();
-        }
-
+        if (offset == 0) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplyRgbLut(destination, BuildOffsetLut(offset));
-
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Brightness(double amount)
-    {
-        return AdjustBrightness(amount);
-    }
-
-    public PureImage AdjustSaturation(double amount)
+    public NativeRImage AdjustSaturation(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
-        if (factor == 1)
-        {
-            return Clone();
-        }
-
+        if (factor == 1) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplySaturation(destination, factor);
-
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Saturation(double amount)
-    {
-        return AdjustSaturation(amount);
-    }
-
-    public PureImage AdjustContrast(double amount)
+    public NativeRImage AdjustContrast(double amount)
     {
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
-        if (factor == 1)
-        {
-            return Clone();
-        }
-
+        if (factor == 1) return Clone();
         byte[] destination = new byte[_rgba.Length];
         ApplyRgbLut(destination, BuildContrastLut(factor));
-
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Contrast(double amount)
-    {
-        return AdjustContrast(amount);
-    }
-
-    public PureImage FlipHorizontal()
+    public NativeRImage FlipHorizontal()
     {
         byte[] destination = new byte[_rgba.Length];
         if (ShouldParallelize(Width, Height))
@@ -242,7 +212,7 @@ public sealed class PureImage
                 }
             }
 
-            return new PureImage(Width, Height, destination);
+            return new NativeRImage(Width, Height, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -257,17 +227,17 @@ public sealed class PureImage
             }
         }
 
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage FlipVertical()
+    public NativeRImage FlipVertical()
     {
         byte[] destination = new byte[_rgba.Length];
         int stride = Width * 4;
         if (ShouldParallelize(Width, Height))
         {
             Parallel.For(0, Height, y => Buffer.BlockCopy(_rgba, (Height - 1 - y) * stride, destination, y * stride, stride));
-            return new PureImage(Width, Height, destination);
+            return new NativeRImage(Width, Height, destination);
         }
 
         for (int y = 0; y < Height; y++)
@@ -275,23 +245,17 @@ public sealed class PureImage
             Buffer.BlockCopy(_rgba, (Height - 1 - y) * stride, destination, y * stride, stride);
         }
 
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Invert()
+    public NativeRImage Invert()
     {
         byte[] destination = new byte[_rgba.Length];
         InvertCore(destination);
-
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Inverse()
-    {
-        return Invert();
-    }
-
-    public PureImage Rotate90Clockwise()
+    public NativeRImage Rotate90Clockwise()
     {
         byte[] destination = new byte[CheckedPixelByteCount(Height, Width)];
         if (ShouldParallelize(Width, Height))
@@ -307,7 +271,7 @@ public sealed class PureImage
                 }
             }
 
-            return new PureImage(Height, Width, destination);
+            return new NativeRImage(Height, Width, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -323,10 +287,10 @@ public sealed class PureImage
             }
         }
 
-        return new PureImage(Height, Width, destination);
+        return new NativeRImage(Height, Width, destination);
     }
 
-    public PureImage Rotate90CounterClockwise()
+    public NativeRImage Rotate90CounterClockwise()
     {
         byte[] destination = new byte[CheckedPixelByteCount(Height, Width)];
         if (ShouldParallelize(Width, Height))
@@ -342,7 +306,7 @@ public sealed class PureImage
                 }
             }
 
-            return new PureImage(Height, Width, destination);
+            return new NativeRImage(Height, Width, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -357,10 +321,10 @@ public sealed class PureImage
             }
         }
 
-        return new PureImage(Height, Width, destination);
+        return new NativeRImage(Height, Width, destination);
     }
 
-    public PureImage Rotate180()
+    public NativeRImage Rotate180()
     {
         byte[] destination = new byte[_rgba.Length];
         if (ShouldParallelize(Width, Height))
@@ -376,7 +340,7 @@ public sealed class PureImage
                 }
             }
 
-            return new PureImage(Width, Height, destination);
+            return new NativeRImage(Width, Height, destination);
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
@@ -387,32 +351,17 @@ public sealed class PureImage
             destinationPixels[i] = sourcePixels[j];
         }
 
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage Rotate(double degrees, ColorRgba background = default, ResizeKernel interpolation = ResizeKernel.Bilinear)
+    public NativeRImage Rotate(double degrees, ColorRgba background = default, ResizeKernel interpolation = ResizeKernel.Bilinear)
     {
         ValidateFinite(degrees, nameof(degrees));
         double normalized = NormalizeDegrees(degrees);
-        if (IsNear(normalized, 0))
-        {
-            return Clone();
-        }
-
-        if (IsNear(normalized, 90))
-        {
-            return Rotate90Clockwise();
-        }
-
-        if (IsNear(normalized, 180))
-        {
-            return Rotate180();
-        }
-
-        if (IsNear(normalized, 270))
-        {
-            return Rotate90CounterClockwise();
-        }
+        if (IsNear(normalized, 0)) return Clone();
+        if (IsNear(normalized, 90)) return Rotate90Clockwise();
+        if (IsNear(normalized, 180)) return Rotate180();
+        if (IsNear(normalized, 270)) return Rotate90CounterClockwise();
 
         double radians = normalized * Math.PI / 180;
         double cos = Math.Cos(radians);
@@ -436,18 +385,12 @@ public sealed class PureImage
         {
             for (int y = 0; y < destinationHeight; y++)
             {
-                if (nearest)
-                {
-                    ProcessNearestRow(y);
-                }
-                else
-                {
-                    ProcessBilinearRow(y);
-                }
+                if (nearest) ProcessNearestRow(y);
+                else ProcessBilinearRow(y);
             }
         }
 
-        return new PureImage(destinationWidth, destinationHeight, destination);
+        return new NativeRImage(destinationWidth, destinationHeight, destination);
 
         void ProcessNearestRow(int y)
         {
@@ -513,51 +456,59 @@ public sealed class PureImage
         }
     }
 
-    public PureImage Blur(double radius = 1)
+    public NativeRImage Blur(double radius = 1)
     {
         ValidateFinite(radius, nameof(radius));
-        if (radius < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius cannot be negative.");
-        }
-
-        if (radius <= 0)
-        {
-            return Clone();
-        }
-
-        return new PureImage(Width, Height, BlurPixels(radius));
+        if (radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius cannot be negative.");
+        if (radius <= 0) return Clone();
+        return new NativeRImage(Width, Height, BlurPixels(radius));
     }
 
-    public PureImage Sharpen(double amount = 1, double radius = 1)
+    public NativeRImage Sharpen(double amount = 1, double radius = 1)
     {
         ValidateFinite(amount, nameof(amount));
         ValidateFinite(radius, nameof(radius));
-        if (radius < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), "Sharpen radius cannot be negative.");
-        }
-
-        if (amount == 0 || radius == 0)
-        {
-            return Clone();
-        }
-
+        if (radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), "Sharpen radius cannot be negative.");
+        if (amount == 0 || radius == 0) return Clone();
         byte[] blurPixels = BlurPixels(radius);
         byte[] destination = new byte[_rgba.Length];
         ApplySharpen(destination, blurPixels, amount);
-
-        return new PureImage(Width, Height, destination);
+        return new NativeRImage(Width, Height, destination);
     }
 
-    public PureImage AdjustSharpness(double amount = 1, double radius = 1)
-    {
-        return Sharpen(amount, radius);
-    }
+    public NativeRImage AdjustSharpness(double amount = 1, double radius = 1) => Sharpen(amount, radius);
 
-    public PureImage Sharpness(double amount = 1, double radius = 1)
+    public NativeRImage AdjustHue(double degrees)
     {
-        return Sharpen(amount, radius);
+        if (degrees == 0) return Clone();
+        float rad = (float)(degrees * Math.PI / 180.0);
+        float cos = MathF.Cos(rad), sin = MathF.Sin(rad);
+        const int shift = 14, one = 1 << shift, half = one >> 1;
+        int m00 = (int)MathF.Round((0.213f + cos * 0.787f - sin * 0.213f) * one);
+        int m01 = (int)MathF.Round((0.715f - cos * 0.715f - sin * 0.715f) * one);
+        int m02 = (int)MathF.Round((0.072f - cos * 0.072f + sin * 0.928f) * one);
+        int m10 = (int)MathF.Round((0.213f - cos * 0.213f + sin * 0.143f) * one);
+        int m11 = (int)MathF.Round((0.715f + cos * 0.285f + sin * 0.140f) * one);
+        int m12 = (int)MathF.Round((0.072f - cos * 0.072f - sin * 0.283f) * one);
+        int m20 = (int)MathF.Round((0.213f - cos * 0.213f - sin * 0.787f) * one);
+        int m21 = (int)MathF.Round((0.715f - cos * 0.715f + sin * 0.715f) * one);
+        int m22 = (int)MathF.Round((0.072f + cos * 0.928f + sin * 0.072f) * one);
+        byte[] dst = new byte[_rgba.Length];
+        int stride = Width * 4;
+        void ProcessRow(int y) {
+            int row = y * stride;
+            for (int x = 0; x < Width; x++) {
+                int o = row + x * 4;
+                int r = _rgba[o], g = _rgba[o + 1], b = _rgba[o + 2];
+                dst[o]     = (byte)ClampToByte((m00 * r + m01 * g + m02 * b + half) >> shift);
+                dst[o + 1] = (byte)ClampToByte((m10 * r + m11 * g + m12 * b + half) >> shift);
+                dst[o + 2] = (byte)ClampToByte((m20 * r + m21 * g + m22 * b + half) >> shift);
+                dst[o + 3] = _rgba[o + 3];
+            }
+        }
+        if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
+        else for (int y = 0; y < Height; y++) ProcessRow(y);
+        return new NativeRImage(Width, Height, dst);
     }
 
     public void Save(string path, ImageFormat format, ImageSaveOptions? options = null)
@@ -570,54 +521,27 @@ public sealed class PureImage
     {
         ArgumentNullException.ThrowIfNull(stream);
         options ??= new ImageSaveOptions();
-
-        PureImage image = Apply(new ImageLoadOptions { Crop = options.Crop, Resize = options.Resize });
+        NativeRImage image = Apply(new ImageLoadOptions { Crop = options.Crop, Resize = options.Resize });
         ImageCodecs.FindEncoder(format).Encode(image, stream, options);
     }
 
-    internal static int ClampToByte(int value)
-    {
-        return value < 0 ? 0 : value > 255 ? 255 : value;
-    }
+    internal static int ClampToByte(int value) => value < 0 ? 0 : value > 255 ? 255 : value;
 
     internal static byte ClampToByte(double value)
     {
-        if (value <= 0)
-        {
-            return 0;
-        }
-
-        if (value >= 255)
-        {
-            return 255;
-        }
-
+        if (value <= 0) return 0;
+        if (value >= 255) return 255;
         return (byte)Math.Round(value);
     }
 
-    internal int PixelOffset(int x, int y)
+    internal int PixelOffset(int x, int y) => (y * Width + x) * 4;
+
+    private NativeRImage Apply(ImageLoadOptions? options)
     {
-        return (y * Width + x) * 4;
-    }
-
-    private PureImage Apply(ImageLoadOptions? options)
-    {
-        if (options is null)
-        {
-            return this;
-        }
-
-        PureImage image = this;
-        if (options.Crop is { } crop)
-        {
-            image = image.Crop(crop);
-        }
-
-        if (options.Resize is { } resize)
-        {
-            image = image.Resize(resize);
-        }
-
+        if (options is null) return this;
+        NativeRImage image = this;
+        if (options.Crop is { } crop) image = image.Crop(crop);
+        if (options.Resize is { } resize) image = image.Resize(resize);
         return image;
     }
 
@@ -633,19 +557,11 @@ public sealed class PureImage
                 while (offset < data.Length)
                 {
                     int read = stream.Read(data, offset, data.Length - offset);
-                    if (read == 0)
-                    {
-                        break;
-                    }
-
+                    if (read == 0) break;
                     offset += read;
                 }
 
-                if (offset == data.Length)
-                {
-                    return data;
-                }
-
+                if (offset == data.Length) return data;
                 Array.Resize(ref data, offset);
                 return data;
             }
@@ -825,16 +741,6 @@ public sealed class PureImage
         }
     }
 
-    private static unsafe void ApplyRgbLutRow(byte[] source, byte[] destination, byte[] lut, int rowStart, int width)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        fixed (byte* lutBase = lut)
-        {
-            ApplyRgbLutRow(sourceBase + rowStart, destinationBase + rowStart, lutBase, width);
-        }
-    }
-
     private static unsafe void ApplyRgbLutRow(byte* source, byte* destination, byte* lut, int width)
     {
         for (int x = 0; x < width; x++)
@@ -845,15 +751,6 @@ public sealed class PureImage
             destination[3] = source[3];
             source += 4;
             destination += 4;
-        }
-    }
-
-    private static unsafe void ApplySaturationRow(byte[] source, byte[] destination, int rowStart, int width, int fixedFactor)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            ApplySaturationRow(sourceBase + rowStart, destinationBase + rowStart, width, fixedFactor);
         }
     }
 
@@ -874,16 +771,6 @@ public sealed class PureImage
         }
     }
 
-    private static unsafe void ApplySharpenRow(byte[] source, byte[] blur, byte[] destination, int rowStart, int width, int fixedAmount)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* blurBase = blur)
-        fixed (byte* destinationBase = destination)
-        {
-            ApplySharpenRow(sourceBase + rowStart, blurBase + rowStart, destinationBase + rowStart, width, fixedAmount);
-        }
-    }
-
     private static unsafe void ApplySharpenRow(byte* source, byte* blur, byte* destination, int width, int fixedAmount)
     {
         for (int x = 0; x < width; x++)
@@ -898,15 +785,6 @@ public sealed class PureImage
         }
     }
 
-    private static unsafe void InvertRow(byte[] source, byte[] destination, int rowStart, int width)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            InvertRow(sourceBase + rowStart, destinationBase + rowStart, width);
-        }
-    }
-
     private static unsafe void InvertRow(byte* source, byte* destination, int width)
     {
         uint* sourcePixels = (uint*)source;
@@ -917,29 +795,11 @@ public sealed class PureImage
         }
     }
 
-    private static unsafe void FlipHorizontalRow(byte[] source, byte[] destination, int pixelRowStart, int width)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            FlipHorizontalRow((uint*)sourceBase + pixelRowStart, (uint*)destinationBase + pixelRowStart, width);
-        }
-    }
-
     private static unsafe void FlipHorizontalRow(uint* sourcePixels, uint* destinationPixels, int width)
     {
         for (int x = 0; x < width; x++)
         {
             destinationPixels[x] = sourcePixels[width - 1 - x];
-        }
-    }
-
-    private static unsafe void Rotate90ClockwiseRow(byte[] source, byte[] destination, int width, int height, int y)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            Rotate90ClockwiseRow((uint*)sourceBase, (uint*)destinationBase, width, height, y);
         }
     }
 
@@ -953,30 +813,12 @@ public sealed class PureImage
         }
     }
 
-    private static unsafe void Rotate90CounterClockwiseRow(byte[] source, byte[] destination, int width, int height, int y)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            Rotate90CounterClockwiseRow((uint*)sourceBase, (uint*)destinationBase, width, height, y);
-        }
-    }
-
     private static unsafe void Rotate90CounterClockwiseRow(uint* sourcePixels, uint* destinationPixels, int width, int height, int y)
     {
         uint* sourceRow = sourcePixels + y * width;
         for (int x = 0; x < width; x++)
         {
             destinationPixels[(width - 1 - x) * height + y] = sourceRow[x];
-        }
-    }
-
-    private static unsafe void Rotate180Row(byte[] source, byte[] destination, int width, int height, int y)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        {
-            Rotate180Row((uint*)sourceBase, (uint*)destinationBase, width, height, y);
         }
     }
 
@@ -987,16 +829,6 @@ public sealed class PureImage
         for (int x = 0; x < width; x++)
         {
             destinationRow[x] = sourceRow[width - 1 - x];
-        }
-    }
-
-    private static unsafe void ResizeNearestRow(byte[] source, byte[] destination, int sourceWidth, int destinationWidth, int[] sourceXs, int sourceY, int destinationY)
-    {
-        fixed (byte* sourceBase = source)
-        fixed (byte* destinationBase = destination)
-        fixed (int* sourceXBase = sourceXs)
-        {
-            ResizeNearestRow((uint*)sourceBase, (uint*)destinationBase, sourceWidth, destinationWidth, sourceXBase, sourceY, destinationY);
         }
     }
 
@@ -1012,27 +844,15 @@ public sealed class PureImage
 
     private void ApplyPremultipliedHorizontalBlur(int[] kernel, int[] sourceOffsets, byte[] temp)
     {
-        if (ShouldParallelize(Width, Height))
-        {
-            Parallel.For(0, Height, ProcessRow);
-        }
-        else
-        {
-            for (int y = 0; y < Height; y++)
-            {
-                ProcessRow(y);
-            }
-        }
+        if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
+        else for (int y = 0; y < Height; y++) ProcessRow(y);
 
         void ProcessRow(int y)
         {
             int row = y * Width * 4;
             for (int x = 0; x < Width; x++)
             {
-                long sumR = 0;
-                long sumG = 0;
-                long sumB = 0;
-                long sumA = 0;
+                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
                 for (int k = 0; k < kernel.Length; k++)
                 {
                     int sourceOffset = row + sourceOffsets[x + k];
@@ -1045,7 +865,7 @@ public sealed class PureImage
                 }
 
                 int destinationOffset = row + x * 4;
-                temp[destinationOffset] = DividePremultipliedFixed(sumR);
+                temp[destinationOffset]     = DividePremultipliedFixed(sumR);
                 temp[destinationOffset + 1] = DividePremultipliedFixed(sumG);
                 temp[destinationOffset + 2] = DividePremultipliedFixed(sumB);
                 temp[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
@@ -1055,27 +875,15 @@ public sealed class PureImage
 
     private void ApplyPremultipliedVerticalBlur(int[] kernel, int[] sourceOffsets, byte[] temp, byte[] destination)
     {
-        if (ShouldParallelize(Width, Height))
-        {
-            Parallel.For(0, Height, ProcessRow);
-        }
-        else
-        {
-            for (int y = 0; y < Height; y++)
-            {
-                ProcessRow(y);
-            }
-        }
+        if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
+        else for (int y = 0; y < Height; y++) ProcessRow(y);
 
         void ProcessRow(int y)
         {
             int destinationRow = y * Width * 4;
             for (int x = 0; x < Width; x++)
             {
-                long sumR = 0;
-                long sumG = 0;
-                long sumB = 0;
-                long sumA = 0;
+                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
                 for (int k = 0; k < kernel.Length; k++)
                 {
                     int sourceOffset = sourceOffsets[y + k] + x * 4;
@@ -1100,7 +908,7 @@ public sealed class PureImage
                     continue;
                 }
 
-                destination[destinationOffset] = (byte)ClampToByte((premulR * 255 + alpha / 2) / alpha);
+                destination[destinationOffset]     = (byte)ClampToByte((premulR * 255 + alpha / 2) / alpha);
                 destination[destinationOffset + 1] = (byte)ClampToByte((premulG * 255 + alpha / 2) / alpha);
                 destination[destinationOffset + 2] = (byte)ClampToByte((premulB * 255 + alpha / 2) / alpha);
                 destination[destinationOffset + 3] = (byte)alpha;
@@ -1108,11 +916,9 @@ public sealed class PureImage
         }
     }
 
-    private PureImage ResizeNearest(int width, int height)
+    private NativeRImage ResizeNearest(int width, int height)
     {
         byte[] destination = new byte[CheckedPixelByteCount(width, height)];
-        ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
         int[] sourceXs = BuildNearestMap(Width, width);
         int[] sourceYs = BuildNearestMap(Height, height);
 
@@ -1137,9 +943,11 @@ public sealed class PureImage
                 }
             }
 
-            return new PureImage(width, height, destination);
+            return new NativeRImage(width, height, destination);
         }
 
+        ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
         for (int y = 0; y < height; y++)
         {
             int sourceRow = sourceYs[y] * Width;
@@ -1150,28 +958,19 @@ public sealed class PureImage
             }
         }
 
-        return new PureImage(width, height, destination);
+        return new NativeRImage(width, height, destination);
     }
 
-    private PureImage ResizeBilinear(int width, int height)
+    private NativeRImage ResizeBilinear(int width, int height)
     {
         byte[] destination = new byte[CheckedPixelByteCount(width, height)];
         LinearContribution[] xMap = BuildLinearMap(Width, width);
         LinearContribution[] yMap = BuildLinearMap(Height, height);
 
-        if (ShouldParallelize(width, height))
-        {
-            Parallel.For(0, height, ProcessRow);
-        }
-        else
-        {
-            for (int y = 0; y < height; y++)
-            {
-                ProcessRow(y);
-            }
-        }
+        if (ShouldParallelize(width, height)) Parallel.For(0, height, ProcessRow);
+        else for (int y = 0; y < height; y++) ProcessRow(y);
 
-        return new PureImage(width, height, destination);
+        return new NativeRImage(width, height, destination);
 
         void ProcessRow(int y)
         {
@@ -1199,32 +998,23 @@ public sealed class PureImage
         }
     }
 
-    private PureImage ResizeLanczos(int width, int height)
+    private NativeRImage ResizeLanczos(int width, int height)
     {
         ResamplePlan horizontalPlan = BuildResamplePlan(Width, width);
         ResamplePlan verticalPlan = BuildResamplePlan(Height, height);
-        PureImage horizontal = ResizeLanczosHorizontal(horizontalPlan);
+        NativeRImage horizontal = ResizeLanczosHorizontal(horizontalPlan);
         return horizontal.ResizeLanczosVertical(verticalPlan);
     }
 
-    private PureImage ResizeLanczosHorizontal(ResamplePlan plan)
+    private NativeRImage ResizeLanczosHorizontal(ResamplePlan plan)
     {
         byte[] destination = new byte[CheckedPixelByteCount(plan.DestinationSize, Height)];
         int destinationStride = plan.DestinationSize * 4;
 
-        if (ShouldParallelize(plan.DestinationSize, Height))
-        {
-            Parallel.For(0, Height, ProcessRow);
-        }
-        else
-        {
-            for (int y = 0; y < Height; y++)
-            {
-                ProcessRow(y);
-            }
-        }
+        if (ShouldParallelize(plan.DestinationSize, Height)) Parallel.For(0, Height, ProcessRow);
+        else for (int y = 0; y < Height; y++) ProcessRow(y);
 
-        return new PureImage(plan.DestinationSize, Height, destination);
+        return new NativeRImage(plan.DestinationSize, Height, destination);
 
         void ProcessRow(int y)
         {
@@ -1232,10 +1022,7 @@ public sealed class PureImage
             int destinationRow = y * destinationStride;
             for (int x = 0; x < plan.DestinationSize; x++)
             {
-                long sumR = 0;
-                long sumG = 0;
-                long sumB = 0;
-                long sumA = 0;
+                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
                 int start = plan.Offsets[x];
                 int end = start + plan.Counts[x];
 
@@ -1250,7 +1037,7 @@ public sealed class PureImage
                 }
 
                 int destinationOffset = destinationRow + x * 4;
-                destination[destinationOffset] = (byte)ClampToByte(DivideFixed(sumR));
+                destination[destinationOffset]     = (byte)ClampToByte(DivideFixed(sumR));
                 destination[destinationOffset + 1] = (byte)ClampToByte(DivideFixed(sumG));
                 destination[destinationOffset + 2] = (byte)ClampToByte(DivideFixed(sumB));
                 destination[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
@@ -1258,24 +1045,15 @@ public sealed class PureImage
         }
     }
 
-    private PureImage ResizeLanczosVertical(ResamplePlan plan)
+    private NativeRImage ResizeLanczosVertical(ResamplePlan plan)
     {
         byte[] destination = new byte[CheckedPixelByteCount(Width, plan.DestinationSize)];
         int sourceStride = Width * 4;
 
-        if (ShouldParallelize(Width, plan.DestinationSize))
-        {
-            Parallel.For(0, plan.DestinationSize, ProcessRow);
-        }
-        else
-        {
-            for (int y = 0; y < plan.DestinationSize; y++)
-            {
-                ProcessRow(y);
-            }
-        }
+        if (ShouldParallelize(Width, plan.DestinationSize)) Parallel.For(0, plan.DestinationSize, ProcessRow);
+        else for (int y = 0; y < plan.DestinationSize; y++) ProcessRow(y);
 
-        return new PureImage(Width, plan.DestinationSize, destination);
+        return new NativeRImage(Width, plan.DestinationSize, destination);
 
         void ProcessRow(int y)
         {
@@ -1285,10 +1063,7 @@ public sealed class PureImage
 
             for (int x = 0; x < Width; x++)
             {
-                long sumR = 0;
-                long sumG = 0;
-                long sumB = 0;
-                long sumA = 0;
+                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
                 int channelOffset = x * 4;
 
                 for (int i = start; i < end; i++)
@@ -1302,7 +1077,7 @@ public sealed class PureImage
                 }
 
                 int destinationOffset = destinationRow + channelOffset;
-                destination[destinationOffset] = (byte)ClampToByte(DivideFixed(sumR));
+                destination[destinationOffset]     = (byte)ClampToByte(DivideFixed(sumR));
                 destination[destinationOffset + 1] = (byte)ClampToByte(DivideFixed(sumG));
                 destination[destinationOffset + 2] = (byte)ClampToByte(DivideFixed(sumB));
                 destination[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
@@ -1322,30 +1097,20 @@ public sealed class PureImage
         return map;
     }
 
-    private static bool ShouldParallelize(int width, int height)
-    {
-        return Environment.ProcessorCount > 1 && (long)width * height >= 250_000;
-    }
+    private static bool ShouldParallelize(int width, int height) =>
+        Environment.ProcessorCount > 1 && (long)width * height >= 250_000;
 
     private static byte[] BuildOffsetLut(int offset)
     {
         byte[] lut = new byte[256];
-        for (int i = 0; i < lut.Length; i++)
-        {
-            lut[i] = (byte)ClampToByte(i + offset);
-        }
-
+        for (int i = 0; i < lut.Length; i++) lut[i] = (byte)ClampToByte(i + offset);
         return lut;
     }
 
     private static byte[] BuildContrastLut(double factor)
     {
         byte[] lut = new byte[256];
-        for (int i = 0; i < lut.Length; i++)
-        {
-            lut[i] = ClampToByte(128 + (i - 128) * factor);
-        }
-
+        for (int i = 0; i < lut.Length; i++) lut[i] = ClampToByte(128 + (i - 128) * factor);
         return lut;
     }
 
@@ -1354,16 +1119,7 @@ public sealed class PureImage
         int[] map = new int[size + radius * 2];
         for (int i = 0; i < map.Length; i++)
         {
-            int coordinate = i - radius;
-            if (coordinate < 0)
-            {
-                coordinate = 0;
-            }
-            else if (coordinate >= size)
-            {
-                coordinate = size - 1;
-            }
-
+            int coordinate = Math.Clamp(i - radius, 0, size - 1);
             map[i] = coordinate * stride;
         }
 
@@ -1372,10 +1128,7 @@ public sealed class PureImage
 
     private static int[] BuildGaussianKernel(double radius)
     {
-        if (radius > 256)
-        {
-            throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius is limited to 256 pixels.");
-        }
+        if (radius > 256) throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius is limited to 256 pixels.");
 
         int kernelRadius = Math.Max(1, (int)Math.Ceiling(radius * 3));
         double sigma = Math.Max(0.01, radius);
@@ -1398,10 +1151,7 @@ public sealed class PureImage
         {
             kernel[i] = Math.Max(1, (int)Math.Round(raw[i] / sum * ResampleOne));
             fixedSum += kernel[i];
-            if (kernel[i] > kernel[strongest])
-            {
-                strongest = i;
-            }
+            if (kernel[i] > kernel[strongest]) strongest = i;
         }
 
         kernel[strongest] += ResampleOne - fixedSum;
@@ -1410,11 +1160,7 @@ public sealed class PureImage
 
     private static void Fill(byte[] destination, ColorRgba color)
     {
-        if (color == default)
-        {
-            return;
-        }
-
+        if (color == default) return;
         uint packed = (uint)(color.R | (color.G << 8) | (color.B << 16) | (color.A << 24));
         Span<uint> pixels = MemoryMarshal.Cast<byte, uint>(destination);
         pixels.Fill(packed);
@@ -1426,17 +1172,12 @@ public sealed class PureImage
         return normalized < 0 ? normalized + 360 : normalized;
     }
 
-    private static bool IsNear(double value, double target)
-    {
-        return Math.Abs(value - target) < 1e-9;
-    }
+    private static bool IsNear(double value, double target) => Math.Abs(value - target) < 1e-9;
 
     private static void ValidateFinite(double value, string paramName)
     {
         if (!double.IsFinite(value))
-        {
             throw new ArgumentOutOfRangeException(paramName, "Value must be finite.");
-        }
     }
 
     private static LinearContribution[] BuildLinearMap(int sourceSize, int destinationSize)
@@ -1446,19 +1187,8 @@ public sealed class PureImage
         for (int i = 0; i < destinationSize; i++)
         {
             double source = (i + 0.5) * scale - 0.5;
-            if (source <= 0)
-            {
-                map[i] = new LinearContribution(0, 0, 0);
-                continue;
-            }
-
-            if (source >= sourceSize - 1)
-            {
-                int last = sourceSize - 1;
-                map[i] = new LinearContribution(last, last, 0);
-                continue;
-            }
-
+            if (source <= 0) { map[i] = new LinearContribution(0, 0, 0); continue; }
+            if (source >= sourceSize - 1) { int last = sourceSize - 1; map[i] = new LinearContribution(last, last, 0); continue; }
             int first = (int)source;
             int weight = (int)Math.Round((source - first) * LinearOne);
             map[i] = new LinearContribution(first, first + 1, weight);
@@ -1494,11 +1224,7 @@ public sealed class PureImage
             for (int source = left; source <= right; source++)
             {
                 double weight = Lanczos((center - source) / filterScale);
-                if (Math.Abs(weight) < 1e-12)
-                {
-                    continue;
-                }
-
+                if (Math.Abs(weight) < 1e-12) continue;
                 localIndices.Add(Math.Clamp(source, 0, sourceSize - 1));
                 localWeights.Add(weight);
                 weightSum += weight;
@@ -1519,11 +1245,7 @@ public sealed class PureImage
             for (int i = 0; i < localIndices.Count; i++)
             {
                 int fixedWeight = (int)Math.Round(localWeights[i] / weightSum * ResampleOne);
-                if (fixedWeight == 0)
-                {
-                    continue;
-                }
-
+                if (fixedWeight == 0) continue;
                 indices.Add(localIndices[i]);
                 weights.Add(fixedWeight);
                 fixedSum += fixedWeight;
@@ -1553,17 +1275,7 @@ public sealed class PureImage
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void BilinearChannel(
-        byte c00,
-        byte c10,
-        byte c01,
-        byte c11,
-        int inverseWx,
-        int wx,
-        int inverseWy,
-        int wy,
-        byte[] destination,
-        int destinationOffset)
+    private static void BilinearChannel(byte c00, byte c10, byte c01, byte c11, int inverseWx, int wx, int inverseWy, int wy, byte[] destination, int destinationOffset)
     {
         int top = c00 * inverseWx + c10 * wx;
         int bottom = c01 * inverseWx + c11 * wx;
@@ -1572,16 +1284,12 @@ public sealed class PureImage
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int DivideFixed(long value)
-    {
-        return (int)((value + (value >= 0 ? ResampleHalf : -ResampleHalf)) / ResampleOne);
-    }
+    private static int DivideFixed(long value) =>
+        (int)((value + (value >= 0 ? ResampleHalf : -ResampleHalf)) / ResampleOne);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int DivideLinearFixed(long value)
-    {
-        return (int)((value + (value >= 0 ? LinearHalf : -LinearHalf)) / LinearOne);
-    }
+    private static int DivideLinearFixed(long value) =>
+        (int)((value + (value >= 0 ? LinearHalf : -LinearHalf)) / LinearOne);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte DividePremultipliedFixed(long value)
@@ -1593,43 +1301,23 @@ public sealed class PureImage
     private static int ToFixedFactor(double factor)
     {
         double scaled = factor * LinearOne;
-        if (scaled >= int.MaxValue)
-        {
-            return int.MaxValue;
-        }
-
+        if (scaled >= int.MaxValue) return int.MaxValue;
         return (int)Math.Round(scaled);
     }
 
     private static int ToSignedFixedFactor(double factor)
     {
         double scaled = factor * LinearOne;
-        if (scaled >= int.MaxValue)
-        {
-            return int.MaxValue;
-        }
-
-        if (scaled <= int.MinValue)
-        {
-            return int.MinValue;
-        }
-
+        if (scaled >= int.MaxValue) return int.MaxValue;
+        if (scaled <= int.MinValue) return int.MinValue;
         return (int)Math.Round(scaled);
     }
 
     private static double Lanczos(double x)
     {
         x = Math.Abs(x);
-        if (x < double.Epsilon)
-        {
-            return 1;
-        }
-
-        if (x >= 3)
-        {
-            return 0;
-        }
-
+        if (x < double.Epsilon) return 1;
+        if (x >= 3) return 0;
         return Sinc(x) * Sinc(x / 3);
     }
 
@@ -1642,18 +1330,13 @@ public sealed class PureImage
     private void ValidateCoordinates(int x, int y)
     {
         if ((uint)x >= (uint)Width || (uint)y >= (uint)Height)
-        {
             throw new ArgumentOutOfRangeException(nameof(x), "Pixel coordinates are outside the image.");
-        }
     }
 
     private static int CheckedPixelByteCount(int width, int height)
     {
         if (width <= 0 || height <= 0)
-        {
             throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be positive.");
-        }
-
         return checked(width * height * 4);
     }
 
@@ -1665,5 +1348,4 @@ public sealed class PureImage
         int[] Counts,
         int[] Indices,
         int[] Weights);
-
 }

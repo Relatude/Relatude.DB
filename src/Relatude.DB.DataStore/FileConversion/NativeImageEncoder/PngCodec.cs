@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 
-namespace Relatude.DB.FileConversion.DefaultImage.NativeImageLib;
+namespace Relatude.DB.FileConversion.NativeImageEncoder;
 
 internal sealed class PngCodec : IImageCodec
 {
@@ -15,7 +15,7 @@ internal sealed class PngCodec : IImageCodec
         return header.Length >= Signature.Length && header[..Signature.Length].SequenceEqual(Signature);
     }
 
-    public PureImage Decode(ReadOnlySpan<byte> data)
+    public NativeRImage Decode(ReadOnlySpan<byte> data)
     {
         if (!CanDecode(data))
         {
@@ -83,7 +83,7 @@ internal sealed class PngCodec : IImageCodec
         throw new ImageFormatException("PNG image is missing IEND.");
     }
 
-    public void Encode(PureImage image, Stream stream, ImageSaveOptions options)
+    public void Encode(NativeRImage image, Stream stream, ImageSaveOptions options)
     {
         stream.Write(Signature);
 
@@ -116,7 +116,7 @@ internal sealed class PngCodec : IImageCodec
         WriteChunk(stream, "IEND", ReadOnlySpan<byte>.Empty);
     }
 
-    private static PureImage DecodePixels(
+    private static NativeRImage DecodePixels(
         int width,
         int height,
         int bitDepth,
@@ -192,10 +192,10 @@ internal sealed class PngCodec : IImageCodec
             }
         }
 
-        return new PureImage(width, height, rgba);
+        return new NativeRImage(width, height, rgba);
     }
 
-    private static PureImage DecodeRgba8(int width, int height, int rowBytes, int filterBpp, byte[] inflated)
+    private static NativeRImage DecodeRgba8(int width, int height, int rowBytes, int filterBpp, byte[] inflated)
     {
         byte[] rgba = new byte[checked(width * height * 4)];
         byte[] previous = new byte[rowBytes];
@@ -213,10 +213,10 @@ internal sealed class PngCodec : IImageCodec
             Array.Clear(current);
         }
 
-        return new PureImage(width, height, rgba);
+        return new NativeRImage(width, height, rgba);
     }
 
-    private static PureImage DecodeRgb8(int width, int height, int rowBytes, int filterBpp, byte[] inflated, byte[]? transparency)
+    private static NativeRImage DecodeRgb8(int width, int height, int rowBytes, int filterBpp, byte[] inflated, byte[]? transparency)
     {
         byte[] rgba = new byte[checked(width * height * 4)];
         byte[] previous = new byte[rowBytes];
@@ -256,7 +256,7 @@ internal sealed class PngCodec : IImageCodec
             Array.Clear(current);
         }
 
-        return new PureImage(width, height, rgba);
+        return new NativeRImage(width, height, rgba);
     }
 
     private static ColorRgba ReadPixel(
@@ -396,7 +396,7 @@ internal sealed class PngCodec : IImageCodec
         }
     }
 
-    private static byte[] BuildFilteredScanlines(PureImage image)
+    private static byte[] BuildFilteredScanlines(NativeRImage image)
     {
         int stride = image.Width * 4;
         byte[] output = new byte[(stride + 1) * image.Height];

@@ -1,5 +1,5 @@
 ﻿
-using Relatude.DB.FileConverter;
+using Relatude.DB.FileConversion;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
@@ -35,7 +35,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private Type getTypeFromChar(char c) {
         return c switch {
             'i' => typeof(FileAdjustmentImage),
-            'm' => typeof(FileAdjustmentImageMetaData),
+            //'m' => typeof(FileAdjustmentImageMetaData),
             _ => throw new NotSupportedException($"Unsupported adjustment type character '{c}'.")
         };
     }
@@ -49,7 +49,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private Type getTypeFromFriendlyString(string name) {
         return name switch {
             "Image" => typeof(FileAdjustmentImage),
-            "ImageMetaData" => typeof(FileAdjustmentImageMetaData),
+            //"ImageMetaData" => typeof(FileAdjustmentImageMetaData),
             _ => throw new NotSupportedException($"Unsupported adjustment type character '{name}'.")
         };
     }
