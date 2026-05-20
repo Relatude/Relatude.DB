@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using System.Data;
 
 namespace Relatude.DB.FileConversion;
 
@@ -36,6 +37,83 @@ public static class IImageExt {
         if (adj.Sharpness is double sh && sh != 0) img = img.AdjustSharpness(sh);
 
         return img;
+    }
+
+    public static IImage GetStatusImage(this IImage img, FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+        var fillColor = status.Status switch {
+            FileConversionStatus.Error => "#FF9999",
+            FileConversionStatus.InProgress => "#FFFF99",
+            FileConversionStatus.Ready => "#99FF99",
+            _ => "#777777"
+        };
+        var textColor = status.Status switch {
+            FileConversionStatus.Error => "#990000",
+            FileConversionStatus.InProgress => "#999900",
+            FileConversionStatus.Ready => "#009900",
+            _ => "#FFFFFF"
+        };
+        var fontSizePx = 13;
+        var borderColor = textColor;
+
+        var leftMargin = 20;
+        var topMargin = 20;
+        var lineHeight = fontSizePx + 3;
+
+        img = img.DrawBox(0, 0, img.Width - 2, img.Height - 2, 1, borderColor, true, fillColor);
+
+        List<string> text = [];
+        var estimatedMaxCharsPerLine = (int)((img.Width - leftMargin * 2) / (fontSizePx * 0.7)); // rough estimate based on font size
+
+        text.Add(status.Status.ToString().Decamelize().ToUpper());
+        text.Add(string.Empty);
+        if (!string.IsNullOrWhiteSpace(status.Message)) {
+            text.Add(status.Message);
+            text.Add(string.Empty);
+        }
+        if (status.ProgressPercentage > 0) {
+            text.Add(string.Empty);
+            text.Add($"Progress: {status.ProgressPercentage}%");
+        }
+        if (status.RemainingSeconds > 0) {
+            text.Add($"Remaining: {status.RemainingSeconds}s");
+        }
+        text = textWrap(estimatedMaxCharsPerLine, text);
+
+        foreach (var line in text) {
+            img = img.DrawText(leftMargin, topMargin, line, fontSizePx, textColor, true);
+            topMargin += string.IsNullOrEmpty(line) ? lineHeight / 2 : lineHeight;
+        }
+
+        return img;
+    }
+
+    static List<string> textWrap(int maxCharsPerLine, List<string> lines) {
+        var result = new List<string>();
+        foreach (var line in lines) {
+            if (line.Length <= maxCharsPerLine) { result.Add(line); continue; }
+            var words = line.Split(' ');
+            var current = new System.Text.StringBuilder();
+            foreach (var word in words) {
+                if (word.Length > maxCharsPerLine) {
+                    // Flush current buffer first
+                    if (current.Length > 0) { result.Add(current.ToString()); current.Clear(); }
+                    // Hard-break the oversized word
+                    int i = 0;
+                    while (i < word.Length) {
+                        int take = Math.Min(maxCharsPerLine, word.Length - i);
+                        result.Add(word.Substring(i, take));
+                        i += take;
+                    }
+                    continue;
+                }
+                int needed = current.Length == 0 ? word.Length : current.Length + 1 + word.Length;
+                if (needed > maxCharsPerLine) { result.Add(current.ToString()); current.Clear(); }
+                if (current.Length > 0) current.Append(' ');
+                current.Append(word);
+            }
+            if (current.Length > 0) result.Add(current.ToString());
+        }
+        return result;
     }
 }
 public interface IImage : IDisposable {
@@ -78,5 +156,15 @@ public interface IImage : IDisposable {
 
     /// <summary>Encode and return the image in the requested format.</summary>
     byte[] Encode(FileFormat format, int? quality = null);
+
+    /// <summary>Draw a line on the image.</summary>
+    IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color);
+
+    /// <summary>Draw text on the image.</summary>
+    IImage DrawText(int x, int y, string text, int fontSizeInPixels, string color, bool sansSerif);
+
+    /// <summary>Draw a box on the image. (x1,y1) and (x2,y2) are the outer corners of the box including the border. </summary>
+    IImage DrawBox(int x1, int y1, int x2, int y2, int borderWidth, string borderColor, bool filled, string fillColor);
+
 
 }

@@ -25,6 +25,7 @@ public sealed class NativeImage : IImage {
     }
 
     public static NativeImage Load(Stream stream) => new(InternalImage.Load(stream));
+    public static NativeImage Create(int width, int height) => new(InternalImage.Create(width, height));
 
     // ── Crop hints ──────────────────────────────────────────────────────────
 
@@ -111,6 +112,17 @@ public sealed class NativeImage : IImage {
     }
 
     public IImage AdjustHue(double hueShift) => new NativeImage(_image.AdjustHue(hueShift));
+
+    // ── Drawing ─────────────────────────────────────────────────────────────
+
+    public IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color) =>
+        new NativeImage(_image.DrawLine(x1, y1, x2, y2, width, ParseBackground(color)));
+
+    public IImage DrawText(int x, int y, string text, int fontSizeInPixels, string color, bool sansSerif) =>
+        new NativeImage(_image.DrawText(x, y, text, fontSizeInPixels, ParseBackground(color), sansSerif));
+
+    public IImage DrawBox(int x1, int y1, int x2, int y2, int borderWidth, string borderColor, bool filled, string fillColor) =>
+        new NativeImage(_image.DrawBox(x1, y1, x2, y2, borderWidth, ParseBackground(borderColor), filled, ParseBackground(fillColor)));
 
     // ── Encode
 

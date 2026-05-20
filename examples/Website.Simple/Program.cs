@@ -84,8 +84,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             CropMode = ImageCropMode.Fill,
             Width = 400,
             BackgroundColor = "#FF0000",
-            RequestedFormat = FileFormat.Png,
-            Sharpness = 10,
+            RequestedFormat = FileFormat.Jpeg,
+            Sharpness = 0,
             Quality = 90
         };
 
@@ -111,7 +111,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, string propPathAndAdj) => {
     var db = ctx.Database;
-    var stream = await db.Datastore.GetFile(propPathAndAdj, 100000);
+    var stream = await db.Datastore.GetFile(propPathAndAdj, 1);
     return Results.Stream(stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg), enableRangeProcessing: true);
 });
 

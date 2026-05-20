@@ -420,7 +420,7 @@ public class FileConversionEngine : IDisposable {
     }
     async Task<FileConversionProgressInfo> doConvertWork(ProgressEntry entry) {
         if (!_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
-            throw new Exception("No converter available for " + entry.FileInfo.Formats);
+            throw new Exception("No converter available for " + entry.FileInfo.Formats.ToString()?.ToUpper());
         }
         var conversionResult = await converter.DoConvertWork(entry.GetInputStream, entry.FileInfo);
         if (conversionResult.Output != null) {
@@ -438,7 +438,7 @@ public class FileConversionEngine : IDisposable {
         );
         _scheduler.RunSoon();
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
-            return new(new(FileConversionStatus.Error, 0, 0, "No converter available from " + info.Formats.From + " to " + info.Formats.To + ". "), null);
+            return new(new(FileConversionStatus.Error, 0, 0, "No converter available from " + info.Formats.From.ToString().ToUpper() + " to " + info.Formats.To.ToString().ToUpper() + ". "), null);
         }
         while (_conversionsInProgress.TryGet(key, out entry)) {
             if (sw.ElapsedMilliseconds >= maxWaitMs) break;
@@ -456,15 +456,14 @@ public class FileConversionEngine : IDisposable {
         if (_fileConverters.TryGetConverter(new FormatPair(adj.RequestedFormat, adj.RequestedFormat), out var converter)) {
             return converter.GetStatusRepresentation(fileValue, adj, status);
         } else {
-            var baseFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(adj.RequestedFormat);
-            if (baseFormat == FileType.Image || baseFormat == FileType.Video) {
-                // fallback to generic status representation if specific converter does not exist
+            var baseFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+            if (baseFormat == FileType.Image) {
                 if (_fileConverters.TryGetConverter(new FormatPair(FileFormat.Png, FileFormat.Png), out converter)) {
                     return converter.GetStatusRepresentation(fileValue, adj, status);
                 }
             }
         }
-        throw new Exception("No converter available for status representation of format " + adj.RequestedFormat);
+        throw new Exception("No converter available for status representation of format " + adj.RequestedFormat.ToString().ToUpper());
     }
     public void Start() => _scheduler.Start();
     public void Stop() => _scheduler.Stop();

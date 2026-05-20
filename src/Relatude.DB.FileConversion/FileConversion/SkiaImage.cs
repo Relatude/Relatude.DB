@@ -145,6 +145,45 @@ internal sealed class SkiaImage : IImage {
         return DrawWithPaint(sharpenPaint);
     }
 
+    // ── Drawing ─────────────────────────────────────────────────────────────
+
+    public IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color) {
+        var dst = new SKBitmap(Width, Height);
+        using var c = new SKCanvas(dst);
+        c.DrawBitmap(_bitmap, 0, 0);
+        using var paint = new SKPaint { Color = ParseColor(color), StrokeWidth = width, IsAntialias = false, IsStroke = true };
+        c.DrawLine(x1, y1, x2, y2, paint);
+        return new SkiaImage(dst);
+    }
+
+    public IImage DrawText(int x, int y, string text, int fontSizeInPixels, string color, bool sansSerif) {
+        var dst = new SKBitmap(Width, Height);
+        using var c = new SKCanvas(dst);
+        c.DrawBitmap(_bitmap, 0, 0);
+        using var font = new SKFont(sansSerif ? SKTypeface.FromFamilyName("Arial") : SKTypeface.FromFamilyName("Georgia"), fontSizeInPixels);
+        using var paint = new SKPaint { Color = ParseColor(color) };
+        c.DrawText(text, x, y + fontSizeInPixels, font, paint);
+        return new SkiaImage(dst);
+    }
+
+    public IImage DrawBox(int x1, int y1, int x2, int y2, int borderWidth, string borderColor, bool filled, string fillColor) {
+        var dst = new SKBitmap(Width, Height);
+        using var c = new SKCanvas(dst);
+        c.DrawBitmap(_bitmap, 0, 0);
+        var rect = new SKRect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Max(x1, x2), Math.Max(y1, y2));
+        if (filled) {
+            using var fillPaint = new SKPaint { Color = ParseColor(fillColor), IsStroke = false };
+            var inner = SKRect.Inflate(rect, -borderWidth, -borderWidth);
+            if (inner.Width > 0 && inner.Height > 0) c.DrawRect(inner, fillPaint);
+        }
+        if (borderWidth > 0) {
+            using var borderPaint = new SKPaint { Color = ParseColor(borderColor), StrokeWidth = borderWidth, IsStroke = true, IsAntialias = false };
+            var borderRect = SKRect.Inflate(rect, -borderWidth / 2f, -borderWidth / 2f);
+            c.DrawRect(borderRect, borderPaint);
+        }
+        return new SkiaImage(dst);
+    }
+
     // ── Encode ──────────────────────────────────────────────────────────────
 
     public byte[] Encode(FileFormat format, int? quality = null) {
@@ -257,6 +296,11 @@ internal sealed class SkiaImage : IImage {
         FileFormat.Webp => (SKEncodedImageFormat.Webp, quality ?? 85),
         _ => (SKEncodedImageFormat.Png, 100),
     };
+
+    internal static SkiaImage Create(int width, int height) {
+        var bitmap = new SKBitmap(width, height);
+        return new SkiaImage(bitmap);
+    }
 
     // ── Colour matrix helpers ────────────────────────────────────────────────
     // All matrices are 4×5 (row-major) as expected by SKColorFilter.CreateColorMatrix.

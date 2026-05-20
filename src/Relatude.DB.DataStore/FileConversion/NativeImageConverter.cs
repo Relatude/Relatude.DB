@@ -54,12 +54,13 @@ public class NativeImageConverter : IFileConverter {
             Interlocked.Decrement(ref _concurrentCount);
         }
     }
+
     public Stream GetStatusRepresentation(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        var text = status.Status.ToString() + " " + status.Message;
-        var imgAdj = (FileAdjustmentImage)adj;
-        var w = imgAdj.Width ?? (fileValue.Width > 0 && fileValue.Width <= 1000 ? fileValue.Width : 200);
-        var h = imgAdj.Height ?? (fileValue.Height > 0 && fileValue.Height <= 1000 ? fileValue.Height : 200);
-        return null;
-        //return SkiaLib.CreateMessageImage(text, w, h, imgAdj.RequestedFormat);
+        if(adj is not FileAdjustmentImage imgAdj) throw new ArgumentException("Expected FileIdWithAdjustment", nameof(adj));
+        int width = imgAdj.Width ?? 200;
+        int height = imgAdj.Height ?? 150;
+        var img = NativeImage.Create(width, height).GetStatusImage(fileValue, adj, status);
+        var bytes = img.Encode(FileFormat.Png);
+        return new MemoryStream(bytes);
     }
 }
