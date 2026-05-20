@@ -1,7 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.FileConversion.NativeImageEncoder;
 
-namespace Relatude.DB.FileConversion;
+namespace Relatude.DB.FileConversion.ImageEncoder;
 
 /// <summary>Pure C# implementation. </summary>
 public sealed class NativeImage : IImage {

@@ -35,6 +35,9 @@ public abstract class FileAdjustmentBase {
         }
         return _key.Value;
     }
+    public virtual void Sanatize() {
+        if (RequestedFormat == FileFormat.Unknown) RequestedFormat = FileFormat.Png;
+    }
     protected abstract string GetStringKey();
 }
 public class FileAdjustmentImage : FileAdjustmentBase {
@@ -79,5 +82,22 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         BitConverter.TryWriteBytes(buf[p..], (int)(CropMode ?? (ImageCropMode)(-1))); p += 4;
         BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue);
         return _key = Convert.ToHexString(buf) + (AutoBackgroundColor?.ToString() ?? "") + (BackgroundColor ?? "");
+    }
+    public override void Sanatize() {
+        base.Sanatize();
+        if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
+        if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
+        if (Zoom.HasValue) Zoom = Zoom <= 0 ? null : Math.Clamp(Zoom.Value, 0.1, 10_000);
+        if (FocusX.HasValue) FocusX = Math.Clamp(FocusX.Value, -10_000, 10_000);
+        if (FocusY.HasValue) FocusY = Math.Clamp(FocusY.Value, -10_000, 10_000);
+        if (OffsetX.HasValue) OffsetX = Math.Clamp(OffsetX.Value, -10_000, 10_000);
+        if (OffsetY.HasValue) OffsetY = Math.Clamp(OffsetY.Value, -10_000, 10_000);
+        if (Rotation.HasValue) Rotation = Math.Clamp(Rotation.Value, -360, 360);
+        if (Quality.HasValue) Quality = Math.Clamp(Quality.Value, 0, 100);
+        if (Brightness.HasValue) Brightness = Math.Clamp(Brightness.Value, -100, 100);
+        if (Contrast.HasValue) Contrast = Math.Clamp(Contrast.Value, -100, 100);
+        if (Saturation.HasValue) Saturation = Math.Clamp(Saturation.Value, -100, 100);
+        if (HueShift.HasValue) HueShift = Math.Clamp(HueShift.Value, -180, 180);
+        if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, 0, 100);
     }
 }

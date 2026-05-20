@@ -135,6 +135,7 @@ public class DefaultUrlProvider : IUrlProvider {
         if (!TryParsePropertyPath(propertyPart, out propertyPath)) return false;
         try {
             adjustment = _encoder.GetAdjustmentFromEncodedString(adjustmentPart);
+            adjustment.Sanatize();
             return true;
         } catch {
             return false;
