@@ -44,24 +44,20 @@ public class DefaultUrlProvider : IUrlProvider {
     }
 
     public string GetInternalUrl(IdKey idKey) {
-        return getUrlTypeChar(UrlTargetType.LocalUrl) + B64.EncodeForUrlParameter(idKey.ToBytes());
+        return urlTypeChar(UrlType.LocalUrl) + B64.EncodeForUrl(idKey.ToBytes());
     }
     public string GetInternalUrl(NodePath nodePath) {
-        return getUrlTypeChar(UrlTargetType.LocalNode) + B64.EncodeForUrlParameter(nodePath.ToBytes());
+        return urlTypeChar(UrlType.LocalNode) + B64.EncodeForUrl(nodePath.ToBytes());
     }
     public string GetInternalUrl(PropertyPath property, string? contentVersionId) {
-        if (contentVersionId != null) {
-            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, contentVersionId);
-        } else {
-            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()));
-        }
+        var url = urlTypeChar(UrlType.LocalProperty) + B64.EncodeForUrl(property.ToBytes());
+        if (contentVersionId != null) url += DELIMITER + contentVersionId;
+        return url;
     }
     public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId) {
-        if (contentVersionId != null) {
-            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, _encoder.GetEncodedString(adjustment), dotChar, contentVersionId);
-        } else {
-            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, _encoder.GetEncodedString(adjustment));
-        }
+        var url = urlTypeChar(UrlType.LocalAdjusted) + B64.EncodeForUrl(property.ToBytes()) + DELIMITER + _encoder.GetEncodedString(adjustment);
+        if (contentVersionId != null) url += DELIMITER + contentVersionId;
+        return url;
     }
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();

@@ -57,7 +57,7 @@ internal static class CodeUtils {
                 typeName += ">";
                 break;
             case EmbeddedValueType.InnerNodeMap:
-                typeName += nameWithoutGeneric<Embedded<object, object>>();
+                typeName += nameWithoutGeneric<EmbeddedMap<object, object>>();
                 typeName += "<";
                 typeName += GetInnerPropertyKeyPropertyTypeName(inp, dm);
                 typeName += ", ";

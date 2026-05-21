@@ -1,6 +1,18 @@
 ﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Demo.Models;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Native.Models;
+
+//public interface ISystemSettings {
+//    Guid Id { get; set; }
+//    [EmbeddedMapProperty(KeyProperty = nameof(ISystemSetting.Key))]
+//    EmbeddedMap<string, ISystemSetting> DynamicSettings { get; }
+//}
+//public interface ISystemSetting {
+//    Guid Id { get; set; }
+//    string Key { get; set; }
+//    string Value { get; set; }
+//}
 
 [Node(Id = NodeConstants.BaseUserIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemUser {
@@ -49,16 +61,16 @@ public class CollectionsToCultures : ManyToMany<ISystemCollection, ISystemCultur
 [Exclude]
 public class SystemCulture {
     public SystemCulture(Guid id, string code) {
-        if(string.IsNullOrWhiteSpace(code)) {
+        if (string.IsNullOrWhiteSpace(code)) {
             throw new ArgumentException("Culture code cannot be null or whitespace.", nameof(code));
         }
-        if(id == Guid.Empty) {
+        if (id == Guid.Empty) {
             throw new ArgumentException("Id cannot be empty.", nameof(id));
         }
         Id = id;
         Code = code;
     }
-    public Guid Id {  get; }
+    public Guid Id { get; }
     public string Code { get; }
 }
 

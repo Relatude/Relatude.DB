@@ -19,7 +19,7 @@ public interface IDemoArticle {
     public FileValue File { get; set; }
 
     [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public Embedded<string, IDemoParagraph> Paragraphs { get; }
+    public EmbeddedMap<string, IDemoParagraph> Paragraphs { get; }
 
 }
 public interface IDemoParagraph {
@@ -46,7 +46,7 @@ public class DemoArticle {
     public FileValue File { get; set; } = FileValue.Empty;
 
     [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public Embedded<string, DemoParagraph> Paragraphs { get; set; } = [];
+    public EmbeddedMap<string, DemoParagraph> Paragraphs { get; set; } = [];
 
 
     public Tree.Parent Parent { get; set; } = new();

@@ -7,7 +7,7 @@ using Relatude.DB.Web;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
-    Guid _startUpGuid= Guid.NewGuid();
+    Guid _startUpGuid = Guid.NewGuid();
     string getFileVersionId(FileValue fileValue) {
         return (fileValue.Hash + _startUpGuid).GenerateHashInt().ToString();
     }
@@ -19,7 +19,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var internalUrl = _urlProvider.GetInternalUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue));
         return _urlProvider.GetExternalUrl(internalUrl, absolute);
     }
-    public async Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) { 
+    public async Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) {
         return (await GetFileAndConversionState(url, maxWait, ctx)).Stream;
     }
     public async Task<StreamAndConversionState> GetFileAndConversionState(string url, int maxWait, QueryContext? ctx = null) {
@@ -27,16 +27,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!_urlProvider.TryParseInternalForUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
         if (type == UrlType.LocalProperty) {
             if (!_urlProvider.TryParseInternalUrlForPropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
-            return await GetFile(path, ctx);
+            return new(await GetFile(path, ctx), true);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
-            return await GetConvertedFile(path, adj, maxWait, ctx);
-        if (!_urlProvider.TryParseLocalUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
-        if (type == UrlTargetType.LocalProperty) {
-            if (!_urlProvider.TryParsePropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
-            return new(await GetFile(path, ctx), true);
-        } else if (type == UrlTargetType.LocalAdjusted) {
-            if (!_urlProvider.TryParseAdjusted(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetConvertedFileAndConversionState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");

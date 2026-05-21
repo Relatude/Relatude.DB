@@ -9,21 +9,21 @@ interface IEmbeddedMap {
 }
 interface IEmbedded {
 }
-public class Embedded<TValue> : Embedded<Guid, TValue>, IEmbedded where TValue : notnull {
+public class Embedded<TValue> : EmbeddedMap<Guid, TValue>, IEmbedded where TValue : notnull {
     public Embedded() { }
     public Embedded(Guid keyPropertyId, InnerNodeDataMap<Guid> nodeDataMap, NodeMapper mapper) : base(keyPropertyId, nodeDataMap, mapper) {
     }
 }
-public class Embedded<TKey, TValue> : IEnumerable<TValue>, IEmbeddedMap where TKey : notnull
+public class EmbeddedMap<TKey, TValue> : IEnumerable<TValue>, IEmbeddedMap where TKey : notnull
 where TValue : notnull {
     InnerNodeDataMap<TKey>? _nodeDataMap;
     NodeMapper? _mapper;
     List<TValue>? _raw;
-    public Embedded() {
+    public EmbeddedMap() {
         _raw = [];
     }
     public PropertyPath? PropertyPath => _nodeDataMap?.PropertyPath;
-    public Embedded(Guid keyPropertyId, InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
+    public EmbeddedMap(Guid keyPropertyId, InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
         _nodeDataMap = nodeDataMap;
         _mapper = mapper;
     }
