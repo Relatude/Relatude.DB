@@ -43,12 +43,26 @@ public class DefaultUrlProvider : IUrlProvider {
         }
     }
 
-    public string GetInternalUrl(IdKey idKey) => urlTypeChar(UrlType.LocalUrl) + B64.EncodeForUrl(idKey.ToBytes());
-    public string GetInternalUrl(NodePath nodePath) => urlTypeChar(UrlType.LocalNode) + B64.EncodeForUrl(nodePath.ToBytes());
-    public string GetInternalUrl(PropertyPath property) => urlTypeChar(UrlType.LocalProperty) + B64.EncodeForUrl(property.ToBytes());
-    public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment) =>
-        string.Concat(urlTypeChar(UrlType.LocalAdjusted), B64.EncodeForUrl(property.ToBytes()), DELIMITER, _encoder.GetEncodedString(adjustment));
-
+    public string GetInternalUrl(IdKey idKey) {
+        return getUrlTypeChar(UrlTargetType.LocalUrl) + B64.EncodeForUrlParameter(idKey.ToBytes());
+    }
+    public string GetInternalUrl(NodePath nodePath) {
+        return getUrlTypeChar(UrlTargetType.LocalNode) + B64.EncodeForUrlParameter(nodePath.ToBytes());
+    }
+    public string GetInternalUrl(PropertyPath property, string? contentVersionId) {
+        if (contentVersionId != null) {
+            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, contentVersionId);
+        } else {
+            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()));
+        }
+    }
+    public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId) {
+        if (contentVersionId != null) {
+            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, _encoder.GetEncodedString(adjustment), dotChar, contentVersionId);
+        } else {
+            return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, _encoder.GetEncodedString(adjustment));
+        }
+    }
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();
         return internalUrl;
@@ -84,6 +98,9 @@ public class DefaultUrlProvider : IUrlProvider {
     public bool TryParseInternalUrlForPropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath) {
         propertyPath = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
+        var dotIndexLast = localUrl.LastIndexOf('.');
+        if (dotIndexLast > 2) localUrl = localUrl.Remove(dotIndexLast); // remove content version id if present
+        if (!B64.TryDecodeFromUrlParameter(localUrl[1..], out var bytes)) return false;
         if (!PropertyPath.TryParse(localUrl[1..], out propertyPath)) return false;
         return true;
     }
@@ -93,6 +110,8 @@ public class DefaultUrlProvider : IUrlProvider {
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
         var dotIndex = localUrl.IndexOf('.');
         if (dotIndex < 2) return false;
+        var dotIndexLast = localUrl.LastIndexOf('.');
+        if (dotIndexLast > dotIndex) localUrl = localUrl.Remove(dotIndexLast); // remove content version id if present
         var propertyPart = localUrl[0..dotIndex];
         var adjustmentPart = localUrl[(dotIndex + 1)..];
         if (!TryParseInternalUrlForPropertyPath(propertyPart, out propertyPath)) return false;

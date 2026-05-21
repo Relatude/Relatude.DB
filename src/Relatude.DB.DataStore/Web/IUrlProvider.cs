@@ -29,8 +29,8 @@ public interface IUrlProvider {
     
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
-    string GetInternalUrl(PropertyPath property);
-    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment);
+    string GetInternalUrl(PropertyPath property, string? contentVersionId);
+    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId);
 
     bool TryParseInternalForUrlType(string internalUrl, out UrlType type);
 

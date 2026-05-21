@@ -1,3 +1,4 @@
+using Microsoft.Net.Http.Headers;
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
@@ -85,7 +86,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             Width = 400,
             BackgroundColor = "#FF0000",
             RequestedFormat = FileFormat.Jpeg,
-            Sharpness = 0,
+            Sharpness = -100,
             Quality = 90
         };
 
@@ -109,10 +110,17 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     res.Headers.ContentType = "text/html; charset=utf-8";
     return html.ToString();
 });
-app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, string propPathAndAdj) => {
+app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var stream = await db.Datastore.GetFile(propPathAndAdj, 100000);
-    return Results.Stream(stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg), enableRangeProcessing: true);
+    var streamAndState = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 500);
+    if (streamAndState.IsReady) {
+        // Add header to allow 30 days caching
+        http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
+    } else {
+        // Add header with no-cache or short cache duration
+        http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
+    }
+    return Results.Stream(streamAndState.Stream, FileFormatUtil.GetContentTypeFromFormat(FileFormat.Jpeg));
 });
 
 app.UseRelatudeDB();
