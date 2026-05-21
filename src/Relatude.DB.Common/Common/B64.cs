@@ -8,7 +8,7 @@ namespace Relatude.DB.Common;
 
 public static class B64 {
 
-    public static string EncodeForUrlParameter(byte[] bytes) {
+    public static string EncodeForUrl(byte[] bytes) {
         int unpaddedLen = (bytes.Length * 4 + 2) / 3;
         Span<char> buf = stackalloc char[(unpaddedLen + 3) & ~3];
         Convert.TryToBase64Chars(bytes, buf, out _);

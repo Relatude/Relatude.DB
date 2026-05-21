@@ -5,7 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Web;
 
-public enum UrlTargetType {
+public enum UrlType {
 
     LocalUrl,
     LocalNode,
@@ -20,28 +20,24 @@ public enum UrlTargetType {
 
 }
 public struct UrlBase {
-    public UrlTargetType TargetType { get; init; }
+    public UrlType TargetType { get; init; }
 }
 public interface IUrlProvider {
 
     string GetExternalUrl(string internalUrl, bool absolute);
     string GetInternalUrl(string externalUrl);
     
-    IdKey GetIdKey(string url);
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
     string GetInternalUrl(PropertyPath property);
     string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment);
 
-    NodePath GetNodePath(string url);
-    PropertyPath GetPropertyPath(string url);
-    
-    bool TryParseLocalUrlType(string internalUrl, out UrlTargetType type);
+    bool TryParseInternalForUrlType(string internalUrl, out UrlType type);
 
-    bool TryParseAdjusted(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
-    bool TryParseIdKey(string internalUrl, [MaybeNullWhen(false)] out IdKey idKey);
-    bool TryParseNodePath(string internalUrl, [MaybeNullWhen(false)] out NodePath nodePath);
-    bool TryParsePropertyPath(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
+    bool TryParseInternalUrlForPathWithFileAdjustments(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
+    bool TryParseInternalUrlForIdKey(string internalUrl, [MaybeNullWhen(false)] out IdKey idKey);
+    bool TryParseInternalUrlForNodePath(string internalUrl, [MaybeNullWhen(false)] out NodePath nodePath);
+    bool TryParseInternalUrlForPropertyPath(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
 }
 
 

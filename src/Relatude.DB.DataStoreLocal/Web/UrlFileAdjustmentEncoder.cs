@@ -207,7 +207,10 @@ public class UrlFileAdjustmentEncoder(Guid key) {
         var adjType = getTypeFromChar(urlString[1]);
         var compressedString = urlString.Substring(2);
         var o = _urlSerializer.DeCompress(compressedString, adjType);
-        if (o is FileAdjustmentBase adj) return adj;
+        if (o is FileAdjustmentBase adjustment) {
+            adjustment.BasicSanitization(); // to prevent "crazy" values, causing issues in downstream processing (e.g. negative or extreme dimensions, memory exhaustion, etc.)
+            return adjustment;
+        }
         throw new InvalidOperationException("The URL string does not contain a valid adjustment.");
     }
 

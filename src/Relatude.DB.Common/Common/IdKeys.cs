@@ -71,7 +71,7 @@ public readonly struct IdKey : IEquatable<IdKey>, IKeySerializable<IdKey> {
     }
     public byte[] ToBytes() { var b = new byte[KeyUtil.IdKeySize(this) + 1]; KeyUtil.WriteIdKey(b, this); b[^1] = KeyUtil.Checksum(b.AsSpan(0, b.Length - 1)); return b; }
     public static IdKey FromBytes(byte[] bytes) => Deserialize(bytes);
-    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
+    public override string ToString() => B64.EncodeForUrl(ToBytes());
     public static bool TryParse(string s, out IdKey result) {
         try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }
@@ -156,7 +156,7 @@ public class NodePath : IKeySerializable<NodePath> {
         bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
-    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
+    public override string ToString() => B64.EncodeForUrl(ToBytes());
     public static bool TryParse(string s, [MaybeNullWhen(false)] out NodePath result) {
         try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }
@@ -240,7 +240,7 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
         bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
-    public override string ToString() => B64.EncodeForUrlParameter(ToBytes());
+    public override string ToString() => B64.EncodeForUrl(ToBytes());
     public static bool TryParse(string s, [MaybeNullWhen(false)] out PropertyPath result) {
         try { if (B64.TryDecodeFromUrlParameter(s, out var b)) { result = Deserialize(b); return true; } }
         catch (FormatException) { }

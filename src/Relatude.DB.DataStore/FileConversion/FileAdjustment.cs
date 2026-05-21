@@ -1,5 +1,4 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.Web;
 
 namespace Relatude.DB.FileConversion;
 
@@ -20,25 +19,28 @@ public enum FileAdjustmentType {
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
     public abstract FileAdjustmentType GetAdjustmentType();
-    static Dictionary<string, Guid> _keyCache = [];
+    static Dictionary<string, Guid> _staticKeyCache = [];
     Guid? _key;
+    string? _stringKey;
+    object _localKeyLock = new();
     public Guid GetKey() {
-        if (_key == null) {
-            var stringKey = GetStringKey();
-            lock (_keyCache) {
-                if (!_keyCache.TryGetValue(stringKey, out var guid)) {
-                    guid = stringKey.GenerateHashGuid();
-                    _keyCache[stringKey] = guid;
-                }
-                _key = guid;
+        lock (_localKeyLock) {
+            if (_key != null) return _key.Value;
+            if (_stringKey == null) _stringKey = GenerateStringKey();
+        }
+        lock (_staticKeyCache) {
+            if (!_staticKeyCache.TryGetValue(_stringKey, out var guid)) {
+                guid = _stringKey.GenerateHashGuid();
+                _staticKeyCache[_stringKey] = guid;
             }
+            _key = guid;
         }
         return _key.Value;
     }
-    public virtual void Sanatize() {
+    public virtual void BasicSanitization() {
         if (RequestedFormat == FileFormat.Unknown) RequestedFormat = FileFormat.Png;
     }
-    protected abstract string GetStringKey();
+    protected abstract string GenerateStringKey();
 }
 public class FileAdjustmentImage : FileAdjustmentBase {
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;
@@ -60,9 +62,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public ImageCropMode? CropMode { get; set; }
     public int? Quality { get; set; } // 0-100, where 100 is the best quality. Only applicable for lossy formats like JPEG.
 
-    string? _key = null;
-    protected override string GetStringKey() {
-        if (_key != null) return _key;
+    protected override string GenerateStringKey() {
         Span<byte> buf = stackalloc byte[96];
         int p = 0;
         BitConverter.TryWriteBytes(buf[p..], (int)RequestedFormat); p += 4;
@@ -81,10 +81,13 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         BitConverter.TryWriteBytes(buf[p..], Sharpness ?? double.NaN); p += 8;
         BitConverter.TryWriteBytes(buf[p..], (int)(CropMode ?? (ImageCropMode)(-1))); p += 4;
         BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue);
-        return _key = Convert.ToHexString(buf) + (AutoBackgroundColor?.ToString() ?? "") + (BackgroundColor ?? "");
+        var key = Convert.ToHexString(buf);
+        if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
+        if (BackgroundColor != null) key += BackgroundColor;
+        return key;
     }
-    public override void Sanatize() {
-        base.Sanatize();
+    public override void BasicSanitization() {
+        base.BasicSanitization();
         if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
         if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
         if (Zoom.HasValue) Zoom = Zoom <= 0 ? null : Math.Clamp(Zoom.Value, 0.1, 10_000);

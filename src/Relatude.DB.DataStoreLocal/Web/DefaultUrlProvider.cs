@@ -1,73 +1,53 @@
 using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.FileConversion;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Web;
 
-
 public class DefaultUrlProvider : IUrlProvider {
     readonly UrlFileAdjustmentEncoder _encoder;
-    const char dotChar = '.';
+    const char DELIMITER = '.';
     readonly IDataStore _dataStore;
-    IdKey _masterDefaultIdKey;
-    Dictionary<string, IdKey> _knownInternalHosts = new(StringComparer.OrdinalIgnoreCase);
     public DefaultUrlProvider(IDataStore dataStore, Guid secretHashKey) {
         _dataStore = dataStore;
         _encoder = new(secretHashKey);
     }
-    public IdKey GetIdKey(string url) {
-        throw new NotImplementedException();
-    }
-    public NodePath GetNodePath(string url) {
-        throw new NotImplementedException();
-    }
 
-    public PropertyPath GetPropertyPath(string url) {
-        throw new NotImplementedException();
-    }
-    char getUrlTypeChar(UrlTargetType type) {
+    char urlTypeChar(UrlType type) {
         return type switch {
-            UrlTargetType.LocalUrl => 'u',
-            UrlTargetType.LocalNode => 'n',
-            UrlTargetType.LocalEmbeddedNode => 'e',
-            UrlTargetType.LocalProperty => 'p',
-            UrlTargetType.LocalAdjusted => 'a',
-            UrlTargetType.LocalOther => 'o',
-            UrlTargetType.ExternalUrl => 'U',
-            UrlTargetType.ExternalEmail => 'M',
-            UrlTargetType.ExternalOther => 'O',
+            UrlType.LocalUrl => 'u',
+            UrlType.LocalNode => 'n',
+            UrlType.LocalEmbeddedNode => 'e',
+            UrlType.LocalProperty => 'p',
+            UrlType.LocalAdjusted => 'a',
+            UrlType.LocalOther => 'o',
+            UrlType.ExternalUrl => 'U',
+            UrlType.ExternalEmail => 'M',
+            UrlType.ExternalOther => 'O',
             _ => throw new NotImplementedException(),
         };
     }
-    UrlTargetType getUrlTypeFromChar(char c) {
-        return c switch {
-            'u' => UrlTargetType.LocalUrl,
-            'n' => UrlTargetType.LocalNode,
-            'e' => UrlTargetType.LocalEmbeddedNode,
-            'p' => UrlTargetType.LocalProperty,
-            'a' => UrlTargetType.LocalAdjusted,
-            'o' => UrlTargetType.LocalOther,
-            'U' => UrlTargetType.ExternalUrl,
-            'M' => UrlTargetType.ExternalEmail,
-            'O' => UrlTargetType.ExternalOther,
-            _ => throw new NotImplementedException(),
-        };
+    bool tryGetUrlType(char c, [MaybeNullWhen(false)] out UrlType type) {
+        switch (c) {
+            case 'u': type = UrlType.LocalUrl; return true;
+            case 'n': type = UrlType.LocalNode; return true;
+            case 'e': type = UrlType.LocalEmbeddedNode; return true;
+            case 'p': type = UrlType.LocalProperty; return true;
+            case 'a': type = UrlType.LocalAdjusted; return true;
+            case 'o': type = UrlType.LocalOther; return true;
+            case 'U': type = UrlType.ExternalUrl; return true;
+            case 'M': type = UrlType.ExternalEmail; return true;
+            case 'O': type = UrlType.ExternalOther; return true;
+            default: type = default; return false;
+        }
     }
 
-    public string GetInternalUrl(IdKey idKey) {
-        return getUrlTypeChar(UrlTargetType.LocalUrl) + B64.EncodeForUrlParameter(idKey.ToBytes());
-    }
-    public string GetInternalUrl(NodePath nodePath) {
-        return getUrlTypeChar(UrlTargetType.LocalNode) + B64.EncodeForUrlParameter(nodePath.ToBytes());
-    }
-    public string GetInternalUrl(PropertyPath property) {
-        return getUrlTypeChar(UrlTargetType.LocalProperty) + B64.EncodeForUrlParameter(property.ToBytes());
-    }
-    public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment) {
-        return string.Concat(getUrlTypeChar(UrlTargetType.LocalAdjusted), B64.EncodeForUrlParameter(property.ToBytes()), dotChar, _encoder.GetEncodedString(adjustment));
-    }
+    public string GetInternalUrl(IdKey idKey) => urlTypeChar(UrlType.LocalUrl) + B64.EncodeForUrl(idKey.ToBytes());
+    public string GetInternalUrl(NodePath nodePath) => urlTypeChar(UrlType.LocalNode) + B64.EncodeForUrl(nodePath.ToBytes());
+    public string GetInternalUrl(PropertyPath property) => urlTypeChar(UrlType.LocalProperty) + B64.EncodeForUrl(property.ToBytes());
+    public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment) =>
+        string.Concat(urlTypeChar(UrlType.LocalAdjusted), B64.EncodeForUrl(property.ToBytes()), DELIMITER, _encoder.GetEncodedString(adjustment));
 
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();
@@ -75,56 +55,39 @@ public class DefaultUrlProvider : IUrlProvider {
     }
     public string GetInternalUrl(string externalUrl) {
         return externalUrl;
-        throw new NotImplementedException();
-        Uri uri = new Uri(externalUrl);
-        string pathWithoutQuery = uri.GetLeftPart(UriPartial.Path);
-        if (pathWithoutQuery == "/") pathWithoutQuery = ""; // treat root path as empty for easier matching
-        if (uri.IsAbsoluteUri) { // has scheme and authority, potentially external url
-            var host = uri.Host;
-            if (!_knownInternalHosts.ContainsKey(host)) return externalUrl; // external url, return as is
-        } else {
-            // basically "/" or "" and no host            
-            if (string.IsNullOrEmpty(pathWithoutQuery)) return GetInternalUrl(_masterDefaultIdKey);
-        }
-        if (_dataStore.TryGetNodeIdFromAddress(pathWithoutQuery, out int id, out string? cultureCode)) {
 
-        } else {
+        // TODO: implement a way to resolve a shorter, and more readable url. No need for guids, use prop names and node addresses
+        // External URL are constantly being generated on the fly, and need to be less permanent, 
+        // Internal URLs are more permanent, as they are stored in HTML fields, that are transformed to external URLs on the fly
 
-        }
+        //if (_dataStore.TryGetNodeIdFromAddress(pathWithoutQuery, out int id, out string? cultureCode)) {
+        //} else {
+        //}
     }
 
-    public bool TryParseLocalUrlType(string localUrl, out UrlTargetType type) {
-        type = default;
-        if (string.IsNullOrEmpty(localUrl)) return false;
-        try {
-            type = getUrlTypeFromChar(localUrl[0]);
-            return true;
-        } catch {
-            return false;
-        }
+    public bool TryParseInternalForUrlType(string localUrl, out UrlType type) {
+        if (string.IsNullOrEmpty(localUrl)) { type = default; return false; }
+        return tryGetUrlType(localUrl[0], out type);
     }
-    public bool TryParseIdKey(string localUrl, [MaybeNullWhen(false)] out IdKey idKey) {
+    public bool TryParseInternalUrlForIdKey(string localUrl, out IdKey idKey) {
         idKey = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
-        if (!B64.TryDecodeFromUrlParameter(localUrl[1..], out var bytes)) return false;
         if (!IdKey.TryParse(localUrl[1..], out idKey)) return false;
         return true;
     }
-    public bool TryParseNodePath(string localUrl, [MaybeNullWhen(false)] out NodePath nodePath) {
+    public bool TryParseInternalUrlForNodePath(string localUrl, [MaybeNullWhen(false)] out NodePath nodePath) {
         nodePath = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
-        if (!B64.TryDecodeFromUrlParameter(localUrl[1..], out var bytes)) return false;
         if (!NodePath.TryParse(localUrl[1..], out nodePath)) return false;
         return true;
     }
-    public bool TryParsePropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath) {
+    public bool TryParseInternalUrlForPropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath) {
         propertyPath = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
-        if (!B64.TryDecodeFromUrlParameter(localUrl[1..], out var bytes)) return false;
         if (!PropertyPath.TryParse(localUrl[1..], out propertyPath)) return false;
         return true;
     }
-    public bool TryParseAdjusted(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment) {
+    public bool TryParseInternalUrlForPathWithFileAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment) {
         propertyPath = default;
         adjustment = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;
@@ -132,10 +95,9 @@ public class DefaultUrlProvider : IUrlProvider {
         if (dotIndex < 2) return false;
         var propertyPart = localUrl[0..dotIndex];
         var adjustmentPart = localUrl[(dotIndex + 1)..];
-        if (!TryParsePropertyPath(propertyPart, out propertyPath)) return false;
+        if (!TryParseInternalUrlForPropertyPath(propertyPart, out propertyPath)) return false;
         try {
             adjustment = _encoder.GetAdjustmentFromEncodedString(adjustmentPart);
-            adjustment.Sanatize();
             return true;
         } catch {
             return false;

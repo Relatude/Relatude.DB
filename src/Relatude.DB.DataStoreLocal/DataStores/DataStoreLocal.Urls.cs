@@ -17,12 +17,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public async Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) {
         var internalUrl = _urlProvider.GetInternalUrl(url);
-        if (!_urlProvider.TryParseLocalUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
-        if (type == UrlTargetType.LocalProperty) {
-            if (!_urlProvider.TryParsePropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
+        if (!_urlProvider.TryParseInternalForUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
+        if (type == UrlType.LocalProperty) {
+            if (!_urlProvider.TryParseInternalUrlForPropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
             return await GetFile(path, ctx);
-        } else if (type == UrlTargetType.LocalAdjusted) {
-            if (!_urlProvider.TryParseAdjusted(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
+        } else if (type == UrlType.LocalAdjusted) {
+            if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetConvertedFile(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
