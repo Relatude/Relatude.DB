@@ -189,8 +189,10 @@ public class DataStoreSession : IDataStore {
 
     public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? DefaultQueryContext);
     public Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFile(url, maxWait, ctx ?? DefaultQueryContext);
+    public Task<StreamAndConversionState> GetFileAndConversionState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileAndConversionState(url, maxWait, ctx ?? DefaultQueryContext);
     public Task<Stream> GetFile(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFile(propertyPath, ctx ?? DefaultQueryContext);
     public Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null) => _datastore.GetConvertedFile(propertyPath, adj, maxWait, ctx ?? DefaultQueryContext);
+    public Task<StreamAndConversionState> GetConvertedFileAndConversionState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null) => _datastore.GetConvertedFileAndConversionState(propertyPath, adj, maxWait, ctx ?? DefaultQueryContext);
 
 
 }

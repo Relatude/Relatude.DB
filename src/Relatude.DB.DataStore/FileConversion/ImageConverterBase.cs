@@ -1,6 +1,5 @@
 ﻿using Relatude.DB.Common;
 namespace Relatude.DB.FileConversion;
-
 public abstract class ImageConverterBase : IFileConverter {
     FileFormat[] _ins;
     FileFormat[] _outs;
@@ -11,7 +10,7 @@ public abstract class ImageConverterBase : IFileConverter {
         _outs = outs;
         _create = create;
         _load = load;
-        MaxConcurrentWork = Environment.ProcessorCount / 2;
+        MaxConcurrentWork = Math.Max(1, Environment.ProcessorCount / 2);
         MinIntervalBetweenCallsInMs = 0;
     }
     public int MaxConcurrentWork { get; set; }

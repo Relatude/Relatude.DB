@@ -26,16 +26,16 @@ public interface IUrlProvider {
 
     string GetExternalUrl(string internalUrl, bool absolute);
     string GetInternalUrl(string externalUrl);
-    
+
     IdKey GetIdKey(string url);
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
-    string GetInternalUrl(PropertyPath property);
-    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment);
+    string GetInternalUrl(PropertyPath property, string? contentVersionId);
+    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId);
 
     NodePath GetNodePath(string url);
     PropertyPath GetPropertyPath(string url);
-    
+
     bool TryParseLocalUrlType(string internalUrl, out UrlTargetType type);
 
     bool TryParseAdjusted(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);

@@ -98,6 +98,6 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (Contrast.HasValue) Contrast = Math.Clamp(Contrast.Value, -100, 100);
         if (Saturation.HasValue) Saturation = Math.Clamp(Saturation.Value, -100, 100);
         if (HueShift.HasValue) HueShift = Math.Clamp(HueShift.Value, -180, 180);
-        if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, 0, 100);
+        if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, -100, 100);
     }
 }

@@ -86,7 +86,6 @@ public static class IImageExt {
 
         return img;
     }
-
     static List<string> textWrap(int maxCharsPerLine, List<string> lines) {
         var result = new List<string>();
         foreach (var line in lines) {
@@ -115,6 +114,7 @@ public static class IImageExt {
         }
         return result;
     }
+
 }
 public interface IImage : IDisposable {
 

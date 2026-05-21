@@ -4,6 +4,14 @@ using System.Text;
 namespace Relatude.DB.Common;
 
 public static class HashGuidExtentions {
+    public static int GenerateHashInt(this string value) {
+        byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(value));
+        return BitConverter.ToInt32(hash, 0);
+    }
+    public static long GenerateHashLong(this string value) {
+        byte[] hash = SHA1.HashData(Encoding.UTF8.GetBytes(value));
+        return BitConverter.ToInt64(hash, 0);
+    }
     /// <summary>
     /// Generates a deterministic Guid based on the input string using SHA-1 hashing.
     /// </summary>
