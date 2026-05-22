@@ -8,7 +8,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    //options.FileConverters.Add(new SkiaImageConverter());
+    options.FileConverters.Add(new SkiaImageConverter());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -86,7 +86,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             Width = 400,
             BackgroundColor = "#FF0000",
             RequestedFormat = FileFormat.Jpeg,
-            Sharpness = -100,
+            Sharpness = 0,
             Quality = 90
         };
 
