@@ -89,7 +89,7 @@ public class FileValue {
     }
     public string ContentType{
         get {
-            return FileFormatUtil.GetContentTypeFromFormat(Format);
+            return FileFormatUtil.GetContentType(Format);
         }
     }
     public int Height { get; set; }

@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Native;
+using Relatude.DB.Web;
 
 public class SettingsLocal {
 
@@ -6,6 +7,11 @@ public class SettingsLocal {
     public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Everyone;
     public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Everyone;
     public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.MultiFile;
+
+    //public Guid GlobalUrlCacheKey { get; set; } = Guid.Empty;
+    //public int FileRequestCacheSizeInMb { get; set; } = 100;
+    //public int FileRequestCacheEntryLimit { get; set; } = 100;
+    //public UrlProviderType UrlProviderType;
 
     public string? FilePrefix { get; set; }
     public Guid? DefaultFileStore { get; set; } 

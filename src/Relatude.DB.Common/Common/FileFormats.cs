@@ -83,7 +83,7 @@ public static class FileFormatUtil {
         };
     }
 
-    public static string GetContentTypeFromFormat(FileFormat fileFormat) => fileFormat switch {
+    public static string GetContentType(FileFormat fileFormat) => fileFormat switch {
         FileFormat.Jpeg => "image/jpeg",
         FileFormat.Png => "image/png",
         FileFormat.Gif => "image/gif",
