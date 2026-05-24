@@ -15,5 +15,8 @@
 	  <ProjectReference Include="..\Relatude.DB.Logger\Relatude.DB.Logger.csproj" />
 	  <ProjectReference Include="..\Relatude.DB.Model\Relatude.DB.Model.csproj" />
 	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="FileConversion\VideoEncoders\" />
+	</ItemGroup>
 
 </Project>

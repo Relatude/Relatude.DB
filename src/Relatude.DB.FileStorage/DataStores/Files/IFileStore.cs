@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.IO;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Files;
 
 public class FileInsertResult(string fileHash, byte[] storeKey, long length) {
@@ -19,6 +20,7 @@ public interface IFileStore : IDisposable {
     Task DeleteAsync(FileValue value);
     long GetSizeForMetrics();
     bool SupportsMultipartUploads() => this is IFileStoreMultiPartSupport;
+    bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string localFilePath);
 }
 public static class FileStoreExtensions {
     public static async Task<Stream> GetFileStream(this IFileStore fs, FileValue file) {

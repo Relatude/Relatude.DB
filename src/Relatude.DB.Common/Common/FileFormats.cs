@@ -20,6 +20,7 @@ public enum FileFormat {
     Avi,
     Mov,
     Wmv,
+    Mkv,
     Flv,
     // Audio formats
     Mp3,
@@ -53,6 +54,7 @@ public static class FileFormatUtil {
             ".svg" => FileFormat.Svg,
             ".webp" => FileFormat.Webp,
             ".mp4" => FileFormat.Mp4,
+            ".mkv" => FileFormat.Mkv,
             ".avi" => FileFormat.Avi,
             ".mov" => FileFormat.Mov,
             ".wmv" => FileFormat.Wmv,
@@ -75,7 +77,7 @@ public static class FileFormatUtil {
     public static FileType GetBaseFormatFromDetailedFormat(FileFormat format) {
         return format switch {
             FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp => FileType.Image,
-            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv => FileType.Video,
+            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
             FileFormat.Unknown => FileType.Unknown,
@@ -91,6 +93,7 @@ public static class FileFormatUtil {
         FileFormat.Svg => "image/svg+xml",
         FileFormat.Webp => "image/webp",
         FileFormat.Mp4 => "video/mp4",
+        FileFormat.Mkv => "video/x-matroska",
         FileFormat.Avi => "video/x-msvideo",
         FileFormat.Mov => "video/quicktime",
         FileFormat.Wmv => "video/x-ms-wmv",

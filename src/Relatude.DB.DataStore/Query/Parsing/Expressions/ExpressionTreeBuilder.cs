@@ -6,8 +6,8 @@ using Relatude.DB.Query.Parsing.Tokens;
 namespace Relatude.DB.Query.Parsing.Expressions;
 /// <summary>
 /// The purpose of this class is to build an expression tree from a token tree.
-/// The token tree focus on just parsing the string correctly.
-/// While this class builds a tree of IExpressions that can be evaluated.
+/// The token tree focus on just parsing the string correctly into tokens
+/// While this class builds a tree of IExpressions that can be evaluated from the tokens
 /// </summary>
 public class ExpressionTreeBuilder {
     public static IExpression Build(TokenBase token, Datamodel dm) {

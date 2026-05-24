@@ -47,11 +47,21 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        var result = await _fileConversionEngine.TryGetFormatAsync(info, maxWait, () => {
-            if (fileValue.IsEmpty) throw new Exception("File value is empty");
-            var fileStore = getFileStore(fileValue.StorageId);
-            return fileStore.GetFileStream(fileValue);
-        });
+        var fileStore = getFileStore(fileValue.StorageId);
+        InputFileSource source;
+        if (fileStore.TryGetLocalFilePath(fileValue, out var localFilePath)) {
+            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
+                return File.OpenRead(localFilePath);
+            });
+            source = new InputFileSource(getInputStreamFunc, localFilePath);
+        } else {
+            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
+                if (fileValue.IsEmpty) throw new Exception("File value is empty");
+                return await fileStore.GetFileStream(fileValue);
+            });
+            source = new InputFileSource(getInputStreamFunc, null);
+        }
+        var result = await _fileConversionEngine.TryGetFormatAsync(info, maxWait, source);
         Stream stream;
         if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
             if (result.Output == null) throw new Exception("File conversion output is null");

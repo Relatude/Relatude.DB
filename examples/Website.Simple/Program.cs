@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter());
+    options.FileConverters.Add(new FFMpegVideoConverter());
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -32,7 +33,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    var articleCount = 300;
+    var articleCount = 1;
     for (int i = 0; i < articleCount; i++) {
         var db = ctx.Database;
         //var art = new DemoArticle();
@@ -45,10 +46,9 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         db.Insert(art);
         var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
         //filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
-        var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\Bugatti.jpg";
-
-        //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
-        await db.FileUploadAsync(art.File, filePath);
+        var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\sample-1.mkv";
+                //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
+        await db.FileUploadAsync(art.File, videoFilePath);
         //var p = art.Paragraphs.First();
         //if (db.FileStoreSupportsMultipartUploads(p.File)) {
         //    using var stream = File.OpenRead(videoFilePath);
@@ -82,22 +82,52 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     foreach (var item in results) {
         //html.Append($"<h2>{item.Title}</h2>");
         //html.Append($"<p>{item.Content}</p>");
-        var adj = new FileAdjustmentImage() {
+
+        var videoAdj = new FileAdjustmentVideo() {
+            Width = 2024, Height = 1024,
+            TargetBitRateInMbps = 100,
+            RequestedFormat = FileFormat.Mp4            
+        };  
+
+        var thumbnailAdj = new FileAdjustmentImage() {
             CropMode = ImageCropMode.Fill,
-            Width = 100,
+            Width = 2048,
+            Height = 1024,
             HueShift = i++,
             BackgroundColor = "#FF0000",
             RequestedFormat = FileFormat.Jpeg,
             Sharpness = 0,
             Quality = 90
         };
-        if (i > 180) i = -180;
-        if (!item.File.IsEmpty) {
-            var fileUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
-            // thumbnail::
-            html.Append($"<img src='{fileUrl}'> - ");
-            //html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
-        }
+        var videoUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj, false)}";
+        //var thumbnailUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
+
+        // video tag with fallback to thumbnail image:
+        html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+        html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+        html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+        html.Append($"</video>");
+
+
+        //for (var p = 0; p < 100; p+=2) {
+        //    var adj = new FileAdjustmentImage() {
+        //        CropMode = ImageCropMode.Fill,
+        //        Width = 500,
+        //        TimeOffsetPercentage= (double)(p),
+        //        HueShift = i++,
+        //        BackgroundColor = "#FF0000",
+        //        RequestedFormat = FileFormat.Jpeg,
+        //        Sharpness = 0,
+        //        Quality = 90
+        //    };
+        //    if (i > 180) i = -180;
+        //    if (!item.File.IsEmpty) {
+        //        var fileUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
+        //        // thumbnail::
+        //        html.Append($"<img src='{fileUrl}'>");
+        //        //html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
+        //    }
+        //}
         //foreach (var para in item.Paragraphs) {
         //    html.Append($"<h3>Paragraph: {para.Code}</h3>");
         //    if (!para.File.IsEmpty) {
@@ -114,7 +144,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var streamAndState = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 50000);
+    var streamAndState = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 10);
     if (streamAndState.IsReady) {
         // Add header to allow 30 days caching
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
@@ -122,7 +152,7 @@ app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext 
         // Add header with no-cache or short cache duration
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
     }
-    return Results.Stream(streamAndState.Stream, FileFormatUtil.GetContentType(FileFormat.Jpeg));
+    return Results.Stream(streamAndState.Stream, FileFormatUtil.GetContentType(FileFormat.Mp4));
 });
 
 app.UseRelatudeDB();

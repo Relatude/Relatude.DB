@@ -1,6 +1,7 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
 
 public class AzureBlobIOProvider : IIOProviderWithFolders {
@@ -263,5 +264,9 @@ public class AzureBlobIOProvider : IIOProviderWithFolders {
             if (recursive) addAzureSubFolders(sub, subPrefix, subBlobs, recursive, withFiles);
             return sub;
         })];
+    }
+    public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) {
+        localFilePath = null;
+        return false;
     }
 }

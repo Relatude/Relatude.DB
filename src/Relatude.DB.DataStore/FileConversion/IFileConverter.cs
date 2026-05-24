@@ -22,11 +22,21 @@ public class ConversionProgress(FileConversionProgressInfo info, Stream? output 
     public Stream? Output { get; } = output;
     public FileConversionProgressInfo ProgressInfo { get; } = info;
 }
+public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFilePath) {
+    public Task<Stream> OpenInputStream() {
+        return getInputStream();
+    }   
+    public bool HasLocalFilePath => !string.IsNullOrEmpty(localFilePath);
+    public string GetLocalFilePathOrThrow() {
+        if (string.IsNullOrEmpty(localFilePath)) throw new Exception("No local file path available");
+        return localFilePath;
+    }
+}
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing
     int MaxConcurrentWork { get; set; }
     int MinIntervalBetweenCallsInMs { get; set; }
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(Guid key);
-    Task<ConversionProgress> DoConvertWork(Func<Task<Stream>> getInputStream, FileConversionInfo info);
-    Stream GetStatusRepresentation(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status);
+    Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);
+    Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status);
 }

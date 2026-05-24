@@ -1,8 +1,9 @@
-﻿using System.Runtime;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime;
 
 namespace Relatude.DB.IO;
 
-public class IOProviderDisk : IIOProviderWithFolders {
+public class IOProviderDisk : IIOProvider {
     readonly bool _readOnly;
     readonly object _lock = new();
     readonly Dictionary<string, int> _openReaders = [];
@@ -221,5 +222,14 @@ public class IOProviderDisk : IIOProviderWithFolders {
             if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
         }
     }
-
+    public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var filePath = Path.Combine([BaseFolder, .. path]);
+        if (File.Exists(filePath)) {
+            localFilePath = filePath;
+            return true;
+        }
+        localFilePath = null;
+        return false;
+    }
 }

@@ -27,6 +27,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private char getCharFromAdjType(FileAdjustmentType type) {
         return type switch {
             FileAdjustmentType.Image => 'i',
+            FileAdjustmentType.Video => 'v',
             FileAdjustmentType.ImageMetaData => 'm',
             _ => throw new NotSupportedException($"Unsupported adjustment type '{type}'.")
         };
@@ -35,6 +36,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private Type getTypeFromChar(char c) {
         return c switch {
             'i' => typeof(FileAdjustmentImage),
+            'v' => typeof(FileAdjustmentVideo),
             //'m' => typeof(FileAdjustmentImageMetaData),
             _ => throw new NotSupportedException($"Unsupported adjustment type character '{c}'.")
         };
@@ -42,6 +44,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private string getFriendlyStringFromAdjType(FileAdjustmentType type) {
         return type switch {
             FileAdjustmentType.Image => "Image",
+            FileAdjustmentType.Video => "Video",
             FileAdjustmentType.ImageMetaData => "ImageMetaData",
             _ => throw new NotSupportedException($"Unsupported adjustment type '{type}'.")
         };
@@ -49,6 +52,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     private Type getTypeFromFriendlyString(string name) {
         return name switch {
             "Image" => typeof(FileAdjustmentImage),
+            "Video" => typeof(FileAdjustmentVideo),
             //"ImageMetaData" => typeof(FileAdjustmentImageMetaData),
             _ => throw new NotSupportedException($"Unsupported adjustment type character '{name}'.")
         };

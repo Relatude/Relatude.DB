@@ -1,8 +1,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.IO;
-using System.Collections;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.FileConversion;
 
@@ -31,7 +29,7 @@ public class FileConversionEngine : IDisposable {
                             _conversionsInProgress.Remove(entry);
                             break;
                         case FileConversionStatus.InProgress:
-                            _conversionsInProgress.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.GetInputStream));
+                            _conversionsInProgress.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource));
                             break;
                         case FileConversionStatus.Error:
                             _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), progress.Message ?? "Failed. ");
@@ -54,19 +52,19 @@ public class FileConversionEngine : IDisposable {
         if (!_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
             throw new Exception("No converter available for " + entry.FileInfo.Formats.ToString()?.ToUpper());
         }
-        var conversionResult = await converter.DoConvertWork(entry.GetInputStream, entry.FileInfo);
+        var conversionResult = await converter.DoConvertWork(entry.InputSource, entry.FileInfo);
         if (conversionResult.Output != null) {
             await _fileCache.SetFromStreamAsync(entry.FileInfo.IdWithAdjustment, conversionResult.Output);
         }
         return conversionResult.ProgressInfo;
     }
-    public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, Func<Task<Stream>> getInputStream) {
+    public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
         var key = info.IdWithAdjustment.GetKey();
         if (_fileCache.TryGetResult(key, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();
         ProgressEntry? entry;
         _conversionsInProgress.AddIfMissing(key, () =>
-            new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, getInputStream)
+            new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source)
         );
         _scheduler.RunSoon();
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
@@ -85,13 +83,13 @@ public class FileConversionEngine : IDisposable {
     public void Dispose() {
     }
     public Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        if (_fileConverters.TryGetConverter(new FormatPair(adj.RequestedFormat, adj.RequestedFormat), out var converter)) {
-            return converter.GetStatusRepresentation(fileValue, adj, status);
+        if (_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
+            return converter.GetStatus(fileValue, adj, status);
         } else {
             var baseFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
             if (baseFormat == FileType.Image) {
                 if (_fileConverters.TryGetConverter(new FormatPair(FileFormat.Png, FileFormat.Png), out converter)) {
-                    return converter.GetStatusRepresentation(fileValue, adj, status);
+                    return converter.GetStatus(fileValue, adj, status);
                 }
             }
         }
@@ -106,12 +104,4 @@ public class FileConversionEngine : IDisposable {
     }
     public int QueueCount => _conversionsInProgress.Count;
     public ProgressEntry[] GetRunning() => _conversionsInProgress.GetAll();
-    public void KillRunning(Guid key) {
-        throw new NotImplementedException();
-        if (_conversionsInProgress.TryGet(key, out var entry)) {
-            //_scheduler.TryStopIfRunning(key);
-            //_conversionsInProgress.Remove(entry);
-            //_fileCache.Clear(key);
-        }
-    }
 }

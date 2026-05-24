@@ -10,10 +10,10 @@ public class ProgressEntry(
     DateTime created,
     FileConversionProgressInfo progressInfo,
     FileConversionInfo fileInfo,
-    Func<Task<Stream>> getInputStream
+    InputFileSource inputSource
     ) {
     public DateTime Created { get; } = created;
     public FileConversionProgressInfo ProgressInfo { get; } = progressInfo;
     public FileConversionInfo FileInfo { get; } = fileInfo;
-    public Func<Task<Stream>> GetInputStream { get; } = getInputStream;
+    public InputFileSource InputSource { get; } = inputSource;
 }

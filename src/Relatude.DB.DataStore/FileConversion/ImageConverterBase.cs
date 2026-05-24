@@ -21,15 +21,15 @@ public abstract class ImageConverterBase : IFileConverter {
     public Task<bool> CancelAsync(Guid key) {
         return Task.FromResult(false);
     }
-    public async Task<ConversionProgress> DoConvertWork(Func<Task<Stream>> getInputStream, FileConversionInfo info) {
+    public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
         var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
-        var input = await getInputStream();
+        var input = await source.OpenInputStream();
         var image = _load(input).Adjust(imgAdj);
         var bytes = image.Encode(info.Formats.To);
         var stream = new MemoryStream(bytes);
         return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
     }
-    public Stream GetStatusRepresentation(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+    public Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
         if (adj is not FileAdjustmentImage imgAdj) throw new ArgumentException("Expected FileIdWithAdjustment", nameof(adj));
         int width = imgAdj.Width ?? 200;
         int height = imgAdj.Height ?? 150;
@@ -37,4 +37,5 @@ public abstract class ImageConverterBase : IFileConverter {
         var bytes = img.Encode(FileFormat.Png);
         return new MemoryStream(bytes);
     }
+
 }

@@ -9,12 +9,22 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="FFMpegCore" Version="5.4.0" />
+		<PackageReference Include="Xabe.FFmpeg.Downloader" Version="4.4.0" />
 		<PackageReference Include="SkiaSharp" Version="3.116.1" />
 		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
+	</ItemGroup>
+
+	<!-- Copy ffmpeg binaries to output directory so FFMpegCore can find them -->
+	<ItemGroup>
+		<None Include="ffmpeg\**" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="ffmpeg\" />
 	</ItemGroup>
 
 </Project>

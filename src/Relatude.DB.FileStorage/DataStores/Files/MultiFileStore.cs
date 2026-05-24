@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.IO;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 namespace Relatude.DB.DataStores.Files;
@@ -116,6 +117,10 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         var fullPath = getFullPath(fileId, usedFileName);
         using var outStream = _ioProvider.OpenAppend(fullPath);
         await outStream.AppendAsyncNoChecksumOrLock(buffer, length);
+    }
+    public bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string localFilePath) {
+        var path = getFullPath(value);
+        return _ioProvider.TryGetLocalFilePath(path, out localFilePath);
     }
 }
 

@@ -15,6 +15,7 @@ public class FileIdWithAdjustment {
 public enum FileAdjustmentType {
     Image,
     ImageMetaData,
+    Video,
 }
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
@@ -62,8 +63,11 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public ImageCropMode? CropMode { get; set; }
     public int? Quality { get; set; } // 0-100, where 100 is the best quality. Only applicable for lossy formats like JPEG.
 
+    public double? TimeOffsetMs { get; set; } // only relevant for video files. Specifies the timestamp in milliseconds from which to extract the thumbnail image.
+    public double? TimeOffsetPercentage { get; set; } // only relevant for video files. Specifies the timestamp in percentage from which to extract the thumbnail image.
+
     protected override string GenerateStringKey() {
-        Span<byte> buf = stackalloc byte[96];
+        Span<byte> buf = stackalloc byte[112];
         int p = 0;
         BitConverter.TryWriteBytes(buf[p..], (int)RequestedFormat); p += 4;
         BitConverter.TryWriteBytes(buf[p..], Width ?? int.MinValue); p += 4;
@@ -80,7 +84,9 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         BitConverter.TryWriteBytes(buf[p..], HueShift ?? double.NaN); p += 8;
         BitConverter.TryWriteBytes(buf[p..], Sharpness ?? double.NaN); p += 8;
         BitConverter.TryWriteBytes(buf[p..], (int)(CropMode ?? (ImageCropMode)(-1))); p += 4;
-        BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue);
+        BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], TimeOffsetMs ?? double.NaN); p += 8;
+        BitConverter.TryWriteBytes(buf[p..], TimeOffsetPercentage ?? double.NaN);
         var key = Convert.ToHexString(buf);
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
         if (BackgroundColor != null) key += BackgroundColor;
@@ -102,5 +108,31 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (Saturation.HasValue) Saturation = Math.Clamp(Saturation.Value, -100, 100);
         if (HueShift.HasValue) HueShift = Math.Clamp(HueShift.Value, -180, 180);
         if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, -100, 100);
+        if (TimeOffsetMs.HasValue) TimeOffsetMs = TimeOffsetMs < 0 ? null : TimeOffsetMs.Value;
+        if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
+    }
+}
+public class FileAdjustmentVideo : FileAdjustmentBase {
+    public int? Width { get; set; } // canvas width
+    public int? Height { get; set; } // canvas height
+    public double TargetBitRateInMbps { get; set; } // in bits per second
+    public bool CropNotZoom { get; set; } = false; // If true, the video will be cropped to fit the target aspect ratio instead of being zoomed.
+    public override void BasicSanitization() {
+        base.BasicSanitization();
+        if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
+        if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
+        TargetBitRateInMbps = Math.Clamp(TargetBitRateInMbps, 0.1, 1_000); // 100 Kbps to 1 Gbps
+    }
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Video;
+   protected override string GenerateStringKey() {
+        Span<byte> buf = stackalloc byte[20];
+        int p = 0;
+        BitConverter.TryWriteBytes(buf[p..], (int)RequestedFormat); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Width ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], Height ?? int.MinValue); p += 4;
+        BitConverter.TryWriteBytes(buf[p..], TargetBitRateInMbps); p += 8;
+        var key = Convert.ToHexString(buf);
+        if (CropNotZoom) key += "CropNotZoom";
+        return key;
     }
 }

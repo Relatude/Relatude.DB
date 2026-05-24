@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 namespace Relatude.DB.IO;
 
@@ -189,5 +190,10 @@ public class IOProviderMemory : IIOProvider {
             }
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
+    }
+
+    public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) {
+        localFilePath = null;
+        return false;
     }
 }
