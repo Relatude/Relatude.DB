@@ -33,7 +33,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    var articleCount = 1;
+    var articleCount = 8;
     for (int i = 0; i < articleCount; i++) {
         var db = ctx.Database;
         //var art = new DemoArticle();
@@ -46,7 +46,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         db.Insert(art);
         var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
         //filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
-        var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\sample-1.mkv";
+        var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\m.mp4";
                 //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
         await db.FileUploadAsync(art.File, videoFilePath);
         //var p = art.Paragraphs.First();
@@ -84,21 +84,21 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //html.Append($"<p>{item.Content}</p>");
 
         var videoAdj = new FileAdjustmentVideo() {
-            Width = 2024, Height = 1024,
+            Width = 512, Height = 288,
             TargetBitRateInMbps = 100,
             RequestedFormat = FileFormat.Mp4            
         };  
 
-        var thumbnailAdj = new FileAdjustmentImage() {
-            CropMode = ImageCropMode.Fill,
-            Width = 2048,
-            Height = 1024,
-            HueShift = i++,
-            BackgroundColor = "#FF0000",
-            RequestedFormat = FileFormat.Jpeg,
-            Sharpness = 0,
-            Quality = 90
-        };
+        //var thumbnailAdj = new FileAdjustmentImage() {
+        //    CropMode = ImageCropMode.Fill,
+        //    Width = 548,
+        //    Height = 1024,
+        //    HueShift = i++,
+        //    BackgroundColor = "#FF0000",
+        //    RequestedFormat = FileFormat.Jpeg,
+        //    Sharpness = 0,
+        //    Quality = 90
+        //};
         var videoUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj, false)}";
         //var thumbnailUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
 

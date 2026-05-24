@@ -64,12 +64,12 @@ public static class IImageExt {
         List<string> text = [];
         var estimatedMaxCharsPerLine = (int)((img.Width - leftMargin * 2) / (fontSizePx * 0.7)); // rough estimate based on font size
 
-        text.Add(status.Status.ToString().Decamelize().ToUpper());
+        text.Add("CONVERSION " + status.Status.ToString().Decamelize().ToUpper());
         text.Add(string.Empty);
-        if (!string.IsNullOrWhiteSpace(status.Message)) {
-            text.Add(status.Message);
-            text.Add(string.Empty);
-        }
+
+        text.Add(string.IsNullOrWhiteSpace(status.Message) ? "Please wait..." : status.Message);
+        text.Add(string.Empty);
+
         if (status.ProgressPercentage > 0) {
             text.Add(string.Empty);
             text.Add($"Progress: {status.ProgressPercentage}%");
