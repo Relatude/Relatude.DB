@@ -25,7 +25,7 @@ public class FFMpegVideoConverter : IFileConverter {
     FileConverterLibrary? _library;
     public void Initialize(FileConverterLibrary library) => _library = library;
 
-    public int MaxConcurrentWork { get; set; } = 2; // Math.Max(1, Environment.ProcessorCount / 8);
+    public int MaxConcurrentWork { get; set; } = Math.Max(1, Environment.ProcessorCount / 8);
     public int MinIntervalBetweenCallsInMs { get; set; } = 0;
 
     static async Task ensureFFMpegBinAsync() {
@@ -56,8 +56,10 @@ public class FFMpegVideoConverter : IFileConverter {
         return Task.FromResult(false);
     }
 
+    int concucurrentCount = 0;
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
         await ensureFFMpegBinAsync();
+        Interlocked.Increment(ref concucurrentCount);
         var key = info.IdWithAdjustment.GetKey();
         var cts = new CancellationTokenSource();
         _cancellations[key] = cts;
@@ -90,6 +92,7 @@ public class FFMpegVideoConverter : IFileConverter {
             _conversionProgress.TryRemove(key, out _);
             tryDelete(inputTmp);
             tryDelete(outputTmp);
+            Interlocked.Decrement(ref concucurrentCount);
         }
     }
 
@@ -108,22 +111,30 @@ public class FFMpegVideoConverter : IFileConverter {
             });
         await processor.CancellableThrough(ct).ProcessAsynchronously();
         if (adj != null) {
-            if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
-            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
-                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
-            IImage img;
-            var stream = File.OpenRead(outputTmp);
-            try {
-                if (converter is ImageConverterBase imgConverter) {
-                    img = imgConverter.Load(stream);
-                } else {
-                    img = NativeImage.Load(stream);
+            var needAdditionalProcessing =
+                //adj.RequestedFormat != FileFormat.Png || 
+                //adj.Quality.HasValue || 
+                adj.Brightness.HasValue || adj.Contrast.HasValue ||
+                adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
+            // Console.WriteLine("Need additional processing: " + needAdditionalProcessing);
+            if (needAdditionalProcessing) {
+                if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
+                if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
+                    throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+                IImage img;
+                var stream = File.OpenRead(outputTmp);
+                try {
+                    if (converter is ImageConverterBase imgConverter) {
+                        img = imgConverter.Load(stream);
+                    } else {
+                        img = NativeImage.Load(stream);
+                    }
+                } finally {
+                    stream.Dispose();
                 }
-            } finally {
-                stream.Dispose();
+                img = img.Adjust(adj);
+                File.WriteAllBytes(outputTmp, img.Encode(adj.RequestedFormat, adj.Quality));
             }
-            img = img.Adjust(adj);
-            File.WriteAllBytes(outputTmp, img.Encode(adj.RequestedFormat, adj.Quality));
         }
 
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
@@ -141,14 +152,13 @@ public class FFMpegVideoConverter : IFileConverter {
         return null;
     }
 
-    static async Task convertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,
+    async Task convertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentVideo;
         progress[key] = new(FileConversionStatus.InProgress, 5, message: "Analyzing input...");
         var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
         var videoDuration = probe.Duration;
         var sw = Stopwatch.StartNew();
-        double progressPerSecond = 0;
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");
         var processor = FFMpegArguments
             .FromFileInput(inputTmp)
@@ -165,6 +175,7 @@ public class FFMpegVideoConverter : IFileConverter {
                 int remainingSecsToReport = progressToReport > 2 ? (int)Math.Round(remainingSecs) : 0;
                 progress[key] = new(FileConversionStatus.InProgress, progressToReport, remainingSecsToReport, message: "Converting...");
             }, videoDuration);
+        //Console.WriteLine($"Starting conversion for {info.FileName} (current concurrent: {concucurrentCount} Max: {MaxConcurrentWork})");
         await processor.CancellableThrough(ct).ProcessAsynchronously();
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }

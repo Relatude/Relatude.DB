@@ -59,7 +59,21 @@ public class FileConversionEngine : IDisposable {
         }
         return conversionResult.ProgressInfo;
     }
+    int adjustMaxWaitMs(FileConversionInfo info, int maxWaitMs) {
+        if (maxWaitMs > 120000) return 120000; // cap max wait to 2 minutes to avoid too long waits
+        if (maxWaitMs > -1) return maxWaitMs;
+        var baseFrom = FileFormatUtil.GetBaseFormatFromDetailedFormat(info.Formats.From);
+        var baseTo = FileFormatUtil.GetBaseFormatFromDetailedFormat(info.Formats.To);
+        if (baseFrom == FileType.Image && baseTo == FileType.Image) {
+            return 10000;
+        }
+        if (baseFrom == FileType.Video && baseTo == FileType.Image) {
+            return 20000;
+        }
+        return 0;
+    }
     public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
+        maxWaitMs = adjustMaxWaitMs(info, maxWaitMs);
         var key = info.IdWithAdjustment.GetKey();
         if (_fileCache.TryGetResult(key, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();

@@ -19,10 +19,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var internalUrl = _urlProvider.GetInternalUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue));
         return _urlProvider.GetExternalUrl(internalUrl, absolute);
     }
-    public async Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null) {
-        return (await GetFileAndConversionState(url, maxWait, ctx)).Stream;
+    public async Task<Stream> GetFile(string url, int maxWait=-1, QueryContext? ctx = null) {
+        return (await GetFileAndState(url, maxWait, ctx)).Stream;
     }
-    public async Task<StreamAndConversionState> GetFileAndConversionState(string url, int maxWait, QueryContext? ctx = null) {
+    public async Task<StateAndStream> GetFileAndState(string url, int maxWait = -1, QueryContext? ctx = null) {
         var internalUrl = _urlProvider.GetInternalUrl(url);
         if (!_urlProvider.TryParseInternalForUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
         if (type == UrlType.LocalProperty) {
@@ -30,10 +30,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
-            return new StreamAndConversionState(stream, false, fileValue, fileValue.Format);
+            return new StateAndStream(stream, false, fileValue, fileValue.Format);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
-            return await GetConvertedFileAndConversionState(path, adj, maxWait, ctx);
+            return await GetConvertedFileAndState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
     }
@@ -43,10 +43,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.GetFileStream(fileValue);
     }
-    public async Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null) {
-        return (await GetConvertedFileAndConversionState(propertyPath, adj, maxWait, ctx)).Stream;
+    public async Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
+        return (await GetConvertedFileAndState(propertyPath, adj, maxWait, ctx)).Stream;
     }
-    public async Task<StreamAndConversionState> GetConvertedFileAndConversionState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null) {
+    public async Task<StateAndStream> GetConvertedFileAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
@@ -72,6 +72,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else {
             stream = _fileConversionEngine.GetStatusDataStream(fileValue, adj, result.ProgressInfo);
         }
-        return new StreamAndConversionState(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
+        return new StateAndStream(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
     }
 }

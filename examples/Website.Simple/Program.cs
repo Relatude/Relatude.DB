@@ -91,8 +91,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //html.Append($"<p>{item.Content}</p>");
 
         var videoAdj = new FileAdjustmentVideo() {
-            Width = 640, Height = 400,
-            TargetBitRateInMbps = 0.1,
+            Width = 1024, Height = 768,
+            TargetBitRateInMbps = 1,
             RequestedFormat = FileFormat.Mp4
         };
 
@@ -110,13 +110,13 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //var thumbnailUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
 
         // video tag with fallback to thumbnail image:
-        //html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-        //html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-        //html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-        //html.Append($"</video>");
+        html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+        html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+        html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+        html.Append($"</video>");
 
 
-        for (var p = 0; p < 100; p += 20) {
+        for (var p = 0; p < 0; p += 20) {
             var adj = new FileAdjustmentImage() {
                 CropMode = ImageCropMode.Fill,
                 Width = 500,
@@ -124,7 +124,6 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                 HueShift = p,
                 BackgroundColor = "#FF0000",
                 RequestedFormat = FileFormat.Jpeg,
-                Sharpness = 0,
                 Quality = 90
             };
             if (i > 180) i = -180;
@@ -151,7 +150,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/files/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var fileInfo = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 10);
+    var fileInfo = await db.Datastore.GetFileAndState(propPathAndAdj);
     if (fileInfo.IsTemporary) {
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
     } else {

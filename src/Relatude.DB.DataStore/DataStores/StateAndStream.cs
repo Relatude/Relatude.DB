@@ -2,7 +2,7 @@
 using Relatude.DB.FileConversion;
 namespace Relatude.DB.DataStores;
 
-public class StreamAndConversionState(Stream stream, bool isTemporary, FileValue fileValue, FileFormat format) {
+public class StateAndStream(Stream stream, bool isTemporary, FileValue fileValue, FileFormat format) {
     public Stream Stream { get; } = stream;
     public bool IsTemporary { get; } = isTemporary;
     public FileValue FileValue { get; } = fileValue;

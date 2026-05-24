@@ -69,10 +69,10 @@ public interface IDataStore : IDisposable {
 
     string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null);
     Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null);
-    Task<StreamAndConversionState> GetFileAndConversionState(string url, int maxWait, QueryContext? ctx = null);
+    Task<StateAndStream> GetFileAndState(string url, int maxWait = -1, QueryContext? ctx = null);
     Task<Stream> GetFile(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null);
-    Task<StreamAndConversionState> GetConvertedFileAndConversionState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null);
+    Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<StateAndStream> GetConvertedFileAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
 
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);
