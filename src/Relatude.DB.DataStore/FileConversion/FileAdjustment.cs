@@ -121,7 +121,7 @@ public class FileAdjustmentVideo : FileAdjustmentBase {
         base.BasicSanitization();
         if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
         if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
-        TargetBitRateInMbps = Math.Clamp(TargetBitRateInMbps, 0.1, 1_000); // 100 Kbps to 1 Gbps
+        TargetBitRateInMbps = Math.Clamp(TargetBitRateInMbps, 0.01, 100); // 
     }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Video;
    protected override string GenerateStringKey() {

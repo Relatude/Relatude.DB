@@ -11,6 +11,7 @@ public class FileConversionEngine : IDisposable {
     readonly FileConversionScheduler _scheduler;
     public FileConversionEngine(IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
         _fileConverters = new(converters);
+        foreach (var c in converters) c.Initialize(_fileConverters);
         _conversionsInProgress = new();
         _fileCache = new(io);
         _scheduler = new FileConversionScheduler(pulse, ex => Console.WriteLine(ex.ToString()));
@@ -82,18 +83,67 @@ public class FileConversionEngine : IDisposable {
     }
     public void Dispose() {
     }
-    public Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        if (_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
-            return converter.GetStatus(fileValue, adj, status);
-        } else {
-            var baseFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
-            if (baseFormat == FileType.Image) {
-                if (_fileConverters.TryGetConverter(new FormatPair(FileFormat.Png, FileFormat.Png), out converter)) {
-                    return converter.GetStatus(fileValue, adj, status);
-                }
-            }
+    Cache<Guid, byte[]> _statusCache = new(1024 * 1024 * 10); // 10mb for status responses, which are usually small and can be expensive to generate
+    public Stream GetStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+        if (!_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
+            throw new Exception("No converter available for status representation of format " + adj.RequestedFormat.ToString().ToUpper());
         }
-        throw new Exception("No converter available for status representation of format " + adj.RequestedFormat.ToString().ToUpper());
+        var baseRequestedFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+        int width = (adj as FileAdjustmentVideo)?.Width ?? (adj as FileAdjustmentImage)?.Width ?? 320;
+        int height = (adj as FileAdjustmentVideo)?.Height ?? (adj as FileAdjustmentImage)?.Height ?? 240;
+
+        // avoid looking for better status if generating status is CPU costly, cache key will be more coarse, thus less costly generations
+        var lookForBetterStatus = baseRequestedFormat switch {
+            FileType.Image => true, // Images are not expensive
+            FileType.Video => width < 1000 && height < 800,
+            _ => false
+        };
+        if (lookForBetterStatus && converter.TryGetBetterStatusOnRunning(fileValue, adj, out var betterStatus)) {
+            status = betterStatus;
+        }
+        var fillColor = status.Status switch {
+            FileConversionStatus.Error => "#FF9999",
+            FileConversionStatus.InProgress => "#FFFF99",
+            FileConversionStatus.Ready => "#99FF99",
+            _ => "#777777"
+        };
+        var textColor = status.Status switch {
+            FileConversionStatus.Error => "#550000",
+            FileConversionStatus.InProgress => "#333300",
+            FileConversionStatus.Ready => "#005500",
+            _ => "#FFFFFF"
+        };
+        List<string> text = [];
+        text.Add("CONVERSION " + status.Status.ToString().Decamelize().ToUpper());
+        text.Add(string.Empty);
+        text.Add(string.IsNullOrWhiteSpace(status.Message) ? "Please wait..." : status.Message);
+        text.Add(string.Empty);
+
+        // rounding of Progress to nearest 5% to avoid too many updates for small changes
+        var progressPercentage = (int)(Math.Round(status.ProgressPercentage / 5.0) * 5);
+        if (progressPercentage > 0) {
+            text.Add(string.Empty);
+            text.Add($"Progress: {progressPercentage}%");
+        }
+
+        // rounding of RemainingSeconds: nearest 5s for <30s, nearest 30s for <120s, nearest 60s otherwise
+        var remainingSeconds = status.RemainingSeconds switch {
+            < 30 => (int)(Math.Round(status.RemainingSeconds / 5.0) * 5),
+            < 120 => (int)(Math.Round(status.RemainingSeconds / 30.0) * 30),
+            _ => (int)(Math.Round(status.RemainingSeconds / 60.0) * 60)
+        };
+        if (remainingSeconds > 0) {
+            var timeInText = remainingSeconds < 60 ? $"{remainingSeconds}s" :
+                remainingSeconds < 3600 ? $"{remainingSeconds / 60}m" :
+                $"{remainingSeconds / 3600}h";
+            text.Add($"Remaining: {timeInText}");
+        }
+
+        var uniqueStatusKey = string.Join("|", text);
+        var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+            () => converter.CreateStatusResponse(adj.RequestedFormat, width, height, text, textColor, fillColor)
+        );
+        return new MemoryStream(bytes);
     }
     public void Start() => _scheduler.Start();
     public void Stop() => _scheduler.Stop();

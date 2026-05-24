@@ -98,6 +98,20 @@ namespace Relatude.DB.Common {
             }
             return missing;
         }
+        public TValue GetOrCreate(TKey nodeId, Func<TValue> create) {
+            lock (_lock) {
+                if (_cache.TryGetValue(nodeId, out var item)) {
+                    item.Timestamp = ++_timestamp;
+                    _hits++;
+                    return item.Data;
+                } else {
+                    var data = create();
+                    _cache.Add(nodeId, new Entry<TValue>(data, ++_timestamp, 0));
+                    _misses++;
+                    return data;
+                }
+            }
+        }
         public bool TryGet(TKey nodeId, [MaybeNullWhen(false)] out TValue data) {
             lock (_lock) {
                 if (_cache.TryGetValue(nodeId, out var item)) {

@@ -1,6 +1,9 @@
 ﻿using FFMpegCore;
 using Relatude.DB.Common;
+using Relatude.DB.FileConversion.ImageEncoder;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Xabe.FFmpeg;
 using Xabe.FFmpeg.Downloader;
 
@@ -14,13 +17,15 @@ public class FFMpegVideoConverter : IFileConverter {
 
     static readonly SemaphoreSlim _downloadLock = new(1, 1);
     static bool _ffmpegBinReady;
-    static DateTime _ffmpegBinDownloadStartedAt;
     static string? _ffmpegBinProgressInfo;
 
     readonly ConcurrentDictionary<Guid, CancellationTokenSource> _cancellations = new();
     readonly ConcurrentDictionary<Guid, FileConversionProgressInfo> _conversionProgress = new();
 
-    public int MaxConcurrentWork { get; set; } = Math.Max(1, Environment.ProcessorCount / 4);
+    FileConverterLibrary? _library;
+    public void Initialize(FileConverterLibrary library) => _library = library;
+
+    public int MaxConcurrentWork { get; set; } = 2; // Math.Max(1, Environment.ProcessorCount / 8);
     public int MinIntervalBetweenCallsInMs { get; set; } = 0;
 
     static async Task ensureFFMpegBinAsync() {
@@ -28,7 +33,6 @@ public class FFMpegVideoConverter : IFileConverter {
         await _downloadLock.WaitAsync();
         try {
             if (_ffmpegBinReady) return;
-            _ffmpegBinDownloadStartedAt = DateTime.UtcNow;
             Directory.CreateDirectory(_ffmpegBinDir);
             _ffmpegBinProgressInfo = "Downloading FFmpeg...";
             await FFmpegDownloader.GetLatestVersion(FFmpegVersion.Official, _ffmpegBinDir,
@@ -58,8 +62,8 @@ public class FFMpegVideoConverter : IFileConverter {
         var cts = new CancellationTokenSource();
         _cancellations[key] = cts;
         _conversionProgress[key] = new(FileConversionStatus.InProgress, 0);
-        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{ToExtension(info.FromFormat)}");
-        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{ToExtension(info.Formats.To)}");
+        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(info.FromFormat)}");
+        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(info.Formats.To)}");
         try {
             if (source.HasLocalFilePath) {
                 var localPath = source.GetLocalFilePathOrThrow();
@@ -71,9 +75,9 @@ public class FFMpegVideoConverter : IFileConverter {
             }
 
             if (_imageOuts.Contains(info.Formats.To))
-                await ExtractThumbnailAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
+                await extractThumbnailAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
             else
-                await ConvertVideoAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
+                await convertVideoAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
 
             var bytes = await File.ReadAllBytesAsync(outputTmp, cts.Token);
             return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), new MemoryStream(bytes));
@@ -84,17 +88,17 @@ public class FFMpegVideoConverter : IFileConverter {
         } finally {
             _cancellations.TryRemove(key, out _);
             _conversionProgress.TryRemove(key, out _);
-            TryDelete(inputTmp);
-            TryDelete(outputTmp);
+            tryDelete(inputTmp);
+            tryDelete(outputTmp);
         }
     }
 
-    static async Task ExtractThumbnailAsync(string inputTmp, string outputTmp, FileConversionInfo info,
+    async Task extractThumbnailAsync(string inputTmp, string outputTmp, FileConversionInfo info,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentImage;
         int? w = adj?.Width, h = adj?.Height;
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Seeking to frame...");
-        TimeSpan? seekTo = await ResolveSeekPosition(inputTmp, adj, ct);
+        TimeSpan? seekTo = await resolveSeekPosition(inputTmp, adj, ct);
         progress[key] = new(FileConversionStatus.InProgress, 50, message: "Extracting frame...");
         var processor = FFMpegArguments
             .FromFileInput(inputTmp, true, opts => { if (seekTo.HasValue) opts.Seek(seekTo.Value); })
@@ -103,10 +107,29 @@ public class FFMpegVideoConverter : IFileConverter {
                 if (w.HasValue || h.HasValue) opts.WithVideoFilters(vf => vf.Scale(w ?? -1, h ?? -1));
             });
         await processor.CancellableThrough(ct).ProcessAsynchronously();
+        if (adj != null) {
+            if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
+            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
+                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+            IImage img;
+            var stream = File.OpenRead(outputTmp);
+            try {
+                if (converter is ImageConverterBase imgConverter) {
+                    img = imgConverter.Load(stream);
+                } else {
+                    img = NativeImage.Load(stream);
+                }
+            } finally {
+                stream.Dispose();
+            }
+            img = img.Adjust(adj);
+            File.WriteAllBytes(outputTmp, img.Encode(adj.RequestedFormat, adj.Quality));
+        }
+
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static async Task<TimeSpan?> ResolveSeekPosition(string inputTmp, FileAdjustmentImage? adj, CancellationToken ct) {
+    static async Task<TimeSpan?> resolveSeekPosition(string inputTmp, FileAdjustmentImage? adj, CancellationToken ct) {
         if (adj?.TimeOffsetMs.HasValue == true)
             return TimeSpan.FromMilliseconds(adj.TimeOffsetMs.Value);
         if (adj?.TimeOffsetPercentage.HasValue == true) {
@@ -118,12 +141,14 @@ public class FFMpegVideoConverter : IFileConverter {
         return null;
     }
 
-    static async Task ConvertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,
+    static async Task convertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentVideo;
         progress[key] = new(FileConversionStatus.InProgress, 5, message: "Analyzing input...");
         var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
-        var totalDuration = probe.Duration;
+        var videoDuration = probe.Duration;
+        var sw = Stopwatch.StartNew();
+        double progressPerSecond = 0;
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");
         var processor = FFMpegArguments
             .FromFileInput(inputTmp)
@@ -133,52 +158,18 @@ public class FFMpegVideoConverter : IFileConverter {
                 if (adj?.TargetBitRateInMbps > 0)
                     opts.WithVideoBitrate((int)(adj.TargetBitRateInMbps * 1024));
             })
-            .NotifyOnProgress(pct => {
-                var mapped = (int)Math.Clamp(pct * 0.85 + 10, 10, 95);
-                var remainingSecs = totalDuration > TimeSpan.Zero ? (int)(totalDuration.TotalSeconds * (1 - pct / 100.0)) : -1;
-                progress[key] = new(FileConversionStatus.InProgress, mapped, remaining: remainingSecs, message: "Converting...");
-            }, totalDuration);
+            .NotifyOnProgress(progressInPercentage => {
+                double progressPerSec = progressInPercentage / sw.Elapsed.TotalSeconds;
+                double remainingSecs = (100 - progressInPercentage) / progressPerSec;
+                int progressToReport = (int)Math.Round(progressInPercentage);
+                int remainingSecsToReport = progressToReport > 2 ? (int)Math.Round(remainingSecs) : 0;
+                progress[key] = new(FileConversionStatus.InProgress, progressToReport, remainingSecsToReport, message: "Converting...");
+            }, videoDuration);
         await processor.CancellableThrough(ct).ProcessAsynchronously();
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    public Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        int width = (adj as FileAdjustmentVideo)?.Width ?? (adj as FileAdjustmentImage)?.Width ?? 320;
-        int height = (adj as FileAdjustmentVideo)?.Height ?? (adj as FileAdjustmentImage)?.Height ?? 240;
-        var liveKey = fileValue.IsEmpty ? (Guid?)null : fileValue.FileId.CombineHashGuid(adj.GetKey());
-        if (liveKey.HasValue && _conversionProgress.TryGetValue(liveKey.Value, out var liveProgress))
-            status = liveProgress;
-        else if (!_ffmpegBinReady)
-            status = new(FileConversionStatus.InProgress, 0, message: _ffmpegBinProgressInfo);
-        if (FileFormatUtil.GetBaseFormatFromDetailedFormat(adj.RequestedFormat) == FileType.Video) {
-            ensureFFMpegBinAsync().Wait(); // inefficient but this is just for status generation and ensures progress info is updated
-            int vw = width % 2 == 0 ? width : width + 1;
-            int vh = height % 2 == 0 ? height : height + 1;
-            var img = SkiaImage.Create(vw, vh).GetStatusImage(fileValue, adj, status);
-            var imgBytes = img.Encode(FileFormat.Png);
-            var imgTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png");
-            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{ToExtension(adj.RequestedFormat)}");
-            try {
-                File.WriteAllBytes(imgTmp, imgBytes);
-                FFMpegArguments
-                    .FromFileInput(imgTmp, true, opts => opts.WithCustomArgument("-loop 1"))
-                    .OutputToFile(vidTmp, true, opts => opts
-                        .WithCustomArgument("-t 2")
-                        .WithVideoCodec("libx264")
-                        .WithCustomArgument("-pix_fmt yuv420p"))
-                    .ProcessSynchronously();
-                return new MemoryStream(File.ReadAllBytes(vidTmp));
-            } finally {
-                TryDelete(imgTmp);
-                TryDelete(vidTmp);
-            }
-        } else {
-            var img = SkiaImage.Create(width, height).GetStatusImage(fileValue, adj, status);
-            return new MemoryStream(img.Encode(FileFormat.Png));
-        }
-    }
-
-    static string ToExtension(FileFormat fmt) => fmt switch {
+    static string toExtension(FileFormat fmt) => fmt switch {
         FileFormat.Mp4 => "mp4",
         FileFormat.Avi => "avi",
         FileFormat.Mov => "mov",
@@ -190,6 +181,61 @@ public class FFMpegVideoConverter : IFileConverter {
         _ => "tmp"
     };
 
-    static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
+    static void tryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
+
+    public bool TryGetBetterStatusOnRunning(FileValue fileValue, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
+        var liveKey = fileValue.IsEmpty ? (Guid?)null : fileValue.FileId.CombineHashGuid(adj.GetKey());
+        if (liveKey.HasValue && _conversionProgress.TryGetValue(liveKey.Value, out var liveProgress)) status = liveProgress;
+        else if (!_ffmpegBinReady) status = new(FileConversionStatus.InProgress, 0, message: _ffmpegBinProgressInfo);
+        else status = null;
+        return status != null;
+    }
+
+    public byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor) {
+        var baseRequestFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(requestedFormat);
+        if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
+        if (baseRequestFormat == FileType.Video) {
+            ensureFFMpegBinAsync().Wait(); // inefficient but this is just for status generation and ensures progress info is updated
+            int vw = width % 2 == 0 ? width : width + 1; // video dimensions must be even for most codecs
+            int vh = height % 2 == 0 ? height : height + 1; // video dimensions must be even for most codecs
+            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
+                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+            IImage img;
+            if (converter is ImageConverterBase imgConverter) {
+                img = imgConverter.Create(vw, vh).GetStatusImage(text, textColor, fillColor);
+            } else {
+                img = NativeImage.Create(vw, vh).GetStatusImage(text, textColor, fillColor);
+            }
+            var imgBytes = img.Encode(FileFormat.Png);
+            var imgTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png");
+            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(requestedFormat)}");
+            try {
+                File.WriteAllBytes(imgTmp, imgBytes);
+                FFMpegArguments
+                    .FromFileInput(imgTmp, true, opts => opts.WithCustomArgument("-loop 1"))
+                    .OutputToFile(vidTmp, true, opts => opts
+                        .WithCustomArgument("-t 2")
+                        .WithVideoCodec("libx264")
+                        .WithCustomArgument("-pix_fmt yuv420p"))
+                    .ProcessSynchronously();
+                return File.ReadAllBytes(vidTmp);
+            } finally {
+                tryDelete(imgTmp);
+                tryDelete(vidTmp);
+            }
+        } else if (baseRequestFormat == FileType.Image) {
+            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
+                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+            IImage img;
+            if (converter is ImageConverterBase imgConverter) {
+                img = imgConverter.Create(width, height).GetStatusImage(text, textColor, fillColor);
+            } else {
+                img = NativeImage.Create(width, height).GetStatusImage(text, textColor, fillColor);
+            }
+            return img.Encode(requestedFormat);
+        } else {
+            throw new ArgumentException("Requested format must be a video format for status response generation.");
+        }
+    }
 
 }

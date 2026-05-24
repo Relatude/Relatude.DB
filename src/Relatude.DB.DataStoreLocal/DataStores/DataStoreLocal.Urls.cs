@@ -27,7 +27,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!_urlProvider.TryParseInternalForUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
         if (type == UrlType.LocalProperty) {
             if (!_urlProvider.TryParseInternalUrlForPropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
-            return new(await GetFile(path, ctx), true);
+            var fileValue = GetValue<FileValue>(path, ctx);
+            var fileStore = getFileStore(fileValue.StorageId);
+            var stream = await fileStore.GetFileStream(fileValue);
+            return new StreamAndConversionState(stream, false, fileValue, fileValue.Format);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetConvertedFileAndConversionState(path, adj, maxWait, ctx);
@@ -67,8 +70,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (result.Output == null) throw new Exception("File conversion output is null");
             stream = result.Output;
         } else {
-            stream = _fileConversionEngine.GetStatus(fileValue, adj, result.ProgressInfo);
+            stream = _fileConversionEngine.GetStatusDataStream(fileValue, adj, result.ProgressInfo);
         }
-        return new StreamAndConversionState(stream, result.ProgressInfo.Status == FileConversionStatus.Ready);
+        return new StreamAndConversionState(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
     }
 }

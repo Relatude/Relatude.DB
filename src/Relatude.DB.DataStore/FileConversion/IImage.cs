@@ -1,5 +1,7 @@
 using Relatude.DB.Common;
 using System.Data;
+using System.Diagnostics.CodeAnalysis;
+using System.Net.NetworkInformation;
 
 namespace Relatude.DB.FileConversion;
 
@@ -38,52 +40,19 @@ public static class IImageExt {
 
         return img;
     }
-
-    public static IImage GetStatusImage(this IImage img, FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        var fillColor = status.Status switch {
-            FileConversionStatus.Error => "#FF9999",
-            FileConversionStatus.InProgress => "#FFFF99",
-            FileConversionStatus.Ready => "#99FF99",
-            _ => "#777777"
-        };
-        var textColor = status.Status switch {
-            FileConversionStatus.Error => "#990000",
-            FileConversionStatus.InProgress => "#999900",
-            FileConversionStatus.Ready => "#009900",
-            _ => "#FFFFFF"
-        };
+    public static IImage GetStatusImage(this IImage img, List<string> text, string textColor, string fillColor) {
         var fontSizePx = 13;
         var borderColor = textColor;
-
         var leftMargin = 20;
         var topMargin = 20;
         var lineHeight = fontSizePx + 3;
-
         img = img.DrawBox(0, 0, img.Width - 2, img.Height - 2, 1, borderColor, true, fillColor);
-
-        List<string> text = [];
         var estimatedMaxCharsPerLine = (int)((img.Width - leftMargin * 2) / (fontSizePx * 0.7)); // rough estimate based on font size
-
-        text.Add("CONVERSION " + status.Status.ToString().Decamelize().ToUpper());
-        text.Add(string.Empty);
-
-        text.Add(string.IsNullOrWhiteSpace(status.Message) ? "Please wait..." : status.Message);
-        text.Add(string.Empty);
-
-        if (status.ProgressPercentage > 0) {
-            text.Add(string.Empty);
-            text.Add($"Progress: {status.ProgressPercentage}%");
-        }
-        if (status.RemainingSeconds > 0) {
-            text.Add($"Remaining: {status.RemainingSeconds}s");
-        }
         text = textWrap(estimatedMaxCharsPerLine, text);
-
         foreach (var line in text) {
             img = img.DrawText(leftMargin, topMargin, line, fontSizePx, textColor, true);
             topMargin += string.IsNullOrEmpty(line) ? lineHeight / 2 : lineHeight;
         }
-
         return img;
     }
     static List<string> textWrap(int maxCharsPerLine, List<string> lines) {

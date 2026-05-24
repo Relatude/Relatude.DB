@@ -1399,6 +1399,7 @@ internal sealed class InternalImage
 
     public InternalImage DrawText(int x, int y, string text, int fontSizeInPixels, ColorRgba color, bool sansSerif) {
         var dst = Clone();
+        fontSizeInPixels = fontSizeInPixels + 2;
         int scale = Math.Max(1, fontSizeInPixels / BitmapFont.GlyphHeight);
         int cx = x;
         foreach (char ch in text) {

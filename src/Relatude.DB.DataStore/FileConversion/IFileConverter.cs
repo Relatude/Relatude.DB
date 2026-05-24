@@ -1,4 +1,6 @@
 ﻿using Relatude.DB.Common;
+using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 
 namespace Relatude.DB.FileConversion;
 
@@ -25,7 +27,7 @@ public class ConversionProgress(FileConversionProgressInfo info, Stream? output 
 public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFilePath) {
     public Task<Stream> OpenInputStream() {
         return getInputStream();
-    }   
+    }
     public bool HasLocalFilePath => !string.IsNullOrEmpty(localFilePath);
     public string GetLocalFilePathOrThrow() {
         if (string.IsNullOrEmpty(localFilePath)) throw new Exception("No local file path available");
@@ -35,8 +37,10 @@ public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFil
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing
     int MaxConcurrentWork { get; set; }
     int MinIntervalBetweenCallsInMs { get; set; }
+    void Initialize(FileConverterLibrary library);
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(Guid key);
     Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);
-    Stream GetStatus(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status);
+    bool TryGetBetterStatusOnRunning(FileValue fileValue, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
+    byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor);
 }

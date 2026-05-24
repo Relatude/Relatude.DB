@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.FileConversion;
 
-internal class FileConverterLibrary {
+public class FileConverterLibrary {
     struct converterInfo(int concurrentCount, DateTime lastWork) {
         public readonly int ConcurrentCount = concurrentCount;
         public readonly DateTime LastWork = lastWork;

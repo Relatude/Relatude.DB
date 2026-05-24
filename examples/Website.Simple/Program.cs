@@ -8,7 +8,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter());
+    //options.FileConverters.Add(new SkiaImageConverter());
     options.FileConverters.Add(new FFMpegVideoConverter());
 });
 
@@ -31,10 +31,15 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-
+bool hasInserted = false;
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    var articleCount = 8;
-    for (int i = 0; i < articleCount; i++) {
+    if(hasInserted) return "Already inserted.";
+    hasInserted = true;
+    var articleCount = 5;
+
+    var files=Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
+
+    for (int i = 0; i < files.Length; i++) {
         var db = ctx.Database;
         //var art = new DemoArticle();
         var art = db.Create<IDemoArticle>();
@@ -46,8 +51,10 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         db.Insert(art);
         var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
         //filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
-        var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\m.mp4";
-                //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
+        //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\m.mp4";
+        var videoFilePath = files[i];
+        //videoFilePath = @"C:\Users\ogulb\Downloads\Send Help.mkv";
+        //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
         await db.FileUploadAsync(art.File, videoFilePath);
         //var p = art.Paragraphs.First();
         //if (db.FileStoreSupportsMultipartUploads(p.File)) {
@@ -84,10 +91,10 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //html.Append($"<p>{item.Content}</p>");
 
         var videoAdj = new FileAdjustmentVideo() {
-            Width = 512, Height = 288,
-            TargetBitRateInMbps = 100,
-            RequestedFormat = FileFormat.Mp4            
-        };  
+            Width = 640, Height = 400,
+            TargetBitRateInMbps = 0.1,
+            RequestedFormat = FileFormat.Mp4
+        };
 
         //var thumbnailAdj = new FileAdjustmentImage() {
         //    CropMode = ImageCropMode.Fill,
@@ -99,39 +106,39 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //    Sharpness = 0,
         //    Quality = 90
         //};
-        var videoUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj, false)}";
-        //var thumbnailUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
+        var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj, false)}";
+        //var thumbnailUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
 
         // video tag with fallback to thumbnail image:
-        html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-        html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-        html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-        html.Append($"</video>");
+        //html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+        //html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+        //html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+        //html.Append($"</video>");
 
 
-        //for (var p = 0; p < 100; p+=2) {
-        //    var adj = new FileAdjustmentImage() {
-        //        CropMode = ImageCropMode.Fill,
-        //        Width = 500,
-        //        TimeOffsetPercentage= (double)(p),
-        //        HueShift = i++,
-        //        BackgroundColor = "#FF0000",
-        //        RequestedFormat = FileFormat.Jpeg,
-        //        Sharpness = 0,
-        //        Quality = 90
-        //    };
-        //    if (i > 180) i = -180;
-        //    if (!item.File.IsEmpty) {
-        //        var fileUrl = $"Image/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
-        //        // thumbnail::
-        //        html.Append($"<img src='{fileUrl}'>");
-        //        //html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
-        //    }
-        //}
+        for (var p = 0; p < 100; p += 20) {
+            var adj = new FileAdjustmentImage() {
+                CropMode = ImageCropMode.Fill,
+                Width = 500,
+                TimeOffsetPercentage = (double)(p),
+                HueShift = p,
+                BackgroundColor = "#FF0000",
+                RequestedFormat = FileFormat.Jpeg,
+                Sharpness = 0,
+                Quality = 90
+            };
+            if (i > 180) i = -180;
+            if (!item.File.IsEmpty) {
+                var fileUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, adj, false)}";
+                // thumbnail::
+                html.Append($"<img src='{fileUrl}'>");
+                //html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
+            }
+        }
         //foreach (var para in item.Paragraphs) {
         //    html.Append($"<h3>Paragraph: {para.Code}</h3>");
         //    if (!para.File.IsEmpty) {
-        //        var fileUrl = $"Image/{para.File.PropertyPath}";
+        //        var fileUrl = $"files/{para.File.PropertyPath}";
         //        // thumbnail::
         //        html.Append($"<p><img src='{fileUrl}'></p>");
         //        html.Append($"<p><a href='{fileUrl}'>Download File</a></p>");
@@ -142,17 +149,36 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     res.Headers.ContentType = "text/html; charset=utf-8";
     return html.ToString();
 });
-app.MapGet("/Image/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
+app.MapGet("/files/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var streamAndState = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 10);
-    if (streamAndState.IsReady) {
-        // Add header to allow 30 days caching
-        http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
-    } else {
-        // Add header with no-cache or short cache duration
+    var fileInfo = await db.Datastore.GetFileAndConversionState(propPathAndAdj, 10);
+    if (fileInfo.IsTemporary) {
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
+    } else {
+        http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
     }
-    return Results.Stream(streamAndState.Stream, FileFormatUtil.GetContentType(FileFormat.Mp4));
+    var contentType = FileFormatUtil.GetContentType(fileInfo.RequestedFormat);
+    var stream = fileInfo.Stream;
+    var totalLength = stream.CanSeek ? stream.Length : (long?)null;
+    var rangeHeader = http.Request.Headers.Range.ToString();
+    if (stream.CanSeek && !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=")) {
+        var range = rangeHeader["bytes=".Length..].Split('-');
+        var start = long.TryParse(range[0], out var s) ? s : 0;
+        var end = range.Length > 1 && long.TryParse(range[1], out var e) ? e : totalLength!.Value - 1;
+        end = Math.Min(end, totalLength!.Value - 1);
+        var length = end - start + 1;
+        stream.Seek(start, SeekOrigin.Begin);
+        http.Response.StatusCode = 206;
+        http.Response.Headers.ContentRange = $"bytes {start}-{end}/{totalLength}";
+        http.Response.Headers.AcceptRanges = "bytes";
+        http.Response.ContentLength = length;
+        http.Response.ContentType = contentType;
+        await stream.CopyToAsync(http.Response.Body, (int)Math.Min(length, 81920));
+        return Results.Empty;
+    }
+    if (totalLength.HasValue)
+        http.Response.Headers.AcceptRanges = "bytes";
+    return Results.Stream(stream, contentType);
 });
 
 app.UseRelatudeDB();
