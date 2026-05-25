@@ -15,6 +15,7 @@ public enum FileFormat {
     Bmp,
     Svg,
     Webp,
+    Avif,
     // Video formats
     Mp4,
     Avi,
@@ -53,6 +54,7 @@ public static class FileFormatUtil {
             ".bmp" => FileFormat.Bmp,
             ".svg" => FileFormat.Svg,
             ".webp" => FileFormat.Webp,
+            ".avif" => FileFormat.Avif,
             ".mp4" => FileFormat.Mp4,
             ".mkv" => FileFormat.Mkv,
             ".avi" => FileFormat.Avi,
@@ -76,7 +78,7 @@ public static class FileFormatUtil {
     }
     public static FileType GetBaseFormatFromDetailedFormat(FileFormat format) {
         return format switch {
-            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp => FileType.Image,
+            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif => FileType.Image,
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
@@ -92,6 +94,7 @@ public static class FileFormatUtil {
         FileFormat.Bmp => "image/bmp",
         FileFormat.Svg => "image/svg+xml",
         FileFormat.Webp => "image/webp",
+        FileFormat.Avif => "image/avif",
         FileFormat.Mp4 => "video/mp4",
         FileFormat.Mkv => "video/x-matroska",
         FileFormat.Avi => "video/x-msvideo",
@@ -112,6 +115,37 @@ public static class FileFormatUtil {
         FileFormat.Txt => "text/plain",
         _ => "application/octet-stream",
     };
+
+    public static string? GetExtensionWithDot(FileFormat fmt) {
+        return fmt switch {
+            FileFormat.Jpeg => ".jpeg",
+            FileFormat.Png => ".png",
+            FileFormat.Gif => ".gif",
+            FileFormat.Bmp => ".bmp",
+            FileFormat.Svg => ".svg",
+            FileFormat.Webp => ".webp",
+            FileFormat.Avif => ".avif",
+            FileFormat.Mp4 => ".mp4",
+            FileFormat.Mkv => ".mkv",
+            FileFormat.Avi => ".avi",
+            FileFormat.Mov => ".mov",
+            FileFormat.Wmv => ".wmv",
+            FileFormat.Flv => ".flv",
+            FileFormat.Mp3 => ".mp3",
+            FileFormat.Wav => ".wav",
+            FileFormat.Aac => ".aac",
+            FileFormat.Flac => ".flac",
+            FileFormat.Pdf => ".pdf",
+            FileFormat.Doc => ".doc",
+            FileFormat.Docx => ".docx",
+            FileFormat.Xls => ".xls",
+            FileFormat.Xlsx => ".xlsx",
+            FileFormat.Ppt => ".ppt",
+            FileFormat.Pptx => ".pptx",
+            FileFormat.Txt => ".txt",
+            _ => null,
+        };
+    }
 }
 public struct FormatPair : IEquatable<FormatPair> {
     public FormatPair(FileFormat from, FileFormat to) {

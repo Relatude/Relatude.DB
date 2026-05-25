@@ -143,9 +143,9 @@ internal class RunningConversions {
             _doingWorkOnEntry.Clear();
         }
     }
-    public ProgressEntry[] GetAll() {
+    public ConversionInfo[] GetAll() {
         lock (_conversions) {
-            return [.. _conversions.Values];
+            return [.. _conversions.Values.Select(entry => new ConversionInfo(entry))];
         }
     }
     internal void RegisterNotDoingWorkOnEntry(ProgressEntry entry) {

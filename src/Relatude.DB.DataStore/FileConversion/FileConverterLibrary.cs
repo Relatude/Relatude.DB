@@ -40,12 +40,12 @@ public class FileConverterLibrary {
         if (!TryGetConverter(key, out var converter)) return false;
         lock (_concurrentWork) {
             var i = _concurrentWork.TryGetValue(converter, out var match) ? match : new converterInfo(0, DateTime.MinValue);
-            if (i.ConcurrentCount >= converter.MaxConcurrentWork) {
+            if (i.ConcurrentCount >= converter.ThreadCount) {
                 // Console.WriteLine("Too many concurrent calls for converter");
                 return false;
             }
             var now = DateTime.UtcNow;
-            if (now.Subtract(i.LastWork).TotalMilliseconds <= converter.MinIntervalBetweenCallsInMs) {
+            if (now.Subtract(i.LastWork).TotalMilliseconds <= converter.CallDelayMs) {
                 // Console.WriteLine("Converter called too often");
                 return false;
             }

@@ -25,9 +25,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
-    <ProjectReference Include="..\..\src\Relatude.DB.FileConversion\Relatude.DB.FileConversion.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.FFMpeg\Relatude.DB.FFMpeg.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.Skia\Relatude.DB.Skia.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
   </ItemGroup>
 

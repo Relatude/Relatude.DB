@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Common;
+﻿using Microsoft.CodeAnalysis.CSharp;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
@@ -12,11 +13,26 @@ public sealed partial class DataStoreLocal : IDataStore {
     string getFileVersionId(FileValue fileValue) {
         return (fileValue.Hash + _startUpGuid).GenerateHashInt().ToString();
     }
+    public bool CanConvert(FileFormat from, FileFormat to) {
+        return _fileConversionEngine.CanConvert(from, to);
+    }
+    public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) {
+        var fileValue = GetValue<FileValue>(propertyPath, ctx);
+        if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
+            return false;
+        }
+        return _fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat);
+    }
     public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
+        //if (!_fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat)) {
+        //    throw new Exception(
+        //        $"File format {fileValue.Format.ToString().ToUpper()} cannot be converted to {adj.RequestedFormat.ToString().ToUpper()}."
+        //        + " There are no converters loaded that support this conversion. ");
+        //}
         var internalUrl = _urlProvider.GetInternalUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue));
         return _urlProvider.GetExternalUrl(internalUrl, absolute);
     }
@@ -83,9 +99,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), null), out progressInfo);
     }
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null) {
-        return TryGetProgressInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status == FileConversionStatus.Ready;
+        return TryGetProgressInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;
     }
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) {
         TryGetProgressInfo(propertyPath, adj, true, out _, ctx);
     }
+    public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
 }

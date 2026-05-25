@@ -12,5 +12,6 @@ public class FileConversionInfo(FileIdWithAdjustment idWithAdjustment, string fi
     public string FileName { get; } = fileName;
     public string Hash { get; } = hash;
     public FileFormat FromFormat { get; } = format;
+    public FileFormat ToFormat { get; } = idWithAdjustment.Adjustment.RequestedFormat;
     public FormatPair Formats { get; } = new FormatPair(format, idWithAdjustment.Adjustment.RequestedFormat);
 }

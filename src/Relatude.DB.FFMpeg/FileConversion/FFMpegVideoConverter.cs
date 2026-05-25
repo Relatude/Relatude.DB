@@ -10,9 +10,11 @@ using Xabe.FFmpeg.Downloader;
 namespace Relatude.DB.FileConversion;
 
 public class FFMpegVideoConverter : IFileConverter {
-
-    public int MaxConcurrentWork { get; set; } = Math.Max(1, Environment.ProcessorCount / 8);
-    public int MinIntervalBetweenCallsInMs { get; set; } = 0;
+    public FFMpegVideoConverter(int? threadCount = null) {
+        ThreadCount = threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
+    }
+    public int ThreadCount { get; set; }
+    public int CallDelayMs { get; set; } = 0;
 
     static readonly FileFormat[] _videoIns = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Flv, FileFormat.Mkv];
     static readonly FileFormat[] _videoOuts = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Mkv];
@@ -66,8 +68,8 @@ public class FFMpegVideoConverter : IFileConverter {
         var cts = new CancellationTokenSource();
         _cancellations[key] = cts;
         _conversionProgress[key] = new(FileConversionStatus.InProgress, 0);
-        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(info.FromFormat)}");
-        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(info.Formats.To)}");
+        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(info.FromFormat)}");
+        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(info.Formats.To)}");
         try {
             if (source.HasLocalFilePath) {
                 var localPath = source.GetLocalFilePathOrThrow();
@@ -143,13 +145,18 @@ public class FFMpegVideoConverter : IFileConverter {
     }
 
     static async Task<TimeSpan?> resolveSeekPosition(string inputTmp, FileAdjustmentImage? adj, CancellationToken ct) {
-        if (adj?.TimeOffsetMs.HasValue == true)
-            return TimeSpan.FromMilliseconds(adj.TimeOffsetMs.Value);
+        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+        TimeSpan? position = null;
+        if (adj?.TimeOffsetMs.HasValue == true) {
+            position = TimeSpan.FromMilliseconds(adj.TimeOffsetMs.Value);
+        }
         if (adj?.TimeOffsetPercentage.HasValue == true) {
-            var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
             var duration = probe.Duration;
-            if (duration > TimeSpan.Zero)
-                return duration * (adj.TimeOffsetPercentage.Value / 100.0);
+            if (duration > TimeSpan.Zero) position = duration * (adj.TimeOffsetPercentage.Value / 100.0);
+        }
+        if (position.HasValue) {
+            if (position < TimeSpan.Zero) position = TimeSpan.Zero;
+            if (position > probe.Duration) position = probe.Duration;
         }
         return null;
     }
@@ -182,23 +189,13 @@ public class FFMpegVideoConverter : IFileConverter {
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static string toExtension(FileFormat fmt) => fmt switch {
-        FileFormat.Mp4 => "mp4",
-        FileFormat.Avi => "avi",
-        FileFormat.Mov => "mov",
-        FileFormat.Wmv => "wmv",
-        FileFormat.Flv => "flv",
-        FileFormat.Jpeg => "jpg",
-        FileFormat.Png => "png",
-        FileFormat.Webp => "webp",
-        _ => "tmp"
-    };
+    static string toExtension(FileFormat fmt) => FileFormatUtil.GetExtensionWithDot(fmt) ?? ".tmp";
 
     static void tryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
 
-    public bool TryGetBetterStatusOnRunning(FileValue fileValue, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
-        var liveKey = fileValue.IsEmpty ? (Guid?)null : fileValue.FileId.CombineHashGuid(adj.GetKey());
-        if (liveKey.HasValue && _conversionProgress.TryGetValue(liveKey.Value, out var liveProgress)) status = liveProgress;
+    public bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
+        var key = fileId.CombineHashGuid(adj.GetKey());
+        if (_conversionProgress.TryGetValue(key, out var liveProgress)) status = liveProgress;
         else if (!_ffmpegBinReady) status = new(FileConversionStatus.InProgress, 0, message: _ffmpegBinProgressInfo);
         else status = null;
         return status != null;
@@ -221,7 +218,7 @@ public class FFMpegVideoConverter : IFileConverter {
             }
             var imgBytes = img.Encode(FileFormat.Png);
             var imgTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png");
-            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.{toExtension(requestedFormat)}");
+            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(requestedFormat)}");
             try {
                 File.WriteAllBytes(imgTmp, imgBytes);
                 FFMpegArguments

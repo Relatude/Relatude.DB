@@ -67,6 +67,11 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
     bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
 
+
+
+    bool CanConvert(FileFormat from, FileFormat to);
+    bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
+
     string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null);
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
@@ -77,7 +82,7 @@ public interface IDataStore : IDisposable {
     bool TryGetProgressInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
     bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null);
     void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
-
+    ConversionInfo[] GetRunningConversions(QueryContext? ctx = null);
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);
     void LogWarning(string text, string? details = null);

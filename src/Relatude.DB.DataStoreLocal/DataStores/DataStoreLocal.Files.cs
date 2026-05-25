@@ -55,6 +55,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         return fileValue;
     }
+
     public async Task FileDeleteAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!TryGetValue<FileValue>(propertyPath, out var fileValue, ctx)) throw new Exception("File property not found");

@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.FileConversion.ImageEncoder;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -116,11 +117,41 @@ public class FileConversionEngine : IDisposable {
     public void Dispose() {
     }
     Cache<Guid, byte[]> _statusCache = new(1024 * 1024 * 10); // 10mb for status responses, which are usually small and can be expensive to generate
+
+    // status response colors, image or video
+    const string errorBgColor = "#FFBBBB";
+    const string errorTextColor = "#330000";
+    const string inProgressBgColor = "#FFFF99";
+    const string inProgressTextColor = "#333300";
+    const string readyBgColor = "#99FF99";
+    const string readyTextColor = "#005500";
+    const string unknownBgColor = "#777777";
+    const string unknownTextColor = "#FFFFFF";
+
     public Stream GetStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        if (!_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
-            throw new Exception("No converter available for status representation of format " + adj.RequestedFormat.ToString().ToUpper());
+        try {
+            return getStatusDataStream(fileValue, adj, status);
+        } catch (Exception err) {
+            var baseRequestedFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+            if (baseRequestedFormat == FileType.Image && _fileConverters.TryGetConverter(new FormatPair(fileValue.Format, FileFormat.Png), out var converter)) {
+                var text = new List<string> { "ERROR GENERATING STATUS", string.Empty, err.Message };
+                var uniqueStatusKey = string.Join("|", text);
+                var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+                    () => converter.CreateStatusResponse(FileFormat.Png, 320, 240, text, errorTextColor, errorBgColor)
+                );
+                return new MemoryStream(bytes);
+            } else {
+                throw;
+            }
         }
+    }
+    Stream getStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
         var baseRequestedFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+        if (!_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
+            throw new Exception(
+                $"File format {fileValue.Format.ToString().ToUpper()} cannot be converted to {adj.RequestedFormat.ToString().ToUpper()}."
+                + " There are no converters loaded that support this conversion. ");
+        }
         int width = (adj as FileAdjustmentVideo)?.Width ?? (adj as FileAdjustmentImage)?.Width ?? 320;
         int height = (adj as FileAdjustmentVideo)?.Height ?? (adj as FileAdjustmentImage)?.Height ?? 240;
 
@@ -130,20 +161,20 @@ public class FileConversionEngine : IDisposable {
             FileType.Video => width < 1000 && height < 800,
             _ => false
         };
-        if (lookForBetterStatus && converter.TryGetBetterStatusOnRunning(fileValue, adj, out var betterStatus)) {
+        if (lookForBetterStatus && converter.TryGetLiveStatus(fileValue.FileId, adj, out var betterStatus)) {
             status = betterStatus;
         }
         var fillColor = status.Status switch {
-            FileConversionStatus.Error => "#FF9999",
-            FileConversionStatus.InProgress => "#FFFF99",
-            FileConversionStatus.Ready => "#99FF99",
-            _ => "#777777"
+            FileConversionStatus.Error => errorBgColor,
+            FileConversionStatus.InProgress => inProgressBgColor,
+            FileConversionStatus.Ready => readyBgColor,
+            _ => unknownBgColor
         };
         var textColor = status.Status switch {
-            FileConversionStatus.Error => "#550000",
-            FileConversionStatus.InProgress => "#333300",
-            FileConversionStatus.Ready => "#005500",
-            _ => "#FFFFFF"
+            FileConversionStatus.Error => errorTextColor,
+            FileConversionStatus.InProgress => inProgressTextColor,
+            FileConversionStatus.Ready => readyTextColor,
+            _ => unknownTextColor
         };
         List<string> text = [];
         text.Add("CONVERSION " + status.Status.ToString().Decamelize().ToUpper());
@@ -185,5 +216,17 @@ public class FileConversionEngine : IDisposable {
         _conversionsInProgress.ClearAll();
     }
     public int QueueCount => _conversionsInProgress.Count;
-    public ProgressEntry[] GetRunning() => _conversionsInProgress.GetAll();
+    public ConversionInfo[] GetRunning() {
+        var running = _conversionsInProgress.GetAll();
+        foreach (var conversion in running) {
+            if (_fileConverters.TryGetConverter(conversion.FileInfo.Formats, out var converter)) {
+                var i = conversion.FileInfo.IdWithAdjustment;
+                if (converter.TryGetLiveStatus(i.FileId, i.Adjustment, out var status)) conversion.ProgressInfo = status;
+            }
+        }
+        return running;
+    }
+    public bool CanConvert(FileFormat format, FileFormat requestedFormat) {
+        return _fileConverters.TryGetConverter(new FormatPair(format, requestedFormat), out _);
+    }
 }

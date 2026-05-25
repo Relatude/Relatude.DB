@@ -35,12 +35,12 @@ public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFil
     }
 }
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing
-    int MaxConcurrentWork { get; set; }
-    int MinIntervalBetweenCallsInMs { get; set; }
+    int ThreadCount { get; set; }
+    int CallDelayMs { get; set; }
     void Initialize(FileConverterLibrary library);
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(Guid key);
     Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);
-    bool TryGetBetterStatusOnRunning(FileValue fileValue, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
+    bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
     byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor);
 }

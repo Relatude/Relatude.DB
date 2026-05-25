@@ -1,5 +1,6 @@
+using LibAvifSharp;
+using LibAvifSharp.NativeTypes;
 using Relatude.DB.Common;
-using Relatude.DB.FileConversion;
 using SkiaSharp;
 
 namespace Relatude.DB.FileConversion;
@@ -188,8 +189,16 @@ internal sealed class SkiaImage : IImage {
 
     public byte[] Encode(FileFormat format, int? quality = null) {
         var (skFormat, q) = ToSkiaFormat(format, quality);
-        using var data = _bitmap.Encode(skFormat, q);
-        return data.ToArray();
+        if (format == FileFormat.Avif) {
+            using var ds = AvifEncoder.Encode(_bitmap, settings => {
+                settings.PixelFormat = AvifPixelFormat.AVIF_PIXEL_FORMAT_YUV420;
+                settings.CodecChoice = AvifCodecChoice.AVIF_CODEC_CHOICE_SVT;
+            });
+            return ds.MemorySpan.ToArray();
+        } else {
+            using var data = _bitmap.Encode(skFormat, q);
+            return data.ToArray();
+        }
     }
 
     public void Dispose() => _bitmap.Dispose();
@@ -294,6 +303,7 @@ internal sealed class SkiaImage : IImage {
         FileFormat.Gif => (SKEncodedImageFormat.Gif, 100),
         FileFormat.Bmp => (SKEncodedImageFormat.Bmp, 100),
         FileFormat.Webp => (SKEncodedImageFormat.Webp, quality ?? 85),
+        FileFormat.Avif => (SKEncodedImageFormat.Avif, quality ?? 85),
         _ => (SKEncodedImageFormat.Png, 100),
     };
 

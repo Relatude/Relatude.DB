@@ -81,6 +81,20 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var results = db.Query<DemoArticle>().WhereSearch("Ole").Execute().ToArray();
     return results;
 });
+app.MapGet("/Status", (RelatudeDBContext ctx, HttpResponse res) => {
+    var db = ctx.Database;
+    var running = db.Datastore.GetRunningConversions();
+    var html = new StringBuilder();
+    html.Append("<html><body style='background-color:#f0f000'>");
+    html.Append("<table border='1'><tr><th>FileName</th><th>From Format</th><th>To Format</th><th>Status</th><th>Progress</th><th>Message</th></tr>");
+    foreach (var conversion in running) {
+        html.Append($"<tr><td>{conversion.FileInfo.FileName}</td><td>{conversion.FileInfo.FromFormat}</td><td>{conversion.FileInfo.ToFormat}</td><td>{conversion.ProgressInfo.Status}</td><td>{conversion.ProgressInfo.ProgressPercentage}%</td><td>{conversion.ProgressInfo.Message}</td></tr>");
+    }
+    html.Append("</table>");
+    html.Append("</body></html>");
+    res.Headers.ContentType = "text/html; charset=utf-8";
+    return html.ToString();
+});
 app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     var db = ctx.Database;
     var results = db.Query<IDemoArticle>().Execute().ToArray();
@@ -94,7 +108,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         var videoAdj = new FileAdjustmentVideo() {
             Width = 640, Height = 360,
             TargetBitRateInMbps = 0.5,
-            RequestedFormat = FileFormat.Mp4
+            RequestedFormat = FileFormat.Mp4,
         };
 
         var thumbnailAdj = new FileAdjustmentImage() {
@@ -102,7 +116,6 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             Width = 640,
             Height = 360,
             Saturation = -100,
-            BackgroundColor = "#FF0000",
             RequestedFormat = FileFormat.Jpeg,
             Sharpness = 0,
             Quality = 90
@@ -113,6 +126,13 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj)}";
 
         var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
+        //bool isVideoReady = false;
+        //if (db.Datastore.TryGetProgressInfo(item.File.PropertyPath!, videoAdj, true, out var info)) {
+        //    isVideoReady = info.Status != FileConversionStatus.InProgress;
+        //} else {
+        //    isVideoReady = false;
+        //}
+        //isVideoReady = true;
 
         if (isVideoReady) {
             html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");

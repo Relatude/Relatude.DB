@@ -13,11 +13,11 @@ public abstract class ImageConverterBase : IFileConverter {
         _outs = outs;
         Create = create;
         Load = load;
-        MaxConcurrentWork = Math.Max(1, Environment.ProcessorCount / 2);
-        MinIntervalBetweenCallsInMs = 0;
+        ThreadCount = Math.Max(1, Environment.ProcessorCount / 2);
+        CallDelayMs = 0;
     }
-    public int MaxConcurrentWork { get; set; }
-    public int MinIntervalBetweenCallsInMs { get; set; }
+    public int ThreadCount { get; set; }
+    public int CallDelayMs { get; set; }
     public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         return _ins.Contains(inDetailed) && _outs.Contains(outDetailed);
     }
@@ -32,7 +32,7 @@ public abstract class ImageConverterBase : IFileConverter {
         var stream = new MemoryStream(bytes);
         return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
     }
-    public bool TryGetBetterStatusOnRunning(FileValue fileValue, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
+    public bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         status = null;
         return false;
     }

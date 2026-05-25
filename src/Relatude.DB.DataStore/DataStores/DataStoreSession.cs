@@ -187,6 +187,9 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
 
+    public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
+    public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? DefaultQueryContext);
+
     public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? DefaultQueryContext);
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? DefaultQueryContext);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? DefaultQueryContext);
@@ -199,8 +202,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.TryGetProgressInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? DefaultQueryContext);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null)
         => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? DefaultQueryContext);
-
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null)
         => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? DefaultQueryContext);
 
+    public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _datastore.GetRunningConversions(ctx ?? DefaultQueryContext);
 }
