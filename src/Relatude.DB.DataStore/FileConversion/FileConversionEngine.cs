@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.FileConversion;
 
@@ -72,15 +73,32 @@ public class FileConversionEngine : IDisposable {
         }
         return 0;
     }
+    public bool TryGetProgressInfo(FileConversionInfo info, bool startIfNotFound, InputFileSource source, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo) {
+        var key = info.IdWithAdjustment.GetKey();
+        if (_fileCache.TryGetResult(key, out var result)) {
+            progressInfo = result.ProgressInfo;
+            return true;
+        }
+        if (_conversionsInProgress.TryGet(key, out var entry)) {
+            progressInfo = entry.ProgressInfo;
+            return true;
+        }
+        if (startIfNotFound) {
+            var prg = new FileConversionProgressInfo(FileConversionStatus.InProgress);
+            _conversionsInProgress.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source));
+            progressInfo = prg;
+            return true;
+        }
+        progressInfo = null;
+        return false;
+    }
     public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
         maxWaitMs = adjustMaxWaitMs(info, maxWaitMs);
         var key = info.IdWithAdjustment.GetKey();
         if (_fileCache.TryGetResult(key, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();
         ProgressEntry? entry;
-        _conversionsInProgress.AddIfMissing(key, () =>
-            new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source)
-        );
+        _conversionsInProgress.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source));
         _scheduler.RunSoon();
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
             return new(new(FileConversionStatus.Error, 0, 0, "No converter available from " + info.Formats.From.ToString().ToUpper() + " to " + info.Formats.To.ToString().ToUpper() + ". "), null);

@@ -67,12 +67,16 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
     bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
 
-    string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null);
-    Task<Stream> GetFile(string url, int maxWait, QueryContext? ctx = null);
-    Task<StateAndStream> GetFileAndState(string url, int maxWait = -1, QueryContext? ctx = null);
-    Task<Stream> GetFile(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<Stream> GetConvertedFile(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
-    Task<StateAndStream> GetConvertedFileAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
+    Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);
+
+    Task<Stream> GetConvertedFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<StateAndStream> GetConvertedFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    bool TryGetProgressInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
+    bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null);
+    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
 
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);

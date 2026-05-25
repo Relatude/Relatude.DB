@@ -7,8 +7,9 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+
 builder.AddRelatudeDB(options => {
-    //options.FileConverters.Add(new SkiaImageConverter());
+    options.FileConverters.Add(new SkiaImageConverter());
     options.FileConverters.Add(new FFMpegVideoConverter());
 });
 
@@ -33,11 +34,11 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 });
 bool hasInserted = false;
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
-    if(hasInserted) return "Already inserted.";
+    if (hasInserted) return "Already inserted.";
     hasInserted = true;
     var articleCount = 5;
 
-    var files=Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
+    var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
     for (int i = 0; i < files.Length; i++) {
         var db = ctx.Database;
@@ -91,29 +92,36 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //html.Append($"<p>{item.Content}</p>");
 
         var videoAdj = new FileAdjustmentVideo() {
-            Width = 1024, Height = 768,
-            TargetBitRateInMbps = 1,
+            Width = 640, Height = 360,
+            TargetBitRateInMbps = 0.5,
             RequestedFormat = FileFormat.Mp4
         };
 
-        //var thumbnailAdj = new FileAdjustmentImage() {
-        //    CropMode = ImageCropMode.Fill,
-        //    Width = 548,
-        //    Height = 1024,
-        //    HueShift = i++,
-        //    BackgroundColor = "#FF0000",
-        //    RequestedFormat = FileFormat.Jpeg,
-        //    Sharpness = 0,
-        //    Quality = 90
-        //};
-        var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj, false)}";
-        //var thumbnailUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj, false)}";
+        var thumbnailAdj = new FileAdjustmentImage() {
+            CropMode = ImageCropMode.Fill,
+            Width = 640,
+            Height = 360,
+            Saturation = -100,
+            BackgroundColor = "#FF0000",
+            RequestedFormat = FileFormat.Jpeg,
+            Sharpness = 0,
+            Quality = 90
+        };
+        var thumbnailUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj)}";
+        var isThumbnailReady = db.Datastore.IsFileReady(item.File.PropertyPath!, thumbnailAdj, true);
 
-        // video tag with fallback to thumbnail image:
-        html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-        html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-        html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-        html.Append($"</video>");
+        var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj)}";
+
+        var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
+
+        if (isVideoReady) {
+            html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+            html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+            html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+            html.Append($"</video>");
+        } else {
+            html.Append($"<img src='{thumbnailUrl}'>");
+        }
 
 
         for (var p = 0; p < 0; p += 20) {
@@ -150,7 +158,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/files/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var fileInfo = await db.Datastore.GetFileAndState(propPathAndAdj);
+    var fileInfo = await db.Datastore.GetFileStreamAndState(propPathAndAdj);
     if (fileInfo.IsTemporary) {
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
     } else {

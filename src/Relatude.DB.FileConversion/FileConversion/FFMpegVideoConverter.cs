@@ -10,6 +10,10 @@ using Xabe.FFmpeg.Downloader;
 namespace Relatude.DB.FileConversion;
 
 public class FFMpegVideoConverter : IFileConverter {
+
+    public int MaxConcurrentWork { get; set; } = Math.Max(1, Environment.ProcessorCount / 8);
+    public int MinIntervalBetweenCallsInMs { get; set; } = 0;
+
     static readonly FileFormat[] _videoIns = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Flv, FileFormat.Mkv];
     static readonly FileFormat[] _videoOuts = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Mkv];
     static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp];
@@ -25,8 +29,6 @@ public class FFMpegVideoConverter : IFileConverter {
     FileConverterLibrary? _library;
     public void Initialize(FileConverterLibrary library) => _library = library;
 
-    public int MaxConcurrentWork { get; set; } = Math.Max(1, Environment.ProcessorCount / 8);
-    public int MinIntervalBetweenCallsInMs { get; set; } = 0;
 
     static async Task ensureFFMpegBinAsync() {
         if (_ffmpegBinReady) return;
