@@ -1,4 +1,4 @@
-﻿using Relatude.DB.IO;
+﻿namespace Relatude.DB.IO;
 
 public class FolderMeta {
     public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) {

@@ -1,5 +1,4 @@
 using Relatude.DB.Common;
-using Relatude.DB.FileConversion.ImageEncoder;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;

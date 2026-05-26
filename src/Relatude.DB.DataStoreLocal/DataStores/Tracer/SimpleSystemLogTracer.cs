@@ -1,4 +1,4 @@
-﻿namespace Relatude.DB.DataStores.SimpleTracer;
+﻿namespace Relatude.DB.DataStores.Tracer;
 /// <summary>
 /// Simple in-memory tracer for system log entries. Thread-safe.
 /// </summary>

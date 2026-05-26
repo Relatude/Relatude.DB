@@ -1,6 +1,6 @@
 ﻿using Relatude.DB.Nodes;
 
-namespace Benchmark.Base.Models;
+namespace Benchmark.Base;
 
 public class TestData {
     public TestUser[] Users { get; set; } = [];

@@ -1,4 +1,4 @@
-namespace Relatude.DB.FileConversion.NativeImageEncoder;
+namespace Relatude.DB.FileConversion.ImageEncoders;
 
 public readonly record struct RectangleI(int X, int Y, int Width, int Height)
 {

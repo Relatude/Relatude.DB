@@ -62,7 +62,7 @@ public class DemoArticle {
 
 public class DemoParagraph {
     public Guid Id { get; set; }
-    public FileValue File { get; set; }
+    public FileValue File { get; set; } = FileValue.Empty;
     public string Code { get; set; } = string.Empty;
 
     //[EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]

@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 
-namespace Relatude.DB.FileConversion.NativeImageEncoder;
+namespace Relatude.DB.FileConversion.ImageEncoders;
 
 internal sealed class BmpCodec : IImageCodec
 {

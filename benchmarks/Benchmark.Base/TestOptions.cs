@@ -1,4 +1,4 @@
-﻿namespace Benchmark;
+﻿namespace Benchmark.Base;
 public class TestOptions {
     public string DataFileRootDefault { get; set; } = GetTempDataFolder("DBTester");
     public bool FlushDiskOnEveryOperation { get; set; } = false;

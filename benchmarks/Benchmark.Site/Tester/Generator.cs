@@ -1,6 +1,6 @@
-﻿using Benchmark.Base.Models;
+﻿using Benchmark.Base;
 
-namespace Benchmark.Base.ContentGeneration;
+namespace Benchmark.Site.Tester;
 public static class Generator {
     public static TestData Generate(TestOptions options) {
         TextGenerator textGenerator = new(options.RandomSeed);

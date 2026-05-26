@@ -1,5 +1,4 @@
 ﻿using Benchmark.Base;
-using Benchmark.Base.Models;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;

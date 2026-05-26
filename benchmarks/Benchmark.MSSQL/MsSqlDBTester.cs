@@ -1,5 +1,4 @@
 ﻿using Benchmark.Base;
-using Benchmark.Base.Models;
 using Microsoft.Data.SqlClient;
 
 namespace Benchmark.MSSql;

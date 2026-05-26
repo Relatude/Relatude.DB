@@ -1,6 +1,6 @@
 ﻿using FFMpegCore;
 using Relatude.DB.Common;
-using Relatude.DB.FileConversion.ImageEncoder;
+using Relatude.DB.FileConversion.ImageEncoders;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;

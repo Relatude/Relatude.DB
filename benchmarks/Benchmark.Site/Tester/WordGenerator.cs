@@ -1,5 +1,4 @@
-﻿
-namespace Benchmark.Base.ContentGeneration;
+﻿namespace Benchmark.Site.Tester;
 public static class WordGenerator {
     private static readonly Random _random = new Random();
 

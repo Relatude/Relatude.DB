@@ -1,5 +1,4 @@
 ﻿using Benchmark.Base;
-using Benchmark.Base.Models;
 using Raven.Client.Documents;
 using Raven.Embedded;
 namespace Benchmark.RavenDB;

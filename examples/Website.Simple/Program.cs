@@ -50,7 +50,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         paraGraph.Code = "dasdas";
         art.Paragraphs.Add(paraGraph);
         db.Insert(art);
-        var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
+        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
         //filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\m.mp4";
         var videoFilePath = files[i];

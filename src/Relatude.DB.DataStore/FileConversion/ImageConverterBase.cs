@@ -1,6 +1,5 @@
 ﻿using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.NetworkInformation;
 namespace Relatude.DB.FileConversion;
 
 public abstract class ImageConverterBase : IFileConverter {

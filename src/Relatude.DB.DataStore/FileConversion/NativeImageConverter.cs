@@ -1,5 +1,5 @@
 ﻿using Relatude.DB.Common;
-using Relatude.DB.FileConversion.ImageEncoder;
+using Relatude.DB.FileConversion.ImageEncoders;
 namespace Relatude.DB.FileConversion;
 
 public class NativeImageConverter : ImageConverterBase {

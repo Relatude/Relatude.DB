@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Native;
 using Relatude.DB.Web;
+namespace Relatude.DB.DataStores;
 
 public class SettingsLocal {
 

@@ -1,4 +1,4 @@
-﻿using Relatude.DB.IO;
+﻿namespace Relatude.DB.IO;
 
 public class FileMeta {
     public static FileMeta FromFileInfo(FileInfo fileInfo) {

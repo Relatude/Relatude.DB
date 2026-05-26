@@ -1,4 +1,4 @@
-namespace Relatude.DB.FileConversion.NativeImageEncoder;
+namespace Relatude.DB.FileConversion.ImageEncoders;
 
 internal interface IImageCodec
 {

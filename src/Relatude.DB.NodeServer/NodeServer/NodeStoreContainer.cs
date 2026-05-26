@@ -193,7 +193,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 datastore.LogInfo(msg);
             }
             Store = new NodeStore(datastore);
-            server.RaiseEventStoreInit(this, Store);
+            server?.RaiseEventStoreInit(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

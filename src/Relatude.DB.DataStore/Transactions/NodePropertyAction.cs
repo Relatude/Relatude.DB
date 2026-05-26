@@ -16,6 +16,7 @@ public class NodePropertyAction : ActionBase {
         Operation = operation;
         PropertyPath = propertyPath;
         Values = value == null ? null : [value];
+        PropertyIds = [];
     }
     public NodePropertyAction(NodePropertyOperation operation, Guid? typeId, Guid[]? guids, int[]? nodeIds, Guid[]? revisionIds, Guid propertyId, object? value)
       : base(ActionTarget.NodeProperty) {

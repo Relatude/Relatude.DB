@@ -15,7 +15,7 @@ using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime;
 using System.Text.Json;
-namespace Relatude.DB.NodeServer;
+namespace Relatude.DB.NodeServer.API;
 
 public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;

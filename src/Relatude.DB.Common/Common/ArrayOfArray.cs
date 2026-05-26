@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-namespace WAF;
+namespace Relatude.DB.Common;
 
 public sealed class ArrayOfArray<TKey, TValue> {
 

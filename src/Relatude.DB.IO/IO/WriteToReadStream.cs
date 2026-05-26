@@ -1,4 +1,4 @@
-﻿namespace Relatude.DB.Common;
+﻿namespace Relatude.DB.IO;
 
 /// <summary>
 /// A stream that bridges a push producer (writes via <see cref="Write"/>) to a pull consumer (reads via <see cref="Read"/>).

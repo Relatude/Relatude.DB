@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace Relatude.DB.FileConversion.NativeImageEncoder;
+namespace Relatude.DB.FileConversion.ImageEncoders;
 
 internal sealed class WebpCodec : IImageCodec
 {

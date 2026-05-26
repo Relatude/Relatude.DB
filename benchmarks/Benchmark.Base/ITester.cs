@@ -1,6 +1,4 @@
-﻿using Benchmark.Base.Models;
-
-namespace Benchmark.Base;
+﻿namespace Benchmark.Base;
 
 public interface ITester {
     void Initalize(string dataFolderPath, TestOptions options);

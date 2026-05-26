@@ -1,7 +1,5 @@
 ﻿using Benchmark.Base;
-using Benchmark.Base.Models;
-using Benchmark.Site.Tester;
-namespace Benchmark;
+namespace Benchmark.Site.Tester;
 
 internal class TestRunner {
     public static string[] GetTestNames() {

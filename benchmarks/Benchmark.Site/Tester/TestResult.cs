@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.Common;
 using System.Text;
 
-namespace Benchmark.Tester;
+namespace Benchmark.Site.Tester;
 internal class TestResult(string name, TimeSpan duration, int operations) {
     public string TestName { get; } = name;
     public TimeSpan Duration { get; } = duration;

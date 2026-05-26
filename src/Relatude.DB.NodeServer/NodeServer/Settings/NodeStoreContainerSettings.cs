@@ -1,4 +1,6 @@
-﻿namespace Relatude.DB.NodeServer.Settings;
+﻿using Relatude.DB.DataStores;
+
+namespace Relatude.DB.NodeServer.Settings;
 
 public class NodeStoreContainerSettingsBase {
     public Guid Id { get; set; }

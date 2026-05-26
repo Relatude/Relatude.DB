@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+namespace Relatude.DB.Common;
 
 public class CpuMonitor {
     DateTime _lastMeasurementTime;

@@ -1,4 +1,4 @@
-﻿using Benchmark.Tester;
+﻿using Benchmark.Base;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 

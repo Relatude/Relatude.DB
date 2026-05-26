@@ -1,5 +1,5 @@
 ﻿using System.Text;
-namespace Benchmark.Base.ContentGeneration;
+namespace Benchmark.Site.Tester;
 public class TextGenerator {
     public int MaxWordsPerSentence = 20;
     public int TotalWordVariants = 10000; // Vocabulary

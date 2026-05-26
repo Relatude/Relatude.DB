@@ -1,6 +1,5 @@
 ﻿using LiteDB;
 using Benchmark.Base;
-using Benchmark.Base.Models;
 namespace Benchmark.LiteDB;
 public class LiteDBTester : ITester {
     public string Name => "LiteDB";
