@@ -145,6 +145,15 @@ public class FFMpegVideoConverter : IFileConverter {
     }
 
     static async Task<TimeSpan?> resolveSeekPosition(string inputTmp, FileAdjustmentImage? adj, CancellationToken ct) {
+        if (adj?.TimeOffsetMs == -1) {
+            // use "Smart "Representative" Thumbnail "
+            var info = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+            if (info.Duration > TimeSpan.Zero) {
+                return info.Duration / 2;
+            } else {
+                return TimeSpan.Zero;
+            }
+        }
         var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
         TimeSpan? position = null;
         if (adj?.TimeOffsetMs.HasValue == true) {
@@ -158,7 +167,7 @@ public class FFMpegVideoConverter : IFileConverter {
             if (position < TimeSpan.Zero) position = TimeSpan.Zero;
             if (position > probe.Duration) position = probe.Duration;
         }
-        return null;
+        return position;
     }
 
     async Task convertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,

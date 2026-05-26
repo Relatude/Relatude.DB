@@ -38,7 +38,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     hasInserted = true;
     var articleCount = 5;
 
-    var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
+    var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mov").ToArray();
 
     for (int i = 0; i < files.Length; i++) {
         var db = ctx.Database;
@@ -118,6 +118,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             Saturation = -100,
             RequestedFormat = FileFormat.Jpeg,
             Sharpness = 0,
+            TimeOffsetMs=4000,
             Quality = 90
         };
         var thumbnailUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, thumbnailAdj)}";
