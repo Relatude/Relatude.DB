@@ -57,14 +57,18 @@ public class FileConversionEngine : IDisposable {
         var conversionResult = await converter.DoConvertWork(entry.InputSource, entry.FileInfo);
         if (conversionResult.Output != null) {
             await _fileCache.SetFromStreamAsync(entry.FileInfo.IdWithAdjustment, conversionResult.Output);
+        }else if (conversionResult.LocalFilePathOutput != null) {
+            await _fileCache.SetFromFileAsync(entry.FileInfo.IdWithAdjustment, conversionResult.LocalFilePathOutput);
+        } else {
+            throw new Exception("Converter did not return output stream or file path for " + entry.FileInfo.Formats.ToString()?.ToUpper());
         }
         return conversionResult.ProgressInfo;
     }
     int adjustMaxWaitMs(FileConversionInfo info, int maxWaitMs) {
         if (maxWaitMs > 120000) return 120000; // cap max wait to 2 minutes to avoid too long waits
         if (maxWaitMs > -1) return maxWaitMs;
-        var baseFrom = FileFormatUtil.GetBaseFormatFromDetailedFormat(info.Formats.From);
-        var baseTo = FileFormatUtil.GetBaseFormatFromDetailedFormat(info.Formats.To);
+        var baseFrom = FileFormatUtil.GetFileType(info.Formats.From);
+        var baseTo = FileFormatUtil.GetFileType(info.Formats.To);
         if (baseFrom == FileType.Image && baseTo == FileType.Image) {
             return 10000;
         }
@@ -131,7 +135,7 @@ public class FileConversionEngine : IDisposable {
         try {
             return getStatusDataStream(fileValue, adj, status);
         } catch (Exception err) {
-            var baseRequestedFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+            var baseRequestedFormat = FileFormatUtil.GetFileType(fileValue.Format);
             if (baseRequestedFormat == FileType.Image && _fileConverters.TryGetConverter(new FormatPair(fileValue.Format, FileFormat.Png), out var converter)) {
                 var text = new List<string> { "ERROR GENERATING STATUS", string.Empty, err.Message };
                 var uniqueStatusKey = string.Join("|", text);
@@ -145,7 +149,7 @@ public class FileConversionEngine : IDisposable {
         }
     }
     Stream getStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
-        var baseRequestedFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(fileValue.Format);
+        var baseRequestedFormat = FileFormatUtil.GetFileType(fileValue.Format);
         if (!_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
             throw new Exception(
                 $"File format {fileValue.Format.ToString().ToUpper()} cannot be converted to {adj.RequestedFormat.ToString().ToUpper()}."

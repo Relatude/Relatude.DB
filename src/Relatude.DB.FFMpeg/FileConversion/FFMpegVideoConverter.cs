@@ -18,7 +18,8 @@ public class FFMpegVideoConverter : IFileConverter {
 
     static readonly FileFormat[] _videoIns = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Flv, FileFormat.Mkv];
     static readonly FileFormat[] _videoOuts = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Mkv];
-    static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp];
+    static readonly FileFormat[] _imageIns = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
+    static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static string _ffmpegBinDir = Path.Combine(AppContext.BaseDirectory, "ffmpeg");
 
     static readonly SemaphoreSlim _downloadLock = new(1, 1);
@@ -51,9 +52,17 @@ public class FFMpegVideoConverter : IFileConverter {
     }
 
     public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed)
-        => inBase == FileType.Video && _videoIns.Contains(inDetailed)
-        && ((outBase == FileType.Video && _videoOuts.Contains(outDetailed))
-            || (outBase == FileType.Image && _imageOuts.Contains(outDetailed)));
+        =>
+         (inBase == FileType.Video && _videoIns.Contains(inDetailed)
+            && ((outBase == FileType.Video && _videoOuts.Contains(outDetailed))
+                || (outBase == FileType.Image && _imageOuts.Contains(outDetailed))))
+         ||
+         (inBase == FileType.Image && _imageIns.Contains(inDetailed)
+            && outBase == FileType.Image && _imageOuts.Contains(outDetailed));
+
+    //=> inBase == FileType.Video && _videoIns.Contains(inDetailed)
+    //&& ((outBase == FileType.Video && _videoOuts.Contains(outDetailed))
+    //    || (outBase == FileType.Image && _imageOuts.Contains(outDetailed)));
 
     public Task<bool> CancelAsync(Guid key) {
         if (_cancellations.TryRemove(key, out var cts)) { cts.Cancel(); cts.Dispose(); return Task.FromResult(true); }
@@ -68,41 +77,170 @@ public class FFMpegVideoConverter : IFileConverter {
         var cts = new CancellationTokenSource();
         _cancellations[key] = cts;
         _conversionProgress[key] = new(FileConversionStatus.InProgress, 0);
-        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(info.FromFormat)}");
-        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(info.Formats.To)}");
+        string inputFilePath = string.Empty;
+        bool deleteInputFile = false;
+        var outputFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(info.Formats.To)}");
         try {
             if (source.HasLocalFilePath) {
-                var localPath = source.GetLocalFilePathOrThrow();
-                File.Copy(localPath, inputTmp);
+                deleteInputFile = false;
+                inputFilePath = source.GetLocalFilePathOrThrow();
             } else {
+                deleteInputFile = true;
+                inputFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(info.FromFormat)}");
                 await using (var inp = await source.OpenInputStream())
-                await using (var fs = File.Create(inputTmp))
+                await using (var fs = File.Create(inputFilePath))
                     await inp.CopyToAsync(fs, cts.Token);
             }
 
-            if (_imageOuts.Contains(info.Formats.To))
-                await extractThumbnailAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
-            else
-                await convertVideoAsync(inputTmp, outputTmp, info, key, _conversionProgress, cts.Token);
+            var typeFrom = FileFormatUtil.GetFileType(info.Formats.From);
+            var typeTo = FileFormatUtil.GetFileType(info.Formats.To);
+            if (typeFrom == FileType.Video) {
+                if (typeTo == FileType.Image) { // video to image -> thumbnail
+                    var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
+                    await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, imgAdj, key, _conversionProgress, cts.Token);
+                } else if (typeTo == FileType.Video) { // video to video conversion
+                    await convertVideoAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
+                } else {
+                    throw new NotSupportedException("Unsupported output file type: " + typeTo);
+                }
+            } else if (typeFrom == FileType.Image) {
+                if (typeTo == FileType.Image) {
+                    // image to image conversion with possible adjustments
+                    var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
+                    await processImageAsync(inputFilePath, outputFilePath, imgAdj, key, _conversionProgress, cts.Token);
+                } else {
+                    throw new NotSupportedException("Unsupported output file type: " + typeTo);
+                }
+            } else {
+                throw new NotSupportedException("Unsupported input file type: " + typeFrom);
+            }
 
-            var bytes = await File.ReadAllBytesAsync(outputTmp, cts.Token);
-            return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), new MemoryStream(bytes));
+            return new(new(FileConversionStatus.Ready, 100), null, outputFilePath);
         } catch (OperationCanceledException) {
-            return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Error, 0, message: "Cancelled"));
+            tryDelete(outputFilePath);
+            return new(new(FileConversionStatus.Error, 0, message: "Cancelled"));
         } catch (Exception ex) {
-            return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Error, 0, message: ex.Message));
+            tryDelete(outputFilePath);
+            return new(new(FileConversionStatus.Error, 0, message: ex.Message));
         } finally {
             _cancellations.TryRemove(key, out _);
             _conversionProgress.TryRemove(key, out _);
-            tryDelete(inputTmp);
-            tryDelete(outputTmp);
+            if (deleteInputFile) tryDelete(inputFilePath);
             Interlocked.Decrement(ref concucurrentCount);
         }
     }
 
-    async Task extractThumbnailAsync(string inputTmp, string outputTmp, FileConversionInfo info,
+    async Task processImageAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
-        var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentImage;
+
+        var needPostProcessing = // these are not supported by ffmpeg filters
+            adj.Brightness.HasValue || adj.Contrast.HasValue ||
+            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
+
+        IFileConverter? postConverter = null;
+        if (needPostProcessing) {
+            if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
+            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out postConverter))
+                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+        }
+
+        string outputForFfmpeg = needPostProcessing ? Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png") : outputTmp;
+
+        try {
+
+            progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting image...");
+            encodeImageFormat(inputTmp, outputForFfmpeg);
+
+            if (!needPostProcessing || postConverter == null) return; // file is already in final state, no post-processing needed
+
+            progress[key] = new(FileConversionStatus.InProgress, 30, message: "Applying adjustments...");
+            // post-processing:
+            IImage img;
+            using var stream = File.OpenRead(outputForFfmpeg);
+            try {
+                if (postConverter is ImageConverterBase imgConverter) {
+                    img = imgConverter.Load(stream);
+                } else {
+                    img = NativeImage.Load(stream);
+                }
+            } finally {
+                stream.Dispose();
+            }
+            img = img.Adjust(adj);
+            progress[key] = new(FileConversionStatus.InProgress, 50, message: "Post format conversion...");
+
+            if (postConverter.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
+                // use the post-processing and output correct format directly
+                var bytes = img.Encode(adj.RequestedFormat, adj.Quality);
+                progress[key] = new(FileConversionStatus.InProgress, 90, message: "Finalizing format conversion...");
+                File.WriteAllBytes(outputTmp, bytes);
+            } else if (this.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
+                // FFMpeg supports format so use this, (slow but FFMpeg has wide format support, for example AVIF )
+                var bytes = img.Encode(FileFormat.Png, adj.Quality);
+                progress[key] = new(FileConversionStatus.InProgress, 70, message: "Finalizing format to " + adj.RequestedFormat.ToString().ToUpper() + "...");
+                encodeImageFormat(bytes, FileFormat.Png, outputTmp);
+                progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
+            } else {
+                throw new InvalidOperationException("Neither the post-processing converter nor ffmpeg supports the requested output format.");
+            }
+        } finally {
+            if (needPostProcessing) tryDelete(outputForFfmpeg);
+        }
+    }
+
+    async Task extractThumbnailAndProcessAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
+        Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
+
+        var needPostProcessing = // these are not supported by ffmpeg filters
+            adj.Brightness.HasValue || adj.Contrast.HasValue ||
+            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
+
+        IFileConverter? postConverter = null;
+        if (needPostProcessing) {
+            if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
+            if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out postConverter))
+                throw new InvalidOperationException("Converter library does not support required format for status response generation.");
+        }
+
+        string outputForFfmpeg = needPostProcessing ? Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png") : outputTmp;
+
+        try {
+
+            await extractThumbnailAsyncInner(inputTmp, outputForFfmpeg, adj, key, progress, ct);
+
+            if (!needPostProcessing || postConverter == null) return; // file is already in final state, no post-processing needed
+
+            // post-processing:
+            IImage img;
+            using var stream = File.OpenRead(outputForFfmpeg);
+            try {
+                if (postConverter is ImageConverterBase imgConverter) {
+                    img = imgConverter.Load(stream);
+                } else {
+                    img = NativeImage.Load(stream);
+                }
+            } finally {
+                stream.Dispose();
+            }
+            img = img.Adjust(adj);
+
+            if (postConverter.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
+                // use the post-processing and output correct format directly
+                var bytes = img.Encode(adj.RequestedFormat, adj.Quality);
+                File.WriteAllBytes(outputTmp, bytes);
+            } else if (this.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
+                // FFMpeg supports format so use this, (slow but FFMpeg has wide format support, for example AVIF )
+                var bytes = img.Encode(FileFormat.Png, adj.Quality);
+                encodeImageFormat(bytes, FileFormat.Png, outputTmp);
+            } else {
+                throw new InvalidOperationException("Neither the post-processing converter nor ffmpeg supports the requested output format.");
+            }
+        } finally {
+            if (needPostProcessing) tryDelete(outputForFfmpeg);
+        }
+    }
+    async Task extractThumbnailAsyncInner(string inputTmp, string outputTmp, FileAdjustmentImage adj,
+    Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         int? w = adj?.Width, h = adj?.Height;
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Seeking to frame...");
         TimeSpan? seekTo = await resolveSeekPosition(inputTmp, adj, ct);
@@ -114,33 +252,6 @@ public class FFMpegVideoConverter : IFileConverter {
                 if (w.HasValue || h.HasValue) opts.WithVideoFilters(vf => vf.Scale(w ?? -1, h ?? -1));
             });
         await processor.CancellableThrough(ct).ProcessAsynchronously();
-        if (adj != null) {
-            var needAdditionalProcessing =
-                //adj.RequestedFormat != FileFormat.Png || 
-                //adj.Quality.HasValue || 
-                adj.Brightness.HasValue || adj.Contrast.HasValue ||
-                adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
-            // Console.WriteLine("Need additional processing: " + needAdditionalProcessing);
-            if (needAdditionalProcessing) {
-                if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
-                if (!_library.TryGetConverter(new(FileFormat.Png, FileFormat.Png), out var converter))
-                    throw new InvalidOperationException("Converter library does not support required format for status response generation.");
-                IImage img;
-                var stream = File.OpenRead(outputTmp);
-                try {
-                    if (converter is ImageConverterBase imgConverter) {
-                        img = imgConverter.Load(stream);
-                    } else {
-                        img = NativeImage.Load(stream);
-                    }
-                } finally {
-                    stream.Dispose();
-                }
-                img = img.Adjust(adj);
-                File.WriteAllBytes(outputTmp, img.Encode(adj.RequestedFormat, adj.Quality));
-            }
-        }
-
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
@@ -198,8 +309,6 @@ public class FFMpegVideoConverter : IFileConverter {
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static string toExtension(FileFormat fmt) => FileFormatUtil.GetExtensionWithDot(fmt) ?? ".tmp";
-
     static void tryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
 
     public bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
@@ -211,7 +320,7 @@ public class FFMpegVideoConverter : IFileConverter {
     }
 
     public byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor) {
-        var baseRequestFormat = FileFormatUtil.GetBaseFormatFromDetailedFormat(requestedFormat);
+        var baseRequestFormat = FileFormatUtil.GetFileType(requestedFormat);
         if (_library == null) throw new InvalidOperationException("Converter library not initialized.");
         if (baseRequestFormat == FileType.Video) {
             ensureFFMpegBinAsync().Wait(); // inefficient but this is just for status generation and ensures progress info is updated
@@ -227,7 +336,7 @@ public class FFMpegVideoConverter : IFileConverter {
             }
             var imgBytes = img.Encode(FileFormat.Png);
             var imgTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.png");
-            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{toExtension(requestedFormat)}");
+            var vidTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(requestedFormat)}");
             try {
                 File.WriteAllBytes(imgTmp, imgBytes);
                 FFMpegArguments
@@ -251,9 +360,47 @@ public class FFMpegVideoConverter : IFileConverter {
             } else {
                 img = NativeImage.Create(width, height).GetStatusImage(text, textColor, fillColor);
             }
-            return img.Encode(requestedFormat);
+            if (converter.SupportsConversion(FileFormat.Png, requestedFormat)) {
+                return img.Encode(requestedFormat);
+            } else {
+                // final fallback is ffmpeg, slow but at least it will work for almost any format
+                return encodeImageFormat(img.Encode(FileFormat.Png), FileFormat.Png, requestedFormat);
+            }
         } else {
             throw new ArgumentException("Requested format must be a video format for status response generation.");
+        }
+    }
+    byte[] encodeImageFormat(byte[] data, FileFormat from, FileFormat to) {
+        ensureFFMpegBinAsync().Wait();
+        var outputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(to)}");
+        try {
+            encodeImageFormat(data, from, outputTmp);
+            return File.ReadAllBytes(outputTmp);
+        } finally {
+            tryDelete(outputTmp);
+        }
+    }
+    void encodeImageFormat(byte[] data, FileFormat from, string outputTmp) {
+        ensureFFMpegBinAsync().Wait();
+        if (FileFormatUtil.GetFileType(from) != FileType.Image)
+            throw new ArgumentException("Format must be an image format.");
+        var inputTmp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(from)}");
+        try {
+            File.WriteAllBytes(inputTmp, data);
+            encodeImageFormat(inputTmp, outputTmp);
+        } finally {
+            tryDelete(inputTmp);
+        }
+    }
+    void encodeImageFormat(string inputTmp, string outputTmp) {
+        ensureFFMpegBinAsync().Wait();
+        try {
+            FFMpegArguments
+                .FromFileInput(inputTmp)
+                .OutputToFile(outputTmp, true)
+                .ProcessSynchronously();
+        } finally {
+            tryDelete(inputTmp);
         }
     }
 

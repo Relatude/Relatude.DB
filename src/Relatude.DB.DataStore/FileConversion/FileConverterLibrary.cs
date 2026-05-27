@@ -25,8 +25,8 @@ public class FileConverterLibrary {
             converter = null;
             foreach (var c in _converters) {
                 // pick first match:
-                var fromBase = FileFormatUtil.GetBaseFormatFromDetailedFormat(key.From);
-                var toBase = FileFormatUtil.GetBaseFormatFromDetailedFormat(key.To);
+                var fromBase = FileFormatUtil.GetFileType(key.From);
+                var toBase = FileFormatUtil.GetFileType(key.To);
                 if (c.SupportsConversion(fromBase, key.From, toBase, key.To)) {
                     converter = c;
                     break;

@@ -17,7 +17,7 @@ public abstract class ImageConverterBase : IFileConverter {
     }
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; }
-    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
+    public virtual bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         return _ins.Contains(inDetailed) && _outs.Contains(outDetailed);
     }
     public Task<bool> CancelAsync(Guid key) {

@@ -232,4 +232,22 @@ public class IOProviderDisk : IIOProvider {
         localFilePath = null;
         return false;
     }
+
+    public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) {
+        var destinationPath = Path.Combine([BaseFolder, .. destination]);
+        var isSameDrive = string.Equals(Path.GetPathRoot(fromLocalFilePath), Path.GetPathRoot(destinationPath), StringComparison.OrdinalIgnoreCase);
+        if (isSameDrive) {
+            try {
+                // ensure destination directory exists:
+                var destinationDir = Path.GetDirectoryName(destinationPath);
+                if (destinationDir == null) return false;
+                if (!Directory.Exists(destinationDir)) Directory.CreateDirectory(destinationDir);
+                File.Move(fromLocalFilePath, destinationPath);
+                return true;
+            } catch {
+                return false;
+            }
+        }
+        return false;
+    }
 }

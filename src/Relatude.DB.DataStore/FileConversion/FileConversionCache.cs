@@ -53,6 +53,12 @@ internal class FileConversionCache {
         result = null;
         return false;
     }
+    public Task SetFromFileAsync(FileIdWithAdjustment fileKey, string localFilePath) {
+        var filePath = getFilePath(fileKey.GetKey());
+        if (_io.TryMoveIfSameDrive(localFilePath, filePath)) return Task.CompletedTask;
+        var stream = File.OpenRead(localFilePath);
+        return SetFromStreamAsync(fileKey, stream);
+    }
     public async Task SetFromStreamAsync(FileIdWithAdjustment fileKey, Stream input) {
         var filePath = getFilePath(fileKey.GetKey());
         using var output = _io.OpenAppend(filePath);

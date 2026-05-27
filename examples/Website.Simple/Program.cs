@@ -38,7 +38,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     hasInserted = true;
     var articleCount = 5;
 
-    var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mov").ToArray();
+    var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
     for (int i = 0; i < files.Length; i++) {
         var db = ctx.Database;
@@ -50,13 +50,14 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         paraGraph.Code = "dasdas";
         art.Paragraphs.Add(paraGraph);
         db.Insert(art);
-        //var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
+        var filePath = @"C:\Users\ogulb\OneDrive\Demo\Pictures\nemo.jpg";
         //filePath = @"C:\Users\ogulb\OneDrive\Demo\Big photos\Deichmanske.2020.143.jpg";
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\m.mp4";
         var videoFilePath = files[i];
         //videoFilePath = @"C:\Users\ogulb\Downloads\Send Help.mkv";
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
-        await db.FileUploadAsync(art.File, videoFilePath);
+        //await db.FileUploadAsync(art.File, videoFilePath);
+        await db.FileUploadAsync(art.File, filePath);
         //var p = art.Paragraphs.First();
         //if (db.FileStoreSupportsMultipartUploads(p.File)) {
         //    using var stream = File.OpenRead(videoFilePath);
@@ -91,7 +92,7 @@ app.MapGet("/Status", (RelatudeDBContext ctx, HttpResponse res) => {
         html.Append($"<tr><td>{conversion.FileInfo.FileName}</td><td>{conversion.FileInfo.FromFormat}</td><td>{conversion.FileInfo.ToFormat}</td><td>{conversion.ProgressInfo.Status}</td><td>{conversion.ProgressInfo.ProgressPercentage}%</td><td>{conversion.ProgressInfo.Message}</td></tr>");
     }
     html.Append("</table>");
-    html.Append("</body></html>");
+    html.Append("</body><script>window.setTimeout(()=>location=location,500)</script></html>");
     res.Headers.ContentType = "text/html; charset=utf-8";
     return html.ToString();
 });
@@ -113,10 +114,10 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 
         var thumbnailAdj = new FileAdjustmentImage() {
             CropMode = ImageCropMode.Fill,
-            Width = 640,
-            Height = 360,
+            Width = 1640,
+            Height = 1360,
             Saturation = -100,
-            RequestedFormat = FileFormat.Jpeg,
+            RequestedFormat = FileFormat.Avif,
             Sharpness = 0,
             TimeOffsetMs=4000,
             Quality = 90
@@ -126,7 +127,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 
         var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj)}";
 
-        var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
+        //var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
         //bool isVideoReady = false;
         //if (db.Datastore.TryGetProgressInfo(item.File.PropertyPath!, videoAdj, true, out var info)) {
         //    isVideoReady = info.Status != FileConversionStatus.InProgress;
@@ -135,14 +136,15 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //}
         //isVideoReady = true;
 
-        if (isVideoReady) {
-            html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-            html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-            html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-            html.Append($"</video>");
-        } else {
-            html.Append($"<img src='{thumbnailUrl}'>");
-        }
+        //if (isVideoReady) {
+        //    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+        //    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+        //    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+        //    html.Append($"</video>");
+        //} else {
+        //    html.Append($"<img src='{thumbnailUrl}'>");
+        //}
+        html.Append($"<img src='{thumbnailUrl}'>");
 
 
         for (var p = 0; p < 0; p += 20) {
@@ -179,7 +181,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 });
 app.MapGet("/files/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
     var db = ctx.Database;
-    var fileInfo = await db.Datastore.GetFileStreamAndState(propPathAndAdj);
+    var fileInfo = await db.Datastore.GetFileStreamAndState(propPathAndAdj, 100);
     if (fileInfo.IsTemporary) {
         http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
     } else {

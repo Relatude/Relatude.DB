@@ -196,4 +196,7 @@ public class IOProviderMemory : IIOProvider {
         localFilePath = null;
         return false;
     }
+
+    public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => false;
+
 }

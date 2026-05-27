@@ -41,9 +41,9 @@ public enum FileFormat {
     Unknown,
 }
 public static class FileFormatUtil {
-    public static FileType GetBaseFormatFromFileName(string fileNameWithExtension) {
+    public static FileType GetFileType(string fileNameWithExtension) {
         var detailedFormat = GetDetailedFormatFromFileName(fileNameWithExtension);
-        return GetBaseFormatFromDetailedFormat(detailedFormat);
+        return GetFileType(detailedFormat);
     }
     public static FileFormat GetDetailedFormatFromFileName(string fileNameWithExtension) {
         var ext = Path.GetExtension(fileNameWithExtension).ToLower();
@@ -76,7 +76,7 @@ public static class FileFormatUtil {
             _ => FileFormat.Unknown, // This should probably be a different value or throw an exception since it's not a detailed format
         };
     }
-    public static FileType GetBaseFormatFromDetailedFormat(FileFormat format) {
+    public static FileType GetFileType(FileFormat format) {
         return format switch {
             FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif => FileType.Image,
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,

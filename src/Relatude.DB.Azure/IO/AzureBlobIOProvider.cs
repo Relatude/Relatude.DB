@@ -269,4 +269,5 @@ public class AzureBlobIOProvider : IIOProviderWithFolders {
         localFilePath = null;
         return false;
     }
+    public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => false;
 }

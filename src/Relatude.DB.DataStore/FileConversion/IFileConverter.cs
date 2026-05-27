@@ -20,9 +20,10 @@ public class FileConversionResult(FileConversionProgressInfo progressInfo, Strea
     public FileConversionProgressInfo ProgressInfo { get; } = progressInfo;
     public Stream? Output { get; } = output;
 }
-public class ConversionProgress(FileConversionProgressInfo info, Stream? output = null) {
-    public Stream? Output { get; } = output;
+public class ConversionProgress(FileConversionProgressInfo info, Stream? output = null, string? localFilePathOutput = null) {
     public FileConversionProgressInfo ProgressInfo { get; } = info;
+    public Stream? Output { get; } = output;
+    public string? LocalFilePathOutput { get; } = localFilePathOutput;
 }
 public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFilePath) {
     public Task<Stream> OpenInputStream() {
@@ -43,4 +44,9 @@ public interface IFileConverter { // just the conversion,  calling local image c
     Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);
     bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
     byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor);
+}
+public static class IFileConverterExt {
+    static public bool SupportsConversion(this IFileConverter converter, FileFormat inFormat, FileFormat outFormat) {
+        return converter.SupportsConversion(FileFormatUtil.GetFileType(inFormat), inFormat, FileFormatUtil.GetFileType(outFormat), outFormat);
+    }
 }
