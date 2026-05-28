@@ -25,8 +25,9 @@ public struct UrlBase {
 public interface IUrlProvider {
 
     string GetExternalUrl(string internalUrl, bool absolute);
+
     string GetInternalUrl(string externalUrl);
-    
+
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
     string GetInternalUrl(PropertyPath property, string? contentVersionId);

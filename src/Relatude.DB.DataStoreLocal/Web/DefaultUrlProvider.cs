@@ -8,10 +8,13 @@ namespace Relatude.DB.Web;
 public class DefaultUrlProvider : IUrlProvider {
     readonly UrlFileAdjustmentEncoder _encoder;
     const char DELIMITER = '.';
-    readonly IDataStore _dataStore;
-    public DefaultUrlProvider(IDataStore dataStore, Guid secretHashKey) {
-        _dataStore = dataStore;
+    readonly string _urlFileRoot;
+    public DefaultUrlProvider(Guid secretHashKey, string urlFileRoot) {
         _encoder = new(secretHashKey);
+        _urlFileRoot = urlFileRoot;
+        if (string.IsNullOrWhiteSpace(_urlFileRoot)) throw new ArgumentException("URL root cannot be null or whitespace.", nameof(urlFileRoot));
+        if (!_urlFileRoot.EndsWith("/")) _urlFileRoot += "/";
+        if (!_urlFileRoot.StartsWith("/")) _urlFileRoot = "/" + _urlFileRoot;
     }
 
     char urlTypeChar(UrlType type) {
@@ -61,9 +64,16 @@ public class DefaultUrlProvider : IUrlProvider {
     }
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();
-        return internalUrl;
+        return _urlFileRoot + internalUrl;
     }
     public string GetInternalUrl(string externalUrl) {
+        if (externalUrl == null) return string.Empty;
+        string internalUrl = externalUrl;
+
+        if (!internalUrl.StartsWith("/")) internalUrl = "/" + internalUrl;
+        if (internalUrl.StartsWith(_urlFileRoot, StringComparison.OrdinalIgnoreCase))
+            return internalUrl[(_urlFileRoot.Length + 1)..];
+
         return externalUrl;
 
         // TODO: implement a way to resolve a shorter, and more readable url. No need for guids, use prop names and node addresses

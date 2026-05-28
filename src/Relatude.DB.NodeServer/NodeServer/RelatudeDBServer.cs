@@ -24,6 +24,7 @@ namespace Relatude.DB.NodeServer;
 /// certain properties or methods before initialization may result in exceptions. </para></remarks>
 public partial class RelatudeDBServer {
     DateTime _initialized = DateTime.UtcNow;
+    public static string FileHandlerRootUrl { get; internal set; }
     public RelatudeDBServer(string? urlPath) {
         setApiUrlRoot(urlPath);
         EventHub = new ServerEventHub(this);
@@ -168,6 +169,7 @@ public partial class RelatudeDBServer {
     int _remaingToAutoOpenCount = 0;
     public bool AnyRemaingToAutoOpenIncludingFailed => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
 
+
     void autoOpenContainer(NodeStoreContainer container, bool throwException) {
         try {
             var sw = Stopwatch.StartNew();
@@ -291,6 +293,8 @@ public partial class RelatudeDBServer {
     }
 }
 public class ServerOptions {
+    public static string DefaultFileRootUrl => "/files";
+
     /// <summary>
     /// Callback that is triggered when a new database is initialized. 
     /// This is called every time a database is initialized, and before it it opened.
@@ -324,4 +328,5 @@ public class ServerOptions {
     /// </summary>
     public string? DefaultTempFolderPath { get; set; } = null;
     public List<IFileConverter> FileConverters { get; set; } = [];
+    public string FileHandlerRootUrl { get; set; } = DefaultFileRootUrl;
 }

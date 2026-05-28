@@ -28,11 +28,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
-        //if (!_fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat)) {
-        //    throw new Exception(
-        //        $"File format {fileValue.Format.ToString().ToUpper()} cannot be converted to {adj.RequestedFormat.ToString().ToUpper()}."
-        //        + " There are no converters loaded that support this conversion. ");
-        //}
         var internalUrl = _urlProvider.GetInternalUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue));
         return _urlProvider.GetExternalUrl(internalUrl, absolute);
     }

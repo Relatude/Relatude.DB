@@ -106,11 +106,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
         fileConverters = [.. (fileConverters ?? []), new NativeImageConverter()];
-        _urlProvider = urlProvider ?? new DefaultUrlProvider(this, Guid.Empty);
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
+        _urlProvider = urlProvider ?? new DefaultUrlProvider(Guid.Empty, "files");
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);

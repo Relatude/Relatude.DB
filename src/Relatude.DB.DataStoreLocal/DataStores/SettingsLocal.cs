@@ -15,7 +15,7 @@ public class SettingsLocal {
     //public UrlProviderType UrlProviderType;
 
     public string? FilePrefix { get; set; }
-    public Guid? DefaultFileStore { get; set; } 
+    public Guid? DefaultFileStore { get; set; }
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 
@@ -73,7 +73,6 @@ public class SettingsLocal {
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.BuiltIn;
     public string? PersistedQueueStoreFolderPath { get; set; }
-
 }
 
 public enum PersistedTextIndexEngine {

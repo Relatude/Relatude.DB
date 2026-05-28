@@ -1,4 +1,5 @@
-﻿using Relatude.DB.AI;
+﻿using Microsoft.AspNetCore.Mvc;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
@@ -8,6 +9,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.Tasks;
+using Relatude.DB.Web;
 using System.Diagnostics;
 using System.Reflection;
 
@@ -170,6 +172,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             var sw = Stopwatch.StartNew();
+
+            var urlProvider = new DefaultUrlProvider(Guid.Empty, server?.Options?.FileHandlerRootUrl ?? ServerOptions.DefaultFileRootUrl);
+
             IDataStore datastore = new DataStoreLocal(
                     Datamodel,
                     settings.LocalSettings,
@@ -183,8 +188,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioSecondary,
                     ioIndexes,
                     QueryContext.MasterAdmin,
-                    null, server?.Options?.FileConverters.ToArray()
-
+                    urlProvider, 
+                    server?.Options?.FileConverters.ToArray()                    
                     );
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);
