@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -6,20 +7,50 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.FileConversion;
 
 public class FileConversionEngine : IDisposable {
+    const string _cacheBaseFolder = "converted";
+    static string[] _tempBaseFolder = [_cacheBaseFolder, "temp"];
     readonly FileConverterLibrary _fileConverters;
     readonly RunningConversions _conversionsInProgress;
     readonly FileConversionCache _fileCache;
     readonly FileConversionScheduler _scheduler;
-    public FileConversionEngine(IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
+    readonly string _localTempFolderPath;
+    readonly IDataStore _store;
+    public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
+        _store = store;
         _fileConverters = new(converters);
-        foreach (var c in converters) c.Initialize(_fileConverters);
+        foreach (var c in converters) c.Initialize(this);
         _conversionsInProgress = new();
-        _fileCache = new(io);
-        _scheduler = new FileConversionScheduler(pulse, ex => Console.WriteLine(ex.ToString()));
+        if (io.TryGetLocalFolderPath(_tempBaseFolder, out var tempFolder)) {
+            _localTempFolderPath = tempFolder;
+        } else {
+            _localTempFolderPath = Path.GetTempPath();
+        }
+        _fileCache = new(io, _cacheBaseFolder);
+        _scheduler = new FileConversionScheduler(pulse, ex => _store.LogError("File conversion scheduler error: ", ex));
         _scheduler.Start();
     }
+    public void ClearTempFolder() {
+        if (Directory.Exists(_localTempFolderPath)) {
+            var fileCount = Directory.GetFiles(_localTempFolderPath).Length;            
+            _store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
+            try {
+                Directory.Delete(_localTempFolderPath, true);
+            } catch (Exception ex) {
+                _store.LogError("Failed to clear temp folder for file conversions. ", ex);
+            }
+        } else {
+            _store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. 0 files to delete. ");
+        }
+        if (!Directory.Exists(_localTempFolderPath)) Directory.CreateDirectory(_localTempFolderPath);
+    }
     bool tryReserveWork(ProgressEntry entry) {
-        return _fileConverters.TryReserveWorkOnConverter(entry.FileInfo.Formats);
+        try {
+            return _fileConverters.TryReserveWorkOnConverter(entry.FileInfo.Formats);
+        } catch (Exception ex) {
+            _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), ex.Message);
+            _conversionsInProgress.Remove(entry);
+            return false;
+        }
     }
     void pulse() {
         while (_conversionsInProgress.TryGetWorkIfNotAlreadyWorkingOnEntryOrConverterTooBusy(out var entry, tryReserveWork)) {
@@ -57,7 +88,7 @@ public class FileConversionEngine : IDisposable {
         var conversionResult = await converter.DoConvertWork(entry.InputSource, entry.FileInfo);
         if (conversionResult.Output != null) {
             await _fileCache.SetFromStreamAsync(entry.FileInfo.IdWithAdjustment, conversionResult.Output);
-        }else if (conversionResult.LocalFilePathOutput != null) {
+        } else if (conversionResult.LocalFilePathOutput != null) {
             await _fileCache.SetFromFileAsync(entry.FileInfo.IdWithAdjustment, conversionResult.LocalFilePathOutput);
         } else {
             throw new Exception("Converter did not return output stream or file path for " + entry.FileInfo.Formats.ToString()?.ToUpper());
@@ -90,6 +121,7 @@ public class FileConversionEngine : IDisposable {
         if (startIfNotFound) {
             var prg = new FileConversionProgressInfo(FileConversionStatus.InProgress);
             _conversionsInProgress.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source));
+            _scheduler.RunSoon();
             progressInfo = prg;
             return true;
         }
@@ -135,15 +167,22 @@ public class FileConversionEngine : IDisposable {
         try {
             return getStatusDataStream(fileValue, adj, status);
         } catch (Exception err) {
-            var baseRequestedFormat = FileFormatUtil.GetFileType(fileValue.Format);
-            if (baseRequestedFormat == FileType.Image && _fileConverters.TryGetConverter(new FormatPair(fileValue.Format, FileFormat.Png), out var converter)) {
-                var text = new List<string> { "ERROR GENERATING STATUS", string.Empty, err.Message };
-                var uniqueStatusKey = string.Join("|", text);
+            // error, with fallbacks to base formats
+            var baseRequestedFormat = FileFormatUtil.GetFileType(adj.RequestedFormat);
+            var text = new List<string> { "UNSUPPORTED CONVERSION", string.Empty, err.Message };
+            var uniqueStatusKey = string.Join("|", text);
+            if (baseRequestedFormat == FileType.Image && _fileConverters.TryGetConverter(new(FileFormat.Png), out var imgConv)) {
                 var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
-                    () => converter.CreateStatusResponse(FileFormat.Png, 320, 240, text, errorTextColor, errorBgColor)
+                    () => imgConv.CreateStatusResponse(FileFormat.Png, 320, 240, text, errorTextColor, errorBgColor)
+                );
+                return new MemoryStream(bytes);
+            } else if (baseRequestedFormat == FileType.Video && _fileConverters.TryGetConverter(new(FileFormat.Mp4), out var vidConv)) {
+                var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+                    () => vidConv.CreateStatusResponse(FileFormat.Mp4, 320, 240, text, errorTextColor, errorBgColor)
                 );
                 return new MemoryStream(bytes);
             } else {
+                // no converter to represent base format requested
                 throw;
             }
         }
@@ -219,6 +258,10 @@ public class FileConversionEngine : IDisposable {
         _conversionsInProgress.ClearAll();
     }
     public int QueueCount => _conversionsInProgress.Count;
+
+    public FileConverterLibrary ConverterLibrary => _fileConverters;
+    public string LocalTempFolderPath => _localTempFolderPath;
+
     public ConversionInfo[] GetRunning() {
         var running = _conversionsInProgress.GetAll();
         foreach (var conversion in running) {

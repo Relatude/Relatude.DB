@@ -57,7 +57,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
         //videoFilePath = @"C:\Users\ogulb\Downloads\Send Help.mkv";
         //var videoFilePath = @"C:\Users\ogulb\OneDrive\Demo\vid.mkv";
         //await db.FileUploadAsync(art.File, videoFilePath);
-        await db.FileUploadAsync(art.File, filePath);
+        await db.FileUploadAsync(art.File, videoFilePath);
         //var p = art.Paragraphs.First();
         //if (db.FileStoreSupportsMultipartUploads(p.File)) {
         //    using var stream = File.OpenRead(videoFilePath);
@@ -114,8 +114,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 
         var thumbnailAdj = new FileAdjustmentImage() {
             CropMode = ImageCropMode.Fill,
-            Width = 1640,
-            Height = 1360,
+            Width = 640,
+            Height = 360,
             Saturation = -100,
             RequestedFormat = FileFormat.Avif,
             Sharpness = 0,
@@ -127,7 +127,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 
         var videoUrl = $"files/{db.Datastore.GetUrl(item.File.PropertyPath!, videoAdj)}";
 
-        //var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
+        var isVideoReady = db.Datastore.IsFileReady(item.File.PropertyPath!, videoAdj, true);
         //bool isVideoReady = false;
         //if (db.Datastore.TryGetProgressInfo(item.File.PropertyPath!, videoAdj, true, out var info)) {
         //    isVideoReady = info.Status != FileConversionStatus.InProgress;
@@ -136,14 +136,14 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         //}
         //isVideoReady = true;
 
-        //if (isVideoReady) {
-        //    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-        //    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-        //    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-        //    html.Append($"</video>");
-        //} else {
-        //    html.Append($"<img src='{thumbnailUrl}'>");
-        //}
+        if (isVideoReady) {
+            html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+            html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+            html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+            html.Append($"</video>");
+        } else {
+            html.Append($"<img src='{thumbnailUrl}'>");
+        }
         html.Append($"<img src='{thumbnailUrl}'>");
 
 

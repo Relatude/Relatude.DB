@@ -115,7 +115,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
-        _fileConversionEngine = new(fileConverters, converterIoProvider, _fileKeys);
+        _fileConversionEngine = new(this, fileConverters, converterIoProvider, _fileKeys);
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
@@ -298,6 +298,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
         if (_state == DataStoreState.Open) {
+            _fileConversionEngine.ClearTempFolder();
             _scheduler.Start();
         }
     }

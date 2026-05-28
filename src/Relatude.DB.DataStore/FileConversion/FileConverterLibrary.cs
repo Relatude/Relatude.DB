@@ -37,7 +37,7 @@ public class FileConverterLibrary {
         }
     }
     public bool TryReserveWorkOnConverter(FormatPair key) {
-        if (!TryGetConverter(key, out var converter)) return false;
+        if (!TryGetConverter(key, out var converter)) throw new Exception("No converter found for converting from " + key.From + " to " + key.To);
         lock (_concurrentWork) {
             var i = _concurrentWork.TryGetValue(converter, out var match) ? match : new converterInfo(0, DateTime.MinValue);
             if (i.ConcurrentCount >= converter.ThreadCount) {

@@ -152,6 +152,10 @@ public struct FormatPair : IEquatable<FormatPair> {
         From = from;
         To = to;
     }
+    public FormatPair(FileFormat fromAndTo) {
+        From = fromAndTo;
+        To = fromAndTo;
+    }
 
     public FileFormat From { get; }
     public FileFormat To { get; }

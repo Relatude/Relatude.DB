@@ -232,7 +232,12 @@ public class IOProviderDisk : IIOProvider {
         localFilePath = null;
         return false;
     }
-
+    public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var folderPath = Path.Combine([BaseFolder, .. path]);
+        localFolderPath = folderPath;
+        return true;
+    }
     public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) {
         var destinationPath = Path.Combine([BaseFolder, .. destination]);
         var isSameDrive = string.Equals(Path.GetPathRoot(fromLocalFilePath), Path.GetPathRoot(destinationPath), StringComparison.OrdinalIgnoreCase);

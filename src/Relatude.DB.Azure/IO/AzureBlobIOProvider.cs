@@ -265,9 +265,7 @@ public class AzureBlobIOProvider : IIOProviderWithFolders {
             return sub;
         })];
     }
-    public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) {
-        localFilePath = null;
-        return false;
-    }
+    public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) { localFilePath = null; return false; }
+    public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) { localFolderPath = null; return false; }
     public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => false;
 }

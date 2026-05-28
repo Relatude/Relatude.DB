@@ -1,6 +1,5 @@
 ﻿using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
 
 namespace Relatude.DB.FileConversion;
 
@@ -38,7 +37,7 @@ public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFil
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing
     int ThreadCount { get; set; }
     int CallDelayMs { get; set; }
-    void Initialize(FileConverterLibrary library);
+    void Initialize(FileConversionEngine conversionEngine);
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(Guid key);
     Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);

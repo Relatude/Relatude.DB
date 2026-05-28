@@ -40,7 +40,7 @@ public abstract class ImageConverterBase : IFileConverter {
         var bytes = img.Encode(requestedFormat);
         return bytes;
     }
-    public void Initialize(FileConverterLibrary library) {
+    public void Initialize(FileConversionEngine engine) {
         // not needed;
     }
 }

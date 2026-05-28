@@ -6,9 +6,12 @@ namespace Relatude.DB.FileConversion;
 
 internal class FileConversionCache {
     readonly IIOProvider _io;
-    public FileConversionCache(IIOProvider io) { _io = io; }
+    readonly string _baseFolder;
+    public FileConversionCache(IIOProvider io, string baseFolder) { 
+        _io = io; 
+        _baseFolder = baseFolder;
+    }
     const int _folderDepth = 3;
-    const string _baseFolder = "converted";
     readonly Cache<Guid, byte[]> _smallCache = new(100 * 1024 * 1024); // 100mb
     int _smallFileSizeLimit = 200 * 1024; // 200kb
     string[] getFilePath(Guid key) {

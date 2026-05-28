@@ -22,6 +22,7 @@ public interface IIOProvider {
     void RenameFile(string fileKey, string newFileKey);
     void CloseAllOpenStreams();
     bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath);
+    bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath);
     bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination);
 }
 public interface IIOProviderWithFolders : IIOProvider {
