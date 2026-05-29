@@ -7,8 +7,8 @@ namespace Relatude.DB.FileConversion;
 internal class FileConversionCache {
     readonly IIOProvider _io;
     readonly string _baseFolder;
-    public FileConversionCache(IIOProvider io, string baseFolder) { 
-        _io = io; 
+    public FileConversionCache(IIOProvider io, string baseFolder) {
+        _io = io;
         _baseFolder = baseFolder;
     }
     const int _folderDepth = 3;
@@ -88,12 +88,10 @@ internal class FileConversionCache {
         _smallCache.Clear_EvenIf0Size(key);
     }
     public void ClearAll() {
-        if (_io is IIOProviderWithFolders ioWithFolders) {
-            var folders = ioWithFolders.GetFoldersAsync(new[] { _baseFolder }, true, true).Result;
-            foreach (var folder in folders) {
-                if (folder.Name == _baseFolder) continue;
-                ioWithFolders.DeleteFolderIfItExists(new[] { folder.Name });
-            }
+        var folders = _io.GetFoldersAsync(new[] { _baseFolder }, true, true).Result;
+        foreach (var folder in folders) {
+            if (folder.Name == _baseFolder) continue;
+            _io.DeleteFolderIfItExists(new[] { folder.Name });
         }
         _smallCache.ClearAll_NotSize0();
     }
@@ -103,5 +101,14 @@ internal class FileConversionCache {
         var pathError = getFilePathErrorStatus(key);
         _io.DeleteFileIfItExists(pathError);
         _io.WriteString(pathError, errorMessage);
+    }
+    public void ClearAllErrors() {
+        var folders = _io.GetFoldersAsync(new[] { _baseFolder }, true, true).Result;
+        foreach (var folder in folders) {
+            if (folder.Name == _baseFolder) continue;
+            var pathError = getFilePathErrorStatus(Guid.Parse(folder.Name));
+            var errorFolder = new string[pathError.Length - 1];
+            if (_io.Exists(pathError)) _io.DeleteFolderIfItExists(errorFolder);
+        }
     }
 }

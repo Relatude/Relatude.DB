@@ -49,7 +49,7 @@ public static class AddUse {
         RelatudeDBServer.FileHandlerRootUrl = urlPath;
         app.MapGet(urlPath + "/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
             var db = ctx.Database;
-            var fileInfo = await db.GetFileStreamAndState(propPathAndAdj, 100);
+            var fileInfo = await db.GetFileStreamAndState(propPathAndAdj);
             if (fileInfo.IsTemporary) {
                 http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
             } else {

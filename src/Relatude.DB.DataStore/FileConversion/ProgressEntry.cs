@@ -17,6 +17,7 @@ public class ProgressEntry(
     public InputFileSource InputSource { get; } = inputSource;
 }
 public class ConversionInfo(ProgressEntry entry) {
+    public Guid Key => FileInfo.IdWithAdjustment.GetKey();
     public DateTime Created { get; } = entry.Created;
     public FileConversionProgressInfo ProgressInfo { get; set; } = entry.ProgressInfo;
     public FileConversionInfo FileInfo { get; } = entry.FileInfo;

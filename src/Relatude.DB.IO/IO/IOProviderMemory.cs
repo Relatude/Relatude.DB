@@ -196,4 +196,52 @@ public class IOProviderMemory : IIOProvider {
     public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) { localFolderPath = null; return false; }
     public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => false;
 
+    public void DeleteFolderIfItExists(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var prefix = string.Join(_virtualFolderChar, path) + _virtualFolderChar;
+        lock (_lock) {
+            var keys = _disk.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var key in keys) {
+                var file = _disk[key];
+                if (file.Meta.Readers > 0) throw new Exception($"File {key} is locked for reading.");
+                if (file.Meta.Writers > 0) throw new Exception($"File {key} is locked for writing.");
+                _disk.Remove(key);
+            }
+        }
+    }
+    public void EnsureFolder(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        // Memory provider uses virtual folders via key prefixes; no-op needed.
+    }
+    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var prefix = path.Length > 0 ? string.Join(_virtualFolderChar, path) + _virtualFolderChar : string.Empty;
+        lock (_lock) {
+            var root = buildVirtualFolder("root", prefix, recursive, withFiles);
+            return Task.FromResult(root.SubFolders);
+        }
+    }
+    FolderMeta buildVirtualFolder(string name, string prefix, bool recursive, bool withFiles) {
+        var folder = new FolderMeta { Name = name };
+        var directChildren = _disk.Keys
+            .Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(k => k[prefix.Length..])
+            .ToList();
+        var subFolderNames = directChildren
+            .Where(k => k.Contains(_virtualFolderChar))
+            .Select(k => k[..k.IndexOf(_virtualFolderChar)])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var directFiles = directChildren.Where(k => !k.Contains(_virtualFolderChar)).ToList();
+        folder.HasFiles = directFiles.Count > 0;
+        folder.HasSubFolders = subFolderNames.Count > 0;
+        if (withFiles) folder.Files = [.. directFiles.Select(f => _disk[prefix + f].Meta)];
+        folder.SubFolders = [.. subFolderNames.Select(sf => {
+            var sub = recursive
+                ? buildVirtualFolder(sf, prefix + sf + _virtualFolderChar, recursive, withFiles)
+                : new FolderMeta { Name = sf };
+            return sub;
+        })];
+        return folder;
+    }
 }

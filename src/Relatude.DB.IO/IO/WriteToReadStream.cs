@@ -52,7 +52,16 @@ public class WriteToReadStream : Stream {
             try { _signal.Wait(); } catch (ObjectDisposedException) { return 0; }
             lock (_queue) { if (_queue.Count > 0) { _current = _queue.Dequeue(); _currentPos = 0; continue; } }
             if (!_disposed) _signal.Release(); // re-signal so subsequent reads also see EOF
-            if (_error != null) throw new IOException("Producer stream faulted.", _error);
+            if (_error != null) {
+                if (_error is AggregateException errAgg) {
+                    foreach (var e in errAgg.InnerExceptions) {
+                        if (e is FileNotFoundException) {
+                            throw new FileNotFoundException("File not found.", e);
+                        }
+                    }
+                }
+                throw new IOException("Stream error. ", _error);
+            }
             return 0;
         }
     }

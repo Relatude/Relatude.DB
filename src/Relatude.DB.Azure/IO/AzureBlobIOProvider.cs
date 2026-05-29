@@ -4,7 +4,7 @@ using Azure.Storage.Blobs.Specialized;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
 
-public class AzureBlobIOProvider : IIOProviderWithFolders {
+public class AzureBlobIOProvider:IIOProvider {
     const string _virtualFolderChar = "/";
     string getAndValidateBlobName(string[] path) {
         FileKeyUtility.ValidateFileKeyPath(path);

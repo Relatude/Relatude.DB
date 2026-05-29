@@ -103,4 +103,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
     }
     public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
+    public void CancelAllConversions(QueryContext? ctx = null) => _fileConversionEngine.CancelAllRunning();
+    public void CancelConversion(Guid conversionId, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId);
+    public void ClearAllCachedConversions(QueryContext? ctx = null) => _fileConversionEngine.ClearAllCache();
+    public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _fileConversionEngine.ClearAllErrors();
 }

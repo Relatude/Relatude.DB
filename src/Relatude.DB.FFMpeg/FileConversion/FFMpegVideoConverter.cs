@@ -312,7 +312,10 @@ public class FFMpegVideoConverter : IFileConverter {
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static void tryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
+    static void tryDelete(string path) { 
+        //Console.WriteLine("Trying to delete temp file: " + path);
+        try { if (File.Exists(path)) File.Delete(path); } catch { } 
+    }
 
     public bool TryGetLiveStatus(Guid fileId, FileAdjustment adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         var key = fileId.CombineHashGuid(adj.GetKey());
@@ -400,8 +403,8 @@ public class FFMpegVideoConverter : IFileConverter {
                 .FromFileInput(inputTmp)
                 .OutputToFile(outputTmp, true)
                 .ProcessSynchronously();
-        } finally {
-            tryDelete(inputTmp);
+        } catch {
+            tryDelete(outputTmp);
         }
     }
 

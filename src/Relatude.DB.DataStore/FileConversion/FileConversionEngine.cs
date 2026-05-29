@@ -31,7 +31,7 @@ public class FileConversionEngine : IDisposable {
     }
     public void ClearTempFolder() {
         if (Directory.Exists(_localTempFolderPath)) {
-            var fileCount = Directory.GetFiles(_localTempFolderPath).Length;            
+            var fileCount = Directory.GetFiles(_localTempFolderPath).Length;
             _store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
             try {
                 Directory.Delete(_localTempFolderPath, true);
@@ -72,7 +72,9 @@ public class FileConversionEngine : IDisposable {
                             throw new Exception("Unknown status: " + progress.Status);
                     }
                 } catch (Exception ex) {
-                    _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), ex.Message);
+                    _store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
+                    var safePublicMessage = ex is FileNotFoundException ? "Source file missing" : "Conversion failed";
+                    _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), safePublicMessage);
                     _conversionsInProgress.Remove(entry);
                 }
                 _fileConverters.ReleaseWorkFromConverter(entry.FileInfo.Formats);
@@ -219,6 +221,7 @@ public class FileConversionEngine : IDisposable {
             _ => unknownTextColor
         };
         List<string> text = [];
+
         text.Add("CONVERSION " + status.Status.ToString().Decamelize().ToUpper());
         text.Add(string.Empty);
         text.Add(string.IsNullOrWhiteSpace(status.Message) ? "Please wait..." : status.Message);
@@ -272,7 +275,17 @@ public class FileConversionEngine : IDisposable {
         }
         return running;
     }
+    public void CancelAllRunning() {
+        _conversionsInProgress.ClearAll();
+    }
     public bool CanConvert(FileFormat format, FileFormat requestedFormat) {
         return _fileConverters.TryGetConverter(new FormatPair(format, requestedFormat), out _);
+    }
+    public void ClearAllErrors() {
+        _fileCache.ClearAllErrors();
+    }
+
+    public void CancelRunning(Guid conversionId) {
+        _conversionsInProgress.RemoveByKey(conversionId);
     }
 }

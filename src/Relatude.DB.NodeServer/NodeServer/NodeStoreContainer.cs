@@ -69,7 +69,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (ioIndexes != null) ioProvidersToClean.Add(ioIndexes);
         }
         foreach (var io in ioProvidersToClean) {
-            if (io is IIOProviderWithFolders iof) iof.DeleteFolderIfItExists([fileKeyUtil.IndexStoreFolderKey]);
+            io.DeleteFolderIfItExists([fileKeyUtil.IndexStoreFolderKey]);
             io.DeleteFileIfItExists(fileKeyUtil.StateFileKey);
             fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteFileIfItExists);
             fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteFileIfItExists);

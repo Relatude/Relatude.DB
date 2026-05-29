@@ -24,8 +24,6 @@ public interface IIOProvider {
     bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath);
     bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath);
     bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination);
-}
-public interface IIOProviderWithFolders : IIOProvider {
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
     Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);

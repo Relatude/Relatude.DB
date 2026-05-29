@@ -104,12 +104,13 @@ namespace Relatude.DB.Common {
                     item.Timestamp = ++_timestamp;
                     _hits++;
                     return item.Data;
-                } else {
-                    var data = create();
-                    _cache.Add(nodeId, new Entry<TValue>(data, ++_timestamp, 0));
-                    _misses++;
-                    return data;
                 }
+            }
+            var data = create();
+            lock (_lock) {
+                _cache[nodeId] = new Entry<TValue>(data, ++_timestamp, 0);
+                _misses++;
+                return data;
             }
         }
         public bool TryGet(TKey nodeId, [MaybeNullWhen(false)] out TValue data) {

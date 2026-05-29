@@ -208,5 +208,11 @@ public class DataStoreSession : IDataStore {
         => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? DefaultQueryContext);
 
     public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _datastore.GetRunningConversions(ctx ?? DefaultQueryContext);
+    public void CancelAllConversions(QueryContext? ctx = null) => _datastore.CancelAllConversions(ctx ?? DefaultQueryContext);
+    public void CancelConversion(Guid conversionId, QueryContext? ctx = null) => _datastore.CancelConversion(conversionId, ctx ?? DefaultQueryContext);
+    public void ClearAllCachedConversions(QueryContext? ctx = null) => _datastore.ClearAllCachedConversions(ctx ?? DefaultQueryContext);
+    public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _datastore.ClearAllCachedConversionsErrors(ctx ?? DefaultQueryContext);
+
+
 
 }

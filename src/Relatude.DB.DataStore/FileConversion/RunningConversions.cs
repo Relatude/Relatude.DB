@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.Xml.Serialization;
 
 namespace Relatude.DB.FileConversion;
 
@@ -135,6 +136,12 @@ internal class RunningConversions {
             lock (_conversions) {
                 return _conversions.Count;
             }
+        }
+    }
+    public void RemoveByKey(Guid conversionId) {
+        lock (_conversions) {
+            _conversions.Remove(conversionId);
+            _doingWorkOnEntry.Remove(conversionId);
         }
     }
     public void ClearAll() {
