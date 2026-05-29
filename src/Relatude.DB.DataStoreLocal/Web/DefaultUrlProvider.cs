@@ -57,7 +57,7 @@ public class DefaultUrlProvider : IUrlProvider {
         if (contentVersionId != null) url += DELIMITER + contentVersionId;
         return url;
     }
-    public string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId) {
+    public string GetInternalUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId) {
         var url = urlTypeChar(UrlType.LocalAdjusted) + B64.EncodeForUrl(property.ToBytes()) + DELIMITER + _encoder.GetEncodedString(adjustment);
         if (contentVersionId != null) url += DELIMITER + contentVersionId;
         return url;
@@ -65,6 +65,10 @@ public class DefaultUrlProvider : IUrlProvider {
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();
         return _urlFileRoot + internalUrl;
+    }
+    public string GetExternalUrl(NodePath nodePath, bool absolute) {
+        var internalUrl = GetInternalUrl(nodePath);
+        return GetExternalUrl(internalUrl, absolute);
     }
     public string GetInternalUrl(string externalUrl) {
         if (externalUrl == null) return string.Empty;
@@ -110,7 +114,7 @@ public class DefaultUrlProvider : IUrlProvider {
         if (!PropertyPath.TryParse(localUrl[1..], out propertyPath)) return false;
         return true;
     }
-    public bool TryParseInternalUrlForPathWithFileAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment) {
+    public bool TryParseInternalUrlForPathWithFileAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment) {
         propertyPath = default;
         adjustment = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;

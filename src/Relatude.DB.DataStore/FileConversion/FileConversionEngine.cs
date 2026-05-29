@@ -163,7 +163,7 @@ public class FileConversionEngine : IDisposable {
     const string unknownBgColor = "#777777";
     const string unknownTextColor = "#FFFFFF";
 
-    public Stream GetStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+    public Stream GetStatusDataStream(FileValue fileValue, FileAdjustment adj, FileConversionProgressInfo status) {
         try {
             return getStatusDataStream(fileValue, adj, status);
         } catch (Exception err) {
@@ -187,7 +187,7 @@ public class FileConversionEngine : IDisposable {
             }
         }
     }
-    Stream getStatusDataStream(FileValue fileValue, FileAdjustmentBase adj, FileConversionProgressInfo status) {
+    Stream getStatusDataStream(FileValue fileValue, FileAdjustment adj, FileConversionProgressInfo status) {
         var baseRequestedFormat = FileFormatUtil.GetFileType(fileValue.Format);
         if (!_fileConverters.TryGetConverter(new FormatPair(fileValue.Format, adj.RequestedFormat), out var converter)) {
             throw new Exception(

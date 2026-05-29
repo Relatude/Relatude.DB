@@ -41,7 +41,7 @@ public interface IFileConverter { // just the conversion,  calling local image c
     bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed);
     Task<bool> CancelAsync(Guid key);
     Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info);
-    bool TryGetLiveStatus(Guid fileId, FileAdjustmentBase adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
+    bool TryGetLiveStatus(Guid fileId, FileAdjustment adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status);
     byte[] CreateStatusResponse(FileFormat requestedFormat, int width, int height, List<string> text, string textColor, string fillColor);
 }
 public static class IFileConverterExt {

@@ -7,7 +7,6 @@ public class FileValue {
         Indexed = false;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileType.Unknown;
         Size = 0;
         Height = 0;
         Width = 0;
@@ -22,7 +21,6 @@ public class FileValue {
         Name = name;
         TextExtract = string.Empty;
         MetaJSON = string.Empty;
-        Type = FileType.Unknown;
         Size = size;
         Height = 0;
         Width = 0;
@@ -66,7 +64,6 @@ public class FileValue {
         f.Name = newValue.Name;
         f.TextExtract = newValue.TextExtract;
         f.MetaJSON = newValue.MetaJSON;
-        f.Type = newValue.Type;
         f.Height = newValue.Height;
         f.Width = newValue.Width;
 
@@ -81,13 +78,9 @@ public class FileValue {
     public string Name { get; set; }
     public string TextExtract { get; set; }
     public string MetaJSON { get; set; }
-    public FileType Type { get; set; }
-    public FileFormat Format {
-        get {
-            return FileFormatUtil.GetDetailedFormatFromFileName(Name);
-        }
-    }
-    public string ContentType{
+    public FileType FileType => FileFormatUtil.GetFileType(Name);
+    public FileFormat Format => FileFormatUtil.GetDetailedFormat(Name);
+    public string ContentType {
         get {
             return FileFormatUtil.GetContentType(Format);
         }
@@ -110,7 +103,6 @@ public class FileValue {
         bw.Write(Name);
         bw.Write(TextExtract);
         bw.Write(MetaJSON);
-        bw.Write((int)Type);
         bw.Write(Size);
         bw.Write(Height);
         bw.Write(Width);
@@ -134,7 +126,6 @@ public class FileValue {
         v.Name = br.ReadString();
         v.TextExtract = br.ReadString();
         v.MetaJSON = br.ReadString();
-        v.Type = (FileType)br.ReadInt32();
         v.Size = br.ReadInt64();
         v.Height = br.ReadInt32();
         v.Width = br.ReadInt32();
@@ -157,7 +148,6 @@ public class FileValue {
         c.Name = Name;
         c.TextExtract = TextExtract;
         c.MetaJSON = MetaJSON;
-        c.Type = Type;
         c.Size = Size;
         c.Height = Height;
         c.Width = Width;

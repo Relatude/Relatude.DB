@@ -70,19 +70,20 @@ public interface IDataStore : IDisposable {
 
 
     bool CanConvert(FileFormat from, FileFormat to);
-    bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
+    bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
 
-    string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null);
+    string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);
+    string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
     Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);
-
-    Task<Stream> GetConvertedFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
-    Task<StateAndStream> GetConvertedFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
-    bool TryGetProgressInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
-    bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null);
-    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
+    bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
+    bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null);
+    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
     ConversionInfo[] GetRunningConversions(QueryContext? ctx = null);
+
     // Internal not controlled
     void LogInfo(string text, string? details = null, bool replace = false);
     void LogWarning(string text, string? details = null);

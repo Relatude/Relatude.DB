@@ -16,14 +16,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     public bool CanConvert(FileFormat from, FileFormat to) {
         return _fileConversionEngine.CanConvert(from, to);
     }
-    public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) {
+    public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             return false;
         }
         return _fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat);
     }
-    public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) {
+    public string GetUrl(NodePath nodePath, bool absolute, QueryContext? ctx = null) {
+        return _urlProvider.GetExternalUrl(nodePath, absolute);
+    }
+    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
@@ -45,7 +48,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             return new StateAndStream(stream, false, fileValue, fileValue.Format);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
-            return await GetConvertedFileStreamAndState(path, adj, maxWait, ctx);
+            return await GetFileStreamAndState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
     }
@@ -55,10 +58,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.GetFileStream(fileValue);
     }
-    public async Task<Stream> GetConvertedFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
-        return (await GetConvertedFileStreamAndState(propertyPath, adj, maxWait, ctx)).Stream;
+    public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
+        return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx)).Stream;
     }
-    public async Task<StateAndStream> GetConvertedFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
+    public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
@@ -86,18 +89,18 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return new StateAndStream(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
     }
-    public bool TryGetProgressInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
         var fileStore = getFileStore(fileValue.StorageId);
         var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), null), out progressInfo);
     }
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null) {
-        return TryGetProgressInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) {
+        return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;
     }
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) {
-        TryGetProgressInfo(propertyPath, adj, true, out _, ctx);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
+        TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
     }
     public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
 }

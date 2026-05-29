@@ -3,12 +3,12 @@
 namespace Relatude.DB.FileConversion;
 
 public class FileIdWithAdjustment {
-    public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj) {
+    public FileIdWithAdjustment(Guid fileId, FileAdjustment adj) {
         FileId = fileId;
         Adjustment = adj;
     }
     public Guid FileId { get; }
-    public FileAdjustmentBase Adjustment { get; }
+    public FileAdjustment Adjustment { get; }
     Guid? _key = null;
     public Guid GetKey() => _key ??= FileId.CombineHashGuid(Adjustment.GetKey());
 }
@@ -17,7 +17,7 @@ public enum FileAdjustmentType {
     ImageMetaData,
     Video,
 }
-public abstract class FileAdjustmentBase {
+public abstract class FileAdjustment {
     public FileFormat RequestedFormat { get; set; }
     public abstract FileAdjustmentType GetAdjustmentType();
     static Dictionary<string, Guid> _staticKeyCache = [];
@@ -43,7 +43,7 @@ public abstract class FileAdjustmentBase {
     }
     protected abstract string GenerateStringKey();
 }
-public class FileAdjustmentImage : FileAdjustmentBase {
+public class FileAdjustmentImage : FileAdjustment {
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;
     public int? Width { get; set; } // canvas width
     public int? Height { get; set; } // canvas height
@@ -112,7 +112,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
     }
 }
-public class FileAdjustmentVideo : FileAdjustmentBase {
+public class FileAdjustmentVideo : FileAdjustment {
     public int? Width { get; set; } // canvas width
     public int? Height { get; set; } // canvas height
     public double TargetBitRateInMbps { get; set; } // in bits per second

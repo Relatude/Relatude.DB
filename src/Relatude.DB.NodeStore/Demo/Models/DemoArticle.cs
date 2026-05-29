@@ -31,7 +31,7 @@ public interface IDemoParagraph {
 }
 
 
-public class DemoArticle {
+public class DemoArticle{
 
     public Guid Id { get; set; }
 

@@ -66,7 +66,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     /// <param name="adj">The file adjustment object to convert. Cannot be null.</param>
     /// <returns>An array of key-value pairs representing the query parameters for the specified file adjustment. The array will
     /// contain at least one entry for the adjustment type.</returns>
-    public KeyValuePair<string, string?>[] GetEncodedQueryParamsPairs(FileAdjustmentBase adj) {
+    public KeyValuePair<string, string?>[] GetEncodedQueryParamsPairs(FileAdjustment adj) {
         ArgumentNullException.ThrowIfNull(adj);
         return [new("adjust", GetEncodedString(adj))];
     }
@@ -79,7 +79,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     /// <param name="adj">The file adjustment object to convert. Cannot be null.</param>
     /// <returns>An array of key-value pairs representing the query parameters for the specified file adjustment. The array will
     /// contain at least one entry for the adjustment type.</returns>
-    public KeyValuePair<string, string?>[] GetFriendlyQueryParamsPairs(FileAdjustmentBase adj) {
+    public KeyValuePair<string, string?>[] GetFriendlyQueryParamsPairs(FileAdjustment adj) {
         ArgumentNullException.ThrowIfNull(adj);
         var pairs = new List<KeyValuePair<string, string>>(16) {
             new("Type", getFriendlyStringFromAdjType(adj.GetAdjustmentType()).ToString())
@@ -121,7 +121,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     /// <returns>A file adjustment object constructed from the provided query parameters.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the query parameters do not specify a valid adjustment type or if the parameters cannot be mapped to a
     /// valid adjustment.</exception>
-    public FileAdjustmentBase GetAdjustmentFromFriendlyQueryParams(KeyValuePair<string, string>[] queryParams) {
+    public FileAdjustment GetAdjustmentFromFriendlyQueryParams(KeyValuePair<string, string>[] queryParams) {
         ArgumentNullException.ThrowIfNull(queryParams);
 
         var map = new Dictionary<string, string>(queryParams.Length, StringComparer.Ordinal);
@@ -138,7 +138,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
         var instance = metadata.Creator();
         UrlQueryCodec.ReadObject(map, string.Empty, instance, metadata);
 
-        if (instance is FileAdjustmentBase adjustment) {
+        if (instance is FileAdjustment adjustment) {
             return adjustment;
         }
 
@@ -193,7 +193,7 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     /// </summary>
     /// <param name="adj"></param>
     /// <returns></returns>
-    public string GetEncodedString(FileAdjustmentBase adj) {
+    public string GetEncodedString(FileAdjustment adj) {
         return @$"{_version}{getCharFromAdjType(adj.GetAdjustmentType())}{_urlSerializer.Compress(adj)}";
     }
 
@@ -205,13 +205,13 @@ public class UrlFileAdjustmentEncoder(Guid key) {
     /// <returns>A file adjustment object deserialized from the encoded string.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the URL string is null, empty, too short, has an unsupported version, or does not contain a valid
     /// adjustment.</exception>
-    public FileAdjustmentBase GetAdjustmentFromEncodedString(string urlString) {
+    public FileAdjustment GetAdjustmentFromEncodedString(string urlString) {
         if (string.IsNullOrEmpty(urlString) || urlString.Length < 2) throw new InvalidOperationException("The URL string is invalid.");
         if (urlString[0] != _version) throw new InvalidOperationException($"Unsupported URL version '{urlString[0]}'.");
         var adjType = getTypeFromChar(urlString[1]);
         var compressedString = urlString.Substring(2);
         var o = _urlSerializer.DeCompress(compressedString, adjType);
-        if (o is FileAdjustmentBase adjustment) {
+        if (o is FileAdjustment adjustment) {
             adjustment.BasicSanitization(); // to prevent "crazy" values, causing issues in downstream processing (e.g. negative or extreme dimensions, memory exhaustion, etc.)
             return adjustment;
         }

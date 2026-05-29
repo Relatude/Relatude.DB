@@ -4,6 +4,7 @@ using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
@@ -578,6 +579,9 @@ public class NodeStore : IDisposable {
     public void ReIndex(int id) => new Transaction(this).ReIndex(id);
     public void ReIndex(Guid id) => new Transaction(this).ReIndex(id);
 
+
+    // FILES:
+
     public Task FileDownloadAsync(Guid nodeId, Guid propertyId, Stream outStream) {
         return Datastore.FileDownloadAsync(new(nodeId, propertyId), outStream);
     }
@@ -639,6 +643,22 @@ public class NodeStore : IDisposable {
     public Task CancelPartialUploadAsync(Guid fileId) => Datastore.CancelPartialUpload(fileId);
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => Datastore.FileStoreSupportsMultipartUploads(propertyPath);
     public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);
+
+    // URL AND FILE STREAMS:
+    public string GetUrl(NodePath node, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(node, absolute, ctx);
+    public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
+    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);
+    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => Datastore.GetFileStream(url, maxWait, ctx);
+    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(url, maxWait, ctx);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, ctx);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
+        => TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
+    public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => Datastore.GetRunningConversions(ctx);
+
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {
         Datastore.EnqueueTask(task, jobId);
         return Task.CompletedTask;

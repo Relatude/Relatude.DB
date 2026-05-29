@@ -42,10 +42,10 @@ public enum FileFormat {
 }
 public static class FileFormatUtil {
     public static FileType GetFileType(string fileNameWithExtension) {
-        var detailedFormat = GetDetailedFormatFromFileName(fileNameWithExtension);
+        var detailedFormat = GetDetailedFormat(fileNameWithExtension);
         return GetFileType(detailedFormat);
     }
-    public static FileFormat GetDetailedFormatFromFileName(string fileNameWithExtension) {
+    public static FileFormat GetDetailedFormat(string fileNameWithExtension) {
         var ext = Path.GetExtension(fileNameWithExtension).ToLower();
         return ext switch {
             ".jpg" or ".jpeg" => FileFormat.Jpeg,

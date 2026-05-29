@@ -31,14 +31,15 @@ public interface IUrlProvider {
     string GetInternalUrl(IdKey idKey);
     string GetInternalUrl(NodePath nodePath);
     string GetInternalUrl(PropertyPath property, string? contentVersionId);
-    string GetInternalUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId);
+    string GetInternalUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId);
 
     bool TryParseInternalForUrlType(string internalUrl, out UrlType type);
 
-    bool TryParseInternalUrlForPathWithFileAdjustments(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment);
+    bool TryParseInternalUrlForPathWithFileAdjustments(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
     bool TryParseInternalUrlForIdKey(string internalUrl, [MaybeNullWhen(false)] out IdKey idKey);
     bool TryParseInternalUrlForNodePath(string internalUrl, [MaybeNullWhen(false)] out NodePath nodePath);
     bool TryParseInternalUrlForPropertyPath(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
+    string GetExternalUrl(NodePath nodePath, bool absolute);
 }
 
 

@@ -18,16 +18,29 @@ public static class AddUse {
         return UseRelatudeDBAsync(app, urlPath).Result;
     }
     public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = null) {
+        await app.StartRelatudeDBAsync(urlPath);
+        app.MapRelatudeDBAdmin();
+        app.MapRelatudeDBAdmin();
+        return app;
+    }
+    public static IEndpointRouteBuilder StartRelatudeDB(this WebApplication app, string? urlPath = null) {
+        return StartRelatudeDBAsync(app, urlPath).Result;
+    }
+    public static async Task<IEndpointRouteBuilder> StartRelatudeDBAsync(this WebApplication app, string? urlPath = null) {
         var server = new RelatudeDBServer(urlPath);
+        RelatudeDBRuntime.Initialize(server);
         var options = app.Services.GetRequiredService<ServerOptions>();
         await server.StartAsync(app, options);
         app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
-        server.MapSimpleAPI(app);
-        RelatudeDBRuntime.Initialize(server);
         return app;
     }
-    public static IEndpointRouteBuilder UseRelatudeDBFileHandler(this WebApplication app) {
+    public static IEndpointRouteBuilder MapRelatudeDBAdmin(this WebApplication app, string? urlPath = null) {
+        var server = RelatudeDBRuntime.Server;
+        server.MapSimpleAPI(app);
+        return app;
+    }
+    public static IEndpointRouteBuilder MapRelatudeDBClient(this WebApplication app) {
         var options = app.Services.GetRequiredService<ServerOptions>();
         var urlPath = options.FileHandlerRootUrl == null ? ServerOptions.DefaultFileRootUrl : options.FileHandlerRootUrl;
         if (string.IsNullOrWhiteSpace(urlPath)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPath));
@@ -36,7 +49,7 @@ public static class AddUse {
         RelatudeDBServer.FileHandlerRootUrl = urlPath;
         app.MapGet(urlPath + "/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
             var db = ctx.Database;
-            var fileInfo = await db.Datastore.GetFileStreamAndState(propPathAndAdj, 100);
+            var fileInfo = await db.GetFileStreamAndState(propPathAndAdj, 100);
             if (fileInfo.IsTemporary) {
                 http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
             } else {
