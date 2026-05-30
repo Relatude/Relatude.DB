@@ -1,5 +1,4 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
@@ -102,7 +101,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
         TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
     }
-    public ConversionInfo[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
+    public Conversion[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
     public void CancelAllConversions(QueryContext? ctx = null) => _fileConversionEngine.CancelAllRunning();
     public void CancelConversion(Guid conversionId, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId);
     public void ClearAllCachedConversions(QueryContext? ctx = null) => _fileConversionEngine.ClearAllCache();

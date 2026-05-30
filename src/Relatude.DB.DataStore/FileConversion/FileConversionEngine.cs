@@ -265,15 +265,16 @@ public class FileConversionEngine : IDisposable {
     public FileConverterLibrary ConverterLibrary => _fileConverters;
     public string LocalTempFolderPath => _localTempFolderPath;
 
-    public ConversionInfo[] GetRunning() {
-        var running = _conversionsInProgress.GetAll();
-        foreach (var conversion in running) {
-            if (_fileConverters.TryGetConverter(conversion.FileInfo.Formats, out var converter)) {
-                var i = conversion.FileInfo.IdWithAdjustment;
-                if (converter.TryGetLiveStatus(i.FileId, i.Adjustment, out var status)) conversion.ProgressInfo = status;
-            }
-        }
-        return running;
+    public Conversion[] GetRunning() {
+        throw new NotImplementedException();
+        //var running = _conversionsInProgress.GetAll();
+        //foreach (var conversion in running) {
+        //    if (_fileConverters.TryGetConverter(conversion.FileInfo.Formats, out var converter)) {
+        //        var i = conversion.FileInfo.IdWithAdjustment;
+        //        if (converter.TryGetLiveStatus(i.FileId, i.Adjustment, out var status)) conversion.ProgressInfo = status;
+        //    }
+        //}
+        //return running;
     }
     public void CancelAllRunning() {
         _conversionsInProgress.ClearAll();

@@ -82,7 +82,7 @@ public interface IDataStore : IDisposable {
     bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
     bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null);
     void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
-    ConversionInfo[] GetRunningConversions(QueryContext? ctx = null);
+    Conversion[] GetRunningConversions(QueryContext? ctx = null);
     void CancelAllConversions(QueryContext? ctx = null);
     void CancelConversion(Guid conversionId, QueryContext? ctx = null);
     void ClearAllCachedConversions(QueryContext? ctx = null);
