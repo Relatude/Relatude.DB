@@ -151,6 +151,16 @@ public static class FileFormatUtil {
             _ => null,
         };
     }
+    public static bool AsAttachement(FileFormat requestedFormat) {
+        var basicType = GetFileType(requestedFormat);
+        return basicType switch {
+            FileType.Image => false,
+            FileType.Video => false,
+            FileType.Audio => false,
+            FileType.Document => true,
+            _ => true,
+        };
+    }
 }
 public struct FormatPair : IEquatable<FormatPair> {
     public FormatPair(FileFormat from, FileFormat to) {

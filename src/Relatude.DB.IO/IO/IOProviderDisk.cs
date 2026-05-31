@@ -4,12 +4,24 @@ using System.Runtime;
 namespace Relatude.DB.IO;
 
 public class IOProviderDisk : IIOProvider {
+
+    static List<IOProviderDisk> _providers = new List<IOProviderDisk>();
+    public static string[] GetAllOpenStreams() {
+        return _providers.SelectMany(p => p.GetOpenStreams()).ToArray();
+    }
+    public string[] GetOpenStreams() {
+        lock (_lock) {
+            return _openStreams.Select(s => s.FileKey).ToArray();
+        }
+    }
+
     readonly bool _readOnly;
     readonly object _lock = new();
     readonly Dictionary<string, int> _openReaders = [];
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
     public IOProviderDisk(string baseFolder, bool readOnly = false) {
+        _providers.Add(this);
         BaseFolder = baseFolder;
         _readOnly = readOnly;
         if (!Directory.Exists(BaseFolder)) Directory.CreateDirectory(BaseFolder);
@@ -175,6 +187,7 @@ public class IOProviderDisk : IIOProvider {
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }
+
     public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
         FileKeyUtility.ValidateFileKeyPath(path);
         var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);

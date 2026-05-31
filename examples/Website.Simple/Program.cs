@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
+using Relatude.DB.IO;
 using Relatude.DB.NodeServer;
 using System.Text;
 
@@ -37,8 +38,12 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
     hasInserted = true;
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
-    var files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();
-    //var files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Pictures", "*.jpg").ToArray();
+    
+    var files1 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();
+    var files2 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Pictures", "*.jpg").ToArray();
+    var files = files1.Concat(files2).ToArray();
+    //ar files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "sample.mkv").ToArray();
+    //var files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Pictures", "nemo.jpg").ToArray();
     for (int i = 0; i < files.Length; i++) {
         var db = ctx.Database;
         var art = new DemoArticle();
@@ -53,6 +58,9 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var results = db.Query<DemoArticle>().WhereSearch("Ole").Execute().ToArray();
     return results;
+});
+app.MapGet("/Streams", (RelatudeDBContext ctx) => {
+    return IOProviderDisk.GetAllOpenStreams();
 });
 
 app.MapPost("/CancelConversion", (RelatudeDBContext ctx, Guid conversionKey) => {

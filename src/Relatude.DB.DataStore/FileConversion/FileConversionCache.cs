@@ -27,7 +27,29 @@ internal class FileConversionCache {
         path[^1] += ".status";
         return path;
     }
-    public bool TryGetResult(Guid key, [MaybeNullWhen(false)] out FileConversionResult result) {
+
+
+    public bool TryGetStatusNoStream(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo progress) {
+        if (_smallCache.TryGet(key, out var smallData)) {
+            progress = new(FileConversionStatus.Ready, 100, 0, null);
+            return true;
+        }
+        var path = getFilePath(key);
+        if (_io.Exists(path)) {
+            progress = new(FileConversionStatus.Ready, 100, 0, null);
+            return true;
+        }
+        var pathError = getFilePathErrorStatus(key);
+        if (_io.Exists(pathError)) {
+            var errorMessage = _io.ReadString(pathError, "Error");
+            progress = new(FileConversionStatus.Error, 0, 0, errorMessage);
+            return true;
+        }
+        progress = null;
+        return false;
+    }
+
+    public bool TryGetResultAndStream(Guid key, [MaybeNullWhen(false)] out FileConversionResultAndStream result) {
         if (_smallCache.TryGet(key, out var smallData)) {
             result = new(new(FileConversionStatus.Ready, 100, 0, null), new MemoryStream(smallData));
             return true;

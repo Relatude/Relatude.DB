@@ -106,7 +106,7 @@ public class FileConversionEngine : IDisposable {
         } else if (conversionResult.LocalFilePathOutput != null) {
             await _fileCache.SetFromFileAsync(entry.FileInfo.IdWithAdjustment, conversionResult.LocalFilePathOutput);
         } else {
-            throw new Exception("Converter did not return output stream or file path for " + entry.FileInfo.Formats.ToString()?.ToUpper());
+            throw new Exception("Converter did not return output stream or file path for " + entry.FileInfo.Formats.From.ToString().ToUpper() + " to " + entry.FileInfo.Formats.To.ToString().ToUpper());
         }
         return conversionResult.ProgressInfo;
     }
@@ -125,8 +125,8 @@ public class FileConversionEngine : IDisposable {
     }
     public bool TryGetProgressInfo(FileConversionInfo info, bool startIfNotFound, InputFileSource source, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo) {
         var key = info.IdWithAdjustment.GetKey();
-        if (_fileCache.TryGetResult(key, out var result)) {
-            progressInfo = result.ProgressInfo;
+        if (_fileCache.TryGetStatusNoStream(key, out var progress)) {
+            progressInfo = progress;
             return true;
         }
         if (_conversions.TryGet(key, out var entry)) {
@@ -143,10 +143,10 @@ public class FileConversionEngine : IDisposable {
         progressInfo = null;
         return false;
     }
-    public async Task<FileConversionResult> TryGetFormatAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
+    public async Task<FileConversionResultAndStream> TryGetFormatAndStreamAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
         maxWaitMs = adjustMaxWaitMs(info, maxWaitMs);
         var key = info.IdWithAdjustment.GetKey();
-        if (_fileCache.TryGetResult(key, out var result)) return result; // check cache first
+        if (_fileCache.TryGetResultAndStream(key, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();
         ProgressEntry? entry;
         _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source, null, null));
@@ -160,7 +160,7 @@ public class FileConversionEngine : IDisposable {
             var min = sw.ElapsedMilliseconds switch { < 100 => 20, < 1000 => 100, < 5000 => 500, _ => 1000 };
             await Task.Delay((int)Math.Min(min, remaining));
         }
-        if (_fileCache.TryGetResult(key, out result)) return result;
+        if (_fileCache.TryGetResultAndStream(key, out result)) return result;
         if (entry != null) return new(entry.ProgressInfo, null);
         return new(new(FileConversionStatus.Error, 0, 0, "Unknown status"), null);
     }

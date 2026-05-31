@@ -15,7 +15,7 @@ public enum FileConversionStatus {
     //Unsupported,
     Error,
 }
-public class FileConversionResult(FileConversionProgressInfo progressInfo, Stream? output = null) {
+public class FileConversionResultAndStream(FileConversionProgressInfo progressInfo, Stream? output = null) {
     public FileConversionProgressInfo ProgressInfo { get; } = progressInfo;
     public Stream? Output { get; } = output;
 }

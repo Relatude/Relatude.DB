@@ -1,4 +1,5 @@
 ﻿using FFMpegCore;
+using FFMpegCore.Enums;
 using Relatude.DB.Common;
 using Relatude.DB.FileConversion.ImageEncoders;
 using System.Collections.Concurrent;
@@ -92,6 +93,8 @@ public class FFMpegVideoConverter : IFileConverter {
             } else {
                 deleteInputFile = true;
                 inputFilePath = getTempPath(info.Formats.From);
+                var folder = Path.GetDirectoryName(inputFilePath);
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
                 await using (var inp = await source.OpenInputStream())
                 await using (var fs = File.Create(inputFilePath))
                     await inp.CopyToAsync(fs, cts.Token);

@@ -78,7 +78,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             });
             source = new InputFileSource(getInputStreamFunc, null);
         }
-        var result = await _fileConversionEngine.TryGetFormatAsync(info, maxWait, source);
+        var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source);
         Stream stream;
         if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
             if (result.Output == null) throw new Exception("File conversion output is null");
