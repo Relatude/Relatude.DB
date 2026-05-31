@@ -1,5 +1,8 @@
-﻿namespace Relatude.DB.Common;
+﻿using System.Text.Json.Serialization;
 
+namespace Relatude.DB.Common;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FileType {
     Unknown,
     Document,
@@ -7,6 +10,8 @@ public enum FileType {
     Video,
     Audio,
 }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FileFormat {
     // Image formats
     Jpeg,

@@ -62,7 +62,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
+        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         var fileStore = getFileStore(fileValue.StorageId);
         InputFileSource source;
@@ -90,7 +90,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj);
+        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
         var fileStore = getFileStore(fileValue.StorageId);
         var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), null), out progressInfo);
@@ -101,7 +101,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
         TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
     }
-    public Conversion[] GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
+    public FileConversions GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
     public void CancelAllConversions(QueryContext? ctx = null) => _fileConversionEngine.CancelAllRunning();
     public void CancelConversion(Guid conversionId, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId);
     public void ClearAllCachedConversions(QueryContext? ctx = null) => _fileConversionEngine.ClearAllCache();

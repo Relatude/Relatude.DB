@@ -3,12 +3,14 @@
 namespace Relatude.DB.FileConversion;
 
 public class FileIdWithAdjustment {
-    public FileIdWithAdjustment(Guid fileId, FileAdjustment adj) {
+    public FileIdWithAdjustment(Guid fileId, FileAdjustment adj, PropertyPath propertyPath) {
         FileId = fileId;
         Adjustment = adj;
+        PropertyPath = propertyPath;
     }
     public Guid FileId { get; }
     public FileAdjustment Adjustment { get; }
+    public PropertyPath PropertyPath { get; }
     Guid? _key = null;
     public Guid GetKey() => _key ??= FileId.CombineHashGuid(Adjustment.GetKey());
 }

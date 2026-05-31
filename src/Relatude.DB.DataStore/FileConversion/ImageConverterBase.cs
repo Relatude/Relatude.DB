@@ -31,7 +31,7 @@ public abstract class ImageConverterBase : IFileConverter {
         var stream = new MemoryStream(bytes);
         return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
     }
-    public bool TryGetLiveStatus(Guid fileId, FileAdjustment adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
+    public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         status = null;
         return false;
     }

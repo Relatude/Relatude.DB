@@ -317,8 +317,7 @@ public class FFMpegVideoConverter : IFileConverter {
         try { if (File.Exists(path)) File.Delete(path); } catch { } 
     }
 
-    public bool TryGetLiveStatus(Guid fileId, FileAdjustment adj, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
-        var key = fileId.CombineHashGuid(adj.GetKey());
+    public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         if (_conversionProgress.TryGetValue(key, out var liveProgress)) status = liveProgress;
         else if (!_ffmpegBinReady) status = new(FileConversionStatus.InProgress, 0, message: _ffmpegBinProgressInfo);
         else status = null;

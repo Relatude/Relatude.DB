@@ -12,12 +12,10 @@ internal class RunningConversions {
             m_Dictionary = new Dictionary<K, LinkedListNode<KeyValuePair<K, V>>>();
             m_LinkedList = new LinkedList<KeyValuePair<K, V>>();
         }
-
         public V this[K key] {
             get { return m_Dictionary[key].Value.Value; }
             set { Add(key, value); }
         }
-
         public int Count => m_Dictionary.Count;
         public virtual bool IsReadOnly => m_Dictionary.IsReadOnly;
         public ICollection<K> Keys => m_Dictionary.Keys;
@@ -77,8 +75,31 @@ internal class RunningConversions {
             return GetEnumerator();
         }
     }
+    class history<T>(TimeSpan maxAge, int maxCount) {
+        class itemWithTime(T item) {
+            public T Item { get; set; } = item;
+            public DateTime Time { get; } = DateTime.UtcNow;
+        }
+        readonly LinkedList<itemWithTime> _items = [];
+        public void Add(T item) {
+            RemoveExpired();
+            _items.AddLast(new itemWithTime(item));
+        }
+        public void RemoveExpired() {
+            var cutoff = DateTime.UtcNow - maxAge;
+            while (_items.First is { } first && first.Value.Time < cutoff) _items.RemoveFirst();
+            while (_items.Count >= maxCount) _items.RemoveFirst();
+        }
+        public IEnumerable<T> GetAll() {
+            RemoveExpired();
+            foreach (var item in _items) {
+                yield return item.Item;
+            }
+        }
+    }
     readonly orderedDictionary<Guid, ProgressEntry> _conversions = [];
     readonly HashSet<Guid> _doingWorkOnEntry = [];
+    readonly history<FileConversion> _history = new(TimeSpan.FromSeconds(60), 1000);
     public void AddIfMissing(Guid key, Func<ProgressEntry> createEntry) {
         lock (_conversions) {
             if (_conversions.ContainsKey(key)) return;
@@ -124,11 +145,21 @@ internal class RunningConversions {
             }
         }
     }
-    public void Remove(ProgressEntry entry) {
+    void addCounts(ConversionStatus status) {
+        switch (status) {
+            case ConversionStatus.Completed: _completed++; break;
+            case ConversionStatus.Failed: _failed++; break;
+            case ConversionStatus.Canceled: _canceled++; break;
+            default: break;
+        }
+    }
+    public void Remove(ProgressEntry entry, ConversionStatus reason, string? desc) {
         lock (_conversions) {
             var key = entry.FileInfo.IdWithAdjustment.GetKey();
             _conversions.Remove(key);
             _doingWorkOnEntry.Remove(key);
+            addCounts(reason);
+            _history.Add(new(entry, reason, desc));
         }
     }
     public int Count {
@@ -138,9 +169,39 @@ internal class RunningConversions {
             }
         }
     }
-    public void RemoveByKey(Guid conversionId) {
+    int _completed = 0;
+    int _failed = 0;
+    int _canceled = 0;
+
+    public int Completed {
+        get {
+            lock (_conversions) {
+                return _completed;
+            }
+        }
+    }
+    public int Failed {
+        get {
+            lock (_conversions) {
+                return _failed;
+            }
+        }
+    }
+    public int Canceled {
+        get {
+            lock (_conversions) {
+                return _canceled;
+            }
+        }
+    }
+
+    public void RemoveByKey(Guid conversionId, ConversionStatus reason, string? desc) {
         lock (_conversions) {
-            _conversions.Remove(conversionId);
+            if (_conversions.TryGetValue(conversionId, out var entry)) {
+                _conversions.Remove(conversionId);
+                addCounts(reason);
+                _history.Add(new(entry, reason, desc));
+            }
             _doingWorkOnEntry.Remove(conversionId);
         }
     }
@@ -150,15 +211,30 @@ internal class RunningConversions {
             _doingWorkOnEntry.Clear();
         }
     }
-    public InternalConversionInfo[] GetAll() {
+    public FileConversion[] GetAll() {
         lock (_conversions) {
-            return [.. _conversions.Values.Select(entry => new InternalConversionInfo(entry))];
+            List<FileConversion> result = [];
+            foreach (var conversion in _conversions) {
+                var inWork = _doingWorkOnEntry.Contains(conversion.Key);
+                var status = inWork ? ConversionStatus.Running : ConversionStatus.Queued;
+                result.Add(new FileConversion(conversion.Value, status, conversion.Value.ProgressInfo.Message));
+            }
+            foreach (var conversion in _history.GetAll()) {
+                result.Add(conversion);
+            }
+            return [.. result];
         }
     }
     internal void RegisterNotDoingWorkOnEntry(ProgressEntry entry) {
         lock (_conversions) {
             var key = entry.FileInfo.IdWithAdjustment.GetKey();
             _doingWorkOnEntry.Remove(key);
+        }
+    }
+
+    internal void RemoveExpired() {
+        lock (_conversions) {
+            _history.RemoveExpired();
         }
     }
 }

@@ -657,7 +657,7 @@ public class NodeStore : IDisposable {
         => TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
-    public Conversion[] GetRunningConversions(QueryContext? ctx = null) => Datastore.GetRunningConversions(ctx);
+    public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetRunningConversions(ctx);
 
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {
         Datastore.EnqueueTask(task, jobId);

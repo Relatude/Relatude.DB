@@ -3,6 +3,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using static System.Net.WebRequestMethods;
 
 namespace Relatude.DB.FileConversion;
 
@@ -10,7 +11,7 @@ public class FileConversionEngine : IDisposable {
     const string _cacheBaseFolder = "converted";
     static string[] _tempBaseFolder = [_cacheBaseFolder, "temp"];
     readonly FileConverterLibrary _fileConverters;
-    readonly RunningConversions _conversionsInProgress;
+    readonly RunningConversions _conversions;
     readonly FileConversionCache _fileCache;
     readonly FileConversionScheduler _scheduler;
     readonly string _localTempFolderPath;
@@ -19,7 +20,7 @@ public class FileConversionEngine : IDisposable {
         _store = store;
         _fileConverters = new(converters);
         foreach (var c in converters) c.Initialize(this);
-        _conversionsInProgress = new();
+        _conversions = new();
         if (io.TryGetLocalFolderPath(_tempBaseFolder, out var tempFolder)) {
             _localTempFolderPath = tempFolder;
         } else {
@@ -48,25 +49,33 @@ public class FileConversionEngine : IDisposable {
             return _fileConverters.TryReserveWorkOnConverter(entry.FileInfo.Formats);
         } catch (Exception ex) {
             _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), ex.Message);
-            _conversionsInProgress.Remove(entry);
+            _conversions.Remove(entry, ConversionStatus.Failed, "Failed to start conversion: " + ex.Message);
             return false;
         }
     }
     void pulse() {
-        while (_conversionsInProgress.TryGetWorkIfNotAlreadyWorkingOnEntryOrConverterTooBusy(out var entry, tryReserveWork)) {
+        while (_conversions.TryGetWorkIfNotAlreadyWorkingOnEntryOrConverterTooBusy(out var entry, tryReserveWork)) {
             ThreadPool.QueueUserWorkItem(async _ => {
                 try {
+                    if (entry.Started == null) {
+                        entry.Started = DateTime.UtcNow;
+                        entry.Stopwatch = Stopwatch.StartNew();
+                    }
                     var progress = await doConvertWork(entry);
                     switch (progress.Status) {
                         case FileConversionStatus.Ready:
-                            _conversionsInProgress.Remove(entry);
+                            entry.Stopwatch?.Stop();
+                            entry.ProcessedMs = entry.Stopwatch?.Elapsed.TotalMilliseconds;
+                            _conversions.Remove(entry, ConversionStatus.Completed, entry.ProgressInfo.Message);
                             break;
                         case FileConversionStatus.InProgress:
-                            _conversionsInProgress.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource));
+                            _conversions.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource, entry.Started, entry.Stopwatch?.Elapsed.TotalMilliseconds));
                             break;
                         case FileConversionStatus.Error:
+                            entry.Stopwatch?.Stop();
+                            entry.ProcessedMs = entry.Stopwatch?.Elapsed.TotalMilliseconds;
                             _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), progress.Message ?? "Failed. ");
-                            _conversionsInProgress.Remove(entry);
+                            _conversions.Remove(entry, ConversionStatus.Failed, progress.Message);
                             break;
                         default:
                             throw new Exception("Unknown status: " + progress.Status);
@@ -75,13 +84,17 @@ public class FileConversionEngine : IDisposable {
                     _store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
                     var safePublicMessage = ex is FileNotFoundException ? "Source file missing" : "Conversion failed";
                     _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), safePublicMessage);
-                    _conversionsInProgress.Remove(entry);
+                    _conversions.Remove(entry, ConversionStatus.Failed, ex.Message);
                 }
                 _fileConverters.ReleaseWorkFromConverter(entry.FileInfo.Formats);
-                _conversionsInProgress.RegisterNotDoingWorkOnEntry(entry);
+                _conversions.RegisterNotDoingWorkOnEntry(entry);
             });
         }
-        if (_conversionsInProgress.Count > 0) _scheduler.RunSoon();
+        if (_conversions.Count > 0) {
+            _scheduler.RunSoon();
+        } else {
+            _conversions.RemoveExpired();
+        }
     }
     async Task<FileConversionProgressInfo> doConvertWork(ProgressEntry entry) {
         if (!_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
@@ -116,13 +129,13 @@ public class FileConversionEngine : IDisposable {
             progressInfo = result.ProgressInfo;
             return true;
         }
-        if (_conversionsInProgress.TryGet(key, out var entry)) {
+        if (_conversions.TryGet(key, out var entry)) {
             progressInfo = entry.ProgressInfo;
             return true;
         }
         if (startIfNotFound) {
             var prg = new FileConversionProgressInfo(FileConversionStatus.InProgress);
-            _conversionsInProgress.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source));
+            _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source, null, null));
             _scheduler.RunSoon();
             progressInfo = prg;
             return true;
@@ -136,12 +149,12 @@ public class FileConversionEngine : IDisposable {
         if (_fileCache.TryGetResult(key, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();
         ProgressEntry? entry;
-        _conversionsInProgress.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source));
+        _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source, null, null));
         _scheduler.RunSoon();
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
             return new(new(FileConversionStatus.Error, 0, 0, "No converter available from " + info.Formats.From.ToString().ToUpper() + " to " + info.Formats.To.ToString().ToUpper() + ". "), null);
         }
-        while (_conversionsInProgress.TryGet(key, out entry)) {
+        while (_conversions.TryGet(key, out entry)) {
             if (sw.ElapsedMilliseconds >= maxWaitMs) break;
             var remaining = maxWaitMs - sw.ElapsedMilliseconds;
             var min = sw.ElapsedMilliseconds switch { < 100 => 20, < 1000 => 100, < 5000 => 500, _ => 1000 };
@@ -205,7 +218,8 @@ public class FileConversionEngine : IDisposable {
             FileType.Video => width < 1000 && height < 800,
             _ => false
         };
-        if (lookForBetterStatus && converter.TryGetLiveStatus(fileValue.FileId, adj, out var betterStatus)) {
+        var key = fileValue.FileId.CombineHashGuid(adj.GetKey());
+        if (lookForBetterStatus && converter.TryGetLiveStatus(key, out var betterStatus)) {
             status = betterStatus;
         }
         var fillColor = status.Status switch {
@@ -258,26 +272,32 @@ public class FileConversionEngine : IDisposable {
     public void ClearCache(Guid key) => _fileCache.Clear(key);
     public void ClearAllCache() => _fileCache.ClearAll();
     public void ClearQueue() {
-        _conversionsInProgress.ClearAll();
+        _conversions.ClearAll();
     }
-    public int QueueCount => _conversionsInProgress.Count;
-
     public FileConverterLibrary ConverterLibrary => _fileConverters;
     public string LocalTempFolderPath => _localTempFolderPath;
 
-    public Conversion[] GetRunning() {
-        throw new NotImplementedException();
-        //var running = _conversionsInProgress.GetAll();
-        //foreach (var conversion in running) {
-        //    if (_fileConverters.TryGetConverter(conversion.FileInfo.Formats, out var converter)) {
-        //        var i = conversion.FileInfo.IdWithAdjustment;
-        //        if (converter.TryGetLiveStatus(i.FileId, i.Adjustment, out var status)) conversion.ProgressInfo = status;
-        //    }
-        //}
-        //return running;
+    public FileConversions GetRunning() {
+        var running = _conversions.GetAll();
+        foreach (var conversion in running) {
+            if (_fileConverters.TryGetConverter(new FormatPair(conversion.FromFormat, conversion.ToFormat), out var converter)) {
+                if (converter.TryGetLiveStatus(conversion.Id, out var status)) {
+                    if (status.Message != null) conversion.Description = status.Message;
+                    conversion.ProgressPercentage = status.ProgressPercentage;
+                }
+            }
+        }
+        return new FileConversions(
+            _conversions.Completed,
+            _conversions.Failed,
+            _conversions.Canceled,
+            running.Count(c => c.Status == ConversionStatus.Queued),
+            running.Count(c => c.Status == ConversionStatus.Running),
+            running.ToArray()
+        );
     }
     public void CancelAllRunning() {
-        _conversionsInProgress.ClearAll();
+        _conversions.ClearAll();
     }
     public bool CanConvert(FileFormat format, FileFormat requestedFormat) {
         return _fileConverters.TryGetConverter(new FormatPair(format, requestedFormat), out _);
@@ -285,8 +305,7 @@ public class FileConversionEngine : IDisposable {
     public void ClearAllErrors() {
         _fileCache.ClearAllErrors();
     }
-
     public void CancelRunning(Guid conversionId) {
-        _conversionsInProgress.RemoveByKey(conversionId);
+        _conversions.RemoveByKey(conversionId, ConversionStatus.Canceled, "Cancelled by user");
     }
 }

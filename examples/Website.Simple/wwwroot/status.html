@@ -1,0 +1,41 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Conversion Status</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span class="icon">⚙️</span> File Conversion Status</h1>
+            <div class="status-bar">
+                <span id="last-updated">Waiting for data...</span>
+                <span class="pulse" id="live-indicator">● LIVE</span>
+            </div>
+        </header>
+        <div class="stats" id="stats"></div>
+        <div class="table-wrapper">
+            <table id="conversions-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Description</th>
+                        <th>Time (ms)</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="conversions-body">
+                    <tr><td colspan="8" class="empty-row">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
