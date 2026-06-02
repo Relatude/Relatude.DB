@@ -30,8 +30,6 @@ public static class FileHandler {
 
         if (stream.CanSeek && !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=")) {
             try {
-
-
                 var range = rangeHeader["bytes=".Length..].Split('-');
                 var start = long.TryParse(range[0], out var s) ? s : 0;
                 var end = range.Length > 1 && long.TryParse(range[1], out var e) ? e : totalLength!.Value - 1;
@@ -52,14 +50,11 @@ public static class FileHandler {
                 http.Response.ContentLength = length;
                 http.Response.ContentType = contentType;
                 await stream.CopyToAsync(http.Response.Body, (int)Math.Min(length, 81920), http.RequestAborted);
-                //await stream.CopyToAsync(http.Response.Body, (int)Math.Min(length, 81920));
             } finally {
                 stream.Dispose(); // ensure stream is disposed after response is completed
             }
-            //Console.WriteLine($"Seek handled, file: {fileNameRequested}, range: {rangeHeader}, totalLength: {totalLength}");
             return Results.Empty;
         }
-        //Console.WriteLine($"No seek, file: {fileNameRequested}, range: {rangeHeader}, totalLength: {totalLength}");
         if (totalLength.HasValue) http.Response.Headers.AcceptRanges = "bytes";
         return Results.Stream(stream, contentType); // stream is disposed by framework after response is completed
     }
