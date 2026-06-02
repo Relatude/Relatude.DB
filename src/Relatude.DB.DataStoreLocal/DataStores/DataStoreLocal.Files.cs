@@ -88,7 +88,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     Dictionary<Guid, uploadSession> _uploadSessions = [];
-    public async Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
+    public async Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
         await removeOldSessions();
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
@@ -104,7 +104,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileValue.FileId;
     }
-    public async Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length) {
+    public async Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) {
         var session = getSession(fileId);
         var fileKey = FileValue.GetFileKeyData(session.FileValue);
         await getMultiPartStore(session).AppendDataAsync(fileId, fileKey, data, length);
@@ -114,7 +114,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var newFileValue = FileValue.CreateNew(f.Name, f.Size + length, f.Hash, f.StorageId, f.FileId, key, f.PropertyPath!);
         session.FileValue = newFileValue;
     }
-    public async Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
+    public async Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         var session = getSession(fileId);
         FileValue newFileValue;
@@ -134,7 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return newFileValue;
     }
-    public async Task CancelPartialUpload(Guid fileId) {
+    public async Task CancelMultipartUpload(Guid fileId) {
         var session = getSession(fileId);
         removeSession(fileId);
         var fileStore = getMultiPartStore(session);

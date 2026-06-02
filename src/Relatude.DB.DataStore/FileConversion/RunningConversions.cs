@@ -213,14 +213,14 @@ internal class RunningConversions {
     }
     public FileConversion[] GetAll() {
         lock (_conversions) {
-            List<FileConversion> result = [];
+            LinkedList<FileConversion> result = [];
+            foreach (var conversion in _history.GetAll()) {
+                result.AddFirst(conversion);
+            }
             foreach (var conversion in _conversions) {
                 var inWork = _doingWorkOnEntry.Contains(conversion.Key);
                 var status = inWork ? ConversionStatus.Running : ConversionStatus.Queued;
-                result.Add(new FileConversion(conversion.Value, status, conversion.Value.ProgressInfo.Message));
-            }
-            foreach (var conversion in _history.GetAll()) {
-                result.Add(conversion);
+                result.AddFirst(new FileConversion(conversion.Value, status, conversion.Value.ProgressInfo.Message));
             }
             return [.. result];
         }

@@ -3,6 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
+using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using System.Text;
 
@@ -79,14 +80,14 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         if (!article.File.IsEmpty) {
             if (article.File.FileType == FileType.Video) {
                 var videoAdj = new FileAdjustmentVideo() {
-                    Width = 2000, Height = 1000,
+                    Width = 240, Height = 200,
                     TargetBitRateInMbps = 10,
                     RequestedFormat = FileFormat.Mp4,
                 };
                 var thumbnailAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
-                    Width = 640,
-                    Height = 360,
+                    Width = 240,
+                    Height = 200,
                     Saturation = -100,
                     RequestedFormat = FileFormat.Jpeg,
                     Sharpness = 0,
@@ -137,27 +138,22 @@ app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) 
 });
 
 
-app.MapPost("/StartUpload", async (RelatudeDBContext ctx) => {
-    var newFileKey = Guid.NewGuid().ToString();
-    return Results.Json(newFileKey);
+app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
+    var db = ctx.Database;
+    var article = db.CreateAndInsert<DemoArticle>(a => { a.Title = "Uploaded file"; });
+    var uploadId = await db.InitiatePartialUploadAsync(article.File, fileName);
+    return Results.Json(uploadId);
 });
 app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
-    var io = ctx.Server.TempIO;
-    var fileKey = uploadId.ToString();
+    var db = ctx.Database;
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();
-    using var stream = io.OpenAppend(fileKey);
-    await stream.AppendAsyncNoChecksumOrLock(part, part.Length);
+    await db.AppendPartialUploadAsync(uploadId, part, part.Length);
 });
-app.MapPost("/CompleteUpload", async (RelatudeDBContext ctx, Guid uploadId, string fileName) => {
-    var io = ctx.Server.TempIO;
-    var fileKey = uploadId.ToString();
+app.MapPost("/CompleteUpload", async (RelatudeDBContext ctx, Guid uploadId) => {
     var db = ctx.Database;
-    var article = db.CreateAndInsert<DemoArticle>(a => {
-        a.Title = "Uploaded file " + fileKey;
-    });
-    await db.FileUploadAsync(article, a => a.File, io, fileKey, fileName);
+    await db.FinalizePartialUploadAsync(uploadId);
 });
 
 

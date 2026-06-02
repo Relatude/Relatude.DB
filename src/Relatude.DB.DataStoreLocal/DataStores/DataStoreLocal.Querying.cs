@@ -67,7 +67,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Task.FromResult(Get(__ids, ctx));
     }
     public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) {
-        if (!TryGetValue<T>(path, out var value, ctx)) throw new Exception("Property value not found.");
+        if (!TryGetValue<T>(path, out var value, ctx)) throw new Exception("Property value not found. Node or property does not exists. ");
         return value;
     }
     public INodeDataExternal Get(NodePath path, QueryContext? ctx = null) {

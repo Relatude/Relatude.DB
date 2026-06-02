@@ -118,10 +118,10 @@ public interface IDataStore : IDisposable {
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
 
-    Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
-    Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length);
-    Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null);
-    Task CancelPartialUpload(Guid fileId);
+    Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
+    Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length);
+    Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null);
+    Task CancelMultipartUpload(Guid fileId);
     bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath);
 
     long GetLastTimestampID();
