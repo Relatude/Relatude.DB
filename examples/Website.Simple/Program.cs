@@ -128,7 +128,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
 
 app.MapGet("/getstatus", (RelatudeDBContext ctx, HttpResponse res) => {
     var db = ctx.Database;
-    var running = db.Datastore.GetRunningConversions();
+    var running = db.Datastore.GetConversions();
     return Results.Json(running);
 });
 
@@ -141,7 +141,7 @@ app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) 
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
     var db = ctx.Database;
     var article = db.CreateAndInsert<DemoArticle>(a => { a.Title = "Uploaded file"; });
-    var uploadId = await db.InitiatePartialUploadAsync(article.File, fileName);
+    var uploadId = await db.InitiateMultipartUploadAsync(article.File, fileName);
     return Results.Json(uploadId);
 });
 app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
@@ -149,11 +149,11 @@ app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequ
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();
-    await db.AppendPartialUploadAsync(uploadId, part, part.Length);
+    await db.AppendMultipartUploadAsync(uploadId, part, part.Length);
 });
 app.MapPost("/CompleteUpload", async (RelatudeDBContext ctx, Guid uploadId) => {
     var db = ctx.Database;
-    await db.FinalizePartialUploadAsync(uploadId);
+    await db.FinalizeMultipartUploadAsync(uploadId);
 });
 
 

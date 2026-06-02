@@ -636,11 +636,11 @@ public class NodeStore : IDisposable {
     public Task<bool> FileUploadedAndAvailableAsync(Guid nodeId, Guid propertyId) => Datastore.IsFileUploadedAndAvailableAsync(new(nodeId, propertyId));
     public Task<bool> FileUploadedAndAvailableAsync<T>(T node, Expression<Func<T, FileValue>> expression) where T : notnull => FileUploadedAndAvailableAsync(Mapper.GetIdGuid(node), Mapper.GetProperty(expression).Id);
 
-    public Task<Guid> InitiatePartialUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx);
-    public Task<Guid> InitiatePartialUploadAsync(FileValue fileValue, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(fileValue.PropertyPath!, fileName, ctx);
-    public Task AppendPartialUploadAsync(Guid fileId, byte[] data, int length) => Datastore.AppendMultipartUploadAsync(fileId, data, length);
-    public Task<FileValue> FinalizePartialUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) => Datastore.FinalizeMultipartUploadAsync(fileId, noNodeUpdate, ctx);
-    public Task CancelPartialUploadAsync(Guid fileId) => Datastore.CancelMultipartUpload(fileId);
+    public Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx);
+    public Task<Guid> InitiateMultipartUploadAsync(FileValue fileValue, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(fileValue.PropertyPath!, fileName, ctx);
+    public Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) => Datastore.AppendMultipartUploadAsync(fileId, data, length);
+    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) => Datastore.FinalizeMultipartUploadAsync(fileId, noNodeUpdate, ctx);
+    public Task CancelMultipartUploadAsync(Guid fileId) => Datastore.CancelMultipartUpload(fileId);
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => Datastore.FileStoreSupportsMultipartUploads(propertyPath);
     public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);
 
@@ -657,7 +657,7 @@ public class NodeStore : IDisposable {
         => TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
-    public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetRunningConversions(ctx);
+    public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetConversions(ctx);
 
     public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {
         Datastore.EnqueueTask(task, jobId);

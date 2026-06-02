@@ -286,7 +286,7 @@ public partial class RelatudeDBServer {
         if (!TryGetAI(id, filePrefix, out var ai, fallBackAiPath)) throw new Exception("AIProvider not found");
         return ai;
     }
-    internal void MapSimpleAPI(WebApplication app) {
+    internal void MapAdminAPI(WebApplication app) {
         if (_api != null) throw new Exception("API already mapped.");
         _api = new ServerAPIMapper(this);
         _api.MapSimpleAPI(app);

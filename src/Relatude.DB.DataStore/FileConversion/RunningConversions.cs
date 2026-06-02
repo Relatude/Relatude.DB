@@ -237,4 +237,10 @@ internal class RunningConversions {
             _history.RemoveExpired();
         }
     }
+
+    internal bool IsDoingWorkOnEntry(ProgressEntry entry) {
+        lock (_conversions) {
+            return _doingWorkOnEntry.Contains(entry.FileInfo.IdWithAdjustment.GetKey());
+        }
+    }
 }

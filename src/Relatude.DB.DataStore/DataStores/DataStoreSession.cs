@@ -207,8 +207,8 @@ public class DataStoreSession : IDataStore {
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null)
         => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? DefaultQueryContext);
 
-    public FileConversions GetRunningConversions(QueryContext? ctx = null) => _datastore.GetRunningConversions(ctx ?? DefaultQueryContext);
-    public void CancelAllConversions(QueryContext? ctx = null) => _datastore.CancelAllConversions(ctx ?? DefaultQueryContext);
+    public FileConversions GetConversions(QueryContext? ctx = null) => _datastore.GetConversions(ctx ?? DefaultQueryContext);
+    public Task CancelAllConversions(bool permanently, QueryContext? ctx = null) => _datastore.CancelAllConversions(permanently, ctx ?? DefaultQueryContext);
     public Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null) => _datastore.CancelConversion(conversionId, permanently, ctx ?? DefaultQueryContext);
     public void ClearAllCachedConversions(QueryContext? ctx = null) => _datastore.ClearAllCachedConversions(ctx ?? DefaultQueryContext);
     public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _datastore.ClearAllCachedConversionsErrors(ctx ?? DefaultQueryContext);

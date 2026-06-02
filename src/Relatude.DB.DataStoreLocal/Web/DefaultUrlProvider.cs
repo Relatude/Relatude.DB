@@ -6,11 +6,13 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Web;
 
 public class DefaultUrlProvider : IUrlProvider {
-    readonly UrlFileAdjustmentEncoder _encoder;
+    //readonly UrlFileAdjustmentEncoder _encoder;
+    readonly IUrlFileAdjustmentEncoder _encoder;
     const char DELIMITER = '.';
     readonly string _urlFileRoot;
     public DefaultUrlProvider(Guid secretHashKey, string urlFileRoot) {
-        _encoder = new(secretHashKey);
+        //_encoder = new UrlFileAdjustmentEncoder(secretHashKey);
+        _encoder = new BinaryUrlFileAdjustmentEncoder(secretHashKey);
         _urlFileRoot = urlFileRoot;
         if (string.IsNullOrWhiteSpace(_urlFileRoot)) throw new ArgumentException("URL root cannot be null or whitespace.", nameof(urlFileRoot));
         if (!_urlFileRoot.EndsWith("/")) _urlFileRoot += "/";
@@ -62,6 +64,7 @@ public class DefaultUrlProvider : IUrlProvider {
         if (contentVersionId != null) url += DELIMITER + contentVersionId;
         return url;
     }
+
     public string GetExternalUrl(string internalUrl, bool absolute) {
         if (absolute) throw new NotImplementedException();
         return _urlFileRoot + internalUrl;
@@ -134,22 +137,4 @@ public class DefaultUrlProvider : IUrlProvider {
     }
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -1,11 +1,8 @@
-using Microsoft.VisualBasic;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.NetworkInformation;
-using static System.Net.WebRequestMethods;
 
 namespace Relatude.DB.FileConversion;
 
@@ -318,7 +315,7 @@ public class FileConversionEngine : IDisposable {
     public FileConverterLibrary ConverterLibrary => _fileConverters;
     public string LocalTempFolderPath => _localTempFolderPath;
 
-    public FileConversions GetRunning() {
+    public FileConversions GetConversions() {
         var running = _conversions.GetAll();
         foreach (var conversion in running) {
             if (_fileConverters.TryGetConverter(new FormatPair(conversion.FromFormat, conversion.ToFormat), out var converter)) {
@@ -337,9 +334,6 @@ public class FileConversionEngine : IDisposable {
             running.ToArray()
         );
     }
-    public void CancelAllRunning() {
-        _conversions.ClearAll();
-    }
     public bool CanConvert(FileFormat format, FileFormat requestedFormat) {
         return _fileConverters.TryGetConverter(new FormatPair(format, requestedFormat), out _);
     }
@@ -354,8 +348,15 @@ public class FileConversionEngine : IDisposable {
         }
         if (_conversions.TryGet(conversionId, out var entry)) {
             if (entry.ProgressInfo.Status == FileConversionStatus.InProgress) {
+                var wasDoingWork = _conversions.IsDoingWorkOnEntry(entry);
                 if (_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
                     await converter.CancelAsync(conversionId);
+                }
+                if (!wasDoingWork) {
+                    _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion canceled by user. ");
+                    if (permanently) {
+                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), "Canceled permanently. ");
+                    }
                 }
             }
         }

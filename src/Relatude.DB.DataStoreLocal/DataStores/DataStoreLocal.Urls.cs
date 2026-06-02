@@ -12,16 +12,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     string getFileVersionId(FileValue fileValue) {
         return (fileValue.Hash + _startUpGuid).GenerateHashInt().ToString();
     }
-    public bool CanConvert(FileFormat from, FileFormat to) {
-        return _fileConversionEngine.CanConvert(from, to);
-    }
-    public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
-        var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
-            return false;
-        }
-        return _fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat);
-    }
     public string GetUrl(NodePath nodePath, bool absolute, QueryContext? ctx = null) {
         return _urlProvider.GetExternalUrl(nodePath, absolute);
     }
@@ -51,59 +41,61 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         throw new Exception("URL does not point to a file property");
     }
-    public async Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) {
-        var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        if (fileValue.IsEmpty) throw new Exception("File value is empty");
-        var fileStore = getFileStore(fileValue.StorageId);
-        return await fileStore.GetFileStream(fileValue);
+
+
+    public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
+        return _addresses.TryGetAddressAndTryMatchCulture(id, getBestCultureId(ctx), out address);
     }
-    public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
-        return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx)).Stream;
-    }
-    public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
-        var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
-        var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        var fileStore = getFileStore(fileValue.StorageId);
-        InputFileSource source;
-        if (fileStore.TryGetLocalFilePath(fileValue, out var localFilePath)) {
-            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
-                return File.OpenRead(localFilePath);
-            });
-            source = new InputFileSource(getInputStreamFunc, localFilePath);
-        } else {
-            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
-                if (fileValue.IsEmpty) throw new Exception("File value is empty");
-                return await fileStore.GetFileStream(fileValue);
-            });
-            source = new InputFileSource(getInputStreamFunc, null);
+    public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
+        if (_guids.TryGetId(id, out var uid)) {
+            return TryGetAddress(uid, out address, ctx);
         }
-        var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source);
-        Stream stream;
-        if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
-            if (result.Output == null) throw new Exception("File conversion output is null");
-            stream = result.Output;
-        } else {
-            stream = _fileConversionEngine.GetStatusDataStream(fileValue, adj, result.ProgressInfo);
+        address = null;
+        return false;
+    }
+    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) {
+        if (id.Int == 0) return TryGetAddress(id.Guid, out meta, ctx);
+        return TryGetAddress(id.Int, out meta, ctx);
+    }
+
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) {
+        if (TryGetNodeIdFromAddress(address, out int uid)) {
+            if (_guids.TryGetId(uid, out nodeId)) {
+                return true;
+            }
         }
-        return new StateAndStream(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
+        nodeId = Guid.Empty;
+        return false;
     }
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
-        var fileValue = GetValue<FileValue>(propertyPath, ctx);
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
-        var fileStore = getFileStore(fileValue.StorageId);
-        var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), null), out progressInfo);
+    public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) {
+        if (TryGetNodeIdFromAddress(address, out int uid, out cultureCode)) {
+            if (_guids.TryGetId(uid, out nodeId)) {
+                return true;
+            }
+        }
+        nodeId = Guid.Empty;
+        cultureCode = null;
+        return false;
     }
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) {
-        return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId) {
+        return _addresses.TryGetId(address, out nodeId, out _);
     }
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) {
-        TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
+    public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) {
+        if (address == null) address = string.Empty; // treat null and empty as the same address
+        if (_addresses.TryGetId(address, out nodeId, out var cultureId)) {
+            _nativeModelStore.TryGetCultureCode(cultureId, out cultureCode);
+            return true;
+        }
+        cultureCode = null;
+        return false;
     }
-    public FileConversions GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
-    public void CancelAllConversions(QueryContext? ctx = null) => _fileConversionEngine.CancelAllRunning();
-    public Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId, permanently);
-    public void ClearAllCachedConversions(QueryContext? ctx = null) => _fileConversionEngine.ClearAllCache();
-    public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _fileConversionEngine.ClearAllErrors();
+    public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) {
+        if (TryGetNodeIdFromAddress(address, out int uid, out string? cultureCode)) {
+            return TryGet(uid, out nodeData, _defaultQueryCtx.Culture(cultureCode));
+        }
+        nodeData = null;
+        return false;
+    }
+
+
 }

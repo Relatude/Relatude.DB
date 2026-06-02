@@ -18,7 +18,6 @@ public static class AddUse {
     public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = null) {
         await app.StartRelatudeDBAsync(urlPath);
         app.MapRelatudeDBAdmin();
-        app.MapRelatudeDBAdmin();
         return app;
     }
     public static IEndpointRouteBuilder StartRelatudeDB(this WebApplication app, string? urlPath = null) {
@@ -35,7 +34,7 @@ public static class AddUse {
     }
     public static IEndpointRouteBuilder MapRelatudeDBAdmin(this WebApplication app, string? urlPath = null) {
         var server = RelatudeDBRuntime.Server;
-        server.MapSimpleAPI(app);
+        server.MapAdminAPI(app);
         return app;
     }
     public static IEndpointRouteBuilder MapRelatudeDBClient(this WebApplication app) {

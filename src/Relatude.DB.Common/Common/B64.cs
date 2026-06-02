@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 namespace Relatude.DB.Common;
 
 public static class B64 {
-
     public static string EncodeForUrl(byte[] bytes) {
         int unpaddedLen = (bytes.Length * 4 + 2) / 3;
         Span<char> buf = stackalloc char[(unpaddedLen + 3) & ~3];
