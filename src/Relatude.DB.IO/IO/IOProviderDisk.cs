@@ -76,7 +76,7 @@ public class IOProviderDisk : IIOProvider {
                     _openStreams.Remove(stream!);
                 }
             });
-            stream = new StoreStreamBufferedRead(stream, 1024 * 1024); // turned out that buffering helps a lot in any case
+            //stream = new StoreStreamBufferedRead(stream, 1024 * 1024); // turned out that buffering helps a lot in any case
             registerReader(filePath);
             _openStreams.Add(stream);
             return stream;

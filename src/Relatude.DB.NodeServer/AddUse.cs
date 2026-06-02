@@ -1,8 +1,6 @@
-﻿
-using Microsoft.Net.Http.Headers;
-using Relatude.DB.Common;
-using Relatude.DB.NodeServer;
+﻿using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
+using Relatude.DB.Web;
 
 // NO NAMESPACE ON PURPOSE
 public static class AddUse {
@@ -42,55 +40,12 @@ public static class AddUse {
     }
     public static IEndpointRouteBuilder MapRelatudeDBClient(this WebApplication app) {
         var options = app.Services.GetRequiredService<ServerOptions>();
-        var urlPath = options.FileHandlerRootUrl == null ? ServerOptions.DefaultFileRootUrl : options.FileHandlerRootUrl;
-        if (string.IsNullOrWhiteSpace(urlPath)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPath));
-        if (!urlPath.StartsWith("/")) urlPath = "/" + urlPath;
-        if (urlPath.EndsWith("/")) urlPath = urlPath.TrimEnd('/');
-        RelatudeDBServer.FileHandlerRootUrl = urlPath;
-        app.MapGet(urlPath + "/{propPathAndAdj}", async (RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) => {
-            var db = ctx.Database;
-            var fileInfo = await db.GetFileStreamAndState(propPathAndAdj);
-            if (fileInfo.IsTemporary) {
-                http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
-            } else {
-                http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
-            }
-            var contentType = FileFormatUtil.GetContentType(fileInfo.RequestedFormat);
-            var stream = fileInfo.Stream;
-            var totalLength = stream.CanSeek ? stream.Length : (long?)null;
-            var rangeHeader = http.Request.Headers.Range.ToString();
-            var fileName = fileInfo.FileValue.Name;
-            var attachment = FileFormatUtil.AsAttachement(fileInfo.RequestedFormat);
-            //var attachment = fileInfo.Attachement.HasValue ? fileInfo.Attachement.Value : ;
-            var dispositionType = attachment ? "attachment" : "inline";
-            http.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue(dispositionType) {
-                FileName = new string([.. fileName.Where(c => c <= 127)]), // fallback for non-ASCII file names, older browsers
-                FileNameStar = fileName // UTF-8 file name for modern browsers, will be ignored by older browsers
-            }.ToString();
-
-            if (stream.CanSeek && !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=")) {
-                try {
-                    var range = rangeHeader["bytes=".Length..].Split('-');
-                    var start = long.TryParse(range[0], out var s) ? s : 0;
-                    var end = range.Length > 1 && long.TryParse(range[1], out var e) ? e : totalLength!.Value - 1;
-                    end = Math.Min(end, totalLength!.Value - 1);
-                    var length = end - start + 1;
-                    stream.Seek(start, SeekOrigin.Begin);
-                    http.Response.StatusCode = 206;
-                    http.Response.Headers.ContentRange = $"bytes {start}-{end}/{totalLength}";
-                    http.Response.Headers.AcceptRanges = "bytes";
-                    http.Response.ContentLength = length;
-                    http.Response.ContentType = contentType;
-                    await stream.CopyToAsync(http.Response.Body, (int)Math.Min(length, 81920));
-                } finally {
-                    stream.Dispose(); // ensure stream is disposed after response is completed
-                }
-                return Results.Empty;
-            }
-            if (totalLength.HasValue) http.Response.Headers.AcceptRanges = "bytes";
-            return Results.Stream(stream, contentType); // stream is disposed by framework after response is completed
-        });
+        var urlPathFiles = options.FileHandlerRootUrl == null ? ServerOptions.DefaultFileRootUrl : options.FileHandlerRootUrl;
+        if (string.IsNullOrWhiteSpace(urlPathFiles)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPathFiles));
+        if (!urlPathFiles.StartsWith("/")) urlPathFiles = "/" + urlPathFiles;
+        if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
+        RelatudeDBServer.FileHandlerRootUrl = urlPathFiles;
+        app.MapGet(urlPathFiles + "/{propPathAndAdj}", FileHandler.HandleFileAsync);
         return app;
     }
-
 }

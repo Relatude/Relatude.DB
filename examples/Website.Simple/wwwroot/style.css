@@ -230,6 +230,13 @@ td {
 .btn-cancel:active { transform: scale(0.97); }
 .btn-cancel:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
+.btn-cancel-permanently {
+    background: rgba(232,80,106,.25);
+    color: var(--failed);
+    border-color: rgba(232,80,106,.6);
+}
+.btn-cancel-permanently:hover { background: rgba(232,80,106,.45); }
+
 .empty-row {
     text-align: center;
     color: var(--text-muted);

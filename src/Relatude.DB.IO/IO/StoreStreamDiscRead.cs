@@ -5,6 +5,7 @@ public class StoreStreamDiscRead : IReadStream {
     string _filePath;
     ChecksumUtil _checkSum = new();
     Action _disposeCallback;
+    public string InnerFilePath => _filePath;
     public StoreStreamDiscRead(string filePath, long position, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;

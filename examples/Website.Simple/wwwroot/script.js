@@ -12,14 +12,14 @@ function buildProgressCell(conv) {
     return `<span class="progress-bar-wrap"><span class="progress-bar-fill" style="width:${pct}%"></span></span><span class="progress-text">${pct}%</span>`;
 }
 
-async function cancelConversion(id, btn) {
+async function cancelConversion(id, btn, permanently = false) {
     btn.disabled = true;
     btn.textContent = 'Canceling…';
     try {
-        await fetch(`/cancel?id=${encodeURIComponent(id)}`, { method: 'POST' });
+        await fetch(`/cancel?id=${encodeURIComponent(id)}&permanently=${permanently}`, { method: 'POST' });
     } catch (e) {
         btn.disabled = false;
-        btn.textContent = 'Cancel';
+        btn.textContent = permanently ? 'Cancel Permanently' : 'Cancel';
     }
 }
 
@@ -32,7 +32,7 @@ function renderTable(conversions) {
     tbody.innerHTML = conversions.map(c => {
         const canCancel = c.status === 0 || c.status === 1;
         const cancelBtn = canCancel
-            ? `<button class="btn-cancel" onclick="cancelConversion('${c.id}', this)">Cancel</button>`
+            ? `<button class="btn-cancel" onclick="cancelConversion('${c.id}', this, false)">Cancel</button> <button class="btn-cancel btn-cancel-permanently" onclick="cancelConversion('${c.id}', this, true)">Cancel Permanently</button>`
             : '';
         return `<tr>
             <td class="file-name" title="${c.fileName}">${c.fileName || '—'}</td>

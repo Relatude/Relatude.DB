@@ -38,7 +38,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
     hasInserted = true;
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
-    
+
     var files1 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();
     var files2 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Pictures", "*.jpg").ToArray();
     var files = files1.Concat(files2).ToArray();
@@ -63,9 +63,9 @@ app.MapGet("/Streams", (RelatudeDBContext ctx) => {
     return IOProviderDisk.GetAllOpenStreams();
 });
 
-app.MapPost("/CancelConversion", (RelatudeDBContext ctx, Guid conversionKey) => {
+app.MapPost("/CancelConversion", async (RelatudeDBContext ctx, Guid conversionKey, bool permanently) => {
     var db = ctx.Database;
-    db.Datastore.CancelConversion(conversionKey);
+    await db.Datastore.CancelConversion(conversionKey, permanently);
     return Results.Ok();
 });
 
@@ -79,8 +79,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
         if (!article.File.IsEmpty) {
             if (article.File.FileType == FileType.Video) {
                 var videoAdj = new FileAdjustmentVideo() {
-                    Width = 640, Height = 360,
-                    TargetBitRateInMbps = 0.5,
+                    Width = 2000, Height = 1000,
+                    TargetBitRateInMbps = 10,
                     RequestedFormat = FileFormat.Mp4,
                 };
                 var thumbnailAdj = new FileAdjustmentImage() {
@@ -131,10 +131,36 @@ app.MapGet("/getstatus", (RelatudeDBContext ctx, HttpResponse res) => {
     return Results.Json(running);
 });
 
-app.MapPost("/cancel", (RelatudeDBContext ctx, Guid id) => {
+app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) => {
     var db = ctx.Database;
-    db.Datastore.CancelConversion(id);    
+    await db.Datastore.CancelConversion(id, permanently);
 });
+
+
+app.MapPost("/StartUpload", async (RelatudeDBContext ctx) => {
+    var newFileKey = Guid.NewGuid().ToString();
+    return Results.Json(newFileKey);
+});
+app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
+    var io = ctx.Server.TempIO;
+    var fileKey = uploadId.ToString();
+    using var ms = new MemoryStream();
+    await req.Body.CopyToAsync(ms);
+    var part = ms.ToArray();
+    using var stream = io.OpenAppend(fileKey);
+    await stream.AppendAsyncNoChecksumOrLock(part, part.Length);
+});
+app.MapPost("/CompleteUpload", async (RelatudeDBContext ctx, Guid uploadId, string fileName) => {
+    var io = ctx.Server.TempIO;
+    var fileKey = uploadId.ToString();
+    var db = ctx.Database;
+    var article = db.CreateAndInsert<DemoArticle>(a => {
+        a.Title = "Uploaded file " + fileKey;
+    });
+    await db.FileUploadAsync(article, a => a.File, io, fileKey, fileName);
+});
+
+
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

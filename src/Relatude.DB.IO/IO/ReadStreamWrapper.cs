@@ -1,6 +1,8 @@
 ﻿namespace Relatude.DB.IO;
+
 public class ReadStreamWrapper : System.IO.Stream {
     private readonly IReadStream _stream;
+    public IReadStream InnerStream => _stream;
     public ReadStreamWrapper(IReadStream stream) {
         _stream = stream;
     }
@@ -11,11 +13,15 @@ public class ReadStreamWrapper : System.IO.Stream {
     public override long Position { get => _stream.Position; set => _stream.Position = value; }
 
     public override void Flush() {
-        
+
     }
+    // static long _totalBytesRead;
     public override int Read(byte[] buffer, int offset, int count) {
         var data = _stream.Read(count);
         Array.Copy(data, 0, buffer, offset, data.Length);
+        //_totalBytesRead += data.Length;
+        //var positionInPercentag = (int)Math.Round(_stream.Position / (double)_stream.Length * 100);
+        //Console.WriteLine($"Position: {positionInPercentag}% , count: {count}, read: {data.Length} bytes, total read: {_totalBytesRead.InKB()}");
         return data.Length;
     }
 

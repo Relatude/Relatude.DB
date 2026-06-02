@@ -40,7 +40,7 @@ public class StoreStreamBufferedRead : IReadStream {
         }
 
         _checkSum.EvaluateChecksumIfRecording(result);
-        _bytesRead += length;
+        _bytesRead += totalBytesRead;
 
         return result;
 
@@ -48,7 +48,8 @@ public class StoreStreamBufferedRead : IReadStream {
 
     public async Task<int> ReadAsync(byte[] buffer, int count) {
         if (buffer == null) throw new ArgumentNullException(nameof(buffer));
-        if (count <= 0 || count > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count));
+        if (count < 0 || count > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count));
+        if (count == 0) return 0;
         int totalBytesRead = 0;
         while (totalBytesRead < count) {
             // If buffer is empty, refill it

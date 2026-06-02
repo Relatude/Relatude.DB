@@ -103,7 +103,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public FileConversions GetRunningConversions(QueryContext? ctx = null) => _fileConversionEngine.GetRunning();
     public void CancelAllConversions(QueryContext? ctx = null) => _fileConversionEngine.CancelAllRunning();
-    public void CancelConversion(Guid conversionId, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId);
+    public Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null) => _fileConversionEngine.CancelRunning(conversionId, permanently);
     public void ClearAllCachedConversions(QueryContext? ctx = null) => _fileConversionEngine.ClearAllCache();
     public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _fileConversionEngine.ClearAllErrors();
 }

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Upload</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        .upload-card {
+            background: var(--surface);
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 48px 32px;
+            text-align: center;
+            transition: border-color 0.2s;
+            cursor: pointer;
+        }
+        .upload-card.dragover { border-color: var(--accent); background: var(--surface2); }
+        .upload-card svg { width: 48px; height: 48px; color: var(--accent); margin-bottom: 16px; }
+        .upload-card p { color: var(--text-muted); margin-top: 8px; font-size: 13px; }
+        #fileInput { display: none; }
+
+        .upload-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff; border: none; border-radius: var(--radius);
+            padding: 10px 24px; font-size: 14px; font-weight: 600;
+            cursor: pointer; margin-top: 20px; transition: opacity 0.2s;
+        }
+        .upload-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        #fileList { margin-top: 28px; display: flex; flex-direction: column; gap: 14px; }
+
+        .file-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+        }
+        .file-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .file-name { font-weight: 600; word-break: break-all; }
+        .file-size { color: var(--text-muted); font-size: 12px; white-space: nowrap; margin-left: 10px; }
+        .file-status {
+            font-size: 12px; font-weight: 600; padding: 2px 10px;
+            border-radius: 20px; white-space: nowrap;
+        }
+        .status-pending  { background: #2a2e44; color: var(--text-muted); }
+        .status-uploading{ background: #1a2a4a; color: var(--running); }
+        .status-done     { background: #0e3024; color: var(--completed); }
+        .status-error    { background: #3a1020; color: var(--failed); }
+
+        .progress-track {
+            height: 6px; background: var(--surface2);
+            border-radius: 3px; overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            border-radius: 3px; transition: width 0.25s ease;
+        }
+        .progress-label { text-align: right; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+        .error-msg { color: var(--failed); font-size: 12px; margin-top: 6px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>File Upload</h1>
+        <a href="/" style="color:var(--accent);text-decoration:none;font-size:13px;">← Home</a>
+    </header>
+
+    <div class="upload-card" id="dropZone">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+        </svg>
+        <h2 style="font-size:1.1rem;">Drop files here or <span style="color:var(--accent)">browse</span></h2>
+        <p>Any file type supported</p>
+        <input type="file" id="fileInput" multiple />
+        <button class="upload-btn" id="uploadBtn" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v13m-4-4l4 4 4-4"/>
+            </svg>
+            Upload
+        </button>
+    </div>
+
+    <div id="fileList"></div>
+</div>
+
+<script>
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB chunks
+
+    const dropZone  = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileList  = document.getElementById('fileList');
+
+    let selectedFiles = [];
+
+    // ── drag & drop ──────────────────────────────────────────────────
+    dropZone.addEventListener('click', e => { if (e.target !== uploadBtn && !uploadBtn.contains(e.target)) fileInput.click(); });
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault(); dropZone.classList.remove('dragover');
+        addFiles([...e.dataTransfer.files]);
+    });
+    fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+    uploadBtn.addEventListener('click', e => { e.stopPropagation(); startUploads(); });
+
+    function addFiles(files) {
+        files.forEach(f => {
+            if (selectedFiles.some(x => x.file.name === f.name && x.file.size === f.size)) return;
+            const entry = { file: f, status: 'pending', progress: 0, id: crypto.randomUUID() };
+            selectedFiles.push(entry);
+            renderItem(entry);
+        });
+        uploadBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function renderItem(entry) {
+        const el = document.createElement('div');
+        el.className = 'file-item'; el.id = 'item-' + entry.id;
+        el.innerHTML = `
+            <div class="file-header">
+                <span class="file-name">${escHtml(entry.file.name)}</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span class="file-size">${fmtSize(entry.file.size)}</span>
+                    <span class="file-status status-pending" id="status-${entry.id}">Pending</span>
+                </div>
+            </div>
+            <div class="progress-track"><div class="progress-bar" id="bar-${entry.id}"></div></div>
+            <div class="progress-label" id="pct-${entry.id}">0%</div>`;
+        fileList.prepend(el);
+    }
+
+    function setProgress(entry, pct) {
+        const bar = document.getElementById('bar-' + entry.id);
+        const lbl = document.getElementById('pct-' + entry.id);
+        if (bar) bar.style.width = pct + '%';
+        if (lbl) lbl.textContent = Math.round(pct) + '%';
+    }
+
+    function setStatus(entry, status, label) {
+        const el = document.getElementById('status-' + entry.id);
+        if (!el) return;
+        el.className = 'file-status status-' + status;
+        el.textContent = label;
+    }
+
+    function showError(entry, msg) {
+        const item = document.getElementById('item-' + entry.id);
+        if (!item) return;
+        let err = item.querySelector('.error-msg');
+        if (!err) { err = document.createElement('div'); err.className = 'error-msg'; item.appendChild(err); }
+        err.textContent = msg;
+    }
+
+    async function startUploads() {
+        uploadBtn.disabled = true;
+        const pending = selectedFiles.filter(e => e.status === 'pending');
+        await Promise.all(pending.map(uploadFile));
+        const anyPending = selectedFiles.some(e => e.status === 'pending');
+        uploadBtn.disabled = !anyPending;
+    }
+
+    async function uploadFile(entry) {
+        entry.status = 'uploading';
+        setStatus(entry, 'uploading', 'Uploading…');
+
+        try {
+            // 1. Start upload
+            const startRes = await fetch('/StartUpload', { method: 'POST' });
+            if (!startRes.ok) throw new Error(`StartUpload failed: ${startRes.status} ${await startRes.text()}`);
+            const uploadId = await startRes.json();
+
+            // 2. Upload parts
+            const totalChunks = Math.ceil(entry.file.size / CHUNK_SIZE);
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const chunk = entry.file.slice(start, start + CHUNK_SIZE);
+                const partRes = await fetch(`/UploadPart?uploadId=${encodeURIComponent(uploadId)}&partNumber=${i}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: chunk
+                });
+                if (!partRes.ok) throw new Error(`UploadPart ${i} failed: ${partRes.status} ${await partRes.text()}`);
+                setProgress(entry, ((i + 1) / totalChunks) * 100);
+            }
+
+            // 3. Complete upload
+            const completeRes = await fetch(`/CompleteUpload?uploadId=${encodeURIComponent(uploadId)}&fileName=${encodeURIComponent(entry.file.name)}`, { method: 'POST' });
+            if (!completeRes.ok) throw new Error(`CompleteUpload failed: ${completeRes.status} ${await completeRes.text()}`);
+
+            entry.status = 'done';
+            setProgress(entry, 100);
+            setStatus(entry, 'done', 'Done');
+        } catch (err) {
+            entry.status = 'error';
+            setStatus(entry, 'error', 'Error');
+            showError(entry, err.message);
+            console.error(err);
+        }
+    }
+
+    const fmtSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : b < 1073741824 ? (b/1048576).toFixed(1) + ' MB' : (b/1073741824).toFixed(2) + ' GB';
+    const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+</script>
+</body>
+</html>

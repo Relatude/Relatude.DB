@@ -1,8 +1,10 @@
+using Microsoft.VisualBasic;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Net.NetworkInformation;
 using static System.Net.WebRequestMethods;
 
 namespace Relatude.DB.FileConversion;
@@ -71,20 +73,59 @@ public class FileConversionEngine : IDisposable {
                         case FileConversionStatus.InProgress:
                             _conversions.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource, entry.Started, entry.Stopwatch?.Elapsed.TotalMilliseconds));
                             break;
-                        case FileConversionStatus.Error:
-                            entry.Stopwatch?.Stop();
-                            entry.ProcessedMs = entry.Stopwatch?.Elapsed.TotalMilliseconds;
-                            _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), progress.Message ?? "Failed. ");
-                            _conversions.Remove(entry, ConversionStatus.Failed, progress.Message);
+                        case FileConversionStatus.Error: {
+                                entry.Stopwatch?.Stop();
+                                entry.ProcessedMs = entry.Stopwatch?.Elapsed.TotalMilliseconds;
+                                bool cancelationRequested = false;
+                                bool cancelationRequestedPermanently = false;
+                                var key = entry.FileInfo.IdWithAdjustment.GetKey();
+                                lock (_cancellationRequested) {
+                                    cancelationRequested = _cancellationRequested.TryGetValue(key, out cancelationRequestedPermanently);
+                                }
+                                if (cancelationRequested) {
+                                    if (cancelationRequestedPermanently) {
+                                        _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion permanently canceled by user. ");
+                                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), progress.Message ?? "Canceled permanently. ");
+                                    } else {
+                                        _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion canceled by user. ");
+                                    }
+                                    lock (_cancellationRequested) {
+                                        _cancellationRequested.Remove(key);
+                                    }
+                                } else {
+                                    _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), progress.Message ?? "Failed. ");
+                                    _conversions.Remove(entry, ConversionStatus.Failed, progress.Message);
+                                }
+                            }
                             break;
                         default:
                             throw new Exception("Unknown status: " + progress.Status);
                     }
                 } catch (Exception ex) {
-                    _store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
-                    var safePublicMessage = ex is FileNotFoundException ? "Source file missing" : "Conversion failed";
-                    _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), safePublicMessage);
-                    _conversions.Remove(entry, ConversionStatus.Failed, ex.Message);
+                    bool cancelationRequested = false;
+                    bool cancelationRequestedPermanently = false;
+                    var key = entry.FileInfo.IdWithAdjustment.GetKey();
+                    lock (_cancellationRequested) {
+                        cancelationRequested = _cancellationRequested.TryGetValue(key, out cancelationRequestedPermanently);
+                    }
+                    if (cancelationRequested || ex is OperationCanceledException) {
+                        string msg;
+                        if (cancelationRequestedPermanently) {
+                            msg = ex is OperationCanceledException excan ? "Conversion permanently canceled: " + excan.Message : "Conversion permanently canceled by user. ";
+                            _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), "Canceled permanently. ");
+                        } else {
+                            msg = ex is OperationCanceledException excan ? "Conversion canceled: " + excan.Message : "Conversion canceled by user. ";
+                        }
+                        _conversions.Remove(entry, ConversionStatus.Canceled, msg);
+                        lock (_cancellationRequested) {
+                            _cancellationRequested.Remove(key);
+                        }
+                    } else {
+                        _store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
+                        var safePublicMessage = ex is FileNotFoundException ? "Source file missing" : "Conversion failed";
+                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), safePublicMessage);
+                        _conversions.Remove(entry, ConversionStatus.Failed, ex.Message);
+                    }
                 }
                 _fileConverters.ReleaseWorkFromConverter(entry.FileInfo.Formats);
                 _conversions.RegisterNotDoingWorkOnEntry(entry);
@@ -305,7 +346,18 @@ public class FileConversionEngine : IDisposable {
     public void ClearAllErrors() {
         _fileCache.ClearAllErrors();
     }
-    public void CancelRunning(Guid conversionId) {
-        _conversions.RemoveByKey(conversionId, ConversionStatus.Canceled, "Cancelled by user");
+
+    Dictionary<Guid, bool> _cancellationRequested = new();
+    public async Task CancelRunning(Guid conversionId, bool permanently) {
+        lock (_cancellationRequested) {
+            _cancellationRequested[conversionId] = permanently;
+        }
+        if (_conversions.TryGet(conversionId, out var entry)) {
+            if (entry.ProgressInfo.Status == FileConversionStatus.InProgress) {
+                if (_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
+                    await converter.CancelAsync(conversionId);
+                }
+            }
+        }
     }
 }

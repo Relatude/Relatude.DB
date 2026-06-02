@@ -37,7 +37,7 @@ public class FFMpegVideoConverter : IFileConverter {
     public bool tryGetConverter(FileFormat from, FileFormat to, [MaybeNullWhen(false)] out IFileConverter converter) {
         return engine.ConverterLibrary.TryGetConverter(new FormatPair(from, to), out converter);
     }
-    string getTempPath(FileFormat format) =>  Path.Combine(engine.LocalTempFolderPath, $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(format)}");
+    string getTempPath(FileFormat format) => Path.Combine(engine.LocalTempFolderPath, $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(format)}");
 
     static async Task ensureFFMpegBinAsync() {
         if (_ffmpegBinReady) return;
@@ -71,7 +71,10 @@ public class FFMpegVideoConverter : IFileConverter {
     //    || (outBase == FileType.Image && _imageOuts.Contains(outDetailed)));
 
     public Task<bool> CancelAsync(Guid key) {
-        if (_cancellations.TryRemove(key, out var cts)) { cts.Cancel(); cts.Dispose(); return Task.FromResult(true); }
+        if (_cancellations.TryRemove(key, out var cts)) {
+            cts.Cancel(); cts.Dispose();
+            return Task.FromResult(true);
+        }
         return Task.FromResult(false);
     }
 
@@ -124,9 +127,9 @@ public class FFMpegVideoConverter : IFileConverter {
             }
 
             return new(new(FileConversionStatus.Ready, 100), null, outputFilePath);
-        } catch (OperationCanceledException) {
-            tryDelete(outputFilePath);
-            return new(new(FileConversionStatus.Error, 0, message: "Cancelled"));
+        //} catch (OperationCanceledException) {
+        //    tryDelete(outputFilePath);
+        //    throw;
         } catch (Exception ex) {
             tryDelete(outputFilePath);
             return new(new(FileConversionStatus.Error, 0, message: ex.Message));
@@ -310,14 +313,13 @@ public class FFMpegVideoConverter : IFileConverter {
                 int remainingSecsToReport = progressToReport > 2 ? (int)Math.Round(remainingSecs) : 0;
                 progress[key] = new(FileConversionStatus.InProgress, progressToReport, remainingSecsToReport, message: "Converting...");
             }, videoDuration);
-        //Console.WriteLine($"Starting conversion for {info.FileName} (current concurrent: {concucurrentCount} Max: {MaxConcurrentWork})");
         await processor.CancellableThrough(ct).ProcessAsynchronously();
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static void tryDelete(string path) { 
+    static void tryDelete(string path) {
         //Console.WriteLine("Trying to delete temp file: " + path);
-        try { if (File.Exists(path)) File.Delete(path); } catch { } 
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
     public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
