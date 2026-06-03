@@ -348,11 +348,13 @@ public class FileConversionEngine : IDisposable {
         }
         if (_conversions.TryGet(conversionId, out var entry)) {
             if (entry.ProgressInfo.Status == FileConversionStatus.InProgress) {
-                var wasDoingWork = _conversions.IsDoingWorkOnEntry(entry);
-                if (_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
-                    await converter.CancelAsync(conversionId);
-                }
-                if (!wasDoingWork) {
+                if (_conversions.DoingWorkNow(entry)) {
+                    if (_fileConverters.TryGetConverter(entry.FileInfo.Formats, out var converter)) {
+                        await converter.CancelAsync(conversionId);
+                    } else {
+                        // should not happen
+                    }
+                } else {
                     _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion canceled by user. ");
                     if (permanently) {
                         _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), "Canceled permanently. ");

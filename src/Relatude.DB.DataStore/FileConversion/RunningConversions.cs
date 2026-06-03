@@ -238,7 +238,7 @@ internal class RunningConversions {
         }
     }
 
-    internal bool IsDoingWorkOnEntry(ProgressEntry entry) {
+    internal bool DoingWorkNow(ProgressEntry entry) {
         lock (_conversions) {
             return _doingWorkOnEntry.Contains(entry.FileInfo.IdWithAdjustment.GetKey());
         }

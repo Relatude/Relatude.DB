@@ -12,7 +12,7 @@ namespace Relatude.DB.FileConversion;
 
 public class FFMpegVideoConverter : IFileConverter {
     public FFMpegVideoConverter(int? threadCount = null) {
-        ThreadCount = threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
+        ThreadCount = 1;// threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
     }
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; } = 0;

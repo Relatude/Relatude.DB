@@ -4,14 +4,9 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
-using System.Globalization;
-using System.Security.Cryptography;
-using static System.Collections.Specialized.BitVector32;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.DataStores;
-
 public sealed partial class DataStoreLocal : IDataStore {
-    IFileStore getFileStore(Guid fileStoreId) {
+    internal IFileStore getFileStore(Guid fileStoreId) {
         IFileStore fileStore;
         if (fileStoreId == Guid.Empty) {
             fileStore = _defaultFileStore;
@@ -87,9 +82,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         return fileStore.SupportsMultipartUploads();
     }
 
-    Dictionary<Guid, uploadSession> _uploadSessions = [];
     public async Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
-        await removeOldSessions();
+        await _uploads.removeOldSessions();
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -99,15 +93,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var newFileId = Guid.NewGuid();
         var storeKey = await fileStore.InitiatePartialUpload(newFileId, fileName);
         var fileValue = FileValue.CreateNew(fileName, 0, string.Empty, fileStore.Id, newFileId, storeKey, propertyPath);
-        lock (_uploadSessions) {
-            _uploadSessions[newFileId] = new uploadSession(fileValue);
-        }
+        _uploads.AddSession(fileValue);
         return fileValue.FileId;
     }
     public async Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) {
-        var session = getSession(fileId);
+        var session = _uploads.getSession(fileId);
         var fileKey = FileValue.GetFileKeyData(session.FileValue);
-        await getMultiPartStore(session).AppendDataAsync(fileId, fileKey, data, length);
+        await _uploads.getMultiPartStore(session).AppendDataAsync(fileId, fileKey, data, length);
         session.Hash.AppendData(data, 0, length);
         var f = session.FileValue;
         var key = FileValue.GetFileKeyData(f);
@@ -116,14 +108,14 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public async Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
-        var session = getSession(fileId);
+        var session = _uploads.getSession(fileId);
         FileValue newFileValue;
         var propertyPath = session.FileValue.PropertyPath;
         if (propertyPath == null) throw new Exception("File value does not have a property path");
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileHash = Convert.ToHexString(session.Hash.GetHashAndReset());
-        removeSession(fileId);
+        _uploads.removeSession(fileId);
         var f = session.FileValue;
         var key = FileValue.GetFileKeyData(f);
         newFileValue = FileValue.CreateNew(f.Name, f.Size, fileHash, f.StorageId, f.FileId, key, propertyPath);
@@ -135,51 +127,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         return newFileValue;
     }
     public async Task CancelMultipartUpload(Guid fileId) {
-        var session = getSession(fileId);
-        removeSession(fileId);
-        var fileStore = getMultiPartStore(session);
+        var session = _uploads.getSession(fileId);
+        _uploads.removeSession(fileId);
+        var fileStore = _uploads.getMultiPartStore(session);
         await fileStore.DeleteAsync(session.FileValue);
     }
 
-    IFileStoreMultiPartSupport getMultiPartStore(uploadSession session) {
-        if (getFileStore(session.FileValue.StorageId) is not IFileStoreMultiPartSupport fileStore)
-            throw new Exception("File store does not support multipart upload");
-        return fileStore;
-    }
-    void removeSession(Guid fileId) {
-        lock (_uploadSessions) {
-            if (!_uploadSessions.TryGetValue(fileId, out var session)) return;
-            session.Hash.Dispose();
-            _uploadSessions.Remove(fileId);
-        }
-    }
-    readonly static TimeSpan _maxStaleAgeForUploadSessions = TimeSpan.FromMinutes(10);
-    uploadSession getSession(Guid fileId) {
-        lock (_uploadSessions) {
-            if (!_uploadSessions.TryGetValue(fileId, out var session)) throw new Exception("Upload session not found");
-            session.Touch();
-            return session;
-        }
-    }
-    async Task removeOldSessions() {
-        List<uploadSession> toRemove;
-        lock (_uploadSessions) {
-            toRemove = _uploadSessions.Values.Where(s => DateTime.UtcNow - s.LastAccessed > _maxStaleAgeForUploadSessions).ToList();
-            foreach (var s in toRemove) _uploadSessions.Remove(s.FileValue.FileId);
-        }
-        foreach (var s in toRemove) {
-            try {
-                var fileStore = getFileStore(s.FileValue.StorageId);
-                await fileStore.DeleteAsync(s.FileValue);
-            } catch (Exception e) {
-                logError($"Failed to remove old upload session for file {s.FileValue.FileId}: {e}");
-            }
-        }
-    }
-    class uploadSession(FileValue fileValue) {
-        public DateTime LastAccessed = DateTime.MinValue;
-        public void Touch() => LastAccessed = DateTime.UtcNow;
-        public FileValue FileValue { get; set; } = fileValue;
-        public IncrementalHash Hash { get; } = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-    }
 }

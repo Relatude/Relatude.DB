@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Diagnostics;
-using System.Security.AccessControl;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -10,6 +9,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Scheduling;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
+using Relatude.DB.DataStores.Uploads;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
@@ -44,6 +44,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly IIOProvider _ioLog;
     readonly IIOProvider _ioLog2;
     readonly IIOProvider _ioAutoBackup;
+    readonly UploadSessions _uploads;
 
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
@@ -150,6 +151,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io, FileKeys);
         _scheduler = new(this);
+        _uploads = new(this);
         try {
             initialize();
         } catch {
