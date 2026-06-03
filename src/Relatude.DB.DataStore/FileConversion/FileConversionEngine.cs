@@ -299,7 +299,7 @@ public class FileConversionEngine : IDisposable {
             text.Add($"Remaining: {timeInText}");
         }
 
-        var uniqueStatusKey = string.Join("|", text);
+        var uniqueStatusKey = string.Join("|", text) + "|" + adj.RequestedFormat.ToString().ToUpper() + "|" + width + "x" + height;
         var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
             () => converter.CreateStatusResponse(adj.RequestedFormat, width, height, text, textColor, fillColor)
         );
