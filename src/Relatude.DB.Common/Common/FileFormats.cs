@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Relatude.DB.Common;
 
@@ -9,6 +10,7 @@ public enum FileType {
     Image,
     Video,
     Audio,
+    Meta,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -42,6 +44,9 @@ public enum FileFormat {
     Ppt,
     Pptx,
     Txt,
+    // Meta formats
+    FileMetaJson,
+    //AiMeta,    
     // Other formats can be added here
     Unknown,
 }
@@ -78,6 +83,7 @@ public static class FileFormatUtil {
             ".ppt" => FileFormat.Ppt,
             ".pptx" => FileFormat.Pptx,
             ".txt" => FileFormat.Txt,
+            ".filemeta" => FileFormat.FileMetaJson,
             _ => FileFormat.Unknown, // This should probably be a different value or throw an exception since it's not a detailed format
         };
     }
@@ -87,6 +93,7 @@ public static class FileFormatUtil {
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
+            FileFormat.FileMetaJson => FileType.Meta,
             FileFormat.Unknown => FileType.Unknown,
             _ => throw new Exception("Internal error. Unhandled FileFormat value: " + format.ToString()), // This should never happen if all FileFormat values are covered
         };
@@ -118,6 +125,7 @@ public static class FileFormatUtil {
         FileFormat.Ppt => "application/vnd.ms-powerpoint",
         FileFormat.Pptx => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         FileFormat.Txt => "text/plain",
+        FileFormat.FileMetaJson => "application/json",
         _ => "application/octet-stream",
     };
 
@@ -148,6 +156,7 @@ public static class FileFormatUtil {
             FileFormat.Ppt => ".ppt",
             FileFormat.Pptx => ".pptx",
             FileFormat.Txt => ".txt",
+            FileFormat.FileMetaJson => ".filemeta",
             _ => null,
         };
     }
@@ -158,6 +167,7 @@ public static class FileFormatUtil {
             FileType.Video => false,
             FileType.Audio => false,
             FileType.Document => true,
+            FileType.Meta => false,
             _ => true,
         };
     }
@@ -197,5 +207,31 @@ public struct FormatPair : IEquatable<FormatPair> {
 
     public static bool operator !=(FormatPair left, FormatPair right) {
         return !(left == right);
+    }
+}
+
+public class FileMeta {
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public TimeSpan Duration { get; set; }
+    public string Author { get; set; } = string.Empty;
+    public string FormatDetails { get; set; } = string.Empty;
+    public string? AllMetaJson { get; set; } = null;
+    static JsonSerializerOptions _options = new() {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
+    };
+    public byte[] ToBytes() {
+        var json = JsonSerializer.Serialize(this, _options);
+        return System.Text.Encoding.UTF8.GetBytes(json);
+    }
+    public static FileMeta? FromBytes(byte[] bytes) {
+        var json = System.Text.Encoding.UTF8.GetString(bytes);
+        try {
+            return JsonSerializer.Deserialize<FileMeta>(json, _options);
+        } catch (JsonException) {
+            return null; // Or throw a custom exception if you prefer
+        }
     }
 }

@@ -155,7 +155,6 @@ namespace Relatude.DB.Common {
         public void HalfSize() {
             lock (_lock) reduceToSize(_size / 2);
         }
-
         public long Size { get { lock (_lock) return _size; } }
         public int Count { get { lock (_lock) return _cache.Count; } }
         public int CountZeroSize { get { lock (_lock) return _cache.Count(i => i.Value.Size == 0); } }

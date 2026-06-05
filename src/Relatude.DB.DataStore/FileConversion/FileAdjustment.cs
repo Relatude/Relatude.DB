@@ -17,8 +17,8 @@ public class FileIdWithAdjustment {
 }
 public enum FileAdjustmentType {
     Image,
-    ImageMetaData,
     Video,
+    Meta,
 }
 public abstract class FileAdjustment {
     public FileFormat RequestedFormat { get; set; }
@@ -51,10 +51,32 @@ public abstract class FileAdjustment {
         return adjustmentType switch {
             FileAdjustmentType.Image => FileAdjustmentImage.FromBytes(bytes),
             FileAdjustmentType.Video => FileAdjustmentVideo.FromBytes(bytes),
+            FileAdjustmentType.Meta => FileAdjustmentMeta.FromBytes(bytes),
             _ => throw new NotSupportedException($"Unsupported adjustment type: {adjustmentType}")
         };
     }
-
+}
+public class FileAdjustmentMeta : FileAdjustment {
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Meta;
+    public override byte[] ToBytes() {
+        var buf = new byte[5];
+        var s = buf.AsSpan();
+        s[0] = (byte)FileAdjustmentType.Meta;
+        BinaryPrimitives.WriteInt32LittleEndian(s[1..], (int)RequestedFormat);
+        return buf;
+    }
+    public static new FileAdjustmentMeta FromBytes(byte[] bytes) {
+        if (bytes.Length != 5) throw new ArgumentException("Invalid byte array length for FileAdjustmentMeta");
+        var obj = new FileAdjustmentMeta {
+            RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan()[1..])
+        };
+        return obj;
+    }
+    protected override string GenerateStringKey() {
+        Span<byte> buf = stackalloc byte[4];
+        BitConverter.TryWriteBytes(buf, (int)RequestedFormat);
+        return buf.ToString();
+    }
 }
 public class FileAdjustmentImage : FileAdjustment {
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;

@@ -5,6 +5,7 @@ using Relatude.DB.FileConversion.ImageEncoders;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Xabe.FFmpeg;
 using Xabe.FFmpeg.Downloader;
 
@@ -12,7 +13,8 @@ namespace Relatude.DB.FileConversion;
 
 public class FFMpegVideoConverter : IFileConverter {
     public FFMpegVideoConverter(int? threadCount = null) {
-        ThreadCount = 1;// threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
+        //ThreadCount = threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
+        ThreadCount = threadCount.HasValue ? threadCount.Value : 1;
     }
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; } = 0;
@@ -21,7 +23,21 @@ public class FFMpegVideoConverter : IFileConverter {
     static readonly FileFormat[] _videoOuts = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Mkv];
     static readonly FileFormat[] _imageIns = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
+    static readonly FileFormat[] _metaOuts = [FileFormat.FileMetaJson];
     static string _ffmpegBinDir = Path.Combine(AppContext.BaseDirectory, "ffmpeg");
+    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
+        if (inBase == FileType.Video) {
+            if (!_videoIns.Contains(inDetailed)) return false; // unsupported input video format
+            if (outBase == FileType.Video) return _videoOuts.Contains(outDetailed); // supported video to video
+            if (outBase == FileType.Meta) return _metaOuts.Contains(outDetailed); // supported video to meta 
+            if (outBase == FileType.Image) return _imageOuts.Contains(outDetailed); // supported video to image (thumbnail)
+        }
+        if (inBase == FileType.Image) {
+            if (!_imageIns.Contains(inDetailed)) return false; // unsupported input image format
+            if (outBase == FileType.Image) return _imageOuts.Contains(outDetailed); // supported image to image
+        }
+        return false;
+    }
 
     static readonly SemaphoreSlim _downloadLock = new(1, 1);
     static bool _ffmpegBinReady;
@@ -57,18 +73,6 @@ public class FFMpegVideoConverter : IFileConverter {
         }
     }
 
-    public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed)
-        =>
-         (inBase == FileType.Video && _videoIns.Contains(inDetailed)
-            && ((outBase == FileType.Video && _videoOuts.Contains(outDetailed))
-                || (outBase == FileType.Image && _imageOuts.Contains(outDetailed))))
-         ||
-         (inBase == FileType.Image && _imageIns.Contains(inDetailed)
-            && outBase == FileType.Image && _imageOuts.Contains(outDetailed));
-
-    //=> inBase == FileType.Video && _videoIns.Contains(inDetailed)
-    //&& ((outBase == FileType.Video && _videoOuts.Contains(outDetailed))
-    //    || (outBase == FileType.Image && _imageOuts.Contains(outDetailed)));
 
     public Task<bool> CancelAsync(Guid key) {
         if (_cancellations.TryRemove(key, out var cts)) {
@@ -78,10 +82,8 @@ public class FFMpegVideoConverter : IFileConverter {
         return Task.FromResult(false);
     }
 
-    int concucurrentCount = 0;
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
         await ensureFFMpegBinAsync();
-        Interlocked.Increment(ref concucurrentCount);
         var key = info.IdWithAdjustment.GetKey();
         var cts = new CancellationTokenSource();
         _cancellations[key] = cts;
@@ -102,7 +104,6 @@ public class FFMpegVideoConverter : IFileConverter {
                 await using (var fs = File.Create(inputFilePath))
                     await inp.CopyToAsync(fs, cts.Token);
             }
-
             var typeFrom = FileFormatUtil.GetFileType(info.Formats.From);
             var typeTo = FileFormatUtil.GetFileType(info.Formats.To);
             if (typeFrom == FileType.Video) {
@@ -111,6 +112,8 @@ public class FFMpegVideoConverter : IFileConverter {
                     await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, imgAdj, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Video) { // video to video conversion
                     await convertVideoAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
+                } else if (typeTo == FileType.Meta) { // video to video conversion
+                    await extractMetaAsync(inputFilePath, outputFilePath, cts.Token);
                 } else {
                     throw new NotSupportedException("Unsupported output file type: " + typeTo);
                 }
@@ -125,11 +128,7 @@ public class FFMpegVideoConverter : IFileConverter {
             } else {
                 throw new NotSupportedException("Unsupported input file type: " + typeFrom);
             }
-
             return new(new(FileConversionStatus.Ready, 100), null, outputFilePath);
-        //} catch (OperationCanceledException) {
-        //    tryDelete(outputFilePath);
-        //    throw;
         } catch (Exception ex) {
             tryDelete(outputFilePath);
             return new(new(FileConversionStatus.Error, 0, message: ex.Message));
@@ -137,8 +136,18 @@ public class FFMpegVideoConverter : IFileConverter {
             _cancellations.TryRemove(key, out _);
             _conversionProgress.TryRemove(key, out _);
             if (deleteInputFile) tryDelete(inputFilePath);
-            Interlocked.Decrement(ref concucurrentCount);
         }
+    }
+    async Task extractMetaAsync(string inputTmp, string outputTmp, CancellationToken ct) {
+        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+        var meta = new FileMeta {
+            Width = probe.PrimaryVideoStream?.Width ?? 0,
+            Height = probe.PrimaryVideoStream?.Height ?? 0,
+            Duration = probe.Duration,
+            FormatDetails = probe.Format.FormatLongName,
+            AllMetaJson = JsonSerializer.Serialize(probe)
+        };
+        File.WriteAllBytes(outputTmp, meta.ToBytes());
     }
 
     async Task processImageAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
@@ -374,6 +383,8 @@ public class FFMpegVideoConverter : IFileConverter {
                 // final fallback is ffmpeg, slow but at least it will work for almost any format
                 return encodeImageFormat(img.Encode(FileFormat.Png), FileFormat.Png, requestedFormat);
             }
+        } else if (baseRequestFormat == FileType.Meta) {
+            return new FileMeta().ToBytes();
         } else {
             throw new ArgumentException("Requested format must be a video format for status response generation.");
         }

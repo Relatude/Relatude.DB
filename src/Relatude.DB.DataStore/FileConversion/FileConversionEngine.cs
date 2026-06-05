@@ -159,6 +159,12 @@ public class FileConversionEngine : IDisposable {
         if (baseFrom == FileType.Video && baseTo == FileType.Image) {
             return 20000;
         }
+        if (baseFrom == FileType.Video && baseTo == FileType.Meta) {
+            return 0;
+        }
+        if (baseFrom == FileType.Image && baseTo == FileType.Meta) {
+            return 0;
+        }
         return 0;
     }
     public bool TryGetProgressInfo(FileConversionInfo info, bool startIfNotFound, InputFileSource source, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo) {
@@ -196,7 +202,9 @@ public class FileConversionEngine : IDisposable {
             if (sw.ElapsedMilliseconds >= maxWaitMs) break;
             var remaining = maxWaitMs - sw.ElapsedMilliseconds;
             var min = sw.ElapsedMilliseconds switch { < 100 => 20, < 1000 => 100, < 5000 => 500, _ => 1000 };
-            await Task.Delay((int)Math.Min(min, remaining));
+            var delay = (int)Math.Min(min, remaining);
+            if (delay <= 0) break;
+            await Task.Delay(delay);
         }
         if (_fileCache.TryGetResultAndStream(key, out result)) return result;
         if (entry != null) return new(entry.ProgressInfo, null);

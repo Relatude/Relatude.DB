@@ -13,7 +13,7 @@ internal class FileConversionCache {
     }
     const int _folderDepth = 3;
     readonly Cache<Guid, byte[]> _smallCache = new(100 * 1024 * 1024); // 100mb
-    int _smallFileSizeLimit = 200 * 1024; // 200kb
+    int _smallFileSizeLimit = 200 * 1024; // 200kb, files bigger than this will always be read from disk
     string[] getFilePath(Guid key) {
         var keyString = key.ToString();
         var path = new string[_folderDepth + 1];

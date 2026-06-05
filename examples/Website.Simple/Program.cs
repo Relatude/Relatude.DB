@@ -5,6 +5,7 @@ using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
+using System.Data.Common;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -94,18 +95,22 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     TimeOffsetMs = 4000,
                     Quality = 90
                 };
-                var thumbnailUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, thumbnailAdj)}";
-                var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true);
-                var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true);
-                if (isVideoReady) {
-                    var videoUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, videoAdj)}";
-                    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-                    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-                    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-                    html.Append($"</video>");
-                } else {
-                    html.Append($"<img src='{thumbnailUrl}'>");
-                }
+                //var thumbnailUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, thumbnailAdj)}";
+                //var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true);
+                //var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true);
+                //if (isVideoReady) {
+                //    var videoUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, videoAdj)}";
+                //    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+                //    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+                //    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+                //    html.Append($"</video>");
+                //} else {
+                //    html.Append($"<img src='{thumbnailUrl}'>");
+                //}
+                var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta() { RequestedFormat = FileFormat.FileMetaJson })}";
+                html.Append($"<p><a href='{metaUrl}'>Conversion status and metadata</a></p>");
+
+
             } else if (article.File.FileType == FileType.Image) {
                 var imageAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
