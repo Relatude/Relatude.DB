@@ -140,7 +140,7 @@ public class FFMpegVideoConverter : IFileConverter {
     }
     async Task extractMetaAsync(string inputTmp, string outputTmp, CancellationToken ct) {
         var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
-        var meta = new FileMeta {
+        var meta = new BasicFileMeta {
             Width = probe.PrimaryVideoStream?.Width ?? 0,
             Height = probe.PrimaryVideoStream?.Height ?? 0,
             Duration = probe.Duration,
@@ -384,7 +384,7 @@ public class FFMpegVideoConverter : IFileConverter {
                 return encodeImageFormat(img.Encode(FileFormat.Png), FileFormat.Png, requestedFormat);
             }
         } else if (baseRequestFormat == FileType.Meta) {
-            return new FileMeta().ToBytes();
+            return new BasicFileMeta().ToBytes();
         } else {
             throw new ArgumentException("Requested format must be a video format for status response generation.");
         }

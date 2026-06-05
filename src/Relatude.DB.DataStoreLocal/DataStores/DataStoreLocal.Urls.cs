@@ -34,7 +34,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
-            return new StateAndStream(stream, false, fileValue, fileValue.Format);
+            return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetFileStreamAndState(path, adj, maxWait, ctx);

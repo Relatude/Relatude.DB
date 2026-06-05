@@ -210,7 +210,7 @@ public struct FormatPair : IEquatable<FormatPair> {
     }
 }
 
-public class FileMeta {
+public class BasicFileMeta {
     public int Width { get; set; }
     public int Height { get; set; }
     public TimeSpan Duration { get; set; }
@@ -226,10 +226,10 @@ public class FileMeta {
         var json = JsonSerializer.Serialize(this, _options);
         return System.Text.Encoding.UTF8.GetBytes(json);
     }
-    public static FileMeta? FromBytes(byte[] bytes) {
+    public static BasicFileMeta? FromBytes(byte[] bytes) {
         var json = System.Text.Encoding.UTF8.GetString(bytes);
         try {
-            return JsonSerializer.Deserialize<FileMeta>(json, _options);
+            return JsonSerializer.Deserialize<BasicFileMeta>(json, _options);
         } catch (JsonException) {
             return null; // Or throw a custom exception if you prefer
         }

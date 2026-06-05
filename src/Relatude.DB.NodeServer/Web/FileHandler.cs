@@ -9,10 +9,10 @@ public static class FileHandler {
     public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) {
         var db = ctx.Database;
         var fileInfo = await db.GetFileStreamAndState(propPathAndAdj);
-        if (fileInfo.IsTemporary) {
-            http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
-        } else {
+        if (fileInfo.IsReady) {
             http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
+        } else {
+            http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
         }
         var contentType = FileFormatUtil.GetContentType(fileInfo.RequestedFormat);
         var stream = fileInfo.Stream;

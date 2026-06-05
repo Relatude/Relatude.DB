@@ -18,18 +18,27 @@ public abstract class ImageConverterBase : IFileConverter {
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; }
     public virtual bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
-        return _ins.Contains(inDetailed) && _outs.Contains(outDetailed);
+        return _ins.Contains(inDetailed) && (_outs.Contains(outDetailed) || outDetailed == FileFormat.FileMetaJson);
     }
     public Task<bool> CancelAsync(Guid key) {
         return Task.FromResult(false);
     }
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
-        var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
         var input = await source.OpenInputStream();
-        var image = Load(input).Adjust(imgAdj);
+        var image = Load(input);
+        if (info.ToFormat == FileFormat.FileMetaJson) {
+            var meta = new BasicFileMeta {
+                Height = image.Height,
+                Width = image.Width,
+                AllMetaJson = image.GetJsonDetails(),
+            };
+            return new(new(FileConversionStatus.Ready, 100), new MemoryStream(meta.ToBytes()));
+        }
+        var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
+        image = image.Adjust(imgAdj);
         var bytes = image.Encode(info.Formats.To);
         var stream = new MemoryStream(bytes);
-        return new ConversionProgress(new FileConversionProgressInfo(FileConversionStatus.Ready, 100), stream);
+        return new(new(FileConversionStatus.Ready, 100), stream);
     }
     public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         status = null;

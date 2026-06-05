@@ -75,7 +75,7 @@ internal class RunningConversions {
             return GetEnumerator();
         }
     }
-    class history<T>(TimeSpan maxAge, int maxCount) {
+    class History<T>(TimeSpan maxAge, int maxCount) {
         class itemWithTime(T item) {
             public T Item { get; set; } = item;
             public DateTime Time { get; } = DateTime.UtcNow;
@@ -99,7 +99,7 @@ internal class RunningConversions {
     }
     readonly orderedDictionary<Guid, ProgressEntry> _conversions = [];
     readonly HashSet<Guid> _doingWorkOnEntry = [];
-    readonly history<FileConversion> _history = new(TimeSpan.FromSeconds(60), 1000);
+    readonly History<FileConversion> _history = new(TimeSpan.FromSeconds(60), 1000);
     public void AddIfMissing(Guid key, Func<ProgressEntry> createEntry) {
         lock (_conversions) {
             if (_conversions.ContainsKey(key)) return;

@@ -22,9 +22,14 @@ public sealed class NativeImage : IImage {
         _offsetY = offsetY;
         _backgroundColor = backgroundColor;
     }
-
+    
     public static NativeImage Load(Stream stream) => new(InternalImage.Load(stream));
     public static NativeImage Create(int width, int height) => new(InternalImage.Create(width, height));
+
+    // ── Metadata  ──────────────────────────────────────────────────────────
+    public string? GetJsonDetails() {
+        return null;
+    }
 
     // ── Crop hints ──────────────────────────────────────────────────────────
 

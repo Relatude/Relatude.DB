@@ -30,7 +30,7 @@ public class StoreStreamDiscRead : IReadStream {
                 return new(filePath, FileMode.Open, FileAccess.Read);
             } catch (FileNotFoundException) {
                 throw; // No need to retry if the file is not found
-            } catch (IOException e) {
+            } catch (IOException) {
                 var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 100 retries: 1s + 1s + 10s * 98 = 16 minutes, leaving time for azure lock on files during restarts and backups
                 Thread.Sleep(delayOnRetry);
             }

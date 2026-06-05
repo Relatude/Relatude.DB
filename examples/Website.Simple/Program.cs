@@ -35,10 +35,10 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-bool hasInserted = false;
+
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
-    hasInserted = true;
+    
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
     var files1 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();
@@ -76,7 +76,6 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     var articles = db.Query<DemoArticle>().Execute().ToArray();
     var html = new StringBuilder();
     html.Append("<html><body style='background-color:#f0f000'>");
-    int i = 0;
     foreach (var article in articles) {
         if (!article.File.IsEmpty) {
             if (article.File.FileType == FileType.Video) {
@@ -107,10 +106,6 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                 //} else {
                 //    html.Append($"<img src='{thumbnailUrl}'>");
                 //}
-                var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta() { RequestedFormat = FileFormat.FileMetaJson })}";
-                html.Append($"<p><a href='{metaUrl}'>Conversion status and metadata</a></p>");
-
-
             } else if (article.File.FileType == FileType.Image) {
                 var imageAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
@@ -124,6 +119,10 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                 var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
                 html.Append($"<img src='{imageUrl}'>");
             }
+            var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta())}";
+            html.Append($"<p><a href='{metaUrl}'>Conversion status and metadata</a></p>");
+
+            html.Append($"<p>{article.File.Width}x{article.File.MetaJSON}</p>");
         }
     }
     html.Append("</body></html>");

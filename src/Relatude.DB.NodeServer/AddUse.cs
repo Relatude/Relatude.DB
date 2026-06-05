@@ -43,7 +43,6 @@ public static class AddUse {
         if (string.IsNullOrWhiteSpace(urlPathFiles)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPathFiles));
         if (!urlPathFiles.StartsWith("/")) urlPathFiles = "/" + urlPathFiles;
         if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
-        RelatudeDBServer.FileHandlerRootUrl = urlPathFiles;
         app.MapGet(urlPathFiles + "/{propPathAndAdj}", FileHandler.HandleFileAsync);
         return app;
     }

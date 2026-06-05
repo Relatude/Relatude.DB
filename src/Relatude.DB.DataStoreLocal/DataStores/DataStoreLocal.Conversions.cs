@@ -33,6 +33,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         var fileStore = getFileStore(fileValue.StorageId);
         InputFileSource source;
+        var conversionId = idWithAdj.GetKey();
         if (fileStore.TryGetLocalFilePath(fileValue, out var localFilePath)) {
             var getInputStreamFunc = new Func<Task<Stream>>(async () => {
                 return File.OpenRead(localFilePath);
@@ -48,12 +49,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source);
         Stream stream;
         if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
-            if (result.Output == null) throw new Exception("File conversion output is null");
+            if (result.Output == null) throw new Exception("File conversion output is null"); // should never happen, but just in case
             stream = result.Output;
         } else {
             stream = _fileConversionEngine.GetStatusDataStream(fileValue, adj, result.ProgressInfo);
         }
-        return new StateAndStream(stream, result.ProgressInfo.Status != FileConversionStatus.Ready, fileValue, adj.RequestedFormat);
+        return new StateAndStream(stream, result.ProgressInfo.Status == FileConversionStatus.Ready, fileValue, adj.RequestedFormat, conversionId);
     }
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);

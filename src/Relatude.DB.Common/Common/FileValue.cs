@@ -44,7 +44,10 @@ public class FileValue {
         if (value == null || value.IsEmpty) {
             return CreateEmptyWithPropertyPath(propertyPath);
         } else {
-            return CreateNew(value.Name, value.Size, value.Hash, value.StorageId, value.FileId, value._fileKeyData, propertyPath);
+            var copy = value.Copy();
+            copy.PropertyPath = propertyPath;
+            return copy;
+            //return CreateNew(value.Name, value.Size, value.Hash, value.StorageId, value.FileId, value._fileKeyData, propertyPath);
         }
     }
     public static FileValue BringChangesFromOuterToInner(FileValue old, FileValue newValue) {

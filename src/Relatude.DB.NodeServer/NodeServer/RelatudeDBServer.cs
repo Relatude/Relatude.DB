@@ -24,7 +24,6 @@ namespace Relatude.DB.NodeServer;
 /// certain properties or methods before initialization may result in exceptions. </para></remarks>
 public partial class RelatudeDBServer {
     DateTime _initialized = DateTime.UtcNow;
-    public static string FileHandlerRootUrl { get; internal set; }
     public RelatudeDBServer(string? urlPath) {
         setApiUrlRoot(urlPath);
         EventHub = new ServerEventHub(this);

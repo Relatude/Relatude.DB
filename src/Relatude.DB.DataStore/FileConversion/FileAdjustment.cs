@@ -57,6 +57,9 @@ public abstract class FileAdjustment {
     }
 }
 public class FileAdjustmentMeta : FileAdjustment {
+    public FileAdjustmentMeta() {
+        RequestedFormat = FileFormat.FileMetaJson;
+    }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Meta;
     public override byte[] ToBytes() {
         var buf = new byte[5];

@@ -2,6 +2,7 @@ using LibAvifSharp;
 using LibAvifSharp.NativeTypes;
 using Relatude.DB.Common;
 using SkiaSharp;
+using System.Text.Json;
 
 namespace Relatude.DB.FileConversion;
 
@@ -27,6 +28,33 @@ internal sealed class SkiaImage : IImage {
     }
 
     public static SkiaImage Load(Stream stream) => new(SKBitmap.Decode(stream) ?? throw new InvalidOperationException("Failed to decode image."));
+
+    // ── Metadata  ──────────────────────────────────────────────────────────
+    public string? GetJsonDetails() {
+        if (_bitmap == null) return null;
+        var cs = _bitmap.Info.ColorSpace;
+        var meta = new {
+            Width = _bitmap.Width,
+            Height = _bitmap.Height,
+            AspectRatio = Math.Round((double)_bitmap.Width / _bitmap.Height, 4),
+            TotalPixels = _bitmap.Width * _bitmap.Height,
+            ColorType = _bitmap.ColorType.ToString(),
+            AlphaType = _bitmap.AlphaType.ToString(),
+            IsOpaque = _bitmap.Info.IsOpaque,
+            BitsPerPixel = _bitmap.Info.BitsPerPixel,
+            BytesPerPixel = _bitmap.BytesPerPixel,
+            RowBytes = _bitmap.RowBytes,
+            ByteCount = _bitmap.ByteCount,
+            MemorySizeMB = Math.Round(_bitmap.ByteCount / (1024.0 * 1024.0), 4),
+            IsImmutable = _bitmap.IsImmutable,
+            IsEmpty = _bitmap.IsEmpty,
+            IsNull = _bitmap.IsNull,
+            ColorSpaceIsSRgb = cs?.IsSrgb ?? true,
+            ColorSpaceGammaIsLinear = cs?.GammaIsLinear ?? false,
+        };
+        return JsonSerializer.Serialize(meta, new JsonSerializerOptions(  ));
+    }
+
 
     // ── Crop hints ──────────────────────────────────────────────────────────
 

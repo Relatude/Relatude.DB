@@ -89,6 +89,7 @@ public interface IImage : IDisposable {
 
     int Width { get; }
     int Height { get; }
+    string? GetJsonDetails();
 
     /// <summary>Resize the canvas to the given dimensions.</summary>
     IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, string? backgroundColor = null, bool autoBackgroundColor = false);
