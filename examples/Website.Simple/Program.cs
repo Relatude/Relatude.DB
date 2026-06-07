@@ -38,7 +38,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
-    
+
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
     var files1 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();

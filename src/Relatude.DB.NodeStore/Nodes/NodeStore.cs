@@ -639,7 +639,7 @@ public class NodeStore : IDisposable {
     public Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx);
     public Task<Guid> InitiateMultipartUploadAsync(FileValue fileValue, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(fileValue.PropertyPath!, fileName, ctx);
     public Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) => Datastore.AppendMultipartUploadAsync(fileId, data, length);
-    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, QueryContext? ctx = null) => Datastore.FinalizeMultipartUploadAsync(fileId, ctx);
+    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) => Datastore.FinalizeMultipartUploadAsync(fileId, maxWaitForMetaUpdate, ctx);
     public Task CancelMultipartUploadAsync(Guid fileId) => Datastore.CancelMultipartUpload(fileId);
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => Datastore.FileStoreSupportsMultipartUploads(propertyPath);
     public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);

@@ -20,11 +20,17 @@ public class IOProviderDisk : IIOProvider {
     readonly Dictionary<string, int> _openReaders = [];
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
+    bool _dirExists;
     public IOProviderDisk(string baseFolder, bool readOnly = false) {
         _providers.Add(this);
         BaseFolder = baseFolder;
         _readOnly = readOnly;
+        _dirExists = Directory.Exists(BaseFolder);
+    }
+    void ensureFolder() {
+        if (_dirExists) return;
         if (!Directory.Exists(BaseFolder)) Directory.CreateDirectory(BaseFolder);
+        _dirExists = true;
     }
     public string BaseFolder { get; }
     void registerReader(string fileKey) {
@@ -146,6 +152,7 @@ public class IOProviderDisk : IIOProvider {
     }
     public FileMeta[] GetFiles() {
         lock (_lock) {
+            if (!Directory.Exists(BaseFolder)) return [];
             var files = new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
             lock (_lock) {
                 foreach (var f in files) {
@@ -158,6 +165,7 @@ public class IOProviderDisk : IIOProvider {
     }
     public void MoveFile(IOProviderDisk sourceIo, string sourceFileKey, string destFileKey, bool overwrite) {
         lock (_lock) {
+            ensureFolder();
             FileKeyUtility.ValidateFileKeyString(sourceFileKey);
             FileKeyUtility.ValidateFileKeyString(destFileKey);
             var source = Path.Combine(sourceIo.BaseFolder, sourceFileKey);
@@ -189,6 +197,7 @@ public class IOProviderDisk : IIOProvider {
     }
 
     public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
+        ensureFolder();
         FileKeyUtility.ValidateFileKeyPath(path);
         var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
         var dirInfo = new DirectoryInfo(BaseFolder);

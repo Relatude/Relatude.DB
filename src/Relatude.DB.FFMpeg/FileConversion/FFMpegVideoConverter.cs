@@ -369,6 +369,8 @@ public class FFMpegVideoConverter : IFileConverter {
             var imgTmp = getTempPath(FileFormat.Png);
             var vidTmp = getTempPath(requestedFormat);
             try {
+                var folder = Path.GetDirectoryName(imgTmp);
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
                 File.WriteAllBytes(imgTmp, imgBytes);
                 FFMpegArguments
                     .FromFileInput(imgTmp, true, opts => opts.WithCustomArgument("-loop 1"))

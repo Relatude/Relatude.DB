@@ -23,16 +23,23 @@ public abstract class ImageConverterBase : IFileConverter {
     public Task<bool> CancelAsync(Guid key) {
         return Task.FromResult(false);
     }
+    BasicFileMeta getMeta(IImage image) {
+        return new BasicFileMeta {
+            Height = image.Height,
+            Width = image.Width,
+            AllMetaJson = image.GetJsonDetails(),
+        };
+    }
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
         var input = await source.OpenInputStream();
         var image = Load(input);
+        var meta = getMeta(image);
         if (info.ToFormat == FileFormat.FileMetaJson) {
-            var meta = new BasicFileMeta {
-                Height = image.Height,
-                Width = image.Width,
-                AllMetaJson = image.GetJsonDetails(),
-            };
             return new(new(FileConversionStatus.Ready, 100), new MemoryStream(meta.ToBytes()));
+        }
+        if (_engine != null) {
+            // to avoid later meta lookups as image is already opened and meta is available
+            _engine.Store.UpdateFileMetaIfNotSet(info.IdWithAdjustment.PropertyPath, info.IdWithAdjustment.FileId, meta);
         }
         var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
         image = image.Adjust(imgAdj);
@@ -49,7 +56,8 @@ public abstract class ImageConverterBase : IFileConverter {
         var bytes = img.Encode(requestedFormat);
         return bytes;
     }
+    FileConversionEngine? _engine;
     public void Initialize(FileConversionEngine engine) {
-        // not needed;
+        _engine = engine;
     }
 }

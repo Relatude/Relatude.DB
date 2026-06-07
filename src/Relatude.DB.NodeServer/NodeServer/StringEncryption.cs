@@ -10,8 +10,8 @@ internal static class StringEncryption {
     private const int TagSize = 16;      // AES-GCM standard
     private const int SaltSize = 16;     // Standard salt length
     private const int Iterations = 600_000; // Updated for 2026 standards
-    private static readonly byte[] Magic = [0x52, 0x45, 0x4C, 0x01]; // "REL\x01"
     private const int MagicSize = 4;
+    private const int MinLength = MagicSize + SaltSize + NonceSize + TagSize; // Minimum length without ciphertext
 
     public static string Encrypt(string clearText, string secret) {
         // Use UTF8 for consistent byte representation
@@ -33,7 +33,7 @@ internal static class StringEncryption {
         byte[] result = new byte[MagicSize + SaltSize + NonceSize + TagSize + ciphertext.Length];
 
         var span = result.AsSpan();
-        Magic.CopyTo(span.Slice(0, MagicSize));
+        GetMagic(secret).CopyTo(span.Slice(0, MagicSize));
         salt.CopyTo(span.Slice(MagicSize, SaltSize));
         nonce.CopyTo(span.Slice(MagicSize + SaltSize, NonceSize));
         tag.CopyTo(span.Slice(MagicSize + SaltSize + NonceSize, TagSize));
@@ -45,10 +45,10 @@ internal static class StringEncryption {
         try {
             byte[] data = Convert.FromBase64String(cipherText);
 
-            // Early rejection: check magic bytes and minimum length
-            if (data.Length < MagicSize + SaltSize + NonceSize + TagSize || !data.AsSpan(0, MagicSize).SequenceEqual(Magic)) {
+            // Early rejection: check magic bytes (hash of secret) and minimum length
+            if (data.Length < MinLength || !data.AsSpan(0, MagicSize).SequenceEqual(GetMagic(secret))) {
                 result = null;
-                return false;
+                return false; // avoiding exceptions in decryption below
             }
 
             var span = data.AsSpan(MagicSize);
@@ -68,11 +68,16 @@ internal static class StringEncryption {
             }
             result = Encoding.UTF8.GetString(plaintext);
             return true;
-        } catch (Exception ex) when (ex is CryptographicException or FormatException) {
+        } catch { //(Exception ex) when (ex is CryptographicException or FormatException) {
             // Decryption failed: either bad password, tampered data, or bad Base64
             result = null;
             return false;
         }
+    }
+
+    private static byte[] GetMagic(string secret) {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(secret));
+        return hash[..MagicSize];
     }
 
     private static byte[] DeriveKey(string password, byte[] salt) {

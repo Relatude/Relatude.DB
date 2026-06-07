@@ -110,16 +110,16 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null);
-    Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, QueryContext? ctx = null);
+    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
+    Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
-    void UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null);
+    FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null);
 
     Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
     Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length);
-    Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, QueryContext? ctx = null);
+    Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task CancelMultipartUpload(Guid fileId);
     bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath);
 
