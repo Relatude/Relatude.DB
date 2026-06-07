@@ -17,7 +17,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileStore;
     }
-    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, IIOProvider source, string sourceFileKey, string? fileName = null, bool noNodeUpdate = false, QueryContext? ctx = null) {
+    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, IIOProvider source, string sourceFileKey, string? fileName = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -28,17 +28,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         fileName ??= sourceFileKey;
         var r = await fileStore.InsertAsync(newFileId, inputStream, fileName);
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, propertyPath);
-        if (!noNodeUpdate) {
-            var t = new TransactionData();
-            t.ForceUpdateProperty(propertyPath, fileValue);
-            execute_outer(t, false, true, ctx, out _);
-            enqueueUpdateFileMeta(propertyPath, fileValue.Hash, ctx);
-        } else {
-            await updateMetaFileValueDirectly(fileValue, ctx);
-        }
+        var t = new TransactionData();
+        t.ForceUpdateProperty(propertyPath, fileValue);
+        Execute(t, false, false, ctx);
+        enqueueUpdateFileMeta(propertyPath, fileValue.FileId, ctx);
         return fileValue;
     }
-    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, Stream source, string fileName, bool noNodeUpdate = false, QueryContext? ctx = null) {
+    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, Stream source, string fileName, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -47,26 +43,54 @@ public sealed partial class DataStoreLocal : IDataStore {
         var newFileId = Guid.NewGuid();
         var r = await fileStore.InsertAsync(newFileId, source, fileName);
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, propertyPath);
-        if (!noNodeUpdate) {
-            var t = new TransactionData();
-            t.ForceUpdateProperty(propertyPath, fileValue);
-            execute_outer(t, false, true, ctx, out _);
-            enqueueUpdateFileMeta(propertyPath, fileValue.Hash, ctx);
-        } else {
-            await updateMetaFileValueDirectly(fileValue, ctx);
-        }
+        var t = new TransactionData();
+        t.ForceUpdateProperty(propertyPath, fileValue);
+        Execute(t, false, false, ctx);
+        enqueueUpdateFileMeta(propertyPath, fileValue.FileId, ctx);
         return fileValue;
     }
-    void enqueueUpdateFileMeta(PropertyPath propertyPath, string fileHash, QueryContext? ctx = null) {
+    public void UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) {
+        // Console.WriteLine("Possible file meta update for fileId: " + fileId);
+        ctx ??= _defaultQueryCtx;
+        var nodeGuid = _guids.ValidateAndReturnIntId(propertyPath.NodePath.NodeKey);
+        var lockId = RequestLockAsync(nodeGuid, 1000, 1000).GetAwaiter().GetResult();
+        try {
+            if (!TryGetValue<FileValue>(propertyPath, out var fileValue, ctx)) return; // file is deleted
+            if (fileValue.FileId != fileId) return; // file have changed
+            if (fileValue.Width > 0) return; // meta is already set
+            // Console.WriteLine("File meta is not set... " + fileId);
+            var t = new TransactionData();
+            t.LockExcemptions = [lockId];
+            var isDifferent =
+                fileValue.MetaJSON != (meta.AllMetaJson ?? string.Empty) ||
+                fileValue.Width != meta.Width ||
+                fileValue.Height != meta.Height;
+            if (isDifferent) {
+                fileValue.Width = meta.Width;
+                fileValue.Height = meta.Height;
+                fileValue.MetaJSON = meta.AllMetaJson ?? string.Empty;
+                t.ForceUpdateProperty(propertyPath, fileValue);
+                Execute(t, false, false, ctx);
+                // Console.WriteLine("File meta updated for fileId: " + fileId);
+            } else { 
+                // Console.WriteLine("File meta is already up to date for fileId: " + fileId);
+            }
+        } finally {
+            ReleaseLock(lockId);
+        }
+    }
+
+    void enqueueUpdateFileMeta(PropertyPath propertyPath, Guid fileId, QueryContext? ctx = null) {
         ThreadPool.QueueUserWorkItem(async _ => {
             try {
-                await updateFileMeta(propertyPath, fileHash, ctx);
+                await Task.Delay(5000);
+                await updateFileMeta(propertyPath, fileId, ctx);
             } catch (Exception ex) {
                 LogError("Error updating file meta: " + ex.ToString(), ex);
             }
         });
     }
-    async Task updateFileMeta(PropertyPath propertyPath, string fileHash, QueryContext? ctx = null) {
+    async Task updateFileMeta(PropertyPath propertyPath, Guid fileId, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         FileAdjustmentMeta adj = new();
         var conversionResult = await GetFileStreamAndState(propertyPath, adj, 10000, ctx);
@@ -76,35 +100,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         var meta = BasicFileMeta.FromBytes(conversionResult.GetBytes());
         if (meta == null) return;
-        var nodeGuid = _guids.ValidateAndReturnIntId(propertyPath.NodePath.NodeKey);
-        var lockId = await RequestLockAsync(nodeGuid, 1000, 1000);
-        try {
-            if (!TryGetValue<FileValue>(propertyPath, out var fileValue, ctx)) return; // file is deleted
-            if (fileValue.Hash != fileHash) return; // file have changed
-            var t = new TransactionData();
-            t.LockExcemptions = [lockId];
-            fileValue.Width = meta.Width;
-            fileValue.Height = meta.Height;
-            fileValue.MetaJSON = meta.AllMetaJson ?? string.Empty;
-            t.ForceUpdateProperty(propertyPath, fileValue);
-            execute_outer(t, false, true, ctx, out _);
-        } finally {
-            ReleaseLock(lockId);
-        }
-    }
-    async Task updateMetaFileValueDirectly(FileValue fileValue, QueryContext? ctx = null) {
-        ctx ??= _defaultQueryCtx;
-        FileAdjustmentMeta adj = new();
-        var conversionResult = await GetFileStreamAndState(fileValue.PropertyPath!, adj, 2000, ctx);
-        if (!conversionResult.IsReady) {
-            await _fileConversionEngine.CancelRunning(conversionResult.ConversionId, false);
-            return;
-        }
-        var meta = BasicFileMeta.FromBytes(conversionResult.GetBytes());
-        if (meta == null) return;
-        fileValue.Width = meta.Width;
-        fileValue.Height = meta.Height;
-        fileValue.MetaJSON = meta.AllMetaJson ?? string.Empty;
+        UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx);
     }
     public async Task FileDeleteAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
@@ -114,7 +110,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         await fileStore.DeleteAsync(fileValue);
         var t = new TransactionData();
         t.ForceUpdateProperty(propertyPath, FileValue.Empty);
-        execute_outer(t, false, true, ctx, out _);
+        Execute(t, false, true, ctx);
     }
     public async Task<FileValue> FileDownloadAsync(PropertyPath propertyPath, Stream outStream, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
@@ -136,7 +132,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
         return fileStore.SupportsMultipartUploads();
     }
-
     public async Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
         await _uploads.removeOldSessions();
         ctx ??= _defaultQueryCtx;
@@ -161,7 +156,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var newFileValue = FileValue.CreateNew(f.Name, f.Size + length, f.Hash, f.StorageId, f.FileId, key, f.PropertyPath!);
         session.FileValue = newFileValue;
     }
-    public async Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, bool noNodeUpdate = false, QueryContext? ctx = null) {
+    public async Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         var session = _uploads.getSession(fileId);
         FileValue fileValue;
@@ -174,12 +169,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var f = session.FileValue;
         var key = FileValue.GetFileKeyData(f);
         fileValue = FileValue.CreateNew(f.Name, f.Size, fileHash, f.StorageId, f.FileId, key, propertyPath);
-        if (!noNodeUpdate) {
-            var t = new TransactionData();
-            t.ForceUpdateProperty(propertyPath, fileValue);
-            execute_outer(t, false, true, ctx, out _);
-        }
-        enqueueUpdateFileMeta(propertyPath, fileValue.Hash, ctx);
+        var t = new TransactionData();
+        t.ForceUpdateProperty(propertyPath, fileValue);
+        Execute(t, false, false, ctx);
+        enqueueUpdateFileMeta(propertyPath, fileValue.FileId, ctx);
         return fileValue;
     }
     public async Task CancelMultipartUpload(Guid fileId) {
@@ -188,5 +181,4 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = _uploads.getMultiPartStore(session);
         await fileStore.DeleteAsync(session.FileValue);
     }
-
 }

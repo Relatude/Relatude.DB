@@ -10,6 +10,8 @@ internal static class StringEncryption {
     private const int TagSize = 16;      // AES-GCM standard
     private const int SaltSize = 16;     // Standard salt length
     private const int Iterations = 600_000; // Updated for 2026 standards
+    private static readonly byte[] Magic = [0x52, 0x45, 0x4C, 0x01]; // "REL\x01"
+    private const int MagicSize = 4;
 
     public static string Encrypt(string clearText, string secret) {
         // Use UTF8 for consistent byte representation
@@ -27,14 +29,15 @@ internal static class StringEncryption {
             aes.Encrypt(nonce, plaintext, ciphertext, tag);
         }
 
-        // Combine all parts into one array: [Salt][Nonce][Tag][Ciphertext]
-        byte[] result = new byte[SaltSize + NonceSize + TagSize + ciphertext.Length];
+        // Combine all parts into one array: [Magic][Salt][Nonce][Tag][Ciphertext]
+        byte[] result = new byte[MagicSize + SaltSize + NonceSize + TagSize + ciphertext.Length];
 
         var span = result.AsSpan();
-        salt.CopyTo(span.Slice(0, SaltSize));
-        nonce.CopyTo(span.Slice(SaltSize, NonceSize));
-        tag.CopyTo(span.Slice(SaltSize + NonceSize, TagSize));
-        ciphertext.CopyTo(span.Slice(SaltSize + NonceSize + TagSize));
+        Magic.CopyTo(span.Slice(0, MagicSize));
+        salt.CopyTo(span.Slice(MagicSize, SaltSize));
+        nonce.CopyTo(span.Slice(MagicSize + SaltSize, NonceSize));
+        tag.CopyTo(span.Slice(MagicSize + SaltSize + NonceSize, TagSize));
+        ciphertext.CopyTo(span.Slice(MagicSize + SaltSize + NonceSize + TagSize));
 
         return Convert.ToBase64String(result);
     }
@@ -42,15 +45,15 @@ internal static class StringEncryption {
         try {
             byte[] data = Convert.FromBase64String(cipherText);
 
-            // Basic length check to avoid Span exceptions
-            if (data.Length < SaltSize + NonceSize + TagSize) {
+            // Early rejection: check magic bytes and minimum length
+            if (data.Length < MagicSize + SaltSize + NonceSize + TagSize || !data.AsSpan(0, MagicSize).SequenceEqual(Magic)) {
                 result = null;
                 return false;
             }
 
-            var span = data.AsSpan();
+            var span = data.AsSpan(MagicSize);
 
-            // Extract the components using Spans (efficient, no allocations)
+            // Extract the components using Spans (efficient, no allocations) — span already past magic
             var salt = span.Slice(0, SaltSize).ToArray();
             var nonce = span.Slice(SaltSize, NonceSize);
             var tag = span.Slice(SaltSize + NonceSize, TagSize);

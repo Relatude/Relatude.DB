@@ -92,6 +92,8 @@
     });
     fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
 
+    const MAX_CONCURRENT = 40;
+
     function addFiles(files) {
         const newEntries = [];
         files.forEach(f => {
@@ -101,7 +103,9 @@
             renderItem(entry);
             newEntries.push(entry);
         });
-        Promise.all(newEntries.map(uploadFile));
+        let i = 0;
+        const worker = async () => { while (i < newEntries.length) await uploadFile(newEntries[i++]); };
+        Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, newEntries.length) }, worker));
     }
 
     function renderItem(entry) {

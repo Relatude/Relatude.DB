@@ -12,6 +12,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
+        return Execute(transaction, true, flushToDisk, ctx);
+    }
+    public TransactionResult Execute(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
         validateDatabaseState();
         ctx ??= _defaultQueryCtx;
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
@@ -32,7 +35,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (transaction.Actions.Count == 0) return TransactionResult.Empty; // nothing to do
         if (_logger.LoggingTransactionsOrActions) {
             var sw = Stopwatch.StartNew();
-            var result = execute_outer(transaction, true, flush, ctx, out var primitiveActionCount);
+            var result = execute_outer(transaction, transformValues, flush, ctx, out var primitiveActionCount);
             if (_logger.LoggingActions) foreach (var a in transaction.Actions) _logger.RecordAction(result.TransactionId, a.OperationName(), a.ToString());
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
             return result;

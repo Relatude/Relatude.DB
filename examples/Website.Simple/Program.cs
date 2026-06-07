@@ -94,35 +94,35 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     TimeOffsetMs = 4000,
                     Quality = 90
                 };
-                //var thumbnailUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, thumbnailAdj)}";
-                //var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true);
-                //var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true);
-                //if (isVideoReady) {
-                //    var videoUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, videoAdj)}";
-                //    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
-                //    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
-                //    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
-                //    html.Append($"</video>");
-                //} else {
-                //    html.Append($"<img src='{thumbnailUrl}'>");
-                //}
+                var thumbnailUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, thumbnailAdj)}";
+                var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true);
+                var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true);
+                if (isVideoReady) {
+                    var videoUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, videoAdj)}";
+                    html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");
+                    html.Append($"<source src='{videoUrl}' type='video/mp4'>");
+                    html.Append($"Your browser does not support the video tag. Here is a <a href='{videoUrl}'>link to the video</a> instead.");
+                    html.Append($"</video>");
+                } else {
+                    html.Append($"<img src='{thumbnailUrl}'>");
+                }
             } else if (article.File.FileType == FileType.Image) {
                 var imageAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
                     Width = 240,
                     Height = 200,
                     Saturation = 0,
-                    RequestedFormat = FileFormat.Png,
+                    RequestedFormat = FileFormat.Jpeg,
                     Sharpness = 0,
+                    Temporary = false,
                     Quality = 90
                 };
                 var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
                 html.Append($"<img src='{imageUrl}'>");
             }
-            var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta())}";
-            html.Append($"<p><a href='{metaUrl}'>Conversion status and metadata</a></p>");
-
-            html.Append($"<p>{article.File.Width}x{article.File.MetaJSON}</p>");
+            //var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta())}";
+            //html.Append($"<p><a href='{metaUrl}'>Conversion status and metadata</a></p>");
+            //html.Append($"<p>{article.File.Width}x{article.File.Height}</p>");
         }
     }
     html.Append("</body></html>");

@@ -61,7 +61,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
         var fileStore = getFileStore(fileValue.StorageId);
         var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), null), out progressInfo);
+        fileStore.TryGetLocalFilePath(fileValue, out var localFilePath);
+        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), localFilePath), out progressInfo);
     }
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) {
         return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;

@@ -14,9 +14,9 @@ public class FileConversionEngine : IDisposable {
     readonly FileConversionCache _fileCache;
     readonly FileConversionScheduler _scheduler;
     readonly string _localTempFolderPath;
-    readonly IDataStore _store;
+    public readonly IDataStore Store;
     public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
-        _store = store;
+        Store = store;
         _fileConverters = new(converters);
         foreach (var c in converters) c.Initialize(this);
         _conversions = new();
@@ -26,22 +26,23 @@ public class FileConversionEngine : IDisposable {
             _localTempFolderPath = Path.GetTempPath();
         }
         _fileCache = new(io, _cacheBaseFolder);
-        _scheduler = new FileConversionScheduler(pulse, ex => _store.LogError("File conversion scheduler error: ", ex));
+        _scheduler = new FileConversionScheduler(pulse, ex => Store.LogError("File conversion scheduler error: ", ex));
         _scheduler.Start();
     }
     public void ClearTempFolder() {
         if (Directory.Exists(_localTempFolderPath)) {
             var fileCount = Directory.GetFiles(_localTempFolderPath).Length;
-            _store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
+            Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
             try {
                 Directory.Delete(_localTempFolderPath, true);
             } catch (Exception ex) {
-                _store.LogError("Failed to clear temp folder for file conversions. ", ex);
+                Store.LogError("Failed to clear temp folder for file conversions. ", ex);
             }
         } else {
-            _store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. 0 files to delete. ");
+            Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. 0 files to delete. ");
         }
-        if (!Directory.Exists(_localTempFolderPath)) Directory.CreateDirectory(_localTempFolderPath);
+        //if (!Directory.Exists(_localTempFolderPath)) 
+        //    Directory.CreateDirectory(_localTempFolderPath);
     }
     bool tryReserveWork(ProgressEntry entry) {
         try {
@@ -118,7 +119,7 @@ public class FileConversionEngine : IDisposable {
                             _cancellationRequested.Remove(key);
                         }
                     } else {
-                        _store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
+                        Store.LogError("Error during file conversion for file " + entry.FileInfo.IdWithAdjustment.GetKey() + ": ", ex);
                         var safePublicMessage = ex is FileNotFoundException ? "Source file missing" : "Conversion failed";
                         _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment.GetKey(), safePublicMessage);
                         _conversions.Remove(entry, ConversionStatus.Failed, ex.Message);
@@ -157,7 +158,7 @@ public class FileConversionEngine : IDisposable {
             return 10000;
         }
         if (baseFrom == FileType.Video && baseTo == FileType.Image) {
-            return 20000;
+            return 0;
         }
         if (baseFrom == FileType.Video && baseTo == FileType.Meta) {
             return 0;

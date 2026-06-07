@@ -80,27 +80,34 @@ internal class FileConversionCache {
     }
     public Task SetFromFileAsync(FileIdWithAdjustment fileKey, string localFilePath) {
         var filePath = getFilePath(fileKey.GetKey());
-        if (_io.TryMoveIfSameDrive(localFilePath, filePath)) return Task.CompletedTask;
+        if (_io.TryMoveIfSameDrive(localFilePath, filePath)) 
+            return Task.CompletedTask;
         var stream = File.OpenRead(localFilePath);
         return SetFromStreamAsync(fileKey, stream);
     }
     public async Task SetFromStreamAsync(FileIdWithAdjustment fileKey, Stream input) {
         var filePath = getFilePath(fileKey.GetKey());
-        using var output = _io.OpenAppend(filePath);
         long bufferSize = 1024 * 1024;
         bufferSize = Math.Min(bufferSize, input.CanSeek ? input.Length : bufferSize);
-        var isSmallFile = input.CanSeek ? input.Length <= _smallFileSizeLimit : false;
-        var smallFileData = (isSmallFile) ? new MemoryStream((int)input.Length) : null;
-        var buffer = new byte[bufferSize];
-        while (true) {
-            var read = input.Read(buffer, 0, buffer.Length);
-            if (read <= 0) break;
-            await output.AppendAsyncNoChecksumOrLock(buffer, read);
-            if (smallFileData != null) smallFileData.Write(buffer, 0, read);
+        var useMemCache = input.CanSeek ? input.Length <= _smallFileSizeLimit : false;
+        var smallFileData = (useMemCache) ? new MemoryStream((int)input.Length) : null;
+        IAppendStream? output = null;
+        var persistToDisc = !fileKey.Adjustment.Temporary || !useMemCache;
+        try {
+            var buffer = new byte[bufferSize];
+            if (persistToDisc) output = _io.OpenAppend(filePath);
+            while (true) {
+                var read = input.Read(buffer, 0, buffer.Length);
+                if (read <= 0) break;
+                if (output != null) 
+                    await output.AppendAsyncNoChecksumOrLock(buffer, read);
+                if (smallFileData != null) smallFileData.Write(buffer, 0, read);
+            }
+            if (smallFileData != null) _smallCache.Set(fileKey.GetKey(), smallFileData.ToArray(), (int)smallFileData.Length);
+        } finally {
+            if (output != null) output.Dispose();
+            input.Dispose();
         }
-        input.Dispose();
-        output.Dispose();
-        if (smallFileData != null) _smallCache.Set(fileKey.GetKey(), smallFileData.ToArray(), (int)smallFileData.Length);
     }
     public void Clear(Guid key) {
         var path = getFilePath(key);

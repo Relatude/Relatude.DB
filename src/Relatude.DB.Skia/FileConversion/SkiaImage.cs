@@ -52,7 +52,7 @@ internal sealed class SkiaImage : IImage {
             ColorSpaceIsSRgb = cs?.IsSrgb ?? true,
             ColorSpaceGammaIsLinear = cs?.GammaIsLinear ?? false,
         };
-        return JsonSerializer.Serialize(meta, new JsonSerializerOptions(  ));
+        return JsonSerializer.Serialize(meta, new JsonSerializerOptions());
     }
 
 
@@ -225,6 +225,7 @@ internal sealed class SkiaImage : IImage {
             return ds.MemorySpan.ToArray();
         } else {
             using var data = _bitmap.Encode(skFormat, q);
+            if (data == null) throw new Exception("Unable to encode format: " + skFormat);
             return data.ToArray();
         }
     }

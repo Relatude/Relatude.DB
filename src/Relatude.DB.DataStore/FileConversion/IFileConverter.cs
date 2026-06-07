@@ -24,14 +24,20 @@ public class ConversionProgress(FileConversionProgressInfo info, Stream? output 
     public Stream? Output { get; } = output;
     public string? LocalFilePathOutput { get; } = localFilePathOutput;
 }
-public class InputFileSource(Func<Task<Stream>> getInputStream, string? localFilePath) {
-    public Task<Stream> OpenInputStream() {
-        return getInputStream();
+public class InputFileSource {
+    Func<Task<Stream>> _getInputStream;
+    string? _localFilePath;
+    public InputFileSource(Func<Task<Stream>> getInputStream, string? localFilePath) {
+        _getInputStream = getInputStream;
+        _localFilePath = localFilePath;
     }
-    public bool HasLocalFilePath => !string.IsNullOrEmpty(localFilePath);
+    public Task<Stream> OpenInputStream() {
+        return _getInputStream();
+    }
+    public bool HasLocalFilePath => !string.IsNullOrEmpty(_localFilePath);
     public string GetLocalFilePathOrThrow() {
-        if (string.IsNullOrEmpty(localFilePath)) throw new Exception("No local file path available");
-        return localFilePath;
+        if (string.IsNullOrEmpty(_localFilePath)) throw new Exception("No local file path available");
+        return _localFilePath;
     }
 }
 public interface IFileConverter { // just the conversion,  calling local image components or external services, like ai analysis or video processing

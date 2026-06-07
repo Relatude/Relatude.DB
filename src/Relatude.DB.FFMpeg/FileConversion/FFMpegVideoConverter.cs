@@ -13,8 +13,8 @@ namespace Relatude.DB.FileConversion;
 
 public class FFMpegVideoConverter : IFileConverter {
     public FFMpegVideoConverter(int? threadCount = null) {
-        //ThreadCount = threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
-        ThreadCount = threadCount.HasValue ? threadCount.Value : 1;
+        ThreadCount = threadCount.HasValue ? threadCount.Value : Math.Max(1, Environment.ProcessorCount / 8);
+        //ThreadCount = threadCount.HasValue ? threadCount.Value : 1;
     }
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; } = 0;
@@ -42,7 +42,6 @@ public class FFMpegVideoConverter : IFileConverter {
     static readonly SemaphoreSlim _downloadLock = new(1, 1);
     static bool _ffmpegBinReady;
     static string? _ffmpegBinProgressInfo;
-
 
     readonly ConcurrentDictionary<Guid, CancellationTokenSource> _cancellations = new();
     readonly ConcurrentDictionary<Guid, FileConversionProgressInfo> _conversionProgress = new();
@@ -72,7 +71,6 @@ public class FFMpegVideoConverter : IFileConverter {
             _downloadLock.Release();
         }
     }
-
 
     public Task<bool> CancelAsync(Guid key) {
         if (_cancellations.TryRemove(key, out var cts)) {
@@ -109,7 +107,7 @@ public class FFMpegVideoConverter : IFileConverter {
             if (typeFrom == FileType.Video) {
                 if (typeTo == FileType.Image) { // video to image -> thumbnail
                     var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
-                    await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, imgAdj, key, _conversionProgress, cts.Token);
+                    await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, info, imgAdj, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Video) { // video to video conversion
                     await convertVideoAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Meta) { // video to video conversion
@@ -140,18 +138,22 @@ public class FFMpegVideoConverter : IFileConverter {
     }
     async Task extractMetaAsync(string inputTmp, string outputTmp, CancellationToken ct) {
         var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
-        var meta = new BasicFileMeta {
+        var meta = metaFromProbe(probe);
+        var folder = Path.GetDirectoryName(outputTmp);
+        if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
+        File.WriteAllBytes(outputTmp, meta.ToBytes());
+    }
+    static BasicFileMeta metaFromProbe(IMediaAnalysis probe) {
+        return new BasicFileMeta {
             Width = probe.PrimaryVideoStream?.Width ?? 0,
             Height = probe.PrimaryVideoStream?.Height ?? 0,
             Duration = probe.Duration,
             FormatDetails = probe.Format.FormatLongName,
             AllMetaJson = JsonSerializer.Serialize(probe)
         };
-        File.WriteAllBytes(outputTmp, meta.ToBytes());
     }
-
     async Task processImageAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
-        Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
+    Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
 
         var needPostProcessing = // these are not supported by ffmpeg filters
             adj.Brightness.HasValue || adj.Contrast.HasValue ||
@@ -164,7 +166,6 @@ public class FFMpegVideoConverter : IFileConverter {
         }
 
         string outputForFfmpeg = needPostProcessing ? getTempPath(FileFormat.Png) : outputTmp;
-
         try {
 
             progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting image...");
@@ -192,6 +193,8 @@ public class FFMpegVideoConverter : IFileConverter {
                 // use the post-processing and output correct format directly
                 var bytes = img.Encode(adj.RequestedFormat, adj.Quality);
                 progress[key] = new(FileConversionStatus.InProgress, 90, message: "Finalizing format conversion...");
+                var folder = Path.GetDirectoryName(outputTmp);
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
                 File.WriteAllBytes(outputTmp, bytes);
             } else if (this.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
                 // FFMpeg supports format so use this, (slow but FFMpeg has wide format support, for example AVIF )
@@ -207,7 +210,7 @@ public class FFMpegVideoConverter : IFileConverter {
         }
     }
 
-    async Task extractThumbnailAndProcessAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
+    async Task extractThumbnailAndProcessAsync(string inputTmp, string outputTmp, FileConversionInfo info, FileAdjustmentImage adj,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
 
         var needPostProcessing = // these are not supported by ffmpeg filters
@@ -224,12 +227,14 @@ public class FFMpegVideoConverter : IFileConverter {
 
         try {
 
-            await extractThumbnailAsyncInner(inputTmp, outputForFfmpeg, adj, key, progress, ct);
+            await extractThumbnailAsyncInner(inputTmp, outputForFfmpeg, info, adj, key, progress, ct);
 
             if (!needPostProcessing || postConverter == null) return; // file is already in final state, no post-processing needed
 
             // post-processing:
             IImage img;
+            var folder = Path.GetDirectoryName(outputForFfmpeg);
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
             using var stream = File.OpenRead(outputForFfmpeg);
             try {
                 if (postConverter is ImageConverterBase imgConverter) {
@@ -245,6 +250,8 @@ public class FFMpegVideoConverter : IFileConverter {
             if (postConverter.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
                 // use the post-processing and output correct format directly
                 var bytes = img.Encode(adj.RequestedFormat, adj.Quality);
+                var folder2 = Path.GetDirectoryName(outputTmp);
+                if (!Directory.Exists(folder2)) Directory.CreateDirectory(folder2!);
                 File.WriteAllBytes(outputTmp, bytes);
             } else if (this.SupportsConversion(FileFormat.Png, adj.RequestedFormat)) {
                 // FFMpeg supports format so use this, (slow but FFMpeg has wide format support, for example AVIF )
@@ -257,12 +264,14 @@ public class FFMpegVideoConverter : IFileConverter {
             if (needPostProcessing) tryDelete(outputForFfmpeg);
         }
     }
-    async Task extractThumbnailAsyncInner(string inputTmp, string outputTmp, FileAdjustmentImage adj,
+    async Task extractThumbnailAsyncInner(string inputTmp, string outputTmp, FileConversionInfo info, FileAdjustmentImage adj,
     Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         int? w = adj?.Width, h = adj?.Height;
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Seeking to frame...");
-        TimeSpan? seekTo = await resolveSeekPosition(inputTmp, adj, ct);
+        TimeSpan? seekTo = await resolveSeekPosition(inputTmp, info, adj, ct);
         progress[key] = new(FileConversionStatus.InProgress, 50, message: "Extracting frame...");
+        var folder = Path.GetDirectoryName(outputTmp);
+        if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
         var processor = FFMpegArguments
             .FromFileInput(inputTmp, true, opts => { if (seekTo.HasValue) opts.Seek(seekTo.Value); })
             .OutputToFile(outputTmp, true, opts => {
@@ -273,17 +282,16 @@ public class FFMpegVideoConverter : IFileConverter {
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
-    static async Task<TimeSpan?> resolveSeekPosition(string inputTmp, FileAdjustmentImage? adj, CancellationToken ct) {
+    async Task<TimeSpan?> resolveSeekPosition(string inputTmp, FileConversionInfo info, FileAdjustmentImage? adj, CancellationToken ct) {
+        var probe = await probeAndUpdateMeta(inputTmp, info, ct);
         if (adj?.TimeOffsetMs == -1) {
             // use "Smart "Representative" Thumbnail "
-            var info = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
-            if (info.Duration > TimeSpan.Zero) {
-                return info.Duration / 2;
+            if (probe.Duration > TimeSpan.Zero) {
+                return probe.Duration / 2;
             } else {
                 return TimeSpan.Zero;
             }
         }
-        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
         TimeSpan? position = null;
         if (adj?.TimeOffsetMs.HasValue == true) {
             position = TimeSpan.FromMilliseconds(adj.TimeOffsetMs.Value);
@@ -298,12 +306,18 @@ public class FFMpegVideoConverter : IFileConverter {
         }
         return position;
     }
-
+    async Task<IMediaAnalysis> probeAndUpdateMeta(string inputTmp, FileConversionInfo info, CancellationToken ct) {
+        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+        if (_engine != null) {
+            _engine!.Store.UpdateFileMetaIfNotSet(info.IdWithAdjustment.PropertyPath, info.IdWithAdjustment.FileId, metaFromProbe(probe));
+        }
+        return probe;
+    }
     async Task convertVideoAsync(string inputTmp, string outputTmp, FileConversionInfo info,
         Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
         var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentVideo;
         progress[key] = new(FileConversionStatus.InProgress, 5, message: "Analyzing input...");
-        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+        var probe = await probeAndUpdateMeta(inputTmp, info, ct);
         var videoDuration = probe.Duration;
         var sw = Stopwatch.StartNew();
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");

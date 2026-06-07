@@ -208,6 +208,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         try {
             var sw = Stopwatch.StartNew();
             if (Store == null) Initialize();
+            Store!.Datastore.LogInfo($"NodeStore initialized in {sw.ElapsedMilliseconds.To1000N()}ms, opening... ");
             if (Store == null) throw new Exception("Datastore is not initialized. ");
             try {
                 Store.Datastore.Open(false, false);
@@ -215,7 +216,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 Dispose();
                 throw;
             }
-            Store!.Datastore.LogInfo($"NodeStore ready in {sw.ElapsedMilliseconds.To1000N()}ms.");
+            Store!.Datastore.LogInfo($"NodeStore ready in a total of {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);

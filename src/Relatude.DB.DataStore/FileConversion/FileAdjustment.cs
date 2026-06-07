@@ -22,6 +22,7 @@ public enum FileAdjustmentType {
 }
 public abstract class FileAdjustment {
     public FileFormat RequestedFormat { get; set; }
+    public bool Temporary { get; set; } = false;
     public abstract FileAdjustmentType GetAdjustmentType();
     static Dictionary<string, Guid> _staticKeyCache = [];
     Guid? _key;
@@ -59,20 +60,21 @@ public abstract class FileAdjustment {
 public class FileAdjustmentMeta : FileAdjustment {
     public FileAdjustmentMeta() {
         RequestedFormat = FileFormat.FileMetaJson;
+        Temporary = true;
     }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Meta;
     public override byte[] ToBytes() {
-        var buf = new byte[5];
+        var buf = new byte[6];
         var s = buf.AsSpan();
         s[0] = (byte)FileAdjustmentType.Meta;
         BinaryPrimitives.WriteInt32LittleEndian(s[1..], (int)RequestedFormat);
+        s[5] = Temporary ? (byte)1 : (byte)0;
         return buf;
     }
     public static new FileAdjustmentMeta FromBytes(byte[] bytes) {
-        if (bytes.Length != 5) throw new ArgumentException("Invalid byte array length for FileAdjustmentMeta");
-        var obj = new FileAdjustmentMeta {
-            RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan()[1..])
-        };
+        if (bytes.Length < 5) throw new ArgumentException("Invalid byte array length for FileAdjustmentMeta");
+        var obj = new FileAdjustmentMeta { RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan()[1..]) };
+        if (bytes.Length >= 6) obj.Temporary = bytes[5] != 0;
         return obj;
     }
     protected override string GenerateStringKey() {
@@ -149,8 +151,8 @@ public class FileAdjustmentImage : FileAdjustment {
         if (TimeOffsetMs.HasValue) TimeOffsetMs = TimeOffsetMs < 0 ? null : TimeOffsetMs.Value;
         if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
     }
-    const int CURRENT_VERSION = 1;
-    const int FIXED_SIZE = 116; // 1+4+4+4+4+8+4+4+4+4+8+8+8+8+8+8+4+4+8+8+1
+    const int CURRENT_VERSION = 2;
+    const int FIXED_SIZE = 117; // 1+4+4+4+4+8+4+4+4+4+8+8+8+8+8+8+4+4+8+8+1+1
     public override byte[] ToBytes() {
         var bgBytes = BackgroundColor != null ? System.Text.Encoding.UTF8.GetBytes(BackgroundColor) : [];
         var buf = new byte[FIXED_SIZE + 2 + bgBytes.Length];
@@ -177,6 +179,7 @@ public class FileAdjustmentImage : FileAdjustment {
         BinaryPrimitives.WriteDoubleLittleEndian(s[p..], TimeOffsetMs ?? double.NaN); p += 8;
         BinaryPrimitives.WriteDoubleLittleEndian(s[p..], TimeOffsetPercentage ?? double.NaN); p += 8;
         s[p++] = AutoBackgroundColor.HasValue ? (byte)(AutoBackgroundColor.Value ? 2 : 1) : (byte)0;
+        s[p++] = Temporary ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteUInt16LittleEndian(s[p..], (ushort)bgBytes.Length); p += 2;
         bgBytes.CopyTo(s[p..]);
         return buf;
@@ -185,7 +188,7 @@ public class FileAdjustmentImage : FileAdjustment {
         var s = bytes.AsSpan();
         int p = 1; // skip type byte
         var version = BinaryPrimitives.ReadInt32LittleEndian(s[p..]); p += 4;
-        if (version != CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentImage version: {version}");
+        if (version < 1 || version > CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentImage version: {version}");
         int ri; double rd;
         var obj = new FileAdjustmentImage {
             RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(s[p..])
@@ -208,6 +211,7 @@ public class FileAdjustmentImage : FileAdjustment {
         obj.TimeOffsetMs = double.IsNaN(rd = BinaryPrimitives.ReadDoubleLittleEndian(s[p..])) ? null : rd; p += 8;
         obj.TimeOffsetPercentage = double.IsNaN(rd = BinaryPrimitives.ReadDoubleLittleEndian(s[p..])) ? null : rd; p += 8;
         var abc = s[p++]; obj.AutoBackgroundColor = abc == 0 ? null : abc == 2;
+        if (version >= 2) obj.Temporary = s[p++] != 0;
         var bgLen = BinaryPrimitives.ReadUInt16LittleEndian(s[p..]); p += 2;
         obj.BackgroundColor = bgLen == 0 ? null : System.Text.Encoding.UTF8.GetString(s.Slice(p, bgLen));
         return obj;
@@ -225,7 +229,7 @@ public class FileAdjustmentVideo : FileAdjustment {
         TargetBitRateInMbps = Math.Clamp(TargetBitRateInMbps, 0.01, 100); // 
     }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Video;
-    const int CURRENT_VERSION = 1;
+    const int CURRENT_VERSION = 2;
     protected override string GenerateStringKey() {
         Span<byte> buf = stackalloc byte[20];
         int p = 0;
@@ -239,7 +243,7 @@ public class FileAdjustmentVideo : FileAdjustment {
     }
 
     public override byte[] ToBytes() {
-        var buf = new byte[26]; // 1+4+4+4+4+8+1
+        var buf = new byte[27]; // 1+4+4+4+4+8+1+1
         var s = buf.AsSpan();
         int p = 0;
         s[p++] = (byte)FileAdjustmentType.Video;
@@ -248,14 +252,15 @@ public class FileAdjustmentVideo : FileAdjustment {
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], Width ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], Height ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteDoubleLittleEndian(s[p..], TargetBitRateInMbps); p += 8;
-        s[p] = CropNotZoom ? (byte)1 : (byte)0;
+        s[p++] = CropNotZoom ? (byte)1 : (byte)0;
+        s[p] = Temporary ? (byte)1 : (byte)0;
         return buf;
     }
     static public new FileAdjustmentVideo FromBytes(byte[] bytes) {
         var s = bytes.AsSpan();
         int p = 1; // skip type byte
         var version = BinaryPrimitives.ReadInt32LittleEndian(s[p..]); p += 4;
-        if (version != CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentVideo version: {version}");
+        if (version < 1 || version > CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentVideo version: {version}");
         int ri;
         var obj = new FileAdjustmentVideo {
             RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(s[p..])
@@ -263,7 +268,8 @@ public class FileAdjustmentVideo : FileAdjustment {
         obj.Width = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
         obj.Height = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
         obj.TargetBitRateInMbps = BinaryPrimitives.ReadDoubleLittleEndian(s[p..]); p += 8;
-        obj.CropNotZoom = s[p] != 0;
+        obj.CropNotZoom = s[p++] != 0;
+        if (version >= 2) obj.Temporary = s[p] != 0;
         return obj;
     }
 

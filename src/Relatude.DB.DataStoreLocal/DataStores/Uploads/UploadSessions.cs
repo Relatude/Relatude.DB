@@ -20,7 +20,8 @@ internal class UploadSessions(DataStoreLocal store) {
     }
     public UploadSession getSession(Guid fileId) {
         lock (_uploadSessions) {
-            if (!_uploadSessions.TryGetValue(fileId, out var session)) throw new Exception("Upload session not found");
+            if (!_uploadSessions.TryGetValue(fileId, out var session)) 
+                throw new Exception("Upload session not found");
             session.Touch();
             return session;
         }
@@ -29,7 +30,8 @@ internal class UploadSessions(DataStoreLocal store) {
         List<UploadSession> toRemove;
         lock (_uploadSessions) {
             toRemove = _uploadSessions.Values.Where(s => DateTime.UtcNow - s.LastAccessed > _maxStaleAgeForUploadSessions).ToList();
-            foreach (var s in toRemove) _uploadSessions.Remove(s.FileValue.FileId);
+            foreach (var s in toRemove) 
+                _uploadSessions.Remove(s.FileValue.FileId);
         }
         foreach (var s in toRemove) {
             try {

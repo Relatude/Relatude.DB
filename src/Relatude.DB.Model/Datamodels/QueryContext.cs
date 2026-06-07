@@ -279,6 +279,9 @@ public class QueryContext {
         return s;
     }
 
+    public bool IsAdmin() {
+        return UserId == NodeConstants.MasterAdminUserId;
+    }
 }
 public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeDeleted;
