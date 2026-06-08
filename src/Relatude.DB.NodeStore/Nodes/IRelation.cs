@@ -17,13 +17,14 @@ public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet);
 }
+public interface IRelationProperty<T> : IRelationProperty { }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas);
 }
-public interface IOneProperty<T> : IOneProperty {
+public interface IOneProperty<T> : IOneProperty, IRelationProperty<T> {
 }
-public interface IManyProperty<T> : IManyProperty {
+public interface IManyProperty<T> : IManyProperty, IRelationProperty<T> {
 }
 public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     NodeStore store = null!;

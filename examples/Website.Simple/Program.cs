@@ -115,8 +115,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             } else if (article.File.FileType == FileType.Image) {
                 var imageAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
-                    Width = 240,
-                    Height = 200,
+                    Width = 440,
+                    Height = 400,
                     Saturation = 0,
                     RequestedFormat = FileFormat.Jpeg,
                     Sharpness = 0,
@@ -163,6 +163,8 @@ app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequ
 });
 app.MapPost("/CompleteUpload", async (RelatudeDBContext server, Guid uploadId) => {
     var db = server.Database;
+    
+    
     await db.FinalizeMultipartUploadAsync(uploadId);
 });
 

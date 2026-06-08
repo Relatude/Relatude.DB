@@ -236,7 +236,9 @@ internal sealed class SkiaImage : IImage {
 
     static SKBitmap ResizeBitmap(SKBitmap src, int w, int h) {
         var dst = new SKBitmap(w, h);
-        src.ScalePixels(dst, SKSamplingOptions.Default);
+        //src.ScalePixels(dst, SKSamplingOptions.Default);
+        //src.ScalePixels(dst, new SKSamplingOptions(SKCubicResampler.Mitchell));
+        src.ScalePixels(dst, new SKSamplingOptions(SKCubicResampler.CatmullRom));
         return dst;
     }
 
