@@ -1,12 +1,18 @@
-﻿using Microsoft.Net.Http.Headers;
+﻿using Lucene.Net.Search;
+using Microsoft.Net.Http.Headers;
 using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
+using Relatude.DB.NodeServer.Models;
+using Relatude.DB.Query;
 using System.Data.Common;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
@@ -155,11 +161,16 @@ app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequ
     var part = ms.ToArray();
     await db.AppendMultipartUploadAsync(uploadId, part, part.Length);
 });
-app.MapPost("/CompleteUpload", async (RelatudeDBContext ctx, Guid uploadId) => {
-    var db = ctx.Database;
+app.MapPost("/CompleteUpload", async (RelatudeDBContext server, Guid uploadId) => {
+    var db = server.Database;
     await db.FinalizeMultipartUploadAsync(uploadId);
 });
 
+app.MapGet("/query", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var query = "DemoArticle";
+    return db.EvaluateForJsonAsync(query, []);
+});
 
 
 app.UseDefaultFiles();
@@ -172,3 +183,4 @@ app.MapRelatudeDBAdmin();
 app.MapRelatudeDBClient();
 
 app.Run();
+

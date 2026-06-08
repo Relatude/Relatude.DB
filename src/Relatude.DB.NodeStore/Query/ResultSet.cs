@@ -1,8 +1,9 @@
 ﻿using System.Collections;
 
 namespace Relatude.DB.Query;
+
 public class ResultSet<T> : IEnumerable<T> {
-    public ResultSet(IEnumerable<T> values, int count, int totalCount, int pageIndex, int? pageSize, double durationMs = 0, double innerDurationMs = 0) {
+    public ResultSet(IEnumerable<T> values, int count, int totalCount, int pageIndex, int? pageSize, double durationMs = 0, double innerDurationMs = 0, bool capped = false) {
 
         T[] arr = new T[count];
         int i = 0;
@@ -12,6 +13,7 @@ public class ResultSet<T> : IEnumerable<T> {
 
         Count = count;
         TotalCount = totalCount;
+        Capped = capped;
         PageIndex = pageIndex;
         PageSize = pageSize.HasValue ? pageSize.Value : 0;
         IsAll = totalCount == count;
@@ -24,6 +26,7 @@ public class ResultSet<T> : IEnumerable<T> {
     public bool IsAll { get; }
     public bool IsLastPage { get; }
     public int TotalCount { get; }
+    public bool Capped { get; }
     public int PageIndex { get; }
     public int PageSize { get; }
     public int PageCount { get; }
