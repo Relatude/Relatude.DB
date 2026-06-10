@@ -18,8 +18,8 @@ public interface IDemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; }
 
-    [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
-    public EmbeddedMap<string, IDemoParagraph> Paragraphs { get; }
+    
+    public Embedded<DemoParagraph> Paragraphs { get; set; }
 
 }
 public interface IDemoParagraph {
