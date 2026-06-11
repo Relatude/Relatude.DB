@@ -18,7 +18,7 @@ public interface IDemoArticle {
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; }
 
-    
+    public Tree.Children Children { get; set; }
     public Embedded<DemoParagraph> Paragraphs { get; set; }
 
 }
