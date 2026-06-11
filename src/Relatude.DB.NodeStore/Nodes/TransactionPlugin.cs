@@ -91,7 +91,7 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
     }
 }
 public interface IPlugin {
-    NodeStore Store { get; set; }
+    NodeStore Database { get; set; }
 }
 public interface ITransactionPlugin : IPlugin {
 }
@@ -109,22 +109,22 @@ public interface IRelationTransactionPlugin : IPlugin {
     bool IsRelevant(RelationAction action);
 }
 public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T : notnull {
-    public NodeStore Store { get; set; } = null!; // will be set by the NodeStore
+    public NodeStore Database { get; set; } = null!; // will be set by the NodeStore
     NodeTypeModel? _nodeTypeModel;
     NodeTypeModel nodeTypeModel {
         get {
             if (_nodeTypeModel == null) {
-                var typeId = Store.Mapper.GetNodeTypeId(typeof(T));
-                _nodeTypeModel = Store.Datastore.Datamodel.NodeTypes[typeId];
+                var typeId = Database.Mapper.GetNodeTypeId(typeof(T));
+                _nodeTypeModel = Database.Datastore.Datamodel.NodeTypes[typeId];
             }
             return _nodeTypeModel;
         }
     }
     public void OnBefore(IdKey id, ActionBase action, Transaction transaction) {
         if (action is NodeAction nodeAction) {
-            OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Store, nodeAction));
+            OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Database, nodeAction));
         } else if (action is NodePropertyAction nodePropertyAction) {
-            OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Store, transaction));
+            OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Database, transaction));
         }
     }
     public void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation) {
@@ -195,7 +195,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
 
 }
 public abstract class RelationTransactionPlugin<T> : IRelationTransactionPlugin where T : notnull {
-    public NodeStore Store { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public NodeStore Database { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public bool IsRelevant(RelationAction action) {
         throw new NotImplementedException();
     }

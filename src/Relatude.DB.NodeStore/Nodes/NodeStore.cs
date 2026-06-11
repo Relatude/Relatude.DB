@@ -61,7 +61,7 @@ public class NodeStore : IDisposable {
             throw new InvalidOperationException("Cannot register transaction plugin after the store is opened. ");
         }
         TransactionPlugins.Add(plugin);
-        plugin.Store = this;
+        plugin.Database = this;
     }
     public void RegisterRunner(ITaskRunner runner) => Datastore.RegisterRunner(runner);
     public QueryContext DefaultQueryContext => Datastore.DefaultQueryContext;
@@ -80,7 +80,7 @@ public class NodeStore : IDisposable {
         Datastore = datastore;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
-        if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Store = this;
+        if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Database = this;
         var interfaceClasses = InterfaceGen.GetImplementations(datastore.Datamodel);
         var mappers = MapperGen.GenerateValueMappers(datastore.Datamodel);
         var code = interfaceClasses.Concat(mappers).ToList();
