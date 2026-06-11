@@ -46,7 +46,7 @@ internal static class BuildUtilsProperties {
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
         } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
-            p = getEmbeddedPropertyModel(cast<EmbeddedPropertyAttribute>(a, m), valueType);
+            p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType);
         } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
             p = getEmbeddedMapPropertyModel(cast<EmbeddedMapPropertyAttribute>(a, m), valueType);
         } else if (valueType.IsSubclassOf(typeof(object))) {
@@ -103,7 +103,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
             else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
-                attr = new EmbeddedPropertyAttribute();                
+                attr = new EmbeddedPropertyAttribute();
             } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
                 var a = new EmbeddedMapPropertyAttribute();
                 // since no attribute was defined, key property is id as Guid or Id
@@ -269,8 +269,11 @@ internal static class BuildUtilsProperties {
         }
         p.IncludeTypes = a.IncludeTypes;
     }
-    static EmbeddedPropertyModel getEmbeddedPropertyModel(EmbeddedPropertyAttribute a, Type valueType) {
+    static EmbeddedPropertyModel getEmbeddedPropertyModel(MemberInfo m, EmbeddedPropertyAttribute a, Type valueType) {
         var p = new EmbeddedPropertyModel();
+        // validating m is a property and does not have a set property:
+        if (m is not PropertyInfo pi) throw new Exception("Member " + m.DeclaringType?.FullName + "." + m.Name + " is not a property, only members of type PropertyInfo are supported for EmbeddedProperties.");
+        if (pi.SetMethod != null) throw new Exception("Property " + m.DeclaringType?.FullName + "." + m.Name + " has a set method that cannot be implemented by the mapper. Set methods are not supported for EmbeddedProperties.");
         addCommonEmbeddedProperties(a, p, valueType, false);
         p.EmbeddedValueType = EmbeddedValueType.InnerNodeList;
         return p;

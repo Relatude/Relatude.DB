@@ -187,7 +187,7 @@ internal static class InterfaceGen {
                 sb.AppendLine("}");
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine("} ");
-                //sb.AppendLine("set { throw new Exception(\"Inner nodes properties cannot be set. \"); } ");
+                //sb.AppendLine("set { throw new Exception(\"Embedded properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
 
             } else {
