@@ -8,6 +8,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Models;
 using Relatude.DB.Query;
+using Relatude.DB.Transactions;
 using System.Data.Common;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +20,9 @@ builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter());
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.FileHandlerRootUrl = "/files";
-
+    options.OnStoreInit = db => {
+        db.RegisterTransactionPlugin(new DemoArticlePlugin());
+    };
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -44,7 +47,6 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
-
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
     var files1 = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "*.*").ToArray();
@@ -69,6 +71,9 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
 });
 app.MapGet("/Streams", (RelatudeDBContext ctx) => {
     return IOProviderDisk.GetAllOpenStreams();
+});
+app.MapGet("/Test", (Database db) => {
+    return db.Query<DemoArticle>().Select(a => new { a.Title, a.File.Name }).Execute().ToArray();
 });
 
 app.MapPost("/CancelConversion", async (RelatudeDBContext ctx, Guid conversionKey, bool permanently) => {
@@ -163,8 +168,6 @@ app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequ
 });
 app.MapPost("/CompleteUpload", async (RelatudeDBContext server, Guid uploadId) => {
     var db = server.Database;
-    
-    
     await db.FinalizeMultipartUploadAsync(uploadId);
 });
 
@@ -185,4 +188,10 @@ app.MapRelatudeDBAdmin();
 app.MapRelatudeDBClient();
 
 app.Run();
+
+class DemoArticlePlugin : NodeTransactionPlugin<DemoArticle> {
+    public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
+        Database.UpdateProperty(node, n => n.Title, fileValue.Name);
+    }
+}
 

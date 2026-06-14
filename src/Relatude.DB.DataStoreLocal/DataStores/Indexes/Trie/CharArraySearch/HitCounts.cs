@@ -26,6 +26,7 @@ internal class HitCounts {
             } else {
                 if (_set != null) remove(_justRemoved.NodeId);
                 add(item);
+                _justRemoved = new(0, 0); // pending remove is handled, clearing it so it cannot remove the item just added
             }
         } else {
             add(item); // add the new item
@@ -110,11 +111,14 @@ internal class HitCounts {
     }
     public IEnumerable<WordHit> Values {
         get {
-            enforceDelayedRemove();
+            // must not mutate, searches enumerate concurrently (only filter out any pending delayed remove)
+            // the delayed remove is enforced by the write paths: Add, RemoveIfPresent and Compress
+            var skip = _justRemoved.NodeId;
             if (_set is null) yield break;
-            else if (_set is WordHit item) yield return item;
-            else if (_set is IEnumerable<WordHit> items) {
-                foreach (var i in items) yield return i;
+            else if (_set is WordHit item) {
+                if (item.NodeId != skip) yield return item;
+            } else if (_set is IEnumerable<WordHit> items) {
+                foreach (var i in items) if (i.NodeId != skip) yield return i;
             } else {
                 throw new NotImplementedException("GetItems not implemented");
             }

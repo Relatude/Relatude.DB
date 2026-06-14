@@ -19,7 +19,7 @@ public interface IDemoArticle {
     public FileValue File { get; set; }
 
     public Tree.Children Children { get; set; }
-    public Embedded<DemoParagraph> Paragraphs { get; set; }
+    public Embedded<DemoParagraph> Paragraphs { get; }
 
 }
 public interface IDemoParagraph {
@@ -35,6 +35,7 @@ public class DemoArticle{
 
     public Guid Id { get; set; }
 
+    [StringProperty(Indexed =true)]
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public int Size { get; set; }

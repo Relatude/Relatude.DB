@@ -215,6 +215,9 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         return new IncludeQueryOfNodes<TNode, TProperty>(_q, _q.CreateBranch(expression, top));
     }
 
+    public object? EvaluateForJson() => _q.Prepare().EvaluateForJsonAsync().Result;
+    public async Task<object?> EvaluateForJsonAsync() => await _q.Prepare().EvaluateForJsonAsync();
+
     public override string ToString() => _q.ToString();
 
 }

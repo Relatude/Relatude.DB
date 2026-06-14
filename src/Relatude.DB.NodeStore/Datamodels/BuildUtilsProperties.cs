@@ -2,6 +2,7 @@
 using Relatude.DB.Datamodels.Properties;
 
 using System.Collections;
+using System.Globalization;
 using System.Reflection;
 using Relatude.DB.Nodes;
 using System.Diagnostics.CodeAnalysis;
@@ -59,7 +60,7 @@ internal static class BuildUtilsProperties {
         p.CodeName = m.Name;
         p.ReadAccess = string.IsNullOrEmpty(a.ReadAccess) ? Guid.Empty : Guid.Parse(a.ReadAccess);
         p.WriteAccess = string.IsNullOrEmpty(a.WriteAccess) ? Guid.Empty : Guid.Parse(a.WriteAccess);
-        if (a.ExcludeFromTextIndex != BoolValue.Default) p.ExcludeFromTextIndex = a.ExcludeFromTextIndex == BoolValue.True;
+        p.ExcludeFromTextIndex = a.ExcludeFromTextIndex;
         p.IndexBoost = a.TextIndexBoost;
         p.DisplayName = a.DisplayName;
         if (a is IAttrScalarProperty asc) {
@@ -150,9 +151,9 @@ internal static class BuildUtilsProperties {
     static StringPropertyModel getStringPropertyModel(StringPropertyAttribute a) {
         var p = new StringPropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
-        if (a.IndexedByWords != BoolValue.Default) p.IndexedByWords = a.IndexedByWords == BoolValue.True;
-        if (a.IndexedBySemantic != BoolValue.Default) p.IndexedBySemantic = a.IndexedBySemantic == BoolValue.True;
+        p.Indexed = a.Indexed;
+        p.IndexedByWords = a.IndexedByWords;
+        p.IndexedBySemantic = a.IndexedBySemantic;
         p.InfixSearch = a.InfixSearch;
         p.MaxLength = a.MaxLength;
         p.MaxWordLength = a.MaxWordLength;
@@ -166,7 +167,7 @@ internal static class BuildUtilsProperties {
     static IntegerPropertyModel getIntegerPropertyModel(IntegerPropertyAttribute a) {
         var p = new IntegerPropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         p.MaxValue = a.MaxValue;
         p.MinValue = a.MinValue;
         p.IsEnum = a.IsEnum;
@@ -177,47 +178,47 @@ internal static class BuildUtilsProperties {
     static LongPropertyModel getLongPropertyModel(LongPropertyAttribute a) {
         var p = new LongPropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         p.MaxValue = a.MaxValue;
         p.MinValue = a.MinValue;
         return p;
     }
     static DecimalPropertyModel getDecimalPropertyModel(DecimalPropertyAttribute a) {
         var p = new DecimalPropertyModel();
-        p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
-        p.MaxValue = a.MaxValue;
-        p.MinValue = a.MinValue;
+        if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = decimal.Parse(a.DefaultValue, CultureInfo.InvariantCulture);
+        p.Indexed = a.Indexed;
+        p.MaxValue = string.IsNullOrEmpty(a.MaxValue) ? decimal.MaxValue : decimal.Parse(a.MaxValue, CultureInfo.InvariantCulture);
+        p.MinValue = string.IsNullOrEmpty(a.MinValue) ? decimal.MinValue : decimal.Parse(a.MinValue, CultureInfo.InvariantCulture);
         return p;
     }
     static DateTimePropertyModel getDateTimePropertyModel(DateTimePropertyAttribute a) {
         var p = new DateTimePropertyModel();
-        p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
-        p.MaxValue = a.MaxValue;
-        p.MinValue = a.MinValue;
+        if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = DateTime.Parse(a.DefaultValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        p.Indexed = a.Indexed;
+        p.MaxValue = string.IsNullOrEmpty(a.MaxValue) ? DateTime.MaxValue : DateTime.Parse(a.MaxValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        p.MinValue = string.IsNullOrEmpty(a.MinValue) ? DateTime.MinValue : DateTime.Parse(a.MinValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         return p;
     }
     static DateTimeOffsetPropertyModel getDateTimeOffsetPropertyModel(DateTimeOffsetPropertyAttribute a) {
         var p = new DateTimeOffsetPropertyModel();
-        p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
-        p.MaxValue = a.MaxValue;
-        p.MinValue = a.MinValue;
+        if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = DateTimeOffset.Parse(a.DefaultValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        p.Indexed = a.Indexed;
+        p.MaxValue = string.IsNullOrEmpty(a.MaxValue) ? DateTimeOffset.MaxValue : DateTimeOffset.Parse(a.MaxValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        p.MinValue = string.IsNullOrEmpty(a.MinValue) ? DateTimeOffset.MinValue : DateTimeOffset.Parse(a.MinValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         return p;
     }
     static TimeSpanPropertyModel getTimeSpanPropertyModel(TimeSpanPropertyAttribute a) {
         var p = new TimeSpanPropertyModel();
-        p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
-        p.MaxValue = a.MaxValue;
-        p.MinValue = a.MinValue;
+        if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = TimeSpan.Parse(a.DefaultValue, CultureInfo.InvariantCulture);
+        p.Indexed = a.Indexed;
+        p.MaxValue = string.IsNullOrEmpty(a.MaxValue) ? TimeSpan.MaxValue : TimeSpan.Parse(a.MaxValue, CultureInfo.InvariantCulture);
+        p.MinValue = string.IsNullOrEmpty(a.MinValue) ? TimeSpan.MinValue : TimeSpan.Parse(a.MinValue, CultureInfo.InvariantCulture);
         return p;
     }
     static GuidPropertyModel getGuidPropertyModel(GuidPropertyAttribute a) {
         var p = new GuidPropertyModel();
-        p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = Guid.Parse(a.DefaultValue);
+        p.Indexed = a.Indexed;
         return p;
     }
     static ByteArrayPropertyModel getByteArrayPropertyModel(ByteArrayPropertyAttribute a) {
@@ -231,7 +232,7 @@ internal static class BuildUtilsProperties {
     static DoublePropertyModel getDoublePropertyModel(DoublePropertyAttribute a) {
         var p = new DoublePropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         p.MaxValue = a.MaxValue;
         p.MinValue = a.MinValue;
         return p;
@@ -239,14 +240,14 @@ internal static class BuildUtilsProperties {
     static FloatPropertyModel getFloatPropertyModel(FloatPropertyAttribute a) {
         var p = new FloatPropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         p.MaxValue = a.MaxValue;
         p.MinValue = a.MinValue;
         return p;
     }
     static FilePropertyModel getFilePropertyModel(FilePropertyAttribute a) {
         var p = new FilePropertyModel();
-        p.FileStorageProviderId = a.FileStorageProviderId;
+        if (!string.IsNullOrEmpty(a.FileStorageProviderId)) p.FileStorageProviderId = Guid.Parse(a.FileStorageProviderId);
         return p;
     }
     static void addCommonEmbeddedProperties(EmbeddedPropertyAttribute a, EmbeddedPropertyModel p, Type valueType, bool isMap) {
@@ -298,12 +299,12 @@ internal static class BuildUtilsProperties {
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {
         var p = new BooleanPropertyModel();
         p.DefaultValue = a.DefaultValue;
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         return p;
     }
     static StringArrayPropertyModel getStringArrayPropertyModel(StringArrayPropertyAttribute a) {
         var p = new StringArrayPropertyModel();
-        if (a.Indexed != BoolValue.Default) p.Indexed = a.Indexed == BoolValue.True;
+        p.Indexed = a.Indexed;
         return p;
     }
     static RelationType getRelationClassType(Type relationType) {

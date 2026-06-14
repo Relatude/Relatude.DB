@@ -37,14 +37,14 @@ public class DbContext(NodeStore store) {
     public DbContext Hidden(bool includeHidden = true) => change(store.QueryContext.Hidden(includeHidden));
     public DbContext CultureFallbacks(bool includeFallbacks = true) => change(store.QueryContext.CultureFallbacks(includeFallbacks));
     public DbContext Admin() => change(store.QueryContext.Admin());
-    DbContext change(QueryContext queryContext) => new DbContext(store.NewContext(queryContext));
+    DbContext change(QueryContext queryContext) => new DbContext(store.NewStoreWithDifferentContext(queryContext));
     public NodeStore Create() => store;
 }
 public class NodeStore : IDisposable {
 
     public readonly IDataStore Datastore;
     public DbContext Context => new DbContext(this);
-    internal QueryContext QueryContext => Datastore.DefaultQueryContext;
+    public QueryContext QueryContext => Datastore.QueryContext;
     public readonly NodeMapper Mapper;
     public AIEngine AI => Datastore.AI;
     internal List<INodeTransactionPlugin>? _transactionPlugins = null;
@@ -64,10 +64,9 @@ public class NodeStore : IDisposable {
         plugin.Database = this;
     }
     public void RegisterRunner(ITaskRunner runner) => Datastore.RegisterRunner(runner);
-    public QueryContext DefaultQueryContext => Datastore.DefaultQueryContext;
-    public void SetDefaultQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
+    public void SetQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
 
-    public NodeStore NewContext(QueryContext ctx) {
+    internal NodeStore NewStoreWithDifferentContext(QueryContext ctx) {
         return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
     }
 
@@ -639,7 +638,19 @@ public class NodeStore : IDisposable {
     public Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx);
     public Task<Guid> InitiateMultipartUploadAsync(FileValue fileValue, string fileName, QueryContext? ctx = null) => Datastore.InitiateMultipartUploadAsync(fileValue.PropertyPath!, fileName, ctx);
     public Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) => Datastore.AppendMultipartUploadAsync(fileId, data, length);
-    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) => Datastore.FinalizeMultipartUploadAsync(fileId, maxWaitForMetaUpdate, ctx);
+    public async Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) {
+        var fv = await Datastore.FinalizeMultipartUploadAsync(fileId, maxWaitForMetaUpdate, ctx);
+        if (_transactionPlugins != null) {
+            if (TryGet(fv.PropertyPath!.NodePath.NodeKey.Guid, out var node)) {
+                foreach (var plugin in _transactionPlugins) {
+                    if (plugin.IsTypeRelevantForUploadAction(Mapper.GetNodeTypeId(node.GetType()))) {
+                        plugin.OnAfterFileUpload(fv, node);
+                    }
+                }
+            }
+        }
+        return fv;
+    }
     public Task CancelMultipartUploadAsync(Guid fileId) => Datastore.CancelMultipartUpload(fileId);
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => Datastore.FileStoreSupportsMultipartUploads(propertyPath);
     public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);
@@ -666,7 +677,8 @@ public class NodeStore : IDisposable {
     public void EnqueueTask(TaskData task, string? jobId = null) => Datastore.EnqueueTask(task, jobId);
 
     public long Timestamp => Datastore.Timestamp;
-    public void Dispose() => Datastore.Dispose();
+
+    public virtual void Dispose() => Datastore.Dispose();
 
     public void EnsureCultures(SystemCulture[] cultures) {
         if (State != DataStoreState.Open) throw new Exception("DataStore must be open to ensure cultures.");

@@ -8,6 +8,7 @@ using System.Diagnostics;
 using Relatude.DB.Nodes;
 
 namespace Relatude.DB.Query;
+
 public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacets<T>> {
     readonly QueryOfNodes<T, TInclude> _query;
     readonly Dictionary<Guid, Facets> _given;
@@ -172,6 +173,8 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     public async Task<ResultSetFacets<T>> ExecuteAsync() => await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters).ContinueWith(t => _execute(t.Result));
     public ResultSetFacets<T> Execute(string query) => _execute(_query.Store.Datastore.Query(query, _query._q._parameters));
     public ResultSetFacets<T> Execute() => _execute(_query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters).Result);
+    public object? EvaluateForJson() => _query._q.Prepare().EvaluateForJsonAsync().Result;
+    public async Task<object?> EvaluateForJsonAsync() => await _query._q.Prepare().EvaluateForJsonAsync();
     ResultSetFacets<T> _execute(object? data) {
         if (data is not FacetQueryResultData facets)
             throw new NotSupportedException("Only results of type " + nameof(FacetQueryResultData) + " is supported. Type provided: " + data?.GetType().FullName);

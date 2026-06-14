@@ -13,7 +13,7 @@ public class TestData {
 public class TestUser {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    [IntegerProperty(Indexed = BoolValue.True)]
+    [IntegerProperty(Indexed = true)]
     public int Age { get; set; }
     public TestCompany? Company { get; set; }
     public TestDocument[] Documents { get; set; } = [];

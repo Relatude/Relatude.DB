@@ -3,6 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
+
 public class PropertyValuePair(Guid propertyId, object? oldValue, object? newValue) {
     public Guid PropertyId { get; } = propertyId;
     public object? OldValue { get; } = oldValue;
@@ -98,9 +99,11 @@ public interface ITransactionPlugin : IPlugin {
 public interface INodeTransactionPlugin : ITransactionPlugin {
     void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys);
     List<IdKey> GetRelevantNodeIds(ActionBase action, Dictionary<IdKey, Guid>? typeInfo);
+    bool IsTypeRelevantForUploadAction(Guid typeId);
     void OnBefore(IdKey id, ActionBase action, Transaction transaction);
     void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation);
     void OnAfterError(IdKey id, ActionBase action, Exception error);
+    void OnAfterFileUpload(FileValue fileValue, object node);
 }
 public interface IRelationTransactionPlugin : IPlugin {
     void OnBefore(IdKey id, RelationAction action, Transaction transaction);
@@ -120,6 +123,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
             return _nodeTypeModel;
         }
     }
+
     public void OnBefore(IdKey id, ActionBase action, Transaction transaction) {
         if (action is NodeAction nodeAction) {
             OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Database, nodeAction));
@@ -141,6 +145,11 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
             OnErrorPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, error);
         }
     }
+    public bool IsTypeRelevantForUploadAction(Guid typeId) {
+        if (_nodeTypeModel == null) return false;
+        return _nodeTypeModel.ThisAndDescendingTypes.ContainsKey(typeId);
+    }
+
 
     // building up a cache to look up node types by one call, needed for performance while evaluating which nodes are relevant for a specific plugin
     public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys) {
@@ -192,6 +201,12 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     public virtual void OnBeforePropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, object[]? values, Transaction transaction, PropertyHelper<T> helper) { }
     public virtual void OnAfterPropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation) { }
     public virtual void OnErrorPropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, Exception error) { }
+
+
+    public void OnAfterFileUpload(FileValue fileValue, object node) {
+        OnAfterFileUpload(fileValue, (T)node);
+    }
+    public virtual void OnAfterFileUpload( FileValue fileValue, T node) { }
 
 }
 public abstract class RelationTransactionPlugin<T> : IRelationTransactionPlugin where T : notnull {

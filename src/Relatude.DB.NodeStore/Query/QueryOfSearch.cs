@@ -40,13 +40,7 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
         var data = _query.Store.Datastore.Query(ToString(), _query._q._parameters.ToArray());
         return buildResult(data);
     }
-    IEnumerable<ResultSetSearch<T>> toEnumerable(object data) {
-        throw new NotImplementedException();
-        //if (data is IStoreNodeDataCollection coll) {
-        //    foreach (var nodeData in coll.NodeValues) {
-        //        yield return (T)_query.Store._activator.CreateInstance(nodeData);
-        //    }
-        //}
-    }
+    public object? EvaluateForJson() => _query._q.Prepare().EvaluateForJsonAsync().Result;
+    public async Task<object?> EvaluateForJsonAsync() => await _query._q.Prepare().EvaluateForJsonAsync();
 
 }

@@ -8,16 +8,17 @@ internal class NodeWithChildren<T> : NodeBase<T> {
     public NodeWithChildren() { } // root
     public NodeWithChildren(char character) { Character = character; }
     public override void BuildListOfSimilarWords(char[] searchWord, int pos, char[] currentWord, int maxLev, List<SpellHit<T?>> words, Levenshtein lev, int max) {
+        if (words.Count >= max) return; // no point in traversing further once max hits are collected
         foreach (var child in Children) {
             currentWord[pos] = child.Character;
             if (pos < searchWord.Length && searchWord[pos] == child.Character) {
-                // if next char match, follow branch... ( sometimes not correct due to insertion diff, but most times it will result in fewer lev calcs,  it can cause extra call)
+                // if next char match, follow branch without a lev calc, it can never prune
                 child.BuildListOfSimilarWords(searchWord, pos + 1, currentWord, maxLev, words, lev, max);
             } else {
-                //subtracted one as sometimes this intermetiate lev calculation will calc 1 extra for changes for char omition
-                //this is an approximation, a better algo could be made here
-                //if (lev.DistanceFrom(currentWord, pos + 1, Math.Min(pos + 1, searchWord.Length)) - 1 <= maxLev)
-                if (lev.DistanceFrom(currentWord, pos + 1, Math.Min(pos + 1, searchWord.Length)) <= maxLev)
+                // prune on the row minimum: it is a lower bound for any word starting with this prefix,
+                // pruning on the final distance of the prefix could incorrectly cut off branches that recover with later chars
+                lev.DistanceFrom(currentWord, pos + 1, searchWord.Length, out var rowMin);
+                if (rowMin <= maxLev)
                     child.BuildListOfSimilarWords(searchWord, pos + 1, currentWord, maxLev, words, lev, max);
             }
         }

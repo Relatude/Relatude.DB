@@ -224,17 +224,16 @@ public class IOProviderDisk : IIOProvider {
             deleteFoldersAndFiles(folderPath);
         }
     }
-    void deleteFoldersAndFiles(string fileOrFolderKey) {
-        FileKeyUtility.ValidateFileKeyString(fileOrFolderKey);
-        if (Directory.Exists(fileOrFolderKey)) {
-            var dirInfo = new DirectoryInfo(fileOrFolderKey);
+    void deleteFoldersAndFiles(string fullFolderPath) {
+        if (Directory.Exists(fullFolderPath)) {
+            var dirInfo = new DirectoryInfo(fullFolderPath);
             foreach (var subDir in dirInfo.GetDirectories()) {
                 deleteFoldersAndFiles(subDir.FullName);
             }
             foreach (var file in dirInfo.GetFiles()) {
                 file.Delete();
             }
-            Directory.Delete(fileOrFolderKey);
+            Directory.Delete(fullFolderPath);
         }
     }
     public void EnsureFolder(string[] path) {

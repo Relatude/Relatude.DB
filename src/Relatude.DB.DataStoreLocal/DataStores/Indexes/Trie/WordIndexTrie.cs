@@ -10,12 +10,14 @@ internal class WordIndexTrie : IWordIndex {
     SetRegister _register;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
-    public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    readonly Action<string, Exception>? _logError;
+    public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, Action<string, Exception>? logError = null) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
         UniqueKey = uniqueKey;
         _io = io;
         _fileKeys = fileKey;
+        _logError = logError;
         newSetState();
         FriendlyName = friendlyName;
     }
@@ -32,7 +34,10 @@ internal class WordIndexTrie : IWordIndex {
 #else
         try {
             _trie.IndexText((string)value, nodeId);
-        } catch { }
+        } catch (Exception err) {
+            // swallowed to keep the transaction alive, but the index may now be out of sync until rebuilt, so never silently
+            _logError?.Invoke("Word index \"" + FriendlyName + "\" failed indexing node " + nodeId + ". The index may be out of sync until rebuilt. ", err);
+        }
 #endif
         newSetState();
     }
@@ -42,7 +47,10 @@ internal class WordIndexTrie : IWordIndex {
 #else
         try {
             _trie.DeIndexText((string)value, nodeId);
-        } catch { }
+        } catch (Exception err) {
+            // swallowed to keep the transaction alive, but the index may now be out of sync until rebuilt, so never silently
+            _logError?.Invoke("Word index \"" + FriendlyName + "\" failed deindexing node " + nodeId + ". The index may be out of sync until rebuilt. ", err);
+        }
 #endif
         newSetState();
     }
@@ -58,11 +66,25 @@ internal class WordIndexTrie : IWordIndex {
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
-        _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
-        using var stream = _io.OpenAppend(fileName);
-        _trie.WriteState(stream);
-        stream.WriteVerifiedLong(logTimestamp);
-        stream.WriteGuid(walFileId);
+        if (_io.CanRenameFile) {
+            // write to a temp file and swap, so a crash during save does not also lose the previous good state
+            // swapping the extension keeps the key length unchanged (file keys have a max length) and keeps it out of the index.*.bin pattern
+            var tempFileName = fileName.EndsWith(".bin") ? fileName[..^4] + ".tmp" : fileName + ".tmp";
+            _io.DeleteFileIfItExists(tempFileName);
+            using (var stream = _io.OpenAppend(tempFileName)) {
+                _trie.WriteState(stream);
+                stream.WriteVerifiedLong(logTimestamp);
+                stream.WriteGuid(walFileId);
+            }
+            _io.DeleteFileIfItExists(fileName);
+            _io.RenameFile(tempFileName, fileName);
+        } else {
+            _io.DeleteFileIfItExists(fileName);
+            using var stream = _io.OpenAppend(fileName);
+            _trie.WriteState(stream);
+            stream.WriteVerifiedLong(logTimestamp);
+            stream.WriteGuid(walFileId);
+        }
         PersistedTimestamp = logTimestamp;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {

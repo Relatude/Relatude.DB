@@ -2,8 +2,10 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Sets;
+using System.Reflection.Metadata;
 
 namespace Relatude.DB.Query.Data;
+
 internal static class IncludeUtil {
     public static INodeDataExternal[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
         metrics.NodeCount += _ids.Count;
@@ -54,7 +56,8 @@ internal static class IncludeUtil {
         if (!typeDef.AllProperties.ContainsKey(propId)) return; // not relevant for this node type
         if (from.Relations.ContainsRelation(propId)) return; // already included
         int? top = branch.Top;
-        var relProp = (RelationPropertyModel)_def.Datamodel.Properties[propId];
+        var propDef = _def.Datamodel.Properties[propId];
+        if (propDef is not RelationPropertyModel relProp) throw new Exception("Property " + propDef.CodeName + " is not a relation property, cannot include.");
         var relation = _def.Relations[relProp.RelationId];
         var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);
         _totalNodeCount += idsRel.Count;

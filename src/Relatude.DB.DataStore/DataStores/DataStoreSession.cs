@@ -13,10 +13,10 @@ namespace Relatude.DB.DataStores;
 public class DataStoreSession : IDataStore {
     private readonly IDataStore _datastore;
     public DataStoreSession(QueryContext context, IDataStore datastore) {
-        DefaultQueryContext = context;
+        QueryContext = context;
         _datastore = datastore;
     }
-    public QueryContext DefaultQueryContext { get; }
+    public QueryContext QueryContext { get; }
 
     public void SetDefaultQueryContext(QueryContext ctx) => _datastore.SetDefaultQueryContext(ctx);
     public void Dispose() => _datastore.Dispose();
@@ -59,54 +59,54 @@ public class DataStoreSession : IDataStore {
 
     // Access controlled changes
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null)
-        => _datastore.ExecuteAsync(transaction, flushToDisk, ctx ?? DefaultQueryContext);
+        => _datastore.ExecuteAsync(transaction, flushToDisk, ctx ?? QueryContext);
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null)
-        => _datastore.Execute(transaction, flushToDisk, ctx ?? DefaultQueryContext);
+        => _datastore.Execute(transaction, flushToDisk, ctx ?? QueryContext);
 
 
     // Revisions:
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null)
-        => _datastore.GetRevisions(nodeId, ctx ?? DefaultQueryContext);
+        => _datastore.GetRevisions(nodeId, ctx ?? QueryContext);
 
     // Access controlled queries
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null)
-        => _datastore.Query(query, parameters, userCtx ?? DefaultQueryContext);
+        => _datastore.Query(query, parameters, userCtx ?? QueryContext);
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null)
-        => _datastore.QueryAsync(query, parameters, userCtx ?? DefaultQueryContext);
+        => _datastore.QueryAsync(query, parameters, userCtx ?? QueryContext);
 
-    public Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null) => _datastore.GetAsync(id, ctx ?? DefaultQueryContext);
+    public Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null) => _datastore.GetAsync(id, ctx ?? QueryContext);
     public Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null)
-        => _datastore.GetAsync(__ids, ctx ?? DefaultQueryContext);
+        => _datastore.GetAsync(__ids, ctx ?? QueryContext);
     public Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null)
-        => _datastore.GetAsync(id, ctx ?? DefaultQueryContext);
+        => _datastore.GetAsync(id, ctx ?? QueryContext);
     public INodeData Get(Guid id, QueryContext? ctx = null)
-        => _datastore.Get(id, ctx ?? DefaultQueryContext);
+        => _datastore.Get(id, ctx ?? QueryContext);
     public INodeData Get(int id, QueryContext? ctx = null)
-        => _datastore.Get(id, ctx ?? DefaultQueryContext);
+        => _datastore.Get(id, ctx ?? QueryContext);
     public INodeData Get(IdKey id, QueryContext? ctx = null)
-        => _datastore.Get(id, ctx ?? DefaultQueryContext);
+        => _datastore.Get(id, ctx ?? QueryContext);
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null)
-        => _datastore.TryGet(id, out nodeData, ctx ?? DefaultQueryContext);
+        => _datastore.TryGet(id, out nodeData, ctx ?? QueryContext);
     public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null)
-        => _datastore.TryGet(id, out nodeData, ctx ?? DefaultQueryContext);
+        => _datastore.TryGet(id, out nodeData, ctx ?? QueryContext);
     public bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null)
-        => _datastore.TryGetGuid(id, out guid, ctx ?? DefaultQueryContext);
+        => _datastore.TryGetGuid(id, out guid, ctx ?? QueryContext);
     public IEnumerable<INodeData> Get(IEnumerable<int> __ids, QueryContext? ctx = null)
-        => _datastore.Get(__ids, ctx ?? DefaultQueryContext);
+        => _datastore.Get(__ids, ctx ?? QueryContext);
     public IEnumerable<INodeData> Get(IEnumerable<Guid> __ids, QueryContext? ctx = null)
-        => _datastore.Get(__ids, ctx ?? DefaultQueryContext);
+        => _datastore.Get(__ids, ctx ?? QueryContext);
 
-    public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) => _datastore.TryGetValue(path, out value, ctx ?? DefaultQueryContext);
-    public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) => _datastore.GetValue<T>(path, ctx ?? DefaultQueryContext);
+    public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) => _datastore.TryGetValue(path, out value, ctx ?? QueryContext);
+    public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) => _datastore.GetValue<T>(path, ctx ?? QueryContext);
 
     public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null)
-        => _datastore.FileUploadAsync(target, source, fileKey, fileName, maxWaitForMetaUpdate, ctx ?? DefaultQueryContext);
+        => _datastore.FileUploadAsync(target, source, fileKey, fileName, maxWaitForMetaUpdate, ctx ?? QueryContext);
     public Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate, QueryContext? ctx = null)
-        => _datastore.FileUploadAsync(target, source, fileName, maxWaitForMetaUpdate, ctx ?? DefaultQueryContext);
-    public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.FileDeleteAsync(target, ctx ?? DefaultQueryContext);
-    public Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) => _datastore.FileDownloadAsync(target, outStream, ctx ?? DefaultQueryContext);
-    public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? DefaultQueryContext);
-    public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) => _datastore.UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx ?? DefaultQueryContext);
+        => _datastore.FileUploadAsync(target, source, fileName, maxWaitForMetaUpdate, ctx ?? QueryContext);
+    public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.FileDeleteAsync(target, ctx ?? QueryContext);
+    public Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) => _datastore.FileDownloadAsync(target, outStream, ctx ?? QueryContext);
+    public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? QueryContext);
+    public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) => _datastore.UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx ?? QueryContext);
 
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId)
         => _datastore.TryGetNodeType(id, out nodeTypeId);
@@ -118,16 +118,16 @@ public class DataStoreSession : IDataStore {
     public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id);
     public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId);
     public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null) {
-        return _datastore.ContainsRelation(relationId, from, to, fromTargetToSource, ctx ?? DefaultQueryContext);
+        return _datastore.ContainsRelation(relationId, from, to, fromTargetToSource, ctx ?? QueryContext);
     }
     public INodeData[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
-        => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx ?? DefaultQueryContext);
+        => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx ?? QueryContext);
     public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null)
-        => _datastore.TryGetRelatedNodeFromPropertyId(propertyId, from, out node, ctx ?? DefaultQueryContext);
+        => _datastore.TryGetRelatedNodeFromPropertyId(propertyId, from, out node, ctx ?? QueryContext);
     public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null)
-        => _datastore.GetRelatedCountFromPropertyId(propertyId, from, ctx ?? DefaultQueryContext);
+        => _datastore.GetRelatedCountFromPropertyId(propertyId, from, ctx ?? QueryContext);
     public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null)
-        => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource, ctx ?? DefaultQueryContext);
+        => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource, ctx ?? QueryContext);
 
     public long GetLastTimestampID() => _datastore.GetLastTimestampID();
     public Task MaintenanceAsync(MaintenanceAction actions) => _datastore.MaintenanceAsync(actions);
@@ -176,14 +176,14 @@ public class DataStoreSession : IDataStore {
     IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
     INodeDataExternal[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
 
-    public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
-    public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
-    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
+    public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
+    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
 
 
-    public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
-    public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
-    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? DefaultQueryContext);
+    public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
+    public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
+    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
 
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
@@ -192,29 +192,29 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
 
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
-    public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? DefaultQueryContext);
+    public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
 
-    public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? DefaultQueryContext);
-    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? DefaultQueryContext);
-    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? DefaultQueryContext);
-    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? DefaultQueryContext);
-    public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFileStream(propertyPath, ctx ?? DefaultQueryContext);
+    public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);
+    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
+    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext);
+    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFileStream(propertyPath, ctx ?? QueryContext);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait, QueryContext? ctx = null)
-        => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? DefaultQueryContext);
+        => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext);
     public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait, QueryContext? ctx = null)
-        => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? DefaultQueryContext);
+        => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext);
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
-        => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? DefaultQueryContext);
+        => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? QueryContext);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null)
-        => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? DefaultQueryContext);
+        => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? QueryContext);
     public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null)
-        => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? DefaultQueryContext);
+        => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? QueryContext);
 
-    public FileConversions GetConversions(QueryContext? ctx = null) => _datastore.GetConversions(ctx ?? DefaultQueryContext);
-    public Task CancelAllConversions(bool permanently, QueryContext? ctx = null) => _datastore.CancelAllConversions(permanently, ctx ?? DefaultQueryContext);
-    public Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null) => _datastore.CancelConversion(conversionId, permanently, ctx ?? DefaultQueryContext);
-    public void ClearAllCachedConversions(QueryContext? ctx = null) => _datastore.ClearAllCachedConversions(ctx ?? DefaultQueryContext);
-    public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _datastore.ClearAllCachedConversionsErrors(ctx ?? DefaultQueryContext);
+    public FileConversions GetConversions(QueryContext? ctx = null) => _datastore.GetConversions(ctx ?? QueryContext);
+    public Task CancelAllConversions(bool permanently, QueryContext? ctx = null) => _datastore.CancelAllConversions(permanently, ctx ?? QueryContext);
+    public Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null) => _datastore.CancelConversion(conversionId, permanently, ctx ?? QueryContext);
+    public void ClearAllCachedConversions(QueryContext? ctx = null) => _datastore.ClearAllCachedConversions(ctx ?? QueryContext);
+    public void ClearAllCachedConversionsErrors(QueryContext? ctx = null) => _datastore.ClearAllCachedConversionsErrors(ctx ?? QueryContext);
 
 
 

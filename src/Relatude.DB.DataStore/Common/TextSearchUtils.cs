@@ -23,7 +23,7 @@ public static class SearchUtil {
     public static string Clean(string search, int minWordLength, int maxWordLength) {
         if (string.IsNullOrWhiteSpace(search)) return string.Empty;
         var sb = new StringBuilder();
-        search = search.ToLower();
+        search = search.ToLowerInvariant(); // must match the invariant lowercasing used when indexing
         foreach (var c in search) {
             if (SearchConst.Keep(c) || c == SearchConst.WILDCARD || c == SearchConst.FUZZY) sb.Append(c);
             else if (SearchConst.DEVIDERS.Contains(c)) sb.Append(SearchConst.DEVIDER);
@@ -56,7 +56,8 @@ public static class IndexUtil {
             if (_legalIndex[c] == 0) _legalIndex[c] = evalLegalIndex(c);
             if (_legalIndex[c] == 1) { // include char and build word
                 if (pos < maxWordLength) {
-                    if (_toLower[c] == 0) _toLower[c] = char.ToLower(c);
+                    // invariant, the cache is process wide and must not depend on the current thread culture
+                    if (_toLower[c] == 0) _toLower[c] = char.ToLowerInvariant(c);
                     buffer[pos++] = _toLower[c];
                 }
             } else if (_legalIndex[c] == 2) { // add word
@@ -95,7 +96,7 @@ public static class IndexUtil {
             if (_legalIndex[c] == 0) _legalIndex[c] = evalLegalIndex(c);
             if (_legalIndex[c] == 1) {
                 if (pos < maxWordLength) {
-                    if (_toLower[c] == 0) _toLower[c] = char.ToLower(c);
+                    if (_toLower[c] == 0) _toLower[c] = char.ToLowerInvariant(c);
                     buffer[pos++] = _toLower[c];
                 }
             } else if (_legalIndex[c] == 2) {
@@ -136,6 +137,7 @@ class CharArrayComparer : IEqualityComparer<char[]> {
         return true;
     }
     public int GetHashCode(char[] array) {
+        if (array.Length == 0) return 17; // guard, indexing into an empty array would throw
         unchecked {
             int hash = 17;
             hash = 31 * hash + array[0].GetHashCode();

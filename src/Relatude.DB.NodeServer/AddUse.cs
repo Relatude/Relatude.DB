@@ -1,4 +1,6 @@
-﻿using Relatude.DB.NodeServer;
+﻿using Relatude.DB.DataStores;
+using Relatude.DB.Nodes;
+using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
 using Relatude.DB.Web;
 
@@ -9,6 +11,7 @@ public static class AddUse {
         configureOptions?.Invoke(options);
         builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
         builder.Services.AddSingleton<RelatudeDBContext>();
+        builder.Services.AddTransient<Database>();
         builder.Services.AddSingleton(options);
         return builder;
     }
@@ -45,5 +48,11 @@ public static class AddUse {
         if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
         app.MapGet(urlPathFiles + "/{propPathAndAdj}", FileHandler.HandleFileAsync);
         return app;
+    }
+}
+public class Database : NodeStore {
+    public Database() : base(RelatudeDBRuntime.Database.Datastore) { }
+    public override void Dispose() {
+        // do nothing!
     }
 }

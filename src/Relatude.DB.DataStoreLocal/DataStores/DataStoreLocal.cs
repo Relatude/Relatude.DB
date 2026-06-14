@@ -159,7 +159,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
-    public QueryContext DefaultQueryContext => _defaultQueryCtx;
+    public QueryContext QueryContext => _defaultQueryCtx;
     public void SetDefaultQueryContext(QueryContext ctx) {
         _lock.EnterWriteLock();
         try {

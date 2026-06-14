@@ -109,7 +109,7 @@ internal static class IndexFactory {
             index = store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, name, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         } else {
             var name = "Memory Word Index " + classDef.CodeName + "." + p.CodeName;
-            index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);

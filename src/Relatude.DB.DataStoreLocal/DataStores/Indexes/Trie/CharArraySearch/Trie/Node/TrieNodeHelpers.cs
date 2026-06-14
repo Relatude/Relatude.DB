@@ -56,14 +56,11 @@ internal static class TrieNodeHelpers<T> {
         }
     }
     public static bool IsWordEqual(char[] w1, char[] w2, int shift2) {
-        if (w1.Length != w2.Length - shift2) return false;
-        for (int i = 0; i < w1.Length; i++) if (w1[i] != w2[i + shift2]) return false;
-        return true;
+        return w1.AsSpan().SequenceEqual(w2.AsSpan(shift2)); // vectorized, includes length check
     }
     public static bool HasWordEqualPrefix(char[] w1, int shift1, char[] w2) {
-        if (w1.Length - shift1 > w2.Length) return false;
-        for (int i = 0; i < w1.Length - shift1; i++) if (w1[i + shift1] != w2[i]) return false;
-        return true;
+        var prefix = w1.AsSpan(shift1);
+        return prefix.Length <= w2.Length && w2.AsSpan(0, prefix.Length).SequenceEqual(prefix);
     }
     public static void AddAllChildValues(NodeWithChildren<T> node, List<T?> values, int maxHits) {
         if (values.Count >= maxHits) return;

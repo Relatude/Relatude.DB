@@ -44,10 +44,17 @@ internal class NodeObjectData : IStoreNodeData {
             if (parts.Length > 1) {
                 var value = GetValue(parts[0]);
                 var method = parts[1];
+                // dynamically call any property / method on the value
                 if (method == "Count" || method == "Length") {
                     if (value is IEnumerable<object> e) return e.Cast<object>().Count();
                     throw new Exception("Count method can only be called on IEnumerable properties. ");
                 }
+                var type = value?.GetType();
+                var propInfo = type?.GetProperty(method);
+                if (propInfo == null) {
+                    throw new Exception($"Property {method} not found on type {type?.Name}. ");
+                }
+                return propInfo.GetValue(value);
             } else {
                 // ID propertiy? // this should be more generalized later, what about the other named system props, should it be in datamodel? for faster lookup? ( enum ? )
                 var typeDef = _def.Datamodel.NodeTypes[_nodeData.NodeType];

@@ -115,9 +115,12 @@ namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie {
         //public virtual List<T> SearchSimilar(string prefix) => throw new NotImplementedException();  // to be done, follow same logic as in "Suggest"
         public virtual List<SpellHit<T?>> Suggest(char[] word, int max) {
             DefaultLevenshtein.GetDefaultSearchDistance(word.Length, out var distance1, out var distance2);
-            var r = Suggest(word, distance1, max);
-            if (r.Count > 2) return r;
-            if (distance1 == distance2) return r; // no need to search for distance2 if distance1 and distance2 are the same
+            if (distance1 > 0) { // a search at distance 0 can never yield suggestions as exact matches are excluded
+                var r = Suggest(word, distance1, max);
+                if (r.Count > 2) return r;
+                if (distance1 == distance2) return r; // no need to search for distance2 if distance1 and distance2 are the same
+            }
+            if (distance2 == 0) return [];
             return Suggest(word, distance2, max);
         }
         public List<SpellHit<T?>> Suggest(char[] word, int maxLevenshteinDist, int max) {

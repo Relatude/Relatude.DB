@@ -63,6 +63,8 @@ public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
         totalCount = result.TotalCount;
         return result!;
     }
+    public object? EvaluateForJson() => _q.Prepare().EvaluateForJsonAsync().Result;
+    public async Task<object?> EvaluateForJsonAsync() => await _q.Prepare().EvaluateForJsonAsync();
     public Task<int> CountAsync() => _q.CountAsync();
     public int Count() => _q.Count();
     public QueryOfObjects<T> OrderBy(Expression<Func<T, object>> expression, bool descending = false) {
