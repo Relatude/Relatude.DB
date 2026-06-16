@@ -57,6 +57,7 @@ internal class NodeWriteLocks {
     }
     public void Unlock(Guid lockId) {
         if (_locksById.TryGetValue(lockId, out var record)) {
+            //Console.WriteLine("Removing lock " + lockId + " on node " + record.NodeId + " active for " + DateTime.UtcNow.Subtract(record.LastRefresh).TotalMilliseconds + "ms");
             _locksById.Remove(lockId);
             _locksByNodeId.Remove(record.NodeId);
         } else {

@@ -7,12 +7,12 @@ public abstract class ImageConverterBase : IFileConverter {
     FileFormat[] _outs;
     public readonly Func<int, int, IImage> Create;
     public readonly Func<Stream, IImage> Load;
-    public ImageConverterBase(FileFormat[] ins, FileFormat[] outs, Func<int, int, IImage> create, Func<Stream, IImage> load) {
+    public ImageConverterBase(FileFormat[] ins, FileFormat[] outs, Func<int, int, IImage> create, Func<Stream, IImage> load, int? threadCount) {
         _ins = ins;
         _outs = outs;
         Create = create;
         Load = load;
-        ThreadCount = Math.Max(1, Environment.ProcessorCount / 2);
+        ThreadCount = threadCount ?? Math.Max(1, Environment.ProcessorCount / 2);
         CallDelayMs = 0;
     }
     public int ThreadCount { get; set; }

@@ -15,6 +15,12 @@ namespace Relatude.DB.DataStores {
         }
         public Guid PropertyId { get; }
     }
+    public class NodeLockedException : ExceptionWithoutIntegrityLoss {
+        public NodeLockedException(string message) : base(message) {
+        }
+        public NodeLockedException(string message, Exception err) : base(message, err) {
+        }
+    }
     public class NodeConstraintException : ExceptionWithoutIntegrityLoss {
         public NodeConstraintException(string message, Guid nodeId) : base(message) {
             NodeId = nodeId;

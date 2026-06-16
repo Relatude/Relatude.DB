@@ -17,7 +17,7 @@ using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter());
+    options.FileConverters.Add(new SkiaImageConverter(1));
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.FileHandlerRootUrl = "/files";
     options.OnStoreInit = db => {
@@ -161,6 +161,7 @@ app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
 });
 app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
     var db = ctx.Database;
+    
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();
@@ -176,6 +177,7 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
     var query = "DemoArticle";
     return db.EvaluateForJsonAsync(query, []);
 });
+
 
 
 app.UseDefaultFiles();

@@ -1,4 +1,6 @@
-﻿using System.Diagnostics;
+﻿using System.Data;
+using System.Diagnostics;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Transactions;
@@ -8,13 +10,34 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
+    static int[] _optimisticRetriesPausingMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 2000, 2000, 2000, 2000, 2000]; // 20x20.5s
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Execute(transaction, true, flushToDisk, ctx);
     }
+    int _totalAccumelatedSleepTime;
     public TransactionResult Execute(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
+        var attempt = 0;
+        while (true) {
+            try {
+                return ExecuteNoRetries(transaction, transformValues, flushToDisk, ctx);
+            } catch (NodeLockedException err) {
+                if (++attempt > _optimisticRetriesPausingMs.Length) {
+                    var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + _optimisticRetriesPausingMs.Length + " attempts.", err);
+                    LogError(error.Message, error);
+                    throw error;
+                }
+                transaction.Timestamp = 0; // reset timestamp so that a new one will be generated for the retry
+                var sleep = _optimisticRetriesPausingMs[attempt - 1];
+                Interlocked.Add(ref _totalAccumelatedSleepTime, sleep);
+                LogWarning("Node locked, retry " + attempt + " of " + _optimisticRetriesPausingMs.Length + ". " + err.Message);
+                Thread.Sleep(sleep);
+            }
+        }
+    }
+    TransactionResult ExecuteNoRetries(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
         validateDatabaseState();
         ctx ??= _defaultQueryCtx;
         bool flush = flushToDisk ?? _settings.FlushDiskOnEveryTransactionByDefault;
@@ -64,7 +87,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
             PersistedIndexStore?.CancelTransaction();
-            LogError("Transaction Error. ", err);
+            if (err is NodeLockedException) {
+                // LogWarning(err.Message); // no logging as outer call wil log exception
+            } else {
+                LogError("Transaction Error. ", err);
+            }
             throw;
         } catch (Exception err) {
             PersistedIndexStore?.FullCleanUpOnBadError();
@@ -167,10 +194,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         if (a is PrimitiveNodeAction na) {
-            if (_nodeWriteLocks.IsLocked(na.Node.__Id, transactionLocks)) throw new ExceptionWithoutIntegrityLoss("Node with ID: " + na.Node.__Id + " is locked and cannot be modified with action: " + na.ToString());
+            if (_nodeWriteLocks.IsLocked(na.Node.__Id, transactionLocks)) throw new NodeLockedException("Node with ID: " + na.Node.__Id + " is locked and cannot be modified with action: " + na.ToString());
         } else if (a is PrimitiveRelationAction ra) {
-            if (_nodeWriteLocks.IsLocked(ra.Source, transactionLocks)) throw new ExceptionWithoutIntegrityLoss("Node with ID: " + ra.Source + " is locked and cannot have relations changed. ");
-            if (_nodeWriteLocks.IsLocked(ra.Target, transactionLocks)) throw new ExceptionWithoutIntegrityLoss("Node with ID: " + ra.Target + " is locked and cannot have relations changed. ");
+            if (_nodeWriteLocks.IsLocked(ra.Source, transactionLocks)) throw new NodeLockedException("Node with ID: " + ra.Source + " is locked and cannot have relations changed. ");
+            if (_nodeWriteLocks.IsLocked(ra.Target, transactionLocks)) throw new NodeLockedException("Node with ID: " + ra.Target + " is locked and cannot have relations changed. ");
         }
     }
     void executeAction(PrimitiveActionBase action, QueryContext ctx) {
