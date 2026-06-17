@@ -72,7 +72,7 @@ app.MapGet("/Search", (RelatudeDBContext ctx) => {
 app.MapGet("/Streams", (RelatudeDBContext ctx) => {
     return IOProviderDisk.GetAllOpenStreams();
 });
-app.MapGet("/Test", (Database db) => {
+app.MapGet("/T1est", (Database db) => {
     return db.Query<DemoArticle>().Select(a => new { a.Title, a.File.Name }).Execute().ToArray();
 });
 
@@ -152,6 +152,22 @@ app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) 
     await db.Datastore.CancelConversion(id, permanently);
 });
 
+app.MapGet("test", async (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var article1 = new DemoArticle() { Title = "Test" };
+    db.Insert(article1);
+    var article2 = new DemoArticle() { Title = "Test2" };
+    db.Insert(article2);
+    try {
+        db.Relate(article2, article2 => article2.Children, article2);
+    } catch (Exception err) {
+        return "Error: " + err.Message;
+    } finally {
+        db.Delete(article1);
+        db.Delete(article2);
+    }
+    return "All OK" + DateTime.Now;
+});
 
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
     var db = ctx.Database;
@@ -161,7 +177,7 @@ app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
 });
 app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
     var db = ctx.Database;
-    
+
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();

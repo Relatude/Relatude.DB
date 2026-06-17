@@ -189,6 +189,7 @@ public class NodeStore : IDisposable {
         DeleteIfExists(ids, flushDisk);
     }
 
+    public TransactionResult Delete(object node, bool flushToDisk = false) => Execute(new Transaction(this).Delete(Mapper.GetIdGuid(node)), flushToDisk);
     public TransactionResult Delete(int id, bool flushToDisk = false) => Execute(new Transaction(this).Delete(id), flushToDisk);
     public TransactionResult Delete(IEnumerable<int> ids, bool flushToDisk = false) => Execute(new Transaction(this).Delete(ids), flushToDisk);
     public TransactionResult DeleteOrFail(int id, bool flushToDisk = false) => Execute(new Transaction(this).DeleteOrFail(id), flushToDisk);
