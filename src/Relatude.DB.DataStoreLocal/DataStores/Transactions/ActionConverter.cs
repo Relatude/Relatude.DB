@@ -100,13 +100,17 @@ internal class ActionConverter {
                         // NB: important to not use "yield return" here as the values of the relation will change during the loop
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.DeleteNode;
                         List<PrimitiveRelationAction> _relRemoveOperations = [];
+                        var now = DateTime.UtcNow;
                         foreach (var r in db._definition.Relations.Values) {
                             foreach (var target in r.GetRelated(id, false).Enumerate()) {
-                                _relRemoveOperations.Add(new(PrimitiveOperation.Remove, r.Id, id, target, DateTime.UtcNow));
+                                now = now.AddTicks(1);
+                                _relRemoveOperations.Add(new(PrimitiveOperation.Remove, r.Id, id, target, now));
                             }
                             if (!r.IsSymmetric) { // if symmetric, we have already removed all relations
                                 foreach (var source in r.GetRelated(id, true).Enumerate()) {
-                                    _relRemoveOperations.Add(new(PrimitiveOperation.Remove, r.Id, source, id, DateTime.UtcNow));
+                                    if (source == id) continue; // self referencing relation, would already be removed above
+                                    now = now.AddTicks(1);
+                                    _relRemoveOperations.Add(new(PrimitiveOperation.Remove, r.Id, source, id, now));
                                 }
                             }
                         }

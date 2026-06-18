@@ -159,7 +159,9 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
     var article2 = new DemoArticle() { Title = "Test2" };
     db.Insert(article2);
     try {
-        db.Relate(article2, article2 => article2.Children, article2);
+        db.Relate(article2, a => a.Children, article1);
+        //db.ClearRelations(article2, a=> a.Children);
+        db.Relate(article2, a => a.Children, article1);
     } catch (Exception err) {
         return "Error: " + err.Message;
     } finally {
