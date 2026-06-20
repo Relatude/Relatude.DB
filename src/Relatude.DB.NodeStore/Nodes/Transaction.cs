@@ -50,14 +50,14 @@ public partial class Transaction {
     //public Transaction Relate<T, K>(T fromNode, Expression<Func<T, OneProperty<K>>> expression, K toNode) {
     //    return this;
     //}
-    public Transaction Relate<T>(T fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction AddRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (fromNode == null) throw new Exception("From node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
-            Relate(fromGuid, expression!, toGuid);
+            AddRelation(fromGuid, expression!, toGuid);
         } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
               && Store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
-            Relate(fromUint, expression, toUInt);
+            AddRelation(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
@@ -66,36 +66,36 @@ public partial class Transaction {
     public Transaction Relate(object fromNode, Guid propertyId, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
-            Relate(fromGuid, propertyId, toGuid);
+            AddRelation(fromGuid, propertyId, toGuid);
         } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
               && Store.Mapper.TryGetIdUInt(toNode, out var toUInt)) {
-            Relate(fromUint, propertyId, toUInt);
+            AddRelation(fromUint, propertyId, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
         return this;
     }
-    public Transaction Relate<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
+    public Transaction AddRelation<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction Relate<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
+    public Transaction AddRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
         var p = getRelProp(expression!);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction Relate<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
+    public Transaction AddRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
         var p = getRelProp(expression);
         foreach (var idTo in idTos) _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction Relate(Guid idFrom, Guid propertyId, Guid idTo) {
+    public Transaction AddRelation(Guid idFrom, Guid propertyId, Guid idTo) {
         var p = getRelProp(propertyId);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction Relate(int idFrom, Guid propertyId, int idTo) {
+    public Transaction AddRelation(int idFrom, Guid propertyId, int idTo) {
         var p = getRelProp(propertyId);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
@@ -207,13 +207,13 @@ public partial class Transaction {
         return this;
     }
 
-    public Transaction UnRelate<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction RemoveRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
-            UnRelate(fromGuid, expression, toGuid);
+            RemoveRelation(fromGuid, expression, toGuid);
         } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)
               && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toUInt)) {
-            UnRelate(fromUint, expression, toUInt);
+            RemoveRelation(fromUint, expression, toUInt);
         } else {
             throw new Exception("Only nodes with Guid or int id accepted. ");
         }
@@ -224,22 +224,22 @@ public partial class Transaction {
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction UnRelate<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
+    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
         var p = getRelProp(expression);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction UnRelate<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
+    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
         var p = getRelProp(expression);
         foreach (var idTo in idTos) _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction UnRelate(Guid idFrom, Guid propertyId, Guid idTo) {
+    public Transaction RemoveRelation(Guid idFrom, Guid propertyId, Guid idTo) {
         var p = getRelProp(propertyId);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction UnRelate(int idFrom, Guid propertyId, int idTo) {
+    public Transaction RemoveRelation(int idFrom, Guid propertyId, int idTo) {
         var p = getRelProp(propertyId);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;

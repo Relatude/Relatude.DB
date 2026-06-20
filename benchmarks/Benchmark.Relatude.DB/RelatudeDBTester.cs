@@ -69,14 +69,14 @@ public class RelatudeDBTester : ITester {
     public void RelateDocumentsToUsers(IEnumerable<Tuple<Guid, Guid>> relations) {
         var transaction = _store.CreateTransaction();
         foreach (var relation in relations) {
-            transaction.Relate<TestDocument>(relation.Item1, d => d.Author, relation.Item2);
+            transaction.AddRelation<TestDocument>(relation.Item1, d => d.Author, relation.Item2);
         }
         _store.Execute(transaction, _flushEveryTrans);
     }
     public void RelateUsersToCompanies(IEnumerable<Tuple<Guid, Guid>> relations) {
         var transaction = _store.CreateTransaction();
         foreach (var relation in relations) {
-            transaction.Relate<TestUser>(relation.Item1, d => d.Company, relation.Item2);
+            transaction.AddRelation<TestUser>(relation.Item1, d => d.Company, relation.Item2);
         }
         _store.Execute(transaction, _flushEveryTrans);
     }
