@@ -26,7 +26,7 @@ public interface IOneProperty<T> : IOneProperty, IRelationProperty<T> {
 }
 public interface IManyProperty<T> : IManyProperty, IRelationProperty<T> {
 }
-public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
+public abstract class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     NodeStore store = null!;
     Guid parentId;
     Guid propertyId;
@@ -127,7 +127,7 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
-public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
+public abstract class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
     int? _count;
     NodeStore store = null!;
     Guid parentId;
