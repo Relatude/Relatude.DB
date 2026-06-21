@@ -17,7 +17,7 @@ public interface IOneProperty : IRelationProperty {
     object? GetIncludedData();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet);
 }
-public interface IRelationProperty<T> : IRelationProperty { }
+public interface IRelationProperty<T> : IEnumerable<T>, IRelationProperty { }
 public interface IManyProperty : IRelationProperty {
     IEnumerable<object> GetIncludedData();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas);
@@ -26,14 +26,15 @@ public interface IOneProperty<T> : IOneProperty, IRelationProperty<T> {
 }
 public interface IManyProperty<T> : IManyProperty, IRelationProperty<T> {
 }
-public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
-    NodeStore store = null!;
+public class OneProperty<T>() : IOneProperty<T> {
+    NodeStore? _store = null;
+    NodeStore store => _store ?? throw new Exception("OneProperty is not initialized. ");
     Guid parentId;
     Guid propertyId;
     INodeDataExternal? nodeData;
     bool? isSet = false;
     public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet) {
-        this.store = store;
+        this._store = store;
         this.parentId = parentId;
         this.propertyId = propertyId;
         this.nodeData = nodeData;
@@ -127,14 +128,15 @@ public class OneProperty<T>() : IOneProperty<T>, IEnumerable<T> {
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
-public class ManyProperty<T>() : IManyProperty<T>, IEnumerable<T> {
+public class ManyProperty<T>() : IManyProperty<T> {
     int? _count;
-    NodeStore store = null!;
+    NodeStore? _store = null;
+    NodeStore store => _store ?? throw new Exception("OneProperty is not initialized. ");
     Guid parentId;
     Guid propertyId;
     INodeDataExternal[]? nodeDatas;
     public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas) {
-        this.store = store;
+        this._store = store;
         this.parentId = parentId;
         this.propertyId = propertyId;
         this.nodeDatas = nodeDatas;
