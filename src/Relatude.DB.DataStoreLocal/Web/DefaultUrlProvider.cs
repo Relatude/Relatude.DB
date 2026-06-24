@@ -6,14 +6,14 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.Web;
 
 public class DefaultUrlProvider : IUrlProvider {
-    //readonly UrlFileAdjustmentEncoder _encoder;
     readonly IUrlFileAdjustmentEncoder _encoder;
     const char DELIMITER = '.';
     readonly string _urlFileRoot;
-    public DefaultUrlProvider(Guid secretHashKey, string urlFileRoot) {
-        //_encoder = new UrlFileAdjustmentEncoder(secretHashKey);
+    readonly string _urlNodeRoot;
+    public DefaultUrlProvider(Guid secretHashKey, string? urlFileRoot = "files", string? urlNodeRoot = null) {
+        _urlFileRoot = urlFileRoot ?? string.Empty;
+        _urlNodeRoot = urlNodeRoot ?? string.Empty;
         _encoder = new BinaryUrlFileAdjustmentEncoder(secretHashKey);
-        _urlFileRoot = urlFileRoot;
         if (string.IsNullOrWhiteSpace(_urlFileRoot)) throw new ArgumentException("URL root cannot be null or whitespace.", nameof(urlFileRoot));
         if (!_urlFileRoot.EndsWith("/")) _urlFileRoot += "/";
         if (!_urlFileRoot.StartsWith("/")) _urlFileRoot = "/" + _urlFileRoot;

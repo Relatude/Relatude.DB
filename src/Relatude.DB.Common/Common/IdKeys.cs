@@ -115,8 +115,8 @@ public class NodePath : IKeySerializable<NodePath> {
     public NodePath(int nodeId) {
         NodeKey = new(nodeId); Path = [];
     }
-    public NodePath(IdKey nodeId) {
-        NodeKey = nodeId; Path = [];
+    public NodePath(IdKey key) {
+        NodeKey = key; Path = [];
     }
     public NodePath(Guid nodeId, InnerProperty[] path) {
         NodeKey = new(nodeId); Path = path;

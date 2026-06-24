@@ -39,7 +39,8 @@ public partial class Transaction {
 
         foreach (var plugin in Store.TransactionPlugins) {
             List<ActionsWithIds>? actionNodeIds = null;
-            foreach (var action in _transactionData.Actions) {
+            var initialActions = _transactionData.Actions.ToList();
+            foreach (var action in initialActions) {
                 var ids = plugin.GetRelevantNodeIds(action, typeByNodeId);
                 if (ids.Count > 0) {
                     if (actionNodeIds == null) actionNodeIds = [];

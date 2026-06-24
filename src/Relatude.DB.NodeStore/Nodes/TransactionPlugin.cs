@@ -68,7 +68,10 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
     }
     public Guid GetPropertyId(Expression<Func<T, object>> expression) => store.Mapper.GetProperty(expression).Id;
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
-    public T GetNode() => store.Mapper.CreateObjectFromNodeData<T>(action.Node, null);
+    public T GetNode() {
+        if (action.Node is NodeDataOnlyId) return store.Get<T>(action.Node.Id);
+        return store.Mapper.CreateObjectFromNodeData<T>(action.Node, null);
+    }
     public void SetNode(T node) => action.Node = store.Mapper.CreateNodeDataFromObject(node, null, null);
     public bool HasPropertyChanged(Expression<Func<T, object>> expression) {
         var nodeData = action.Node;
@@ -206,7 +209,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
     public void OnAfterFileUpload(FileValue fileValue, object node) {
         OnAfterFileUpload(fileValue, (T)node);
     }
-    public virtual void OnAfterFileUpload( FileValue fileValue, T node) { }
+    public virtual void OnAfterFileUpload(FileValue fileValue, T node) { }
 
 }
 public abstract class RelationTransactionPlugin<T> : IRelationTransactionPlugin where T : notnull {

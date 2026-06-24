@@ -106,15 +106,18 @@ public class NodeMapper {
         if (TryGetIdGuidAndCreateIfPossible(node, out var id)) return id;
         throw new Exception("Unable to determine id for: " + node.GetType().FullName);
     }
+
     public bool TryGetIdGuid(object node, out Guid id) {
         return getNodeValueMapper(node.GetType(), out _).TryGetIdGuid(node, out id);
     }
+    public bool TryGetIdUInt(object node, out int id) {
+        return getNodeValueMapper(node.GetType(), out _).TryGetIdUInt(node, out id);
+    }
+
+
     public Guid GetIdGuid(object node) {
         if (TryGetIdGuid(node, out var id)) return id;
         throw new Exception("Unable to get id for: " + node.GetType().FullName);
-    }
-    public bool TryGetIdUInt(object node, out int id) {
-        return getNodeValueMapper(node.GetType(), out _).TryGetIdUInt(node, out id);
     }
     public INodeDataExternal CreateNodeDataFromObject(object node, RelatedCollection? relatedCollection, PropertyPath? propertyPath) {
         return getNodeValueMapper(node.GetType(), out _).CreateNodeDataFromObject(node, relatedCollection, _store, propertyPath);
@@ -140,5 +143,18 @@ public class NodeMapper {
         var nodeData = new NodeData(guid, id, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
         var node = CreateObjectFromNodeData<T>(nodeData, null);
         return node;
+    }
+}
+
+public static class NodeMapperExtensions {
+    public static bool TryGetIdKey(this NodeMapper mapper, object node, [MaybeNullWhen(false)] out IdKey key) {
+        bool found = mapper.TryGetIdGuid(node, out var guid);
+        found = mapper.TryGetIdUInt(node, out var id) || found;
+        key = found ? new IdKey(guid, id) : default;
+        return found;
+    }
+    public static IdKey GetIdKey(this NodeMapper mapper, object node) {
+        if (mapper.TryGetIdKey(node, out var key)) return key;
+        throw new Exception("Unable to get id for: " + node.GetType().FullName);
     }
 }

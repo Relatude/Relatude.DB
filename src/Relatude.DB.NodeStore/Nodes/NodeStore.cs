@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
+using System.Xml.Linq;
 
 
 namespace Relatude.DB.Nodes;
@@ -530,7 +531,9 @@ public class NodeStore : IDisposable {
     public void UpdateDisplayName(object node, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(node, newDisplayName), flushToDisk);
     public void UpdateAddress(Guid nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
     public void UpdateAddress(int nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
+    public void UpdateAddress(IdKey key, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(key, newAddress), flushToDisk);
     public void UpdateAddress(object node, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(node, newAddress), flushToDisk);
+
     public void UpdateAutoAddress(object node, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(node, value), flushToDisk);
     public void UpdateAutoAddress(Guid nodeId, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(nodeId, value), flushToDisk);
     public void UpdateAutoAddress(int nodeId, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(nodeId, value), flushToDisk);
@@ -543,6 +546,37 @@ public class NodeStore : IDisposable {
         } else {
             generatedAddress = null;
             newAddressGenerated = false;
+        }
+    }
+    public void UpdateAddress(int nodeId, string newAddress, out string? generatedAddress, out bool newAddressGenerated, bool flushToDisk = false) {
+        UpdateAddress(nodeId, newAddress, flushToDisk);
+        if (Datastore.TryGetAddress(nodeId, out var address)) {
+            generatedAddress = address;
+            newAddressGenerated = address == newAddress;
+        } else {
+            generatedAddress = null;
+            newAddressGenerated = false;
+        }
+    }
+    public void UpdateAddress(IdKey key, string newAddress, out string? generatedAddress, out bool newAddressGenerated, bool flushToDisk = false) {
+        UpdateAddress(key, newAddress, flushToDisk);
+        if (Datastore.TryGetAddress(key, out var address)) {
+            generatedAddress = address;
+            newAddressGenerated = address == newAddress;
+        } else {
+            generatedAddress = null;
+            newAddressGenerated = false;
+        }
+    }
+    public void UpdateAddress(object node, string wantedAddress, out bool didChange, out string? changedAddress, bool flushToDisk = false) {
+        UpdateAddress(node, wantedAddress, flushToDisk);
+        var key = Mapper.GetIdKey(node);
+        if (Datastore.TryGetAddress(key, out var address)) {
+            changedAddress = address;
+            didChange = address != wantedAddress;
+        } else {
+            changedAddress = null;
+            didChange = false;
         }
     }
 
@@ -657,6 +691,10 @@ public class NodeStore : IDisposable {
     public bool FileStoreSupportsMultipartUploads(FileValue fileValue) => Datastore.FileStoreSupportsMultipartUploads(fileValue.PropertyPath!);
 
     // URL AND FILE STREAMS:
+    public string GetUrl(object node, bool absolute = false, QueryContext? ctx = null) => GetUrl(Mapper.GetIdKey(node), absolute, ctx);
+    public string GetUrl(Guid nodeId, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(nodeId), absolute, ctx);
+    public string GetUrl(int nodeId, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(nodeId), absolute, ctx);
+    public string GetUrl(IdKey key, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(key), absolute, ctx);
     public string GetUrl(NodePath node, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(node, absolute, ctx);
     public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);

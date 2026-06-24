@@ -339,6 +339,7 @@ public partial class Transaction {
     public Transaction UpdateDisplayName(int nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
     public Transaction UpdateAddress(Guid nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
     public Transaction UpdateAddress(int nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
+    public Transaction UpdateAddress(IdKey node, string value) => UpdateIfDifferentAddress(node, value);
     public Transaction UpdateAddress(object node, string value) => UpdateIfDifferentAddress(node, value);
     public Transaction UpdateAutoAddress(object node, bool value) => UpdateIfDifferentAutoAddress(node, value);
     public Transaction UpdateAutoAddress(Guid nodeId, bool value) => UpdateIfDifferentAutoAddress(nodeId, value);
@@ -412,6 +413,15 @@ public partial class Transaction {
     }
     public Transaction UpdateIfDifferentAddress(Guid nodeId, string value) {
         return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);
+    }
+    public Transaction UpdateIfDifferentAddress(IdKey key, string value) {
+        if(key.HasGuid) {
+            return UpdateIfDifferentProperty(key.Guid, NodeConstants.SystemAddressPropertyId, value);
+        } else if (key.HasInt) {
+            return UpdateIfDifferentProperty(key.Int, NodeConstants.SystemAddressPropertyId, value);
+        } else {
+            throw new Exception("Key must have either Guid or int id. ");
+        }
     }
     public Transaction UpdateIfDifferentAddress(int nodeId, string value) {
         return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);

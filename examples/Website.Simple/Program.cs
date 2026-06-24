@@ -19,7 +19,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter(1));
     options.FileConverters.Add(new FFMpegVideoConverter());
+
     options.FileHandlerRootUrl = "/files";
+
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
@@ -156,19 +158,13 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var article1 = new DemoArticle() { Title = "Test" };
     db.Insert(article1);
+
+    db.UpdateAddress(article1, "sss", out var didChange, out var changedAdr);
+    
+    Console.WriteLine($"Address changed: {didChange}, new address: {changedAdr}");
     var article2 = new DemoArticle() { Title = "Test2" };
     db.Insert(article2);
-    try {
-        db.AddRelation(article2, a => a.Children, article1);
-        //db.ClearRelations(article2, a=> a.Children);
-        db.AddRelation(article2, a => a.Children, article1);
-    } catch (Exception err) {
-        return "Error: " + err.Message;
-    } finally {
-        db.Delete(article1);
-        db.Delete(article2);
-    }
-    return "All OK" + DateTime.Now;
+    return db.GetUrl(article1);
 });
 
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
@@ -197,7 +193,6 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
 });
 
 
-
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -210,8 +205,15 @@ app.MapRelatudeDBClient();
 app.Run();
 
 class DemoArticlePlugin : NodeTransactionPlugin<DemoArticle> {
-    public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
-        Database.UpdateProperty(node, n => n.Title, fileValue.Name);
+    public override void OnBeforeNodeAction(IdKey key, NodeOperation operation, Transaction transaction, NodeHelper<DemoArticle> helper) {
+        var node = helper.GetNode();
+        var address = node.Title;
+        transaction.UpdateAddress(key, address);
     }
+    //public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
+    //    Database.UpdateProperty(node, n => n.Title, fileValue.Name);
+    //    var n = Database.Get(node);
+    //    Console.WriteLine("Address after file upload: " + n.Address);
+    //}
 }
 

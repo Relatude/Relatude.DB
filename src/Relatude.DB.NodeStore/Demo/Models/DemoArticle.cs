@@ -21,7 +21,7 @@ public interface IDemoArticle {
     public Tree.Children Children { get; set; }
     public Embedded<DemoParagraph> Paragraphs { get; }
     //public Link<> Site { get; }
-    public Reference<DemoArticle> Site { get; }
+    //public Reference<DemoArticle> Site { get; }
     //public UrlLink<DemoArticle> Site { get; }
 
 }
