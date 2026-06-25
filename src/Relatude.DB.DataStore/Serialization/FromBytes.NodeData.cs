@@ -43,7 +43,7 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
-        var nodePath = new NodePath(new IdKey(guid, __id));
+        var nodePath = new NodePath(new NodeKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
@@ -76,7 +76,7 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
-        var nodePath = new NodePath(new IdKey(guid, __id));
+        var nodePath = new NodePath(new NodeKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();
@@ -117,7 +117,7 @@ public static partial class FromBytes {
             nodeType = datamodel.NodeTypes[NodeConstants.BaseNodeTypeId]; // fallback if unknown
         }
         var allProps = nodeType.AllProperties;
-        var nodePath = new NodePath(new IdKey(guid, __id));
+        var nodePath = new NodePath(new NodeKey(guid, __id));
         // adding only valid props and force type if needed, adding default for missing:            
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
@@ -161,7 +161,7 @@ public static partial class FromBytes {
         }
         var allProps = nodeType.AllProperties;
         // adding only valid props and force type if needed, adding default for missing:            
-        var nodePath = propertyPath == null ? new NodePath(new IdKey(guid, __id)) : propertyPath.CreatePathToInnerNode(guid);
+        var nodePath = propertyPath == null ? new NodePath(new NodeKey(guid, __id)) : propertyPath.CreatePathToInnerNode(guid);
         for (int i = 0; i < valueCount; i++) {
             var id = stream.ReadGuid();
             var propType = (PropertyType)stream.ReadUInt();

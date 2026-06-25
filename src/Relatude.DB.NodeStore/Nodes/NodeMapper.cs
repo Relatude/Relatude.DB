@@ -128,7 +128,7 @@ public class NodeMapper {
         throw new Exception("Unable to find relation id for type: " + type.FullName);
     }
 
-    public T NewObjectFromType<T>(IdKey? key = null) {
+    public T NewObjectFromType<T>(NodeKey? key = null) {
         Guid guid;
         int id;
         if (key == null) {
@@ -147,13 +147,13 @@ public class NodeMapper {
 }
 
 public static class NodeMapperExtensions {
-    public static bool TryGetIdKey(this NodeMapper mapper, object node, [MaybeNullWhen(false)] out IdKey key) {
+    public static bool TryGetIdKey(this NodeMapper mapper, object node, [MaybeNullWhen(false)] out NodeKey key) {
         bool found = mapper.TryGetIdGuid(node, out var guid);
         found = mapper.TryGetIdUInt(node, out var id) || found;
-        key = found ? new IdKey(guid, id) : default;
+        key = found ? new NodeKey(guid, id) : default;
         return found;
     }
-    public static IdKey GetIdKey(this NodeMapper mapper, object node) {
+    public static NodeKey GetIdKey(this NodeMapper mapper, object node) {
         if (mapper.TryGetIdKey(node, out var key)) return key;
         throw new Exception("Unable to get id for: " + node.GetType().FullName);
     }

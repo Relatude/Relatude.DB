@@ -37,7 +37,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
-    readonly IUrlProvider _urlProvider;
+    readonly IUrlProvider _urlProviderInternal;
+    readonly IUrlProvider _urlProviderPublic;
     readonly FileConversionEngine _fileConversionEngine;
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
@@ -111,7 +112,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
-        _urlProvider = urlProvider ?? new DefaultUrlProvider(Guid.Empty, "files");
+        
+        _urlProviderInternal = new DefaultUrlProvider(Guid.Empty, "files");
+        _urlProviderInternal.Initialize(this);
+
+        _urlProviderPublic = urlProvider ?? new DefaultUrlProvider(Guid.Empty, "files");
+        _urlProviderPublic.Initialize(this);
+
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, dm);

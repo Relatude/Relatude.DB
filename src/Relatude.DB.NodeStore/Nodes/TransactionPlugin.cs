@@ -100,18 +100,18 @@ public interface IPlugin {
 public interface ITransactionPlugin : IPlugin {
 }
 public interface INodeTransactionPlugin : ITransactionPlugin {
-    void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys);
-    List<IdKey> GetRelevantNodeIds(ActionBase action, Dictionary<IdKey, Guid>? typeInfo);
+    void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<NodeKey>? keys);
+    List<NodeKey> GetRelevantNodeIds(ActionBase action, Dictionary<NodeKey, Guid>? typeInfo);
     bool IsTypeRelevantForUploadAction(Guid typeId);
-    void OnBefore(IdKey id, ActionBase action, Transaction transaction);
-    void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation);
-    void OnAfterError(IdKey id, ActionBase action, Exception error);
+    void OnBefore(NodeKey id, ActionBase action, Transaction transaction);
+    void OnAfter(NodeKey id, ActionBase action, ResultingOperation resultingOperation);
+    void OnAfterError(NodeKey id, ActionBase action, Exception error);
     void OnAfterFileUpload(FileValue fileValue, object node);
 }
 public interface IRelationTransactionPlugin : IPlugin {
-    void OnBefore(IdKey id, RelationAction action, Transaction transaction);
-    void OnAfter(IdKey id, RelationAction action);
-    void OnError(IdKey id, RelationAction action, Exception error);
+    void OnBefore(NodeKey id, RelationAction action, Transaction transaction);
+    void OnAfter(NodeKey id, RelationAction action);
+    void OnError(NodeKey id, RelationAction action, Exception error);
     bool IsRelevant(RelationAction action);
 }
 public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T : notnull {
@@ -127,21 +127,21 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         }
     }
 
-    public void OnBefore(IdKey id, ActionBase action, Transaction transaction) {
+    public void OnBefore(NodeKey id, ActionBase action, Transaction transaction) {
         if (action is NodeAction nodeAction) {
             OnBeforeNodeAction(nodeAction.Node.IdKey, nodeAction.Operation, transaction, new(Database, nodeAction));
         } else if (action is NodePropertyAction nodePropertyAction) {
             OnBeforePropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation, nodePropertyAction.Values, transaction, new(Database, transaction));
         }
     }
-    public void OnAfter(IdKey id, ActionBase action, ResultingOperation resultingOperation) {
+    public void OnAfter(NodeKey id, ActionBase action, ResultingOperation resultingOperation) {
         if (action is NodeAction nodeAction) {
             OnAfterNodeAction(id, nodeAction.Operation, resultingOperation);
         } else if (action is NodePropertyAction nodePropertyAction) {
             OnAfterPropertyAction(id, nodePropertyAction.PropertyIds, nodePropertyAction.Operation);
         }
     }
-    public void OnAfterError(IdKey id, ActionBase action, Exception error) {
+    public void OnAfterError(NodeKey id, ActionBase action, Exception error) {
         if (action is NodeAction nodeAction) {
             OnErrorNodeAction(id, nodeAction.Operation, error);
         } else if (action is NodePropertyAction nodePropertyAction) {
@@ -155,7 +155,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
 
 
     // building up a cache to look up node types by one call, needed for performance while evaluating which nodes are relevant for a specific plugin
-    public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<IdKey>? keys) {
+    public void AddIdKeysThatNeedTypeInfo(ActionBase action, ref List<NodeKey>? keys) {
         if (action is NodeAction nodeAction) {
             if (nodeAction.Node is NodeDataOnlyId) {
                 keys ??= [];
@@ -167,7 +167,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
             else if (nodePropertyAction.NodeIds != null) foreach (var id in nodePropertyAction.NodeIds) keys.Add(new(id));
         }
     }
-    public List<IdKey> GetRelevantNodeIds(ActionBase action, Dictionary<IdKey, Guid>? typeInfo) {
+    public List<NodeKey> GetRelevantNodeIds(ActionBase action, Dictionary<NodeKey, Guid>? typeInfo) {
         if (action is NodeAction nodeAction) {
             Guid nodeTypeId;
             if (nodeAction.Node is NodeDataOnlyId) {
@@ -178,7 +178,7 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
             var isRelevant = nodeTypeModel.ThisAndDescendingTypes.ContainsKey(nodeTypeId);
             if (isRelevant) return [nodeAction.Node.IdKey];
         } else if (action is NodePropertyAction nodePropertyAction) {
-            List<IdKey> nodeIds = [];
+            List<NodeKey> nodeIds = [];
             if (nodePropertyAction.NodeGuids != null) {
                 foreach (var guid in nodePropertyAction.NodeGuids) {
                     var nodeTypeId = typeInfo![new(guid)];
@@ -197,13 +197,13 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         return [];
     }
 
-    public virtual void OnBeforeNodeAction(IdKey nodeId, NodeOperation operation, Transaction transaction, NodeHelper<T> helper) { }
-    public virtual void OnAfterNodeAction(IdKey nodeId, NodeOperation operation, ResultingOperation resultingOperation) { }
-    public virtual void OnErrorNodeAction(IdKey nodeId, NodeOperation operation, Exception error) { }
+    public virtual void OnBeforeNodeAction(NodeKey nodeId, NodeOperation operation, Transaction transaction, NodeHelper<T> helper) { }
+    public virtual void OnAfterNodeAction(NodeKey nodeId, NodeOperation operation, ResultingOperation resultingOperation) { }
+    public virtual void OnErrorNodeAction(NodeKey nodeId, NodeOperation operation, Exception error) { }
 
-    public virtual void OnBeforePropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, object[]? values, Transaction transaction, PropertyHelper<T> helper) { }
-    public virtual void OnAfterPropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation) { }
-    public virtual void OnErrorPropertyAction(IdKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, Exception error) { }
+    public virtual void OnBeforePropertyAction(NodeKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, object[]? values, Transaction transaction, PropertyHelper<T> helper) { }
+    public virtual void OnAfterPropertyAction(NodeKey nodeId, Guid[] propertyIds, NodePropertyOperation operation) { }
+    public virtual void OnErrorPropertyAction(NodeKey nodeId, Guid[] propertyIds, NodePropertyOperation operation, Exception error) { }
 
 
     public void OnAfterFileUpload(FileValue fileValue, object node) {
@@ -217,13 +217,13 @@ public abstract class RelationTransactionPlugin<T> : IRelationTransactionPlugin 
     public bool IsRelevant(RelationAction action) {
         throw new NotImplementedException();
     }
-    public void OnAfter(IdKey id, RelationAction action) {
+    public void OnAfter(NodeKey id, RelationAction action) {
         throw new NotImplementedException();
     }
-    public void OnBefore(IdKey id, RelationAction action, Transaction transaction) {
+    public void OnBefore(NodeKey id, RelationAction action, Transaction transaction) {
         throw new NotImplementedException();
     }
-    public void OnError(IdKey id, RelationAction action, Exception error) {
+    public void OnError(NodeKey id, RelationAction action, Exception error) {
         throw new NotImplementedException();
     }
 

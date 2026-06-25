@@ -6,9 +6,9 @@ using Relatude.DB.NodeServer;
 namespace Relatude.DB.Web;
 
 public static class FileHandler {
-    public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, string propPathAndAdj) {
+    public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, string query) {
         var db = ctx.Database;
-        var fileInfo = await db.GetFileStreamAndState(propPathAndAdj);
+        var fileInfo = await db.GetFileStreamAndState(query);
         if (fileInfo.IsReady) {
             http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
         } else {

@@ -158,13 +158,19 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var article1 = new DemoArticle() { Title = "Test" };
     db.Insert(article1);
-
-    db.UpdateAddress(article1, "sss", out var didChange, out var changedAdr);
+    //db.UpdateAddress(article1, "sss", out var didChange, out var changedAdr);
     
-    Console.WriteLine($"Address changed: {didChange}, new address: {changedAdr}");
-    var article2 = new DemoArticle() { Title = "Test2" };
-    db.Insert(article2);
+
     return db.GetUrl(article1);
+});
+app.MapGet("t", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var sb = new StringBuilder();
+    foreach (var article in db.Query<DemoArticle>().Execute()) {
+        sb.Append(article.Title + " " + article.Address);
+        sb.AppendLine();
+    }
+    return sb.ToString();
 });
 
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
@@ -201,14 +207,13 @@ app.UseStaticFiles();
 app.StartRelatudeDB();
 app.MapRelatudeDBAdmin();
 app.MapRelatudeDBClient();
-
 app.Run();
 
 class DemoArticlePlugin : NodeTransactionPlugin<DemoArticle> {
-    public override void OnBeforeNodeAction(IdKey key, NodeOperation operation, Transaction transaction, NodeHelper<DemoArticle> helper) {
-        var node = helper.GetNode();
-        var address = node.Title;
-        transaction.UpdateAddress(key, address);
+    public override void OnBeforeNodeAction(NodeKey key, NodeOperation operation, Transaction transaction, NodeHelper<DemoArticle> helper) {
+        //var node = helper.GetNode();
+        //var address = node.Title;
+        //transaction.UpdateAddress(key, address);
     }
     //public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
     //    Database.UpdateProperty(node, n => n.Title, fileValue.Name);

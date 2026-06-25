@@ -28,7 +28,7 @@ public interface IDataStore : IDisposable {
     Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null);
     INodeDataExternal Get(Guid id, QueryContext? ctx = null);
     INodeDataExternal Get(int id, QueryContext? ctx = null);
-    INodeDataExternal Get(IdKey id, QueryContext? ctx = null);
+    INodeDataExternal Get(NodeKey id, QueryContext? ctx = null);
     bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null);
     bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null);
     bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null);
@@ -50,16 +50,16 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeType(Guid id, out Guid nodeTypeId);
     Guid GetNodeType(Guid id);
     Guid GetNodeType(int id);
-    Guid GetNodeType(IdKey id);
-    Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids);
+    Guid GetNodeType(NodeKey id);
+    Dictionary<NodeKey, Guid> GetNodeType(IEnumerable<NodeKey> ids);
 
     bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
     bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
-    bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
+    bool TryGetNodeMeta(NodeKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null);
 
     bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
     bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
-    bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
+    bool TryGetAddress(NodeKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null);
 
     bool TryGetNodeIdFromAddress(string address, out Guid nodeId);
     bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode);
@@ -70,7 +70,9 @@ public interface IDataStore : IDisposable {
     bool CanConvert(FileFormat from, FileFormat to);
     bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
 
+    string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);
+    string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);

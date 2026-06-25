@@ -18,21 +18,21 @@ public partial class Transaction {
         public INodeTransactionPlugin Plugin = plugin;
         public List<ActionsWithIds> ActionsWithIds = actionsWithIds;
     }
-    class ActionsWithIds(ActionBase action, List<IdKey> ids) {
+    class ActionsWithIds(ActionBase action, List<NodeKey> ids) {
         public ActionBase Action = action;
-        public List<IdKey> Ids = ids;
+        public List<NodeKey> Ids = ids;
     }
     List<PluginWithActions>? _relevantPlugins;
     internal void PrepareRelevantPlugins() {
         if (Store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
 
-        List<IdKey>? needTypeInfo = null; // we need type info to determine relevant plugins
+        List<NodeKey>? needTypeInfo = null; // we need type info to determine relevant plugins
         foreach (var plugin in Store.TransactionPlugins) {
             foreach (var action in _transactionData.Actions) {
                 plugin.AddIdKeysThatNeedTypeInfo(action, ref needTypeInfo);
             }
         }
-        Dictionary<IdKey, Guid>? typeByNodeId = null;
+        Dictionary<NodeKey, Guid>? typeByNodeId = null;
         if (needTypeInfo != null && needTypeInfo.Count > 0) { // for most actions we don't need type info as it is already in the action
             typeByNodeId = Store.Datastore.GetNodeType(needTypeInfo); // all this to reduce callbacks to datastore to max one call per transaction
         }

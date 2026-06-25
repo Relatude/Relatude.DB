@@ -53,7 +53,7 @@ public interface INodeDataExternal : INodeData {
 public interface INodeData {
     Guid Id { get; set; }
     int __Id { get; set; }
-    IdKey IdKey => new(Id, __Id);
+    NodeKey IdKey => new(Id, __Id);
     Guid NodeType { get; }
     IInnerNodeMeta? Meta { get; }
     DateTime ChangedUtc { get; }

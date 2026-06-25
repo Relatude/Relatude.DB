@@ -12,31 +12,40 @@ public sealed partial class DataStoreLocal : IDataStore {
     string getFileVersionId(FileValue fileValue) {
         return (fileValue.Hash + _startUpGuid).GenerateHashInt().ToString();
     }
+    public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx = null) {
+        return _urlProviderPublic.GetUrl(nodeKey, absolute);
+    }
     public string GetUrl(NodePath nodePath, bool absolute, QueryContext? ctx = null) {
-        return _urlProvider.GetExternalUrl(nodePath, absolute);
+        return _urlProviderPublic.GetUrl(nodePath, absolute);
+    }
+    public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) {
+        var fileValue = GetValue<FileValue>(propertyPath, ctx);
+        if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
+            throw new Exception($"Property at path {propertyPath} does not contain a file.");
+        }
+        return _urlProviderPublic.GetUrl(fileValue.PropertyPath, getFileVersionId(fileValue), absolute);
     }
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
-        var internalUrl = _urlProvider.GetInternalUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue));
-        return _urlProvider.GetExternalUrl(internalUrl, absolute);
+        return _urlProviderPublic.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue), absolute);
     }
+
     public async Task<Stream> GetFileStream(string url, int maxWait = -1, QueryContext? ctx = null) {
         return (await GetFileStreamAndState(url, maxWait, ctx)).Stream;
     }
     public async Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) {
-        var internalUrl = _urlProvider.GetInternalUrl(url);
-        if (!_urlProvider.TryParseInternalForUrlType(internalUrl, out var type)) throw new Exception("URL is not a valid local URL");
+        if (!_urlProviderPublic.TryParseUrlType(url, out var type)) throw new Exception("URL is not a valid local URL");
         if (type == UrlType.LocalProperty) {
-            if (!_urlProvider.TryParseInternalUrlForPropertyPath(internalUrl, out var path)) throw new Exception("URL does not point to a file property");
+            if (!_urlProviderPublic.TryParsePropertyPath(url, out var path)) throw new Exception("URL does not point to a file property");
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
             return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty);
         } else if (type == UrlType.LocalAdjusted) {
-            if (!_urlProvider.TryParseInternalUrlForPathWithFileAdjustments(internalUrl, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
+            if (!_urlProviderPublic.TryParseAdjustments(url, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetFileStreamAndState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
@@ -53,7 +62,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         address = null;
         return false;
     }
-    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) {
+    public bool TryGetAddress(NodeKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) {
         if (id.Int == 0) return TryGetAddress(id.Guid, out meta, ctx);
         return TryGetAddress(id.Int, out meta, ctx);
     }

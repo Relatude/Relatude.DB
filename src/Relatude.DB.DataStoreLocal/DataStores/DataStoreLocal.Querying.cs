@@ -121,7 +121,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public INodeDataExternal Get(IdKey id, QueryContext? ctx = null) {
+    public INodeDataExternal Get(NodeKey id, QueryContext? ctx = null) {
         if (id.HasGuid) return Get(id.Guid, ctx);
         return Get(id.Int, ctx);
     }
@@ -158,7 +158,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
-    public Guid GetNodeType(IdKey id) {
+    public Guid GetNodeType(NodeKey id) {
         if (id.Int == 0) return GetNodeType(id.Guid);
         return GetNodeType(id.Int);
     }
@@ -178,7 +178,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         meta = null;
         return false;
     }
-    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
+    public bool TryGetNodeMeta(NodeKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
         if (id.Int == 0) return TryGetNodeMeta(id.Guid, out meta, ctx);
         return TryGetNodeMeta(id.Int, out meta, ctx);
     }
@@ -190,11 +190,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return null;
     }
-    public Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids) {
+    public Dictionary<NodeKey, Guid> GetNodeType(IEnumerable<NodeKey> ids) {
         _lock.EnterReadLock();
         try {
             validateDatabaseState();
-            var result = new Dictionary<IdKey, Guid>();
+            var result = new Dictionary<NodeKey, Guid>();
             foreach (var idKey in ids) {
                 int id = idKey.Int == 0 ? _guids.GetId(idKey.Guid) : idKey.Int;
                 result[idKey] = _definition.GetTypeOfNode(id);

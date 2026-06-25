@@ -83,7 +83,7 @@ public class DataStoreSession : IDataStore {
         => _datastore.Get(id, ctx ?? QueryContext);
     public INodeData Get(int id, QueryContext? ctx = null)
         => _datastore.Get(id, ctx ?? QueryContext);
-    public INodeData Get(IdKey id, QueryContext? ctx = null)
+    public INodeData Get(NodeKey id, QueryContext? ctx = null)
         => _datastore.Get(id, ctx ?? QueryContext);
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null)
         => _datastore.TryGet(id, out nodeData, ctx ?? QueryContext);
@@ -112,8 +112,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.TryGetNodeType(id, out nodeTypeId);
     public Guid GetNodeType(Guid id) => _datastore.GetNodeType(id);
     public Guid GetNodeType(int id) => _datastore.GetNodeType(id);
-    public Guid GetNodeType(IdKey id) => _datastore.GetNodeType(id);
-    public Dictionary<IdKey, Guid> GetNodeType(IEnumerable<IdKey> ids) => _datastore.GetNodeType(ids);
+    public Guid GetNodeType(NodeKey id) => _datastore.GetNodeType(id);
+    public Dictionary<NodeKey, Guid> GetNodeType(IEnumerable<NodeKey> ids) => _datastore.GetNodeType(ids);
 
     public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id);
     public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId);
@@ -171,19 +171,19 @@ public class DataStoreSession : IDataStore {
     INodeDataExternal IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
 
     INodeDataExternal IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx);
-    INodeDataExternal IDataStore.Get(IdKey id, QueryContext? ctx) => _datastore.Get(id, ctx);
+    INodeDataExternal IDataStore.Get(NodeKey id, QueryContext? ctx) => _datastore.Get(id, ctx);
     IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<int> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
     IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
     INodeDataExternal[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
 
     public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
     public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
-    public bool TryGetNodeMeta(IdKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
+    public bool TryGetNodeMeta(NodeKey id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
 
 
     public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
     public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
-    public bool TryGetAddress(IdKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
+    public bool TryGetAddress(NodeKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) => _datastore.TryGetAddress(id, out meta, ctx ?? QueryContext);
 
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
@@ -194,7 +194,9 @@ public class DataStoreSession : IDataStore {
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
     public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
 
+    public string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodeKey, absolute, ctx ?? QueryContext);
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);
+    public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext);

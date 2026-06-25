@@ -1,4 +1,7 @@
-﻿using Relatude.DB.IO;
+﻿using Relatude.DB.DataStores.Indexes.Trie.TrieNet._Ukkonen;
+using Relatude.DB.DataStores.Transactions;
+using Relatude.DB.IO;
+using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
@@ -14,6 +17,7 @@ public class AddressRegistry {
     private bool _inTransaction;
     private byte _transactionStartCultureId;
     private List<undoEntry>? _undoLog;
+    Random _rnd = new Random();
 
     enum undoKind : byte {
         RestoreAddressByIdAndCulture,
@@ -253,10 +257,12 @@ public class AddressRegistry {
             var suffix = address == string.Empty ? id : 2;
             var attemptCount = 0;
             while (true) {
-                if (attemptCount < 3) {
+                if (attemptCount < 10) {
                     candidate = address.Length > 0 ? address + "-" + suffix : suffix.ToString();
+                } else if (attemptCount < 20) {
+                    candidate = address + "-" + _rnd.Next(1000, 9999).ToString();
                 } else {
-                    candidate = address + Guid.NewGuid().ToString("N"); // N format is compact, without dashes
+                    candidate = address + "-" + Guid.NewGuid().ToString("N").ToLower();
                 }
                 if (!_idAndCultureByAddress.TryGetValue(candidate, out owner) || owner == key) {
                     break;
@@ -348,4 +354,25 @@ public class AddressRegistry {
         _transactionStartCultureId = _lastCultureId;
     }
 
+    internal void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> logError) {
+        try {
+            switch (na.Operation) {
+                case PrimitiveOperation.Add:
+                    Update(na.Node.__Id, na.Node.Address, na.Node.Meta?.CultureId, out var newAddress, out var changedNewAddress);
+                    if (changedNewAddress) {
+                        throw new Exception($"Address '{na.Node.Address}' for node {na.Node.__Id} was changed to '{newAddress}' during state load.");
+                    }
+                    break;
+                case PrimitiveOperation.Remove:
+                    Remove(na.Node.__Id, na.Node.Address, na.Node.Meta?.CultureId);
+                    break;
+                default:
+                    break;
+            }
+        } catch (Exception e) {
+            var message = $"Error processing action {na} during state load: {e.Message}";
+            logError?.Invoke(message, e);
+            if (throwOnErrors) throw new InvalidOperationException(message, e);
+        }
+    }
 }

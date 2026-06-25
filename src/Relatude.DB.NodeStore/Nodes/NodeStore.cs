@@ -120,9 +120,9 @@ public class NodeStore : IDisposable {
         t.Execute();
         return node; // Get<T>(Mapper.GetIdGuidOrCreate(node!));
     }
-    public T CreateAndInsert<T>(Action<T>? setProperties, Guid id) where T : notnull => CreateAndInsert<T>(setProperties, new IdKey(id));
-    public T CreateAndInsert<T>(Action<T>? setProperties, int id) where T : notnull => CreateAndInsert<T>(setProperties, new IdKey(id));
-    public T CreateAndInsert<T>(Action<T>? setProperties = null, IdKey? id = null) where T : notnull {
+    public T CreateAndInsert<T>(Action<T>? setProperties, Guid id) where T : notnull => CreateAndInsert<T>(setProperties, new NodeKey(id));
+    public T CreateAndInsert<T>(Action<T>? setProperties, int id) where T : notnull => CreateAndInsert<T>(setProperties, new NodeKey(id));
+    public T CreateAndInsert<T>(Action<T>? setProperties = null, NodeKey? id = null) where T : notnull {
         var node = Mapper.NewObjectFromType<T>(id);
         var t = CreateTransaction();
         t.Insert(node);
@@ -346,7 +346,7 @@ public class NodeStore : IDisposable {
     }
     public IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
     public IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
-    public IQueryOfNodes<T, T> Query<T>(IdKey id, QueryContext? ctx = null) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
+    public IQueryOfNodes<T, T> Query<T>(NodeKey id, QueryContext? ctx = null) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
     public IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx);
     public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereInIds(ids);
     public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where(expression);
@@ -362,19 +362,19 @@ public class NodeStore : IDisposable {
 
     public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
     public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
-    public object Get(IdKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(NodeKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
 
     public T Get<T>(T node) where T : notnull => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(Mapper.GetIdGuid(node)), null);
     public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
     public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
-    public T Get<T>(IdKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(NodeKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
 
     public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
     public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
-    public T Get<T>(IdKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(NodeKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
     public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
     public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
-    public T Get<T>(IdKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(NodeKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
 
     public Type GetNodeType(Guid nodeId) => Mapper.GetNodeType(Datastore.GetNodeType(nodeId));
     public bool TryGetNodeType(Guid nodeId, [MaybeNullWhen(false)] out Type type) {
@@ -444,6 +444,9 @@ public class NodeStore : IDisposable {
         node = default;
         return false;
     }
+    //public bool TryGetFromUrl<T>(string address, [MaybeNullWhen(false)] out T node) {
+    //    return false;
+    //}
 
     public Task<TransactionResult> ExecuteAsync(ActionModel[] actions, bool flushToDisk = false) {
         throw new NotImplementedException();
@@ -531,7 +534,7 @@ public class NodeStore : IDisposable {
     public void UpdateDisplayName(object node, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(node, newDisplayName), flushToDisk);
     public void UpdateAddress(Guid nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
     public void UpdateAddress(int nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
-    public void UpdateAddress(IdKey key, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(key, newAddress), flushToDisk);
+    public void UpdateAddress(NodeKey key, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(key, newAddress), flushToDisk);
     public void UpdateAddress(object node, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(node, newAddress), flushToDisk);
 
     public void UpdateAutoAddress(object node, bool value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAutoAddress(node, value), flushToDisk);
@@ -558,7 +561,7 @@ public class NodeStore : IDisposable {
             newAddressGenerated = false;
         }
     }
-    public void UpdateAddress(IdKey key, string newAddress, out string? generatedAddress, out bool newAddressGenerated, bool flushToDisk = false) {
+    public void UpdateAddress(NodeKey key, string newAddress, out string? generatedAddress, out bool newAddressGenerated, bool flushToDisk = false) {
         UpdateAddress(key, newAddress, flushToDisk);
         if (Datastore.TryGetAddress(key, out var address)) {
             generatedAddress = address;
@@ -694,7 +697,7 @@ public class NodeStore : IDisposable {
     public string GetUrl(object node, bool absolute = false, QueryContext? ctx = null) => GetUrl(Mapper.GetIdKey(node), absolute, ctx);
     public string GetUrl(Guid nodeId, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(nodeId), absolute, ctx);
     public string GetUrl(int nodeId, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(nodeId), absolute, ctx);
-    public string GetUrl(IdKey key, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(key), absolute, ctx);
+    public string GetUrl(NodeKey key, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(key), absolute, ctx);
     public string GetUrl(NodePath node, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(node, absolute, ctx);
     public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);

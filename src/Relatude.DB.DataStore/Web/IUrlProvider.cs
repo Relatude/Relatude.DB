@@ -1,5 +1,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores;
 using Relatude.DB.FileConversion;
 using System.Diagnostics.CodeAnalysis;
 
@@ -7,16 +8,14 @@ namespace Relatude.DB.Web;
 
 public enum UrlType {
 
-    LocalUrl,
+    LocalUrl, // any url not pointing to a node or property, but still a local url, like a custom controller or static file
     LocalNode,
     LocalEmbeddedNode,
     LocalProperty,
     LocalAdjusted,
-    LocalOther,
 
-    ExternalUrl,
-    ExternalEmail,
-    ExternalOther,
+    RemoteUrl,
+    Email,
 
 }
 public struct UrlBase {
@@ -24,22 +23,20 @@ public struct UrlBase {
 }
 public interface IUrlProvider {
 
-    string GetExternalUrl(string internalUrl, bool absolute);
+    void Initialize(IDataStore dataStore);
 
-    string GetInternalUrl(string externalUrl);
+    string GetUrl(NodeKey nodeKey, bool absolute);
+    string GetUrl(NodePath nodePath, bool absolute);
+    string GetUrl(PropertyPath property, string? contentVersionId, bool absolute);
+    string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute);
 
-    string GetInternalUrl(IdKey idKey);
-    string GetInternalUrl(NodePath nodePath);
-    string GetInternalUrl(PropertyPath property, string? contentVersionId);
-    string GetInternalUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId);
+    bool TryParseUrlType(string url, out UrlType type);
 
-    bool TryParseInternalForUrlType(string internalUrl, out UrlType type);
-
-    bool TryParseInternalUrlForPathWithFileAdjustments(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
-    bool TryParseInternalUrlForIdKey(string internalUrl, [MaybeNullWhen(false)] out IdKey idKey);
-    bool TryParseInternalUrlForNodePath(string internalUrl, [MaybeNullWhen(false)] out NodePath nodePath);
-    bool TryParseInternalUrlForPropertyPath(string internalUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath);
-    string GetExternalUrl(NodePath nodePath, bool absolute);
+    bool TryParseAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
+    bool TryParseNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey);
+    bool TryParseNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath);
+    bool TryParsePropertyPath(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath);
+    
 }
 
 

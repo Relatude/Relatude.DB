@@ -229,6 +229,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             if (a is PrimitiveNodeAction na) {
                                 _nodes.RegisterAction_NotThreadsafe(na);
                                 _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
+                            _addresses.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                             } else if (a is PrimitiveRelationAction ra) {
                                 _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                             } else throw new NotImplementedException();
@@ -314,7 +315,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         //        }
         //#endif
     }
-
 }
 
 class IdValidator(DataStoreLocal store, bool throwOnErrors) {

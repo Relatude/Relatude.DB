@@ -46,7 +46,7 @@ public static class AddUse {
         if (string.IsNullOrWhiteSpace(urlPathFiles)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPathFiles));
         if (!urlPathFiles.StartsWith("/")) urlPathFiles = "/" + urlPathFiles;
         if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
-        app.MapGet(urlPathFiles + "/{propPathAndAdj}", FileHandler.HandleFileAsync);
+        app.MapGet(urlPathFiles + "/{query}", FileHandler.HandleFileAsync);
         return app;
     }
 }
