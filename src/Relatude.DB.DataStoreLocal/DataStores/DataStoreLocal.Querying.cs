@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
@@ -36,6 +35,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             yield return index.PickBestOuter(nodeDataInner, ctxKey, now);
         }
     }
+    public int GetId(Guid id) => _guids.GetId(id);
+    public Guid GetGuid(int id) => _guids.GetGuid(id);
     public Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
         _lock.EnterReadLock();
@@ -75,9 +76,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         throw new Exception("Node not found.");
     }
     public bool TryGet(NodePath path, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
-        if (path.NodeKey.HasInt && !TryGet(path.NodeKey.Int, out node, ctx)) return false;
-        else if (!TryGet(path.NodeKey.Guid, out node, ctx)) return false;
-        return node.TryGetInnerNode(path, out node);
+        if (path.Path.Length == 0) {
+            if (path.NodeKey.HasInt) return TryGet(path.NodeKey.Int, out node, ctx);
+            else if (path.NodeKey.HasGuid) return TryGet(path.NodeKey.Guid, out node, ctx);
+            else throw new Exception("NodePath has no NodeKey.");
+        } else {
+            if (path.NodeKey.HasInt) TryGet(path.NodeKey.Int, out node, ctx);
+            else if (path.NodeKey.HasGuid) TryGet(path.NodeKey.Guid, out node, ctx);
+            else throw new Exception("NodePath has no NodeKey.");
+            return node!.TryGetInnerNode(path, out node);
+        }
     }
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) {
         if (TryGet(path.NodePath, out var node, ctx)) {

@@ -9,6 +9,15 @@ namespace Relatude.DB.DataStores.Stores;
 
 public class AddressRegistry {
     private static readonly Guid _marker = new("fa5f4dd3-8520-4fc9-a260-637fe9ddb2ca");
+    private static readonly byte[] _normalizeTable = BuildNormalizeTable();
+    private static byte[] BuildNormalizeTable() {
+        var t = new byte[128];
+        for (int i = 'a'; i <= 'z'; i++) t[i] = (byte)i;
+        for (int i = 'A'; i <= 'Z'; i++) t[i] = (byte)(i + 32);
+        for (int i = '0'; i <= '9'; i++) t[i] = (byte)i;
+        t['-'] = (byte)'-'; t['/'] = (byte)'/'; t['_'] = (byte)'_';
+        return t;
+    }
     private readonly Dictionary<long, string> _addressByIdAndCulture = new();
     private readonly Dictionary<string, long> _idAndCultureByAddress = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, byte> _cultureIdByCode = new();
@@ -227,7 +236,45 @@ public class AddressRegistry {
         address = null;
         return false;
     }
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public string? NormalizeAddress(string? address, out bool changed) {
+        if (string.IsNullOrEmpty(address)) { changed = false; return address; }
+        var table = _normalizeTable;
+        int outLen = 0;
+        bool needsChange = false;
+        for (int i = 0; i < address.Length; i++) {
+            char c = address[i];
+            byte mapped = c < 128 ? table[c] : (byte)0;
+            if (mapped != 0) { outLen++; if (mapped != c) needsChange = true; } else needsChange = true;
+        }
+        if (!needsChange) { changed = false; return address; }
+        changed = true;
+        if (outLen == 0) return string.Empty;
+        return string.Create(outLen, address, static (span, src) => {
+            var t = _normalizeTable;
+            int j = 0;
+            for (int i = 0; i < src.Length; i++) {
+                char c = src[i];
+                byte b = c < 128 ? t[c] : (byte)0;
+                if (b != 0) span[j++] = (char)b;
+            }
+        });
+    }
     public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
+        var normalizedAddress = NormalizeAddress(address, out var changedWhenNormalized);
+        update(id, normalizedAddress, cultureCode, out var newAddressAfterUpdate, out var changedDuringUpdate);
+        if (changedDuringUpdate) {
+            changedNewAddress = true;
+            newAddress = newAddressAfterUpdate;
+        } else if (changedWhenNormalized) {
+            changedNewAddress = true;
+            newAddress = normalizedAddress;
+        } else {
+            changedNewAddress = false;
+            newAddress = null;
+        }
+    }
+    void update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
         byte cultureId;
         if (address == null) {
             if (!tryGetCultureId(cultureCode, out cultureId)) {
@@ -246,7 +293,6 @@ public class AddressRegistry {
                 removeAddressByIdAndCulture(key);
                 removeIdAndCultureByAddress(currentAddress);
             }
-
             newAddress = null;
             changedNewAddress = false;
             return;

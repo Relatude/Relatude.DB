@@ -6,6 +6,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using Relatude.DB.Web;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.DataStores;
@@ -168,6 +169,9 @@ public class DataStoreSession : IDataStore {
     public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
         => _datastore.GetTextExtract(ids, indexType);
 
+    public int GetId(Guid guid) => _datastore.GetId(guid);
+    public Guid GetGuid(int id) => _datastore.GetGuid(id);
+
     INodeDataExternal IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
 
     INodeDataExternal IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx);
@@ -198,6 +202,15 @@ public class DataStoreSession : IDataStore {
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
+    public bool IsUrlRelevant(string url) => _datastore.IsUrlRelevant(url);
+    public bool TryParseUrlType(string url, out UrlType type) => _datastore.TryParseUrlType(url, out type);
+    public bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment) => _datastore.TryParseUrlAdjustments(url, out propertyPath, out adjustment);
+    public bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey) => _datastore.TryParseUrlNodeKey(url, out nodeKey);
+    public bool TryParseUrlNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath) => _datastore.TryParseUrlNodePath(url, out nodePath);
+    public bool TryParseUrlPropertyPath(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath) => _datastore.TryParseUrlPropertyPath(url, out propertyPath);
+
+
+
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFileStream(propertyPath, ctx ?? QueryContext);

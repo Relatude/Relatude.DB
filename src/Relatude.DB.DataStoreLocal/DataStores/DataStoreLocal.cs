@@ -113,10 +113,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         
-        _urlProviderInternal = new DefaultUrlProvider(Guid.Empty, "files");
+        _urlProviderInternal = new InternalUrlProvider();
         _urlProviderInternal.Initialize(this);
 
-        _urlProviderPublic = urlProvider ?? new DefaultUrlProvider(Guid.Empty, "files");
+        _urlProviderPublic = urlProvider ?? new DefaultUrlProvider(new UrlProviderOptions());
         _urlProviderPublic.Initialize(this);
 
         _createPersistedIndexStore = createPersistedIndexStore;

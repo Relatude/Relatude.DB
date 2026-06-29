@@ -1,27 +1,18 @@
-﻿using Lucene.Net.Search;
-using Microsoft.Net.Http.Headers;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
-using Relatude.DB.NodeServer.Models;
 using Relatude.DB.Query;
 using Relatude.DB.Transactions;
-using System.Data.Common;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
+using Website.Simple;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter(1));
     options.FileConverters.Add(new FFMpegVideoConverter());
-
-    options.FileHandlerRootUrl = "/files";
-
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
@@ -46,7 +37,6 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
-
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
@@ -159,7 +149,7 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
     var article1 = new DemoArticle() { Title = "Test" };
     db.Insert(article1);
     //db.UpdateAddress(article1, "sss", out var didChange, out var changedAdr);
-    
+
 
     return db.GetUrl(article1);
 });
@@ -167,8 +157,10 @@ app.MapGet("t", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var sb = new StringBuilder();
     foreach (var article in db.Query<DemoArticle>().Execute()) {
-        sb.Append(article.Title + " " + article.Address);
-        sb.AppendLine();
+        if (article.File.IsEmpty) continue;
+        sb.AppendLine(db.GetUrl(article));
+        sb.AppendLine(db.GetUrl(article.File));
+        sb.AppendLine(db.GetUrl(article.File, new FileAdjustmentImage() { FocusX = 100 }));
     }
     return sb.ToString();
 });
@@ -198,9 +190,11 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
     return db.EvaluateForJsonAsync(query, []);
 });
 
-
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+
+app.UseMiddleware<RelatudeDBMiddleware>();
 
 //app.UseRelatudeDB();
 
@@ -212,13 +206,11 @@ app.Run();
 class DemoArticlePlugin : NodeTransactionPlugin<DemoArticle> {
     public override void OnBeforeNodeAction(NodeKey key, NodeOperation operation, Transaction transaction, NodeHelper<DemoArticle> helper) {
         //var node = helper.GetNode();
-        //var address = node.Title;
+        //var address = node.File.IsEmpty ? node.Title : node.File.Name;
         //transaction.UpdateAddress(key, address);
     }
-    //public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
-    //    Database.UpdateProperty(node, n => n.Title, fileValue.Name);
-    //    var n = Database.Get(node);
-    //    Console.WriteLine("Address after file upload: " + n.Address);
-    //}
+    public override void OnAfterFileUpload(FileValue fileValue, DemoArticle node) {
+        Database.UpdateAddress(node, node.File.IsEmpty ? node.Title : node.File.Name);
+    }
 }
 

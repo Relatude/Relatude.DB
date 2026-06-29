@@ -136,7 +136,7 @@ namespace Relatude.DB.DataStores.Stores {
         }
         public int ValidateAndReturnIntId(NodeKey key) {
             lock (_lock) {
-                if (key.HasInt && key.HasInt) {
+                if (key.HasInt && key.HasGuid) {
                     ValidateCombinationOfIdAndGuid(key.Int, key.Guid);
                     return key.Int;
                 }

@@ -173,7 +173,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             var sw = Stopwatch.StartNew();
 
-            var urlProvider = new DefaultUrlProvider(Guid.Empty, server?.Options?.FileHandlerRootUrl ?? ServerOptions.DefaultFileRootUrl);
+            var urlOptions = new UrlProviderOptions() {
+                HashKey = settings.Id,
+                //UrlNodeRoot = "assets",
+                //HashNodeUrls = true,
+                //HashPropertyUrls = true,
+                UrlHashSeed = Guid.Empty,
+                IncludeTrailingSlash = false,
+                UrlFormat = UrlFormat.AddressOrIntId,
+            };
+            var urlProvider = new DefaultUrlProvider(urlOptions);
+            //var urlProvider = new InternalUrlProvider();
 
             IDataStore datastore = new DataStoreLocal(
                     Datamodel,
@@ -188,8 +198,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioSecondary,
                     ioIndexes,
                     QueryContext.MasterAdmin,
-                    urlProvider, 
-                    server?.Options?.FileConverters.ToArray()                    
+                    urlProvider,
+                    server?.Options?.FileConverters.ToArray()
                     );
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);

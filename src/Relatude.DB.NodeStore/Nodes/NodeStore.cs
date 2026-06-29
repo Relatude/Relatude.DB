@@ -700,6 +700,7 @@ public class NodeStore : IDisposable {
     public string GetUrl(NodeKey key, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(new NodePath(key), absolute, ctx);
     public string GetUrl(NodePath node, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(node, absolute, ctx);
     public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
+    public string GetUrl(FileValue fileValue, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, absolute, ctx);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => Datastore.GetFileStream(url, maxWait, ctx);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(url, maxWait, ctx);

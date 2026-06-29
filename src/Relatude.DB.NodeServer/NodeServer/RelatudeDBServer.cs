@@ -327,7 +327,6 @@ public class ServerOptions {
     /// </summary>
     public string? DefaultTempFolderPath { get; set; } = null;
     public List<IFileConverter> FileConverters { get; set; } = [];
-    public string FileHandlerRootUrl { get; set; } = DefaultFileRootUrl;
 
 
 }

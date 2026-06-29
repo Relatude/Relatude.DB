@@ -26,6 +26,8 @@ public interface IDataStore : IDisposable {
     Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null);
     Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null);
     Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null);
+    int GetId(Guid id);
+    Guid GetGuid(int id);
     INodeDataExternal Get(Guid id, QueryContext? ctx = null);
     INodeDataExternal Get(int id, QueryContext? ctx = null);
     INodeDataExternal Get(NodeKey id, QueryContext? ctx = null);
@@ -74,6 +76,16 @@ public interface IDataStore : IDisposable {
     string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
+
+    bool IsUrlRelevant(string url);
+    bool TryParseUrlType(string url, out UrlType type);
+    bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
+    bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey);
+    bool TryParseUrlNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath);
+    bool TryParseUrlPropertyPath(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath);
+
+
+
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
     Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);

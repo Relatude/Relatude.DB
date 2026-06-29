@@ -42,11 +42,11 @@ public static class AddUse {
     }
     public static IEndpointRouteBuilder MapRelatudeDBClient(this WebApplication app) {
         var options = app.Services.GetRequiredService<ServerOptions>();
-        var urlPathFiles = options.FileHandlerRootUrl == null ? ServerOptions.DefaultFileRootUrl : options.FileHandlerRootUrl;
-        if (string.IsNullOrWhiteSpace(urlPathFiles)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPathFiles));
-        if (!urlPathFiles.StartsWith("/")) urlPathFiles = "/" + urlPathFiles;
-        if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
-        app.MapGet(urlPathFiles + "/{query}", FileHandler.HandleFileAsync);
+        //var urlPathFiles = options.FileHandlerRootUrl == null ? ServerOptions.DefaultFileRootUrl : options.FileHandlerRootUrl;
+        //if (string.IsNullOrWhiteSpace(urlPathFiles)) throw new ArgumentException("URL path cannot be null or whitespace.", nameof(urlPathFiles));
+        //if (!urlPathFiles.StartsWith("/")) urlPathFiles = "/" + urlPathFiles;
+        //if (urlPathFiles.EndsWith("/")) urlPathFiles = urlPathFiles.TrimEnd('/');
+        //app.MapGet(urlPathFiles + "/{query}", FileHandler.HandleFileAsync);
         return app;
     }
 }

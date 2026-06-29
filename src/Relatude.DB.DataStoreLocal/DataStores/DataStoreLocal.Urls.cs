@@ -10,8 +10,23 @@ namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     Guid _startUpGuid = Guid.NewGuid();
     string getFileVersionId(FileValue fileValue) {
-        return (fileValue.Hash + _startUpGuid).GenerateHashInt().ToString();
+        // return (fileValue.Hash + _startUpGuid).GenerateHashUInt().ToString();
+        return fileValue.Hash.GetShortHashForUrl(_startUpGuid);
     }
+
+
+    public bool IsUrlRelevant(string url) => _urlProviderPublic.IsUrlRelevant(url);
+    public bool TryParseUrlType(string url, out UrlType type) => _urlProviderPublic.TryParseUrlType(url, out type);
+    public bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment)
+        => _urlProviderPublic.TryParseUrlAdjustments(url, out propertyPath, out adjustment);
+    public bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey)
+        => _urlProviderPublic.TryParseUrlNodeKey(url, out nodeKey);
+    public bool TryParseUrlNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath)
+        => _urlProviderPublic.TryParseUrlNodePath(url, out nodePath);
+    public bool TryParseUrlPropertyPath(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath)
+        => _urlProviderPublic.TryParseUrlPropertyPath(url, out propertyPath);
+
+
     public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx = null) {
         return _urlProviderPublic.GetUrl(nodeKey, absolute);
     }
@@ -39,13 +54,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     public async Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) {
         if (!_urlProviderPublic.TryParseUrlType(url, out var type)) throw new Exception("URL is not a valid local URL");
         if (type == UrlType.LocalProperty) {
-            if (!_urlProviderPublic.TryParsePropertyPath(url, out var path)) throw new Exception("URL does not point to a file property");
+            if (!_urlProviderPublic.TryParseUrlPropertyPath(url, out var path)) throw new Exception("URL does not point to a file property");
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
             return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty);
         } else if (type == UrlType.LocalAdjusted) {
-            if (!_urlProviderPublic.TryParseAdjustments(url, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
+            if (!_urlProviderPublic.TryParseUrlAdjustments(url, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetFileStreamAndState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
