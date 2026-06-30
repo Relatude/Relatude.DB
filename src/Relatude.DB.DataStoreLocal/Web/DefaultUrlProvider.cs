@@ -1,31 +1,32 @@
 using Relatude.DB.Common;
-using Relatude.DB.Datamodels;
-using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
 using Relatude.DB.FileConversion;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace Relatude.DB.Web;
 
 public enum UrlFormat {
-    AddressOrGuidId,
-    AddressOrIntId,
-    AddressAndIntId,
-    AddressAndGuidId,
-    IntIdOnly,
-    GuidIdOnly,
+    AddressOrGuidIdAsPath,
+    AddressOrIntIdAsPath,
+    AddressAndIntIdAsPath,
+    AddressAndGuidIdAsPath,
+    IntIdOnlyAsPath,
+    GuidIdOnlyAsPath,
+    IntIdAsQuery,
+    GuidIdAsQuery,
+
 }
 public class UrlProviderOptions {
+    public string? UrlParamName { get; set; }
     public string? UrlNodeRoot { get; set; }
     public bool IncludeTrailingSlash { get; set; }
-    public UrlFormat UrlFormat { get; set; }
+    public UrlFormat UrlFormat { get; set; } = UrlFormat.IntIdOnlyAsPath;
     public Guid HashKey { get; set; }
     public bool HashPropertyUrls { get; set; }
-    public bool UnCompressed { get; set; }
+    public bool UnCompressed { get; set; } = true;
 }
 
 enum UrlDataType : byte {
@@ -92,19 +93,20 @@ class UrlData {
         }
         if (options.HashPropertyUrls) {
             using var hmac = new HMACSHA256(options.HashKey.ToByteArray());
-            var bytes = ms.ToArray();
-            var hash = hmac.ComputeHash(bytes);
+            var payload = ms.ToArray();
+            var hash = hmac.ComputeHash(payload);
             ms = new MemoryStream();
             ms.Write(hash);
-            ms.Write(bytes);
+            ms.Write(payload);
         }
+        var bytes = ms.ToArray();
         if (!options.UnCompressed) {
             using var output = new MemoryStream();
-            using (var brotli = new BrotliStream(output, compressionLevel)) brotli.Write(ms.ToArray());
-            ms = new MemoryStream(output.ToArray());
+            using (var brotli = new BrotliStream(output, compressionLevel)) brotli.Write(bytes);
+            bytes = output.ToArray();
         }
-        if (ms.Length == 0) return null;
-        return urlTypeChar(UrlType) + B64.EncodeForUrl(ms.ToArray());
+        if (bytes.Length == 0) return null;
+        return urlTypeChar(UrlType) + B64.EncodeForUrl(bytes);
     }
 
     public static UrlData ParseQueryParamValue(string? value, NodeKey key, UrlProviderOptions options) {
@@ -113,7 +115,6 @@ class UrlData {
         if (!tryGetUrlType(value[0], out urlType)) throw new Exception($"Invalid URL type character: {value[0]}");
         if (!B64.TryDecodeFromUrlParameter(value[1..], out var bytes)) throw new Exception($"Invalid URL parameter: {value[1..]}");
         var ms = new MemoryStream(bytes);
-
         if (!options.UnCompressed) {
             using var output = new MemoryStream();
             using (var brotli = new BrotliStream(ms, CompressionMode.Decompress)) brotli.CopyTo(output);
@@ -168,13 +169,18 @@ class UrlData {
 }
 
 public class DefaultUrlProvider : IUrlProvider {
+
+    const char dot = '.';
     const char slash = '/';
+    readonly string _queryParamName;
+
     readonly UrlProviderOptions _options;
     readonly string _urlNodeRoot;
     IDataStore? _dataStore;
     public DefaultUrlProvider(UrlProviderOptions? options) {
         _options = options ?? new UrlProviderOptions();
         _urlNodeRoot = enforceTrailingSlash(_options.UrlNodeRoot);
+        _queryParamName = _options.UrlParamName ?? "nid";
     }
     protected IDataStore DataStore => _dataStore ?? throw new InvalidOperationException("Data store has not been initialized. Call Initialize() before using this method.");
     string enforceTrailingSlash(string? urlRoot) {
@@ -200,25 +206,34 @@ public class DefaultUrlProvider : IUrlProvider {
         }
         return sb.ToString();
     }
-    readonly string _queryParamName = "nid";
+    bool queryOnlyFormat() => _options.UrlFormat == UrlFormat.IntIdAsQuery || _options.UrlFormat == UrlFormat.GuidIdAsQuery;
+    string combinedUrl(string baseUrl, string? queryParam) {
+        if (queryOnlyFormat()) {
+            return queryParam == null ? baseUrl : $"{baseUrl}{dot}{queryParam}";
+        } else {
+            return queryParam == null ? baseUrl : $"{baseUrl}?{_queryParamName}={queryParam}";
+        }
+    }
     string getBaseUrl(NodeKey idKey, bool absolute) {
         if (absolute) throw new NotImplementedException("Absolute URLs are not implemented yet.");
         var url = _options.UrlFormat switch {
-            UrlFormat.AddressOrGuidId => DataStore.TryGetAddress(idKey, out var address) ? address : getGuid(idKey).ToString(),
-            UrlFormat.AddressOrIntId => DataStore.TryGetAddress(idKey, out var address) ? address : getId(idKey).ToString(),
-            UrlFormat.AddressAndIntId => DataStore.TryGetAddress(idKey, out var address) ? $"{getId(idKey)}{slash}{address}" : getId(idKey).ToString(),
-            UrlFormat.AddressAndGuidId => DataStore.TryGetAddress(idKey, out var address) ? $"{getGuid(idKey)}{slash}{address}" : getGuid(idKey).ToString(),
-            UrlFormat.IntIdOnly => getId(idKey).ToString(),
-            UrlFormat.GuidIdOnly => getGuid(idKey).ToString(),
+            UrlFormat.AddressOrGuidIdAsPath => DataStore.TryGetAddress(idKey, out var address) ? address : getGuid(idKey).ToString(),
+            UrlFormat.AddressOrIntIdAsPath => DataStore.TryGetAddress(idKey, out var address) ? address : getId(idKey).ToString(),
+            UrlFormat.AddressAndIntIdAsPath => DataStore.TryGetAddress(idKey, out var address) ? $"{getId(idKey)}{slash}{address}" : getId(idKey).ToString(),
+            UrlFormat.AddressAndGuidIdAsPath => DataStore.TryGetAddress(idKey, out var address) ? $"{getGuid(idKey)}{slash}{address}" : getGuid(idKey).ToString(),
+            UrlFormat.IntIdOnlyAsPath => getId(idKey).ToString(),
+            UrlFormat.GuidIdOnlyAsPath => getGuid(idKey).ToString(),
+            UrlFormat.IntIdAsQuery => $"?{_queryParamName}={getId(idKey)}",
+            UrlFormat.GuidIdAsQuery => $"?{_queryParamName}={getGuid(idKey)}",
             _ => throw new NotImplementedException(),
         };
         if (url == null) url = string.Empty;
-        if (_options.IncludeTrailingSlash && !url.EndsWith("/")) url += "/";
+        if (_options.IncludeTrailingSlash && !url.EndsWith("/") && !queryOnlyFormat()) url += "/";
         return _urlNodeRoot + url;
     }
     string getBasePropertyUrl(PropertyPath property, bool absolute, string? fileExtWithDot) {
         var baseUrl = getBaseUrl(property.NodePath.NodeKey, absolute);
-        if (!baseUrl.EndsWith(slash)) baseUrl += slash;
+        if (queryOnlyFormat()) return baseUrl;
         if (DataStore.TryGetValue<FileValue>(property, out var value) && !value.IsEmpty) {
             if (!baseUrl.EndsWith(slash)) baseUrl += slash;
             if (fileExtWithDot == null) {
@@ -240,7 +255,7 @@ public class DefaultUrlProvider : IUrlProvider {
             Path = nodePath
         };
         var queryParam = urlData.GetQueryParamValue(_options);
-        return queryParam == null ? addressBase : $"{addressBase}?{_queryParamName}={queryParam}";
+        return combinedUrl(addressBase, queryParam);
     }
     public string GetUrl(PropertyPath property, string? contentVersionId, bool absolute) {
         var addressBase = getBasePropertyUrl(property, absolute, null);
@@ -250,7 +265,7 @@ public class DefaultUrlProvider : IUrlProvider {
             ContentVersionId = contentVersionId
         };
         var queryParam = urlData.GetQueryParamValue(_options);
-        return $"{addressBase}?{_queryParamName}={queryParam}";
+        return combinedUrl(addressBase, queryParam);
     }
     public string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute) {
         var addressBase = getBasePropertyUrl(property, absolute, FileFormatUtil.GetExtensionWithDot(adjustment.RequestedFormat));
@@ -258,10 +273,10 @@ public class DefaultUrlProvider : IUrlProvider {
             UrlType = UrlDataType.PropertyPathAdjusted,
             Property = property,
             Adjustment = adjustment,
-            ContentVersionId =contentVersionId
+            ContentVersionId = contentVersionId
         };
         var queryParam = urlData.GetQueryParamValue(_options);
-        return $"{addressBase}?{_queryParamName}={queryParam}";
+        return combinedUrl(addressBase, queryParam);
     }
 
     public bool TryParseUrlType(string localUrl, out UrlType type) {
@@ -269,7 +284,7 @@ public class DefaultUrlProvider : IUrlProvider {
             type = UrlType.RemoteUrl;
             return false;
         }
-        parseQueryParamValue(localUrl, out var queryParamValue, out _);
+        parseQueryParamValue(localUrl, out var queryParamValue, out _, out _);
         if (!UrlData.TryParseUrlType(queryParamValue, out var urlDataType)) {
             type = default;
             return false;
@@ -283,9 +298,10 @@ public class DefaultUrlProvider : IUrlProvider {
         };
         return true;
     }
-    public bool TryParseUrlNodeKey(string url, out NodeKey nodeKey) => TryParseUrlNodeKey(url, out nodeKey, out _);
-    void parseQueryParamValue(string url, out string? value, out int posQuery) {
+    public bool TryParseUrlNodeKey(string url, out NodeKey nodeKey) => tryParseUrlNodeKey(url, out nodeKey, out _);
+    void parseQueryParamValue(string url, out string? value, out int posQuery, out string? idParam) {
         int startPos = _urlNodeRoot.Length;
+        idParam = null;
         posQuery = url.IndexOf('?', startPos);
         if (posQuery == -1) {
             posQuery = url.Length;
@@ -300,21 +316,48 @@ public class DefaultUrlProvider : IUrlProvider {
                 var to = url.IndexOf(search, from);
                 if (to == -1) to = url.Length;
                 value = url[from..to];
+                if (queryOnlyFormat()) {
+                    var posDot = url.IndexOf(dot, from);
+                    if (posDot != -1) {
+                        idParam = url.Substring(from, posDot - from);
+                        value = url[(posDot + 1)..to];
+                    }
+                }
             }
         }
 
     }
-    bool TryParseUrlNodeKey(string url, out NodeKey nodeKey, out string? queryParamValue) {
+    bool tryParseUrlNodeKey(string url, out NodeKey nodeKey, out string? queryParamValue) {
+
+        nodeKey = default;
+        queryParamValue = null;
 
         if (_urlNodeRoot.Length >= url.Length || !url.StartsWith(_urlNodeRoot)) {
             // url does not start with the expected root, cannot parse node key
-            nodeKey = default;
-            queryParamValue = null;
             return false;
+        }
+        parseQueryParamValue(url, out queryParamValue, out var posQuery, out var idParam);
+
+        if (queryOnlyFormat()) {
+            if (idParam == null) return false;
+            if (UrlFormat.IntIdAsQuery == _options.UrlFormat) {
+                if (int.TryParse(idParam, out var id)) {
+                    if (DataStore.Exists(id)) {
+                        nodeKey = new NodeKey(id);
+                        return true;
+                    }
+                }
+            } else if (UrlFormat.GuidIdAsQuery == _options.UrlFormat) {
+                if (Guid.TryParse(idParam, out var guid)) {
+                    if (DataStore.Exists(guid)) {
+                        nodeKey = new NodeKey(guid);
+                        return true;
+                    }
+                }
+            }
         }
 
         // First try, using full address part of url:
-        parseQueryParamValue(url, out queryParamValue, out var posQuery);
         var startPos = _urlNodeRoot.Length;
         var addressWithFileName = url.Substring(startPos, posQuery - startPos);
         if (DataStore.TryGetNodeIdFromAddress(addressWithFileName, out int nodeId, out var cultureCode)) {
@@ -338,9 +381,9 @@ public class DefaultUrlProvider : IUrlProvider {
         if (posFirstSlash == -1) posFirstSlash = addressWithoutFileName.Length;
         var idString = addressWithoutFileName.AsSpan(0, posFirstSlash);
         switch (_options.UrlFormat) {
-            case UrlFormat.GuidIdOnly:
-            case UrlFormat.AddressOrGuidId:
-            case UrlFormat.AddressAndGuidId: {
+            case UrlFormat.GuidIdOnlyAsPath:
+            case UrlFormat.AddressOrGuidIdAsPath:
+            case UrlFormat.AddressAndGuidIdAsPath: {
                     if (Guid.TryParse(idString, out var guid)) {
                         if (DataStore.Exists(guid)) {
                             nodeKey = new NodeKey(guid);
@@ -349,14 +392,24 @@ public class DefaultUrlProvider : IUrlProvider {
                     }
                 }
                 break;
-            case UrlFormat.IntIdOnly:
-            case UrlFormat.AddressOrIntId:
-            case UrlFormat.AddressAndIntId: {
+            case UrlFormat.IntIdOnlyAsPath:
+            case UrlFormat.AddressOrIntIdAsPath:
+            case UrlFormat.AddressAndIntIdAsPath: {
                     if (int.TryParse(idString, out var id)) {
                         if (DataStore.Exists(id)) {
                             nodeKey = new NodeKey(id);
                             return true;
                         }
+                    }
+                }
+                break;
+            case UrlFormat.GuidIdAsQuery: {
+                    if (!string.IsNullOrEmpty(queryParamValue)) {
+                    }
+                }
+                break;
+            case UrlFormat.IntIdAsQuery: {
+                    if (!string.IsNullOrEmpty(queryParamValue)) {
                     }
                 }
                 break;
@@ -366,7 +419,7 @@ public class DefaultUrlProvider : IUrlProvider {
         return false;
     }
     public bool TryParseUrlNodePath(string localUrl, [MaybeNullWhen(false)] out NodePath nodePath) {
-        if (!TryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
+        if (!tryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
             nodePath = default;
             return false;
         }
@@ -379,7 +432,7 @@ public class DefaultUrlProvider : IUrlProvider {
         return true;
     }
     public bool TryParseUrlPropertyPath(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath) {
-        if (!TryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
+        if (!tryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
             propertyPath = default;
             return false;
         }
@@ -392,7 +445,7 @@ public class DefaultUrlProvider : IUrlProvider {
         return true;
     }
     public bool TryParseUrlAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment) {
-        if (!TryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
+        if (!tryParseUrlNodeKey(localUrl, out var nodeKey, out var queryParam)) {
             propertyPath = default;
             adjustment = default;
             return false;

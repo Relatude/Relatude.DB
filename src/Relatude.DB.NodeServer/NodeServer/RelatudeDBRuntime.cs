@@ -23,6 +23,7 @@ public static class RelatudeDBRuntime {
         }
     }
     static public bool IsInitialized => _server != null;
+    static public bool IsReady => Server.DefaultContainer?.Store != null;
 }
 
 public class RelatudeDBContext() {

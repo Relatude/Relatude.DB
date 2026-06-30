@@ -15,10 +15,8 @@ public static class FileHandler {
     public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, PropertyPath path, FileAdjustment adj) {
         var db = ctx.Database;
         var info = await db.GetFileStreamAndState(path, adj);
-        var stream = info.Stream;
-        var fileNameWithNoExtension = Path.GetFileNameWithoutExtension(info.FileValue.Name);
-        var fileNameRequested = fileNameWithNoExtension + FileFormatUtil.GetExtensionWithDot(info.RequestedFormat);
-        return await HandleFileAsync(ctx, http, stream, fileNameRequested, info.RequestedFormat, info.IsReady);
+        var fileName = Path.GetFileNameWithoutExtension(info.FileValue.Name) + FileFormatUtil.GetExtensionWithDot(info.RequestedFormat);
+        return await HandleFileAsync(ctx, http, info.Stream, fileName, info.RequestedFormat, info.IsReady);
     }
     public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, Stream stream, string fileName, FileFormat format, bool cached) {
         var totalLength = stream.CanSeek ? stream.Length : (long?)null;
@@ -27,9 +25,9 @@ public static class FileHandler {
         var contentType = FileFormatUtil.GetContentType(format);
         var dispositionType = attachment ? "attachment" : "inline";
         if (cached) {
-            http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
+            http.Response.GetTypedHeaders().CacheControl = new() { Public = true, MaxAge = TimeSpan.FromDays(30) };
         } else {
-            http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
+            http.Response.GetTypedHeaders().CacheControl = new() { NoCache = true };
         }
         http.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue(dispositionType) {
             FileName = new string([.. fileName.Where(c => c <= 127)]), // fallback for non-ASCII file names, older browsers

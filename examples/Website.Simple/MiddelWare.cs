@@ -16,8 +16,9 @@ public class RelatudeDBMiddleware {
         _appLifetime = appLifetime;
     }
     public async Task Invoke(HttpContext context, RelatudeDBContext ctx) {
-        var url = HttpUtility.UrlDecode(context.Request.GetEncodedPathAndQuery()); // Decode the URL to handle any international characters or in the URL
-        if (RelatudeDBRuntime.IsInitialized) {
+        if (RelatudeDBRuntime.IsReady) {
+            var url = context.Request.Path.Value + context.Request.QueryString;
+            Console.WriteLine(url);
             if (ctx.Database.Datastore.TryParseUrl(url, out var urlType, out var nodeKey, out var nodePath, out var propertyPath, out var adjustment)) {
                 var result = await handleRequest(context, ctx.Database.Datastore, ctx, urlType, nodeKey, nodePath, propertyPath, adjustment);
                 if (result != null) {
