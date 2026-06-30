@@ -178,9 +178,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 //UrlNodeRoot = "assets",
                 //HashNodeUrls = true,
                 //HashPropertyUrls = true,
-                UrlHashSeed = Guid.Empty,
-                IncludeTrailingSlash = false,
-                UrlFormat = UrlFormat.AddressOrIntId,
+                //UrlHashSeed = Guid.Empty,
+                //IncludeTrailingSlash = false,
+                //UrlFormat = UrlFormat.AddressOrIntId,
             };
             var urlProvider = new DefaultUrlProvider(urlOptions);
             //var urlProvider = new InternalUrlProvider();

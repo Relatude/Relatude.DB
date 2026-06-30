@@ -1,6 +1,11 @@
 ﻿using Relatude.DB.Common;
 namespace Relatude.DB.DataStores;
 
+public class StreamAndValue(Stream stream, FileValue fileValue) {
+    public Stream Stream { get; } = stream;
+    public FileValue FileValue { get; } = fileValue;
+}
+
 public class StateAndStream(Stream stream, bool isReady, FileValue fileValue, FileFormat format, Guid conversionId) {
     public Guid ConversionId { get; } = conversionId;
     public Stream Stream { get; } = stream;

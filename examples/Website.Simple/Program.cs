@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
@@ -120,6 +121,7 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     Temporary = false,
                     Quality = 90
                 };
+                //var imageUrl = $"{db.GetUrl(article.File)}";
                 var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
                 html.Append($"<img src='{imageUrl}'>");
             }
@@ -156,7 +158,17 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
 app.MapGet("t", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var sb = new StringBuilder();
-    foreach (var article in db.Query<DemoArticle>().Execute()) {
+    var articles = db.Query<DemoArticle>().Execute();
+    var iterations = 0;
+    for (int i = 0; i < iterations; i++) {
+        foreach (var article in articles) {
+            if (article.File.IsEmpty) continue;
+            db.GetUrl(article);
+            db.GetUrl(article.File);
+            db.GetUrl(article.File, new FileAdjustmentImage() { FocusX = 100 });
+        }
+    }
+    foreach (var article in articles) {
         if (article.File.IsEmpty) continue;
         sb.AppendLine(db.GetUrl(article));
         sb.AppendLine(db.GetUrl(article.File));

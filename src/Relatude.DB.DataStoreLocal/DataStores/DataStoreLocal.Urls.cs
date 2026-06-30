@@ -14,8 +14,25 @@ public sealed partial class DataStoreLocal : IDataStore {
         return fileValue.Hash.GetShortHashForUrl(_startUpGuid);
     }
 
+    public bool TryParseUrl(string url, out UrlType type,
+     out NodeKey nodeKey,
+     out NodePath? nodePath,
+     out PropertyPath? propertyPath,
+     out FileAdjustment? adjustment) {
+        nodeKey = default;
+        nodePath = default;
+        propertyPath = default;
+        adjustment = default;
+        if (!_urlProviderPublic.TryParseUrlType(url, out type)) return false;
+        return type switch {
+            UrlType.LocalNode => TryParseUrlNodeKey(url, out nodeKey),
+            UrlType.LocalEmbeddedNode => TryParseUrlNodePath(url, out nodePath),
+            UrlType.LocalProperty => TryParseUrlPropertyPath(url, out propertyPath),
+            UrlType.LocalAdjusted => TryParseUrlAdjustments(url, out propertyPath, out adjustment),
+            _ => false,
+        };
+    }
 
-    public bool IsUrlRelevant(string url) => _urlProviderPublic.IsUrlRelevant(url);
     public bool TryParseUrlType(string url, out UrlType type) => _urlProviderPublic.TryParseUrlType(url, out type);
     public bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment)
         => _urlProviderPublic.TryParseUrlAdjustments(url, out propertyPath, out adjustment);

@@ -8,35 +8,32 @@ namespace Relatude.DB.Web;
 
 public static class FileHandler {
     public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, PropertyPath path) {
-        throw new NotImplementedException();
-        //var db = ctx.Database;
-        //var stream = await db.GetFileStream(path);
-        //http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
-        //var contentType = FileFormatUtil.GetContentType(fileInfo.RequestedFormat);
+        var db = ctx.Database;
+        var info = await db.GetFileStreamAndValue(path);
+        return await HandleFileAsync(ctx, http, info.Stream, info.FileValue.Name, info.FileValue.Format, true);
     }
     public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, PropertyPath path, FileAdjustment adj) {
         var db = ctx.Database;
-        var fileInfo = await db.GetFileStreamAndState(path, adj);
-        if (fileInfo.IsReady) {
+        var info = await db.GetFileStreamAndState(path, adj);
+        var stream = info.Stream;
+        var fileNameWithNoExtension = Path.GetFileNameWithoutExtension(info.FileValue.Name);
+        var fileNameRequested = fileNameWithNoExtension + FileFormatUtil.GetExtensionWithDot(info.RequestedFormat);
+        return await HandleFileAsync(ctx, http, stream, fileNameRequested, info.RequestedFormat, info.IsReady);
+    }
+    public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, Stream stream, string fileName, FileFormat format, bool cached) {
+        var totalLength = stream.CanSeek ? stream.Length : (long?)null;
+        var rangeHeader = http.Request.Headers.Range.ToString();
+        var attachment = FileFormatUtil.AsAttachement(format);
+        var contentType = FileFormatUtil.GetContentType(format);
+        var dispositionType = attachment ? "attachment" : "inline";
+        if (cached) {
             http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { Public = true, MaxAge = TimeSpan.FromDays(30) };
         } else {
             http.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue { NoCache = true };
         }
-        var stream = fileInfo.Stream;
-        var contentType = FileFormatUtil.GetContentType(fileInfo.RequestedFormat);
-        var originalFileName = fileInfo.FileValue.Name;
-        var fileNameWithNoExtension = Path.GetFileNameWithoutExtension(originalFileName);
-        var fileNameRequested = fileNameWithNoExtension + FileFormatUtil.GetExtensionWithDot(fileInfo.RequestedFormat);
-        var attachment = FileFormatUtil.AsAttachement(fileInfo.RequestedFormat);
-        return await HandleFileAsync(ctx, http, stream, fileNameRequested, contentType, attachment);
-    }
-    public static async Task<IResult> HandleFileAsync(RelatudeDBContext ctx, HttpContext http, Stream stream, string fileNameRequested, string contentType, bool attachment) {
-        var totalLength = stream.CanSeek ? stream.Length : (long?)null;
-        var rangeHeader = http.Request.Headers.Range.ToString();
-        var dispositionType = attachment ? "attachment" : "inline";
         http.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue(dispositionType) {
-            FileName = new string([.. fileNameRequested.Where(c => c <= 127)]), // fallback for non-ASCII file names, older browsers
-            FileNameStar = fileNameRequested // UTF-8 file name for modern browsers, will be ignored by older browsers
+            FileName = new string([.. fileName.Where(c => c <= 127)]), // fallback for non-ASCII file names, older browsers
+            FileNameStar = fileName // UTF-8 file name for modern browsers, will be ignored by older browsers
         }.ToString();
         if (stream.CanSeek && !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=")) {
             try {

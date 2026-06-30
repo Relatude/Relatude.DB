@@ -289,6 +289,18 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+    public bool Exists(int id, QueryContext? ctx = null) {
+        _lock.EnterReadLock();
+        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+        try {
+            validateDatabaseState();
+            _queryActivity.Record();
+            return _nodes.Contains(id);
+        } finally {
+            DeRegisterActivity(activityId);
+            _lock.ExitReadLock();
+        }
+    }
     public bool Exists(Guid id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);

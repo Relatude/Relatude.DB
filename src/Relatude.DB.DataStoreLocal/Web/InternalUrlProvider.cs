@@ -41,9 +41,6 @@ public class InternalUrlProvider : IUrlProvider {
         }
     }
     public void Initialize(IDataStore dataStore) { }
-    public bool IsUrlRelevant(string url) {
-        return true;
-    }
     public string GetUrl(NodeKey idKey, bool absolute) {
         return urlTypeChar(UrlType.LocalNode) + B64.EncodeForUrl(idKey.ToBytes());
     }

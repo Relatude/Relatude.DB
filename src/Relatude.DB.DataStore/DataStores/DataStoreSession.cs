@@ -116,6 +116,7 @@ public class DataStoreSession : IDataStore {
     public Guid GetNodeType(NodeKey id) => _datastore.GetNodeType(id);
     public Dictionary<NodeKey, Guid> GetNodeType(IEnumerable<NodeKey> ids) => _datastore.GetNodeType(ids);
 
+    public bool Exists(int id, QueryContext? ctx = null) => _datastore.Exists(id, ctx ?? QueryContext);
     public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id);
     public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId);
     public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null) {
@@ -202,7 +203,12 @@ public class DataStoreSession : IDataStore {
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
-    public bool IsUrlRelevant(string url) => _datastore.IsUrlRelevant(url);
+    public bool TryParseUrl(string url, out UrlType type,
+    out NodeKey nodeKey,
+    out NodePath? nodePath,
+    out PropertyPath? propertyPath,
+    out FileAdjustment? adjustment) => _datastore.TryParseUrl(url, out type, out nodeKey, out nodePath, out propertyPath, out adjustment);
+
     public bool TryParseUrlType(string url, out UrlType type) => _datastore.TryParseUrlType(url, out type);
     public bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment) => _datastore.TryParseUrlAdjustments(url, out propertyPath, out adjustment);
     public bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey) => _datastore.TryParseUrlNodeKey(url, out nodeKey);
@@ -218,6 +224,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext);
     public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait, QueryContext? ctx = null)
         => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext);
+    public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
+        => _datastore.GetFileStreamAndValue(propertyPath, ctx ?? QueryContext);
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
         => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? QueryContext);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null)

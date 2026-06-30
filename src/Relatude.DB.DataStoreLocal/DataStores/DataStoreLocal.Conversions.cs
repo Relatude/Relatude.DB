@@ -24,6 +24,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileValue.StorageId);
         return await fileStore.GetFileStream(fileValue);
     }
+    public async Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null) {
+        var fileValue = GetValue<FileValue>(propertyPath, ctx);
+        if (fileValue.IsEmpty) throw new Exception("File value is empty");
+        var fileStore = getFileStore(fileValue.StorageId);
+        var stream = await fileStore.GetFileStream(fileValue);
+        return new StreamAndValue(stream, fileValue);
+    }
     public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) {
         return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx)).Stream;
     }

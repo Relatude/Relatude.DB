@@ -1,8 +1,10 @@
 ﻿using Microsoft.AspNetCore.Http.Extensions;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Web;
+using System.Web;
 
 namespace Website.Simple;
 
@@ -14,41 +16,24 @@ public class RelatudeDBMiddleware {
         _appLifetime = appLifetime;
     }
     public async Task Invoke(HttpContext context, RelatudeDBContext ctx) {
-        var url = context.Request.GetEncodedPathAndQuery();
-        var db = ctx?.Database;
-        if (db != null && db.State == DataStoreState.Open) {
-            if (db.Datastore.IsUrlRelevant(url)) {
-                if (db.Datastore.TryParseUrlType(url, out var urlType)) {
-                    await handleRequest(context, url, urlType, db.Datastore, ctx);
+        var url = HttpUtility.UrlDecode(context.Request.GetEncodedPathAndQuery()); // Decode the URL to handle any international characters or in the URL
+        if (RelatudeDBRuntime.IsInitialized) {
+            if (ctx.Database.Datastore.TryParseUrl(url, out var urlType, out var nodeKey, out var nodePath, out var propertyPath, out var adjustment)) {
+                var result = await handleRequest(context, ctx.Database.Datastore, ctx, urlType, nodeKey, nodePath, propertyPath, adjustment);
+                if (result != null) {
+                    await result.ExecuteAsync(context);
                     return;
                 }
             }
         }
         await _next.Invoke(context);
     }
-    async Task handleRequest(HttpContext context, string url, UrlType urlType, IDataStore store, RelatudeDBContext ctx) {
-        switch (urlType) {
-            case UrlType.LocalProperty: {
-                    if (store.TryParseUrlPropertyPath(url, out var propertyPath)) {
-                        await (await FileHandler.HandleFileAsync(ctx, context, propertyPath)).ExecuteAsync(context);
-                        return;
-                    }
-                }
-                break;
-            case UrlType.LocalAdjusted: {
-                    if (store.TryParseUrlAdjustments(url, out var propertyPath, out var adjusted)) {
-                        await (await FileHandler.HandleFileAsync(ctx, context, propertyPath, adjusted)).ExecuteAsync(context);
-                        return;
-                    }
-                }
-                break;
-            case UrlType.LocalUrl:
-            case UrlType.LocalNode:
-            case UrlType.LocalEmbeddedNode:
-            case UrlType.RemoteUrl:
-            case UrlType.Email:
-            default: break;
-        }
-        await _next.Invoke(context);
+    async Task<IResult?> handleRequest(HttpContext context, IDataStore store, RelatudeDBContext ctx, UrlType urlType, NodeKey nodeKey, NodePath? nodePath, PropertyPath? propertyPath, FileAdjustment? adjustment) {
+        return urlType switch {
+            UrlType.LocalProperty => await FileHandler.HandleFileAsync(ctx, context, propertyPath!),
+            UrlType.LocalAdjusted => await FileHandler.HandleFileAsync(ctx, context, propertyPath!, adjustment!),
+            UrlType.LocalNode => Results.Json(store.Get(nodeKey)),
+            _ => null,
+        };
     }
 }

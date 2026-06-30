@@ -706,7 +706,10 @@ public class NodeStore : IDisposable {
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(url, maxWait, ctx);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, ctx);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) 
+        => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
+    public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null) 
+        => Datastore.GetFileStreamAndValue(propertyPath, ctx);
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
         => TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);

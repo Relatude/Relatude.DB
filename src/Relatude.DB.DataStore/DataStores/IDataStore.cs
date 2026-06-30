@@ -40,6 +40,7 @@ public interface IDataStore : IDisposable {
     bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null);
     T GetValue<T>(PropertyPath path, QueryContext? ctx = null);
 
+    bool Exists(int id, QueryContext? ctx = null);
     bool Exists(Guid id, QueryContext? ctx = null);
     bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null);
     bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null);
@@ -77,7 +78,11 @@ public interface IDataStore : IDisposable {
     string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
 
-    bool IsUrlRelevant(string url);
+    bool TryParseUrl(string url, out UrlType type, 
+        out NodeKey nodeKey, 
+        out NodePath? nodePath,
+        out PropertyPath? propertyPath, 
+        out FileAdjustment? adjustment);
     bool TryParseUrlType(string url, out UrlType type);
     bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
     bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey);
@@ -90,6 +95,7 @@ public interface IDataStore : IDisposable {
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
     Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);
     Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
     bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
     bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null);

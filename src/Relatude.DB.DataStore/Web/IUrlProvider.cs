@@ -30,7 +30,6 @@ public interface IUrlProvider {
     string GetUrl(PropertyPath property, string? contentVersionId, bool absolute);
     string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute);
 
-    bool IsUrlRelevant(string url);
     bool TryParseUrlType(string url, out UrlType type);
     bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
     bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey);
