@@ -10,6 +10,7 @@ using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
+using Relatude.DB.Web;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -702,13 +703,17 @@ public class NodeStore : IDisposable {
     public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
     public string GetUrl(FileValue fileValue, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, absolute, ctx);
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);
+
+    public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) => Datastore.TryParseUrl(url, out result, ctx);
+    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null) => Datastore.TryParseUrlForContent(url, out result, maxWaitMs, ctx);
+
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => Datastore.GetFileStream(url, maxWait, ctx);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(url, maxWait, ctx);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, ctx);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) 
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null)
         => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
-    public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null) 
+    public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
         => Datastore.GetFileStreamAndValue(propertyPath, ctx);
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
         => TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);

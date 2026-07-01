@@ -171,6 +171,7 @@ public static class FileFormatUtil {
             _ => true,
         };
     }
+    public static bool? AsAttachement(string fileName) => AsAttachement(GetDetailedFormat(fileName));
 }
 public struct FormatPair : IEquatable<FormatPair> {
     public FormatPair(FileFormat from, FileFormat to) {

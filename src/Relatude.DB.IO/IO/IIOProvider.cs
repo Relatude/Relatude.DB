@@ -120,7 +120,7 @@ public static class IIOProviderExtensions {
         if (!io.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
         using var fromReader = io.OpenRead(fromFileName, 0);
         using var toWriter = io.OpenAppend(toIoFileName);
-        using var readStream = new ReadStreamWrapper(fromReader);
+        using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         readStream.CopyTo(writeStream);
     }
@@ -128,7 +128,7 @@ public static class IIOProviderExtensions {
         if (!toIo.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
         using var fromReader = fromIo.OpenRead(fromFileName, 0);
         using var toWriter = toIo.OpenAppend(toIoFileName);
-        using var readStream = new ReadStreamWrapper(fromReader);
+        using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         readStream.CopyTo(writeStream);
     }
@@ -136,7 +136,7 @@ public static class IIOProviderExtensions {
         if (!toIo.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
         using var fromReader = fromIo.OpenRead(fromFileName, 0);
         using var toWriter = toIo.OpenAppend(toIoFileName);
-        using var readStream = new ReadStreamWrapper(fromReader);
+        using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         var buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
         long totalBytesCopied = 0;

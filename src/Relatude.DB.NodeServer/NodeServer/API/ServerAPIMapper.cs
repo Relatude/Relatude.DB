@@ -223,7 +223,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
             var ioStream = server.GetIO(ioId).OpenRead(fileName, 0);
-            var stream = new ReadStreamWrapper(ioStream);
+            var stream = ReadStreamWrapper.Wrap(ioStream);
             return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName, null, null, true);
         });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
@@ -261,7 +261,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (!destIo.DoesNotExistsOrIsEmpty(fileName) && !overwrite) throw new Exception("File already exists");
             destIo.DeleteFileIfItExists(fileName);
             using var ioDestStream = destIo.OpenAppend(fileName);
-            using var readStream = new ReadStreamWrapper(ioSourceStream);
+            using var readStream = ReadStreamWrapper.Wrap(ioSourceStream);
             using var writeStream = new WriteStreamWrapper(ioDestStream);
             readStream.CopyTo(writeStream);
             ioSourceStream.Dispose();
@@ -291,7 +291,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var fileKey = Guid.NewGuid().ToString();
             db(storeId).Datastore.RewriteStore(false, fileKey, server.TempIO);
             var ioStream = server.TempIO.OpenRead(fileKey, 0);
-            var stream = new ReadStreamWrapper(ioStream);
+            var stream = ReadStreamWrapper.Wrap(ioStream);
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
@@ -306,7 +306,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var datastore = container(storeId).Store!.Datastore;
             datastore.CopyStore(fileKey, server.TempIO);
             var ioStream = server.TempIO.OpenRead(fileKey, 0);
-            var stream = new ReadStreamWrapper(ioStream);
+            var stream = ReadStreamWrapper.Wrap(ioStream);
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";

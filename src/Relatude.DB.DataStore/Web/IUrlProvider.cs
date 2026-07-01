@@ -6,14 +6,21 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Web;
 
+public enum UrlTarget {
+    Node,
+    EmbeddedNode,
+    Property,
+    PropertyAdjusted,
+}
+
 public enum UrlType {
 
-    LocalUrl, // any url not pointing to a node or property, but still a local url, like a custom controller or static file
     LocalNode,
     LocalEmbeddedNode,
     LocalProperty,
-    LocalAdjusted,
+    LocalPropertyAdjusted,
 
+    LocalUrl, // any url not pointing to a node or property, but still a local url, like a custom controller or static file
     RemoteUrl,
     Email,
 
@@ -30,7 +37,7 @@ public interface IUrlProvider {
     string GetUrl(PropertyPath property, string? contentVersionId, bool absolute);
     string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute);
 
-    bool TryParseUrlType(string url, out UrlType type);
+    bool TryParseUrlTarget(string url, out UrlTarget target);
     bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment);
     bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey);
     bool TryParseUrlNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath);

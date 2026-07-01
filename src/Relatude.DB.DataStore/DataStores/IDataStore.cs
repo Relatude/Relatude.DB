@@ -78,8 +78,8 @@ public interface IDataStore : IDisposable {
     string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
 
-    bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlParseResult? result, QueryContext? ctx = null);
-    bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlParseResultContent? result, int maxWaitMs = -1, QueryContext? ctx = null);
+    bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null);
+    bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null);
 
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);

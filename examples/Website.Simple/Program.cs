@@ -121,8 +121,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     Temporary = false,
                     Quality = 90
                 };
-                //var imageUrl = $"{db.GetUrl(article.File)}";
-                var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
+                var imageUrl = $"{db.GetUrl(article.File)}";
+                //var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
                 html.Append($"<img src='{imageUrl}'>");
             }
             //var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta())}";

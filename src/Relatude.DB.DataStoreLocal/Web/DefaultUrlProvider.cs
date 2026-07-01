@@ -25,7 +25,7 @@ public class UrlProviderOptions {
     public UrlFormat UrlFormat { get; set; }
     public Guid HashKey { get; set; }
     public bool HashPropertyUrls { get; set; }
-    public bool UnCompressed { get; set; } 
+    public bool UnCompressed { get; set; }
 }
 
 enum UrlDataType : byte {
@@ -278,21 +278,21 @@ public class DefaultUrlProvider : IUrlProvider {
         return combinedUrl(addressBase, queryParam);
     }
 
-    public bool TryParseUrlType(string localUrl, out UrlType type) {
+    public bool TryParseUrlTarget(string localUrl, out UrlTarget target) {
         if (_urlNodeRoot.Length >= localUrl.Length || !localUrl.StartsWith(_urlNodeRoot)) {
-            type = UrlType.RemoteUrl;
+            target = default;
             return false;
         }
         parseQueryParamValue(localUrl, out var queryParamValue, out _, out _);
         if (!UrlData.TryParseUrlType(queryParamValue, out var urlDataType)) {
-            type = default;
+            target = default;
             return false;
         }
-        type = urlDataType switch {
-            UrlDataType.NodeKey => UrlType.LocalNode,
-            UrlDataType.NodePath => UrlType.LocalEmbeddedNode,
-            UrlDataType.PropertyPath => UrlType.LocalProperty,
-            UrlDataType.PropertyPathAdjusted => UrlType.LocalAdjusted,
+        target = urlDataType switch {
+            UrlDataType.NodeKey => UrlTarget.Node,
+            UrlDataType.NodePath => UrlTarget.EmbeddedNode,
+            UrlDataType.PropertyPath => UrlTarget.Property,
+            UrlDataType.PropertyPathAdjusted => UrlTarget.PropertyAdjusted,
             _ => throw new NotImplementedException(),
         };
         return true;

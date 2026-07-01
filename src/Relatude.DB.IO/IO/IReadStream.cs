@@ -46,7 +46,7 @@ public static class IReadStreamExtensions {
     public static void WriteMarker(this IAppendStream s, Guid v) {
         s.Append(v.ToByteArray());
     }
-    public static ReadStreamWrapper AsStream(this IReadStream stream) {
-        return new ReadStreamWrapper(stream);
+    public static Stream AsStream(this IReadStream stream) {
+        return ReadStreamWrapper.Wrap(stream);
     }
 }

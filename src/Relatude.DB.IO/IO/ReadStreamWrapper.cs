@@ -3,7 +3,17 @@
 public class ReadStreamWrapper : System.IO.Stream {
     private readonly IReadStream _stream;
     public IReadStream InnerStream => _stream;
-    public ReadStreamWrapper(IReadStream stream) {
+    public static Stream Wrap(IReadStream stream) {
+        if (stream is StoreStreamDiscRead storeStream) {
+            // optimization, switch to direct file stream to avoid double buffering
+            var filePath = storeStream.InnerFilePath;
+            stream.Dispose();
+            return File.OpenRead(filePath);
+        } else {
+            return new ReadStreamWrapper(stream);
+        }
+    }
+    ReadStreamWrapper(IReadStream stream) {
         _stream = stream;
     }
     public override bool CanRead => true;
