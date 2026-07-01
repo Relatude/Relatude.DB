@@ -14,35 +14,104 @@ public sealed partial class DataStoreLocal : IDataStore {
         return fileValue.Hash.GetShortHashForUrl(_startUpGuid);
     }
 
-    public bool TryParseUrl(string url, out UrlType type,
-     out NodeKey nodeKey,
-     out NodePath? nodePath,
-     out PropertyPath? propertyPath,
-     out FileAdjustment? adjustment) {
-        nodeKey = default;
-        nodePath = default;
-        propertyPath = default;
-        adjustment = default;
+    public bool TryParseUrl(string url, out UrlType type, [MaybeNullWhen(false)] out UrlParseResult? result, QueryContext? ctx = null) {
+        result = null;
+        ctx = ctx ?? _defaultQueryCtx;
         if (!_urlProviderPublic.TryParseUrlType(url, out type)) return false;
-        return type switch {
-            UrlType.LocalNode => TryParseUrlNodeKey(url, out nodeKey),
-            UrlType.LocalEmbeddedNode => TryParseUrlNodePath(url, out nodePath),
-            UrlType.LocalProperty => TryParseUrlPropertyPath(url, out propertyPath),
-            UrlType.LocalAdjusted => TryParseUrlAdjustments(url, out propertyPath, out adjustment),
-            _ => false,
-        };
+        switch (type) {
+            case UrlType.LocalNode: {
+                    if (_urlProviderPublic.TryParseUrlNodeKey(url, out var nodeKey)) {
+                        result = new() {
+                            UrlType = type,
+                            NodeKey = nodeKey
+                        };
+                    }
+                }
+                break;
+            case UrlType.LocalEmbeddedNode: {
+                    if (_urlProviderPublic.TryParseUrlNodePath(url, out var nodePath)) {
+                        result = new() {
+                            UrlType = type,
+                            NodeKey = nodePath.NodeKey,
+                            NodePath = nodePath
+                        };
+                    }
+                }
+                break;
+            case UrlType.LocalProperty: {
+                    if (_urlProviderPublic.TryParseUrlPropertyPath(url, out var propertyPath)) {
+                        result = new() {
+                            UrlType = type,
+                            NodeKey = propertyPath.NodePath.NodeKey,
+                            NodePath = propertyPath.NodePath,
+                            PropertyPath = propertyPath
+                        };
+                    }
+                }
+                break;
+            case UrlType.LocalAdjusted: {
+                    if (_urlProviderPublic.TryParseUrlAdjustments(url, out var propertyPath, out var adjustment)) {
+                        result = new() {
+                            UrlType = type,
+                            NodeKey = propertyPath.NodePath.NodeKey,
+                            NodePath = propertyPath.NodePath,
+                            PropertyPath = propertyPath,
+                            Adjustment = adjustment
+                        };
+                    }
+                }
+                break;
+            case UrlType.LocalUrl:
+            case UrlType.RemoteUrl:
+            case UrlType.Email:
+            default: break;
+        }
+        return result != null;
     }
-
-    public bool TryParseUrlType(string url, out UrlType type) => _urlProviderPublic.TryParseUrlType(url, out type);
-    public bool TryParseUrlAdjustments(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment)
-        => _urlProviderPublic.TryParseUrlAdjustments(url, out propertyPath, out adjustment);
-    public bool TryParseUrlNodeKey(string url, [MaybeNullWhen(false)] out NodeKey nodeKey)
-        => _urlProviderPublic.TryParseUrlNodeKey(url, out nodeKey);
-    public bool TryParseUrlNodePath(string url, [MaybeNullWhen(false)] out NodePath nodePath)
-        => _urlProviderPublic.TryParseUrlNodePath(url, out nodePath);
-    public bool TryParseUrlPropertyPath(string url, [MaybeNullWhen(false)] out PropertyPath propertyPath)
-        => _urlProviderPublic.TryParseUrlPropertyPath(url, out propertyPath);
-
+    public bool TryParseUrlForContent(string url, out UrlType type, [MaybeNullWhen(false)] out UrlParseResultContent? r, int maxWaitMs = -1, QueryContext? ctx = null) {
+        r = default;
+        ctx = ctx ?? _defaultQueryCtx;
+        bool v = TryParseUrl(url, out type, out UrlParseResult? result);
+        if (!v || result == null) return false;
+        r = new UrlParseResultContent(result);
+        switch (result.UrlType) {
+            case UrlType.LocalNode: {
+                    r.NodeData = Get(result.NodeKey, _defaultQueryCtx);
+                }
+                break;
+            case UrlType.LocalEmbeddedNode: {
+                    r.NodeData = Get(result.NodePath!, _defaultQueryCtx);
+                }
+                break;
+            case UrlType.LocalProperty: {
+                    r.PropertyValue = GetValue<object>(result.PropertyPath!, _defaultQueryCtx);
+                    if (r.PropertyValue is FileValue fileValue) {
+                        r.FileValue = fileValue;
+                        r.Stream = GetFileStream(result.PropertyPath!, _defaultQueryCtx).Result;
+                        r.ContentType = fileValue.ContentType;
+                        r.UsedFileName = fileValue.Name;
+                    }
+                }
+                break;
+            case UrlType.LocalAdjusted: {
+                    r.PropertyValue = GetValue<object>(result.PropertyPath!, _defaultQueryCtx);
+                    if (r.PropertyValue is FileValue fileValue) {
+                        r.FileValue = fileValue;
+                        var stateAndStream = GetFileStreamAndState(result.PropertyPath!, result.Adjustment!, maxWaitMs).Result;
+                        r.Stream = stateAndStream.Stream;
+                        r.Cacheable = stateAndStream.IsReady;
+                        r.ContentType = FileFormatUtil.GetContentType(stateAndStream.RequestedFormat);
+                        r.UsedFileName = Path.GetFileNameWithoutExtension(fileValue.Name) + FileFormatUtil.GetExtensionWithDot(stateAndStream.RequestedFormat);
+                    }
+                }
+                break;
+            case UrlType.LocalUrl:
+            case UrlType.RemoteUrl:
+            case UrlType.Email:
+            default: throw new InvalidOperationException("Unexpected UrlType in this context: " + result.UrlType);
+        }
+        return r != null;
+    }
 
     public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx = null) {
         return _urlProviderPublic.GetUrl(nodeKey, absolute);
@@ -75,7 +144,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
-            return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty);
+            return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty, null);
         } else if (type == UrlType.LocalAdjusted) {
             if (!_urlProviderPublic.TryParseUrlAdjustments(url, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
             return await GetFileStreamAndState(path, adj, maxWait, ctx);

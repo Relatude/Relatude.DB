@@ -61,7 +61,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else {
             stream = _fileConversionEngine.GetStatusDataStream(fileValue, adj, result.ProgressInfo);
         }
-        return new StateAndStream(stream, result.ProgressInfo.Status == FileConversionStatus.Ready, fileValue, adj.RequestedFormat, conversionId);
+        return new StateAndStream(stream, result.ProgressInfo.Status == FileConversionStatus.Ready, fileValue, adj.RequestedFormat, conversionId, info);
     }
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);

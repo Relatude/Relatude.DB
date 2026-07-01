@@ -17,16 +17,15 @@ public enum UrlFormat {
     GuidIdOnlyAsPath,
     IntIdAsQuery,
     GuidIdAsQuery,
-
 }
 public class UrlProviderOptions {
     public string? UrlParamName { get; set; }
     public string? UrlNodeRoot { get; set; }
     public bool IncludeTrailingSlash { get; set; }
-    public UrlFormat UrlFormat { get; set; } = UrlFormat.IntIdOnlyAsPath;
+    public UrlFormat UrlFormat { get; set; }
     public Guid HashKey { get; set; }
     public bool HashPropertyUrls { get; set; }
-    public bool UnCompressed { get; set; } = true;
+    public bool UnCompressed { get; set; } 
 }
 
 enum UrlDataType : byte {
