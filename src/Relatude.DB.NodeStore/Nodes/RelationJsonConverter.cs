@@ -20,7 +20,7 @@ public class RelationJsonConverter : JsonConverterFactory {
                     {
                         prop.ShouldSerialize = static (obj, value) =>
                         {
-                            if (value is IRelationProperty rp) return rp.HasIncludedData();
+                            if (value is IRelationProperty rp) return rp.HasPreloadedData();
                             return true;
                         };
                     }
@@ -35,11 +35,11 @@ class IRelationJsonConverter : JsonConverter<IRelationProperty> {
     }
     public override void Write(Utf8JsonWriter writer, IRelationProperty value, JsonSerializerOptions options) {
         if (value is IOneProperty one) {
-            var node = one.GetIncludedData();
+            var node = one.GetPreloaded();
             if (node == null) writer.WriteNullValue();
             else JsonSerializer.Serialize(writer, node, options);
         } else if (value is IManyProperty many) {
-            JsonSerializer.Serialize(writer, many.GetIncludedData(), options);
+            JsonSerializer.Serialize(writer, many.GetPreloaded(), options);
         } else throw new NotImplementedException("Unknown IRelationProperty type: " + value.GetType().FullName);
     }
 }

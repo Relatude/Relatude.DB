@@ -212,6 +212,7 @@ public static partial class FromBytes {
             PropertyType.ByteArray => bytes,
             PropertyType.FloatArray => FloatArrayPropertyModel.GetValue(bytes),
             PropertyType.Embedded => innerNodesPropertyModelGetValue(bytes, datamodel, (EmbeddedPropertyModel)propDef, parent),
+            PropertyType.Reference => new Guid(bytes),
             _ => throw new NotSupportedException("Reading property type " + propType + " is not supported. "),
         };
     }
@@ -258,6 +259,7 @@ public static partial class FromBytes {
             PropertyType.FloatArray => FloatArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.File => FilePropertyModel.ForceValueType(value, out _),
             PropertyType.Embedded => EmbeddedPropertyModel.ForceValueType(value, out _),
+            PropertyType.Reference => ReferencePropertyModel.ForceValueType(value, out _),
             _ => throw new NotSupportedException("It is not possible to force type \"" + valueType + "\". "),
         };
     }

@@ -32,4 +32,8 @@
     <ProjectReference Include="..\..\src\Relatude.DB.Skia\Relatude.DB.Skia.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="NewFolder\" />
+  </ItemGroup>
+
 </Project>

@@ -319,6 +319,15 @@ public static class ModelGen {
                     sb.AppendLine(")]");
                 }
                 break;
+                case PropertyType.Reference: {
+                    addBaseAttributes<ReferencePropertyAttribute>(p, dm, sb);
+                    var r = (ReferencePropertyModel)p;
+                    if (r.NodeTypes.Count > 0) {
+                        var guidStrings = r.NodeTypes.Select(t => "\"" + t.ToString() + "\"");
+                        sb.Append(", " + nameof(ReferencePropertyAttribute.TypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
+                    }
+                    sb.AppendLine(")]");
+                } break;
             default:
                 throw new NotSupportedException();
         }

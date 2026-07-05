@@ -1,11 +1,7 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Relatude.DB.CodeGeneration;
 
@@ -42,6 +38,7 @@ internal static class CodeUtils {
             PropertyType.Decimal => "decimal",
             PropertyType.File => "Relatude.DB.Common.FileValue",
             PropertyType.Embedded => getTypeNameEmbedded(p, datamodel),
+            PropertyType.Reference => getTypeNameReference(p, datamodel),
             PropertyType.Relation => getTypeNameRelationCollection(p, datamodel),
             _ => throw new NotSupportedException("The type " + p.PropertyType + " is not supported by the code generator."),
         };
@@ -67,6 +64,15 @@ internal static class CodeUtils {
             default:
                 throw new Exception("Unknown EmbeddedValueType " + inp.EmbeddedValueType);
         }
+        return typeName;
+    }
+    static string getTypeNameReference(PropertyModel p, Datamodel dm) {
+        if (p is not ReferencePropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencePropertyModel.");
+        var typeName = string.Empty;
+        typeName += nameWithoutGeneric<Reference<object>>();
+        typeName += "<";
+        typeName += dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        typeName += ">";
         return typeName;
     }
     public static string GetInnerPropertyKeyPropertyTypeName(EmbeddedPropertyModel p, Datamodel dm) {

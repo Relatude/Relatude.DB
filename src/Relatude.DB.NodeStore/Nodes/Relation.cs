@@ -11,15 +11,15 @@ public interface IRelationProperty {
     int Count();
     bool Contains(int id);
     bool Contains(Guid id);
-    bool HasIncludedData();
+    bool HasPreloadedData();
 }
 public interface IOneProperty : IRelationProperty {
-    object? GetIncludedData();
+    object? GetPreloaded();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet);
 }
 public interface IRelationProperty<T> : IEnumerable<T>, IRelationProperty { }
 public interface IManyProperty : IRelationProperty {
-    IEnumerable<object> GetIncludedData();
+    IEnumerable<object> GetPreloaded();
     void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas);
 }
 public interface IOneProperty<T> : IOneProperty, IRelationProperty<T> {
@@ -29,14 +29,14 @@ public interface IManyProperty<T> : IManyProperty, IRelationProperty<T> {
 public class OneProperty<T>() : IOneProperty<T> {
     NodeStore? _store = null;
     NodeStore store => _store ?? throw new Exception("OneProperty is not initialized. ");
-    Guid parentId;
-    Guid propertyId;
+    public Guid ParentId { get; private set; }
+    public Guid PropertyId { get; private set; }
     INodeDataExternal? nodeData;
     bool? isSet = false;
     public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal? nodeData, bool? isSet) {
         this._store = store;
-        this.parentId = parentId;
-        this.propertyId = propertyId;
+        this.ParentId = parentId;
+        this.PropertyId = propertyId;
         this.nodeData = nodeData;
         this.isSet = isSet;
     }
@@ -44,7 +44,7 @@ public class OneProperty<T>() : IOneProperty<T> {
     public int Count() => IsSet() ? 1 : 0;
     public T Get() {
         if (TryGet(out T? value)) return value;
-        throw new Exception($"Relation {store?.Datastore.Datamodel.Properties[propertyId].CodeName} is not set and empty. ");
+        throw new Exception($"Relation {store?.Datastore.Datamodel.Properties[PropertyId].CodeName} is not set and empty. ");
     }
     bool tryGet([MaybeNullWhen(false)] out INodeDataExternal value) {
         if (isSet.HasValue) {
@@ -55,7 +55,7 @@ public class OneProperty<T>() : IOneProperty<T> {
             value = default;
             return false;
         }
-        if (store.Datastore.TryGetRelatedNodeFromPropertyId(propertyId, parentId, out nodeData)) {
+        if (store.Datastore.TryGetRelatedNodeFromPropertyId(PropertyId, ParentId, out nodeData)) {
             isSet = true;
             value = nodeData;
             return true;
@@ -115,15 +115,15 @@ public class OneProperty<T>() : IOneProperty<T> {
     //    isSet = false;
     //}
 
-    public bool HasIncludedData() => isSet.HasValue;
-    public object? GetIncludedData() {
+    public bool HasPreloadedData() => isSet.HasValue;
+    public object? GetPreloaded() {
         if (!isSet.HasValue) throw new Exception("No included data. ");
         if (nodeData == null) return null;
         return store.Get<T>(nodeData);
     }
 
     public IEnumerator<T> GetEnumerator() {
-        if (!HasIncludedData()) yield break;
+        if (!HasPreloadedData()) yield break;
         if (TryGet(out T? value)) yield return value;
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -132,32 +132,32 @@ public class ManyProperty<T>() : IManyProperty<T> {
     int? _count;
     NodeStore? _store = null;
     NodeStore store => _store ?? throw new Exception("OneProperty is not initialized. ");
-    Guid parentId;
-    Guid propertyId;
+    public Guid ParentId { get; private set; }
+    public Guid PropertyId { get; private set; }
     INodeDataExternal[]? nodeDatas;
     public void Initialize(NodeStore store, Guid parentId, Guid propertyId, INodeDataExternal[]? nodeDatas) {
         this._store = store;
-        this.parentId = parentId;
-        this.propertyId = propertyId;
+        this.ParentId = parentId;
+        this.PropertyId = propertyId;
         this.nodeDatas = nodeDatas;
     }
     public bool IsSet() => Count() > 0;
     public int Count() {
         if (_count.HasValue) return _count.Value;
         if (nodeDatas is not null) return (_count = nodeDatas.Length).Value;
-        return (_count = store.Datastore.GetRelatedCountFromPropertyId(propertyId, parentId)).Value;
+        return (_count = store.Datastore.GetRelatedCountFromPropertyId(PropertyId, ParentId)).Value;
     }
     public IEnumerable<T> Get() {
         if (_count.HasValue && _count == 0) return [];
-        if (nodeDatas is null) nodeDatas = store.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId);
+        if (nodeDatas is null) nodeDatas = store.Datastore.GetRelatedNodesFromPropertyId(PropertyId, ParentId);
         return nodeDatas.Select(n => store.Get<T>(n));
     }
 
-    public IQueryOfNodes<T, T> Query() => store.QueryRelated<T>(propertyId, parentId);
-    public IQueryOfNodes<T, T> Query(Guid id) => store.QueryRelated<T>(propertyId, parentId).Where(id);
-    public IQueryOfNodes<T, T> Query(IEnumerable<Guid> ids) => store.QueryRelated<T>(propertyId, parentId).Where(ids);
-    public IQueryOfNodes<T, T> Query(int id) => store.QueryRelated<T>(propertyId, parentId).Where(id);
-    public IQueryOfNodes<T, T> Query(IEnumerable<int> ids) => store.QueryRelated<T>(propertyId, parentId).Where(ids);
+    public IQueryOfNodes<T, T> Query() => store.QueryRelated<T>(PropertyId, ParentId);
+    public IQueryOfNodes<T, T> Query(Guid id) => store.QueryRelated<T>(PropertyId, ParentId).Where(id);
+    public IQueryOfNodes<T, T> Query(IEnumerable<Guid> ids) => store.QueryRelated<T>(PropertyId, ParentId).Where(ids);
+    public IQueryOfNodes<T, T> Query(int id) => store.QueryRelated<T>(PropertyId, ParentId).Where(id);
+    public IQueryOfNodes<T, T> Query(IEnumerable<int> ids) => store.QueryRelated<T>(PropertyId, ParentId).Where(ids);
 
     //public void Relate(T node) {
     //    if (!isPersited) {
@@ -202,9 +202,9 @@ public class ManyProperty<T>() : IManyProperty<T> {
         if (nodeDatas is not null) return nodeDatas.Any(n => n.Id == id);
         return Query(id).Count() > 0;
     }
-    public bool HasIncludedData() => nodeDatas is not null;
-    public IEnumerable<object> GetIncludedData() {
-        if (nodeDatas is null) throw new Exception("No included data. ");
+    public bool HasPreloadedData() => nodeDatas is not null;
+    public IEnumerable<object> GetPreloaded() {
+        if (nodeDatas is null) throw new Exception("No preloaded data. ");
         foreach (var nodeData in nodeDatas) {
             yield return store.Get<T>(nodeData)!;
         }
@@ -216,7 +216,7 @@ public class ManyProperty<T>() : IManyProperty<T> {
                 yield return store.Get<T>(nodeData)!;
             }
         } else {
-            foreach (var nodeData in store.Datastore.GetRelatedNodesFromPropertyId(propertyId, parentId)) {
+            foreach (var nodeData in store.Datastore.GetRelatedNodesFromPropertyId(PropertyId, ParentId)) {
                 yield return store.Get<T>(nodeData)!;
             }
         }

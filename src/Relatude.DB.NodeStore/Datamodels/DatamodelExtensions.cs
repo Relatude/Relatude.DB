@@ -2,7 +2,6 @@
 using System.Reflection;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
-using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes

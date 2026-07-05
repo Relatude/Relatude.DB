@@ -183,13 +183,26 @@ internal static class InterfaceGen {
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
                 sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + innerTypeMapName + ">(" + pIdName + ");");
                 sb.AppendLine("if (v == null) _" + p.CodeName + " = [];");
-                sb.AppendLine("else _" + p.CodeName + " = new (" + CodeUtils.GuidName(p.Id) + "_KeyProperty, v, __NodeDataShell.Store.Mapper);");
+                sb.AppendLine("else _" + p.CodeName + " = new (v, __NodeDataShell.Store.Mapper);");
                 sb.AppendLine("}");
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine("} ");
                 //sb.AppendLine("set { throw new Exception(\"Embedded properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
-
+            } else if (p.PropertyType == PropertyType.Reference) {
+                sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
+                sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                sb.AppendLine("get {");
+                sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
+                sb.AppendLine("_" + p.CodeName + " = new ();");
+                sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
+                sb.AppendLine("__NodeDataShell.Store, v, null");
+                sb.AppendLine(");");
+                sb.AppendLine("}");
+                sb.AppendLine("return _" + p.CodeName + ";");
+                sb.AppendLine("} ");
+                sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.Append("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ")");

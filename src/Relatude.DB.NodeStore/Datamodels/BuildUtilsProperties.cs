@@ -50,6 +50,8 @@ internal static class BuildUtilsProperties {
             p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType);
         } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
             p = getEmbeddedMapPropertyModel(cast<EmbeddedMapPropertyAttribute>(a, m), valueType);
+        } else if (valueType.InheritsFromOrImplements<IReference>()) {
+            p = getReferencePropertyModel(cast<ReferencePropertyAttribute>(a, m), valueType);
         } else if (valueType.IsSubclassOf(typeof(object))) {
             // if not primitive, then it is assumed to be a relation
             p = getRelationPropertyModel(cast<RelationPropertyAttribute>(a, m), m, valueType);
@@ -103,7 +105,9 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
-            else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
+            else if (valueType.InheritsFromOrImplements<IReference>()) {
+                attr = new ReferencePropertyAttribute();
+            } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
                 attr = new EmbeddedPropertyAttribute();
             } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
                 var a = new EmbeddedMapPropertyAttribute();
@@ -130,6 +134,7 @@ internal static class BuildUtilsProperties {
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
             || attr is FilePropertyAttribute && valueType != typeof(FileValue)
             || attr is EmbeddedPropertyAttribute && !(valueType.InheritsFromOrImplements<IEmbedded>() || valueType.InheritsFromOrImplements<IEmbeddedMap>())
+            || attr is ReferencePropertyAttribute && !valueType.InheritsFromOrImplements<IReference>()
             || attr is EmbeddedMapPropertyAttribute && !valueType.InheritsFromOrImplements<IEmbeddedMap>()
             || attr is RelationPropertyAttribute && !valueType.IsSubclassOf(typeof(object))
             ) {
@@ -294,6 +299,30 @@ internal static class BuildUtilsProperties {
             p.KeyPropertyName = a.KeyProperty;
         }
         p._keyTypeInCodeModelForLaterChecks = valueType;
+        return p;
+    }
+    static ReferencePropertyModel getReferencePropertyModel(ReferencePropertyAttribute a, Type valueType) {
+        var p = new ReferencePropertyModel();
+
+        if (a.TypeIds != null) {
+            var ids = new List<Guid>();
+            var names = new List<string>();
+            foreach (var id in a.TypeIds) {
+                if (Guid.TryParse(id, out var innerTypeGuid)) {
+                    ids.Add(innerTypeGuid);
+                } else if (!string.IsNullOrEmpty(id)) {
+                    names.Add(id);
+                }
+            }
+            if (ids.Count > 0) p.NodeTypes = ids;
+            if (names.Count > 0) p.NodeTypesNames = names;
+        }
+        if (a.TypeIds == null) {
+            var nodeType = valueType.GetGenericArguments()[0];
+            p.NodeTypesNames = [nodeType.FullName!];
+        }
+        p.IncludeTypes = a.IncludeTypes;
+
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {

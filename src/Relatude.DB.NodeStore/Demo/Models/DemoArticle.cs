@@ -21,7 +21,7 @@ public interface IDemoArticle {
     public Tree.Children Children { get; set; }
     public Embedded<DemoParagraph> Paragraphs { get; }
     //public Link<> Site { get; }
-    //public Reference<DemoArticle> Site { get; }
+    public Reference<DemoArticle> Site { get; }
     //public UrlLink<DemoArticle> Site { get; }
 
 }
@@ -44,6 +44,7 @@ public class DemoArticle{
     public int Size { get; set; }
 
     public NodeMeta Meta { get; set; } = NodeMeta.Empty;
+    public Reference<DemoArticle> Site22 { get; set; } = [];
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

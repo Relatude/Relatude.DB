@@ -198,6 +198,11 @@ public class EmbeddedMapPropertyAttribute : EmbeddedPropertyAttribute {
     public string? KeyProperty { get; set; }    
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class ReferencePropertyAttribute : PropertyAttribute {
+    public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
+    public string[]? TypeIds { get; set; }
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
     public string? Relation { get; set; }
     public bool RightToLeft { get; set; }

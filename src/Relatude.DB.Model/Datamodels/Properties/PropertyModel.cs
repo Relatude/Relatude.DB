@@ -108,7 +108,7 @@ public abstract class PropertyModel {
             case PropertyType.File: return (T)(object)FilePropertyModel.ForceValueType(value, out changed);
             case PropertyType.FloatArray: return (T)(object)FloatArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
-            case PropertyType.Relation:
+            case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:
             default:
                 throw new NotImplementedException("ForceValueType is not implemented for property type " + propertyType);

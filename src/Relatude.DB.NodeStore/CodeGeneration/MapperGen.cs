@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using System.Reflection.Metadata;
 using System.Text;
 using System.Xml.Linq;
 using static System.Formats.Asn1.AsnWriter;
@@ -90,6 +91,8 @@ internal static class MapperGen {
                 var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(Embedded<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
                 sb.AppendLine("}");
+            } else if (p is ReferencePropertyModel) {
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReference.Id) + ");");
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");
@@ -244,11 +247,38 @@ internal static class MapperGen {
                     var keyType = CodeUtils.GetInnerPropertyKeyPropertyTypeName((EmbeddedPropertyModel)p, dm);
                     var innerTypeMapName = typeof(InnerNodeDataMap<object>).Namespace + "." + nameof(InnerNodeDataMap<object>) + "<" + keyType + ">";
                     sb.AppendLine("var vT = (" + innerTypeMapName + ")v;");
-                    sb.AppendLine("obj." + p.CodeName + " = new(" + CodeUtils.GuidName(p.Id) + "_KeyProperty, vT, store.Mapper);");
+                    // sb.AppendLine("obj." + p.CodeName + " = new(" + CodeUtils.GuidName(p.Id) + "_KeyProperty, vT, store.Mapper);");
+                    sb.AppendLine("obj." + p.CodeName + " = new(vT, store.Mapper);");
                     sb.AppendLine("} else{ ");
                     sb.AppendLine("obj." + p.CodeName + " = [];");
                     sb.AppendLine("}");
                     sb.AppendLine("}");
+                } else if (p.PropertyType == PropertyType.Reference) {
+                    sb.AppendLine("{");
+                    sb.AppendLine("if(obj." + p.CodeName + " == null) obj." + p.CodeName + " = []; ");
+                    sb.AppendLine(typeof(Guid).FullName + " vT;");
+                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                    sb.AppendLine("vT = (" + typeof(Guid).FullName + ")v;");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("vT = " + typeof(Guid).FullName + "." + nameof(Guid.Empty) + ";");
+                    sb.AppendLine("}");
+                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, null);");
+                    sb.AppendLine("}");
+
+                    //sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
+                    //sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                    //sb.AppendLine("get {");
+                    //sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                    //sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
+                    //sb.AppendLine("_" + p.CodeName + " = new ();");
+                    //sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
+                    //sb.AppendLine("__NodeDataShell.Store, v, null");
+                    //sb.AppendLine(");");
+                    //sb.AppendLine("}");
+                    //sb.AppendLine("return _" + p.CodeName + ";");
+                    //sb.AppendLine("} ");
+                    //sb.AppendLine(" }");
+
                 } else if (p.PropertyType == PropertyType.File) {
                     // Example:
                     //{

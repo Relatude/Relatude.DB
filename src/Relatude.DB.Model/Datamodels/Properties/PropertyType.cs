@@ -19,7 +19,7 @@ public enum PropertyType : int {
     FloatArray = 14,
     DateTimeOffset = 15,
     Embedded = 50,
-
+    Reference= 75,
     Relation = 100,
     //Collection = 200,
     //DataObject = 201,

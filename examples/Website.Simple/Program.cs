@@ -121,8 +121,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     Temporary = false,
                     Quality = 90
                 };
-                var imageUrl = $"{db.GetUrl(article.File)}";
-                //var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
+                //var imageUrl = $"{db.GetUrl(article.File)}";
+                var imageUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, imageAdj)}";
                 html.Append($"<img src='{imageUrl}'>");
             }
             //var metaUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, new FileAdjustmentMeta())}";
@@ -150,10 +150,17 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
     var article1 = new DemoArticle() { Title = "Test" };
     db.Insert(article1);
-    //db.UpdateAddress(article1, "sss", out var didChange, out var changedAdr);
+    var article2 = new DemoArticle() { Title = "Test2" };
+    db.Insert(article2);
 
+    article1 = db.Get(article1);
 
-    return db.GetUrl(article1);
+    article1.Site22.Set(article1);
+    db.Update(article1);
+
+    article1 = db.Get(article1);
+
+    return article1;
 });
 app.MapGet("t", (RelatudeDBContext ctx) => {
     var db = ctx.Database;
@@ -180,6 +187,8 @@ app.MapGet("t", (RelatudeDBContext ctx) => {
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
     var db = ctx.Database;
     var article = db.CreateAndInsert<DemoArticle>(a => { a.Title = "Uploaded file"; });
+    var art2 = new DemoArticle() { Title = "Uploaded file" };
+    db.Upsert(art2);
     var uploadId = await db.InitiateMultipartUploadAsync(article.File, fileName);
     return Results.Json(uploadId);
 });
