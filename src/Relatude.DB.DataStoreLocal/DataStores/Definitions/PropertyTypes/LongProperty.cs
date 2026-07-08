@@ -19,7 +19,7 @@ internal class LongProperty : ValueProperty<long>, IPropertyContainsValue {
     public long DefaultValue;
     public long MinValue = long.MinValue;
     public long MaxValue = long.MaxValue;
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
         var v = (long)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");

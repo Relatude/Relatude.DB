@@ -1,6 +1,8 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using System.Reflection.Metadata;
 
@@ -57,35 +59,51 @@ internal static class IncludeUtil {
         if (from.Relations.ContainsRelation(propId)) return; // already included
         int? top = branch.Top;
         var propDef = _def.Datamodel.Properties[propId];
-        if (propDef is not RelationPropertyModel relProp) throw new Exception("Property " + propDef.CodeName + " is not a relation property, cannot include.");
-        var relation = _def.Relations[relProp.RelationId];
-        var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);
-        _totalNodeCount += idsRel.Count;
-        var ids = idsRel.Enumerate();
-        int count; // faster count, avoiding Count() on the enumerable
-        if (top.HasValue && idsRel.Count > top) {
-            ids = ids.Take(top.Value);
-            count = top.Value;
-        } else {
-            count = idsRel.Count;
-        }
-        var tos = new NodeDataWithRelations[count];
-        var i = 0;
-        foreach (var id in ids) {
-            idsToGet.Add(id);
-            tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
-        }
-        if (relProp.IsMany) {
-            from.Relations.AddManyRelation(propId, tos);
-        } else {
-            if (tos.Length == 1) {
-                from.Relations.AddOneRelation(propId, tos[0]);
-            } else if (tos.Length == 0) {
-                from.Relations.SetNoRelation(propId); // no relation
-            } else if (tos.Length > 1) {
-                throw new Exception("Multiple relations on property " + relProp.CodeName + " for node " + from.__Id + " is not allowed.");
+        if (propDef is ReferencePropertyModel refProp) {
+            if (_db.TryGetValue<Guid>(new PropertyPath(from.__Id, propId), out var guid)) {
+                if (guid != Guid.Empty && _db.Exists(guid)) {
+                    // has value, is set, and exists in the database:
+                    if (!_db._guids.TryGetId(guid, out var id)) return;
+                    idsToGet.Add(id);
+                    var typeId = _db._definition.GetTypeOfNode(id);
+                    var idNodePlaceholder = new NodeDataOnlyTypeAndId(id, typeId);
+                    var to = new NodeDataWithRelations(idNodePlaceholder);
+                    from.Relations.AddReference(propId, to);
+                    if (branch.HasChildren()) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+                }
             }
+        } else if (propDef is RelationPropertyModel relProp) {
+            var relation = _def.Relations[relProp.RelationId];
+            var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);
+            _totalNodeCount += idsRel.Count;
+            var ids = idsRel.Enumerate();
+            int count; // faster count, avoiding Count() on the enumerable
+            if (top.HasValue && idsRel.Count > top) {
+                ids = ids.Take(top.Value);
+                count = top.Value;
+            } else {
+                count = idsRel.Count;
+            }
+            var tos = new NodeDataWithRelations[count];
+            var i = 0;
+            foreach (var id in ids) {
+                idsToGet.Add(id);
+                tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
+            }
+            if (relProp.IsMany) {
+                from.Relations.AddManyRelation(propId, tos);
+            } else {
+                if (tos.Length == 1) {
+                    from.Relations.AddOneRelation(propId, tos[0]);
+                } else if (tos.Length == 0) {
+                    from.Relations.SetNoRelation(propId); // no relation
+                } else if (tos.Length > 1) {
+                    throw new Exception("Multiple relations on property " + relProp.CodeName + " for node " + from.__Id + " is not allowed.");
+                }
+            }
+            if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+        } else {
+            throw new Exception("Property " + propDef.CodeName + " is not a reference or relation property, cannot preload.");
         }
-        if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
     }
 }

@@ -1,6 +1,7 @@
 ﻿
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
@@ -19,9 +20,8 @@ public interface IDemoArticle {
     public FileValue File { get; set; }
 
     public Tree.Children Children { get; set; }
-    public Embedded<DemoParagraph> Paragraphs { get; }
-    //public Link<> Site { get; }
-    public Reference<DemoArticle> Site { get; }
+    //public Embedded<DemoParagraph> Paragraphs { get; }
+    public Reference<IDemoArticle> Site { get; }
     //public UrlLink<DemoArticle> Site { get; }
 
 }
@@ -34,24 +34,25 @@ public interface IDemoParagraph {
 }
 
 
-public class DemoArticle{
+public class DemoArticle : IDemoArticle {
 
     public Guid Id { get; set; }
 
-    [StringProperty(Indexed =true)]
+    [StringProperty(Indexed = true)]
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public int Size { get; set; }
 
     public NodeMeta Meta { get; set; } = NodeMeta.Empty;
-    public Reference<DemoArticle> Site22 { get; set; } = [];
-
+    
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;
 
     [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
     public EmbeddedMap<string, DemoParagraph> Paragraphs { get; set; } = [];
+
+    public DemoArticle Test { get; set; }
 
     public Tree.Parent Parent { get; set; } = new();
     public Tree.Children Children { get; set; } = new();
@@ -62,6 +63,7 @@ public class DemoArticle{
     [DisplayNameProperty]
     public string DisplayName { get; set; } = string.Empty;
 
+    public Reference<IDemoArticle> Site { get; } = [];
 }
 
 public class DemoParagraph {

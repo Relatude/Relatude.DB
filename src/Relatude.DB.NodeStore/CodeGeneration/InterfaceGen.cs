@@ -189,15 +189,21 @@ internal static class InterfaceGen {
                 sb.AppendLine("} ");
                 //sb.AppendLine("set { throw new Exception(\"Embedded properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
-            } else if (p.PropertyType == PropertyType.Reference) {
+            } else if (p.PropertyType == PropertyType.Reference) {                
                 sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.AppendLine("get {");
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                sb.AppendLine("var relations = this." + nameof(INodeShellAccess.__NodeDataShell) + "." 
+                    + nameof(NodeDataShell.NodeData) + "." 
+                    + nameof(NodeDataWithRelations.Relations) + ";");
+                sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "? reference = null; ");
+                sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) reference = r; ");
+
                 sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
                 sb.AppendLine("_" + p.CodeName + " = new ();");
                 sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
-                sb.AppendLine("__NodeDataShell.Store, v, null");
+                sb.AppendLine("__NodeDataShell.Store, v, reference");
                 sb.AppendLine(");");
                 sb.AppendLine("}");
                 sb.AppendLine("return _" + p.CodeName + ";");

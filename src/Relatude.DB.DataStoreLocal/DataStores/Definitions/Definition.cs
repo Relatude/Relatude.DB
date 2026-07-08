@@ -18,6 +18,7 @@ internal sealed class Definition {
         Properties = new();
         Sets = sets;
         _indexes = new();
+        Store = store;
         foreach (var cm in datamodel.NodeTypes.Values) {
             var c = new NodeType(cm);
             NodeTypes.Add(c.Id, c);
@@ -38,6 +39,7 @@ internal sealed class Definition {
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
         _nodeTypeIndex = new(this, store._nativeModelStore, store.Settings);
     }
+    public DataStoreLocal Store { get; }
     public Datamodel Datamodel { get; }
     public SetRegister Sets { get; }
     internal Dictionary<Guid, NodeType> NodeTypes { get; }

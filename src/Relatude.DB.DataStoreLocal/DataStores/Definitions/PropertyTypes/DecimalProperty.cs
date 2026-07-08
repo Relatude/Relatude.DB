@@ -19,7 +19,7 @@ internal class DecimalProperty : ValueProperty<decimal> {
     public decimal DefaultValue;
     public decimal MinValue = decimal.MinValue;
     public decimal MaxValue = decimal.MaxValue;
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
         var v = (decimal)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");

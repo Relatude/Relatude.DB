@@ -255,30 +255,17 @@ internal static class MapperGen {
                     sb.AppendLine("}");
                 } else if (p.PropertyType == PropertyType.Reference) {
                     sb.AppendLine("{");
-                    sb.AppendLine("if(obj." + p.CodeName + " == null) obj." + p.CodeName + " = []; ");
+                    //sb.AppendLine("if(obj." + p.CodeName + " == null) obj." + p.CodeName + " = []; ");
                     sb.AppendLine(typeof(Guid).FullName + " vT;");
+                    sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "? reference = null; ");
                     sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
                     sb.AppendLine("vT = (" + typeof(Guid).FullName + ")v;");
+                    sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) reference = r; ");
                     sb.AppendLine("} else {");
                     sb.AppendLine("vT = " + typeof(Guid).FullName + "." + nameof(Guid.Empty) + ";");
                     sb.AppendLine("}");
-                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, null);");
+                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, reference);");
                     sb.AppendLine("}");
-
-                    //sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
-                    //sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
-                    //sb.AppendLine("get {");
-                    //sb.AppendLine("if(_" + p.CodeName + " == null) {");
-                    //sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
-                    //sb.AppendLine("_" + p.CodeName + " = new ();");
-                    //sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
-                    //sb.AppendLine("__NodeDataShell.Store, v, null");
-                    //sb.AppendLine(");");
-                    //sb.AppendLine("}");
-                    //sb.AppendLine("return _" + p.CodeName + ";");
-                    //sb.AppendLine("} ");
-                    //sb.AppendLine(" }");
-
                 } else if (p.PropertyType == PropertyType.File) {
                     // Example:
                     //{

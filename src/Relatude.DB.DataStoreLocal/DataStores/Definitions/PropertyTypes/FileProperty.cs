@@ -24,7 +24,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
                 return FileValue.Empty;
             }
         }
-        public override void ValidateValue(object value) { }
+        public override void ValidateValue(object value, INodeData node) { }
         public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
         public override bool CanBeFacet() => false;
         public override bool AreValuesEqual(object v1, object v2) {

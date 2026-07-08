@@ -24,7 +24,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
             if (!_isSystemVectorIndexPropertyId) return true;
             return Definition.NodeTypes[nodeTypeId].Model.SemanticIndex!.Value;
         }
-        public override void ValidateValue(object value) { }
+        public override void ValidateValue(object value, INodeData node) { }
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = FloatArrayPropertyModel.ForceValueType(v1, out _);
             var b2 = FloatArrayPropertyModel.ForceValueType(v2, out _);

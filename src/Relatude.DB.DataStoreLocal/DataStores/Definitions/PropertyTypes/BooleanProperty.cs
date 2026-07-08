@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
@@ -13,7 +14,7 @@ internal class BooleanProperty : ValueProperty<bool> {
     protected override bool ReadValue(IReadStream stream) => stream.ReadBool();
     public bool DefaultValue;
     public override PropertyType PropertyType => PropertyType.Boolean;
-    public override void ValidateValue(object value) { }
+    public override void ValidateValue(object value, INodeData node) { }
     public static object GetValue(byte[] bytes) => BitConverter.ToBoolean(bytes, 0);
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = BooleanPropertyModel.ForceValueType(value1, out _);

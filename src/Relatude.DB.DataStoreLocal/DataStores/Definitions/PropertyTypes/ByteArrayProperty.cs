@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.AI;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.IO;
 
@@ -12,7 +13,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object ForceValueType(object value, out bool changed) {
             return ByteArrayPropertyModel.ForceValueType(value, out changed);
         }
-        public override void ValidateValue(object value) { }
+        public override void ValidateValue(object value, INodeData node) { }
         public override bool AreValuesEqual(object v1, object v2) {
             var b1 = ByteArrayPropertyModel.ForceValueType(v1, out _);
             var b2 = ByteArrayPropertyModel.ForceValueType(v2, out _);

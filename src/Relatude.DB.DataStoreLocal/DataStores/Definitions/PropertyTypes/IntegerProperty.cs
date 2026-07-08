@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
@@ -14,7 +15,7 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     public readonly int DefaultValue;
     public readonly int MinValue = int.MinValue;
     public readonly int MaxValue = int.MaxValue;
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
         var v = (int)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");

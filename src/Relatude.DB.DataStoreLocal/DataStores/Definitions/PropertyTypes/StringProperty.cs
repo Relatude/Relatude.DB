@@ -61,7 +61,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
         var v = (string)value;
         if (v.Length > MaxLength) throw new Exception("String value is longer than maximum value allowed. ");
         if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");

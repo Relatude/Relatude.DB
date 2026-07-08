@@ -339,14 +339,18 @@ public class NodeStore : IDisposable {
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null);
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
     public IQueryOfNodes<object, object> Query(QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx);
+    public IQueryOfNodes<T, T> Query<T>(T node, QueryContext? ctx = null) where T : notnull
+        => Query<T>(Mapper.GetIdKey(node), ctx);
     public IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, Datastore.Datamodel.NodeTypes[nodeTypeId].CodeName);
     public IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null) => new QueryOfNodes<object, object>(this, ctx, typeName);
 
     public Task<object?> EvaluateForJsonAsync(string query, List<Parameter> parameters, QueryContext? ctx = null) {
         return new QueryStringBuilder(this, ctx, query, parameters).Prepare().EvaluateForJsonAsync();
     }
-    public IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
-    public IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
+    public IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null)
+        => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfPublicIdProperty + " == \"" + id + "\"");
+    public IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null)
+        => new QueryOfNodes<T, T>(this, ctx).Where("a => a." + Datastore.Datamodel.NodeTypes[Mapper.GetNodeTypeId(typeof(T))].NameOfInternalIdProperty + " == " + id + "");
     public IQueryOfNodes<T, T> Query<T>(NodeKey id, QueryContext? ctx = null) => id.Int == 0 ? Query<T>(id.Guid) : Query<T>(id.Int);
     public IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx);
     public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereInIds(ids);
@@ -364,6 +368,7 @@ public class NodeStore : IDisposable {
     public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
     public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
     public object Get(NodeKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(INodeDataExternal nodeData) => Get<object>(nodeData);
 
     public T Get<T>(T node) where T : notnull => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(Mapper.GetIdGuid(node)), null);
     public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);

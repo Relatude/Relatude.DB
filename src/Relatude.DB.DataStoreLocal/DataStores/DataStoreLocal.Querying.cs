@@ -384,7 +384,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
-    }
+    }    
     public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");

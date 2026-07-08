@@ -14,7 +14,7 @@ internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     protected override Guid ReadValue(IReadStream stream) => stream.ReadGuid();
     public override PropertyType PropertyType => PropertyType.Long;
     public Guid DefaultValue;
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
     }
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
     public override bool CanBeFacet() => false;

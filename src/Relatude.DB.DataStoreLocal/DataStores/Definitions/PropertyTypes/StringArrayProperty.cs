@@ -19,7 +19,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
     public override object ForceValueType(object value, out bool changed) {
         return StringArrayPropertyModel.ForceValueType(value, out changed);
     }
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
     }
     public bool ContainsValue(object value, QueryContext ctx) {
         var index = GetIndex(ctx);

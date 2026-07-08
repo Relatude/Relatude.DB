@@ -124,7 +124,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if(pm is ReferencePropertyModel rf) return new ReferenceProperty(rf, def);
             throw new Exception("Unknown property type. ");
         }
-        public abstract void ValidateValue(object value);
+        public abstract void ValidateValue(object value, INodeData node);
         public abstract object ForceValueType(object value, out bool changed);
         public virtual bool CanBeFacet() => false;
         public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) => throw new NotSupportedException();

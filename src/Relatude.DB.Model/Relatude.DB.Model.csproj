@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Relatude.DB</RootNamespace>
     <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
-    <Version>0.2.0.109</Version>
+    <Version>0.2.0.111</Version>
   </PropertyGroup>
 
     <ItemGroup>

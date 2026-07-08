@@ -19,7 +19,7 @@ internal class RelationProperty : Property {
     public override object ForceValueType(object value, out bool changed) {
         throw new NotImplementedException();
     }
-    public override void ValidateValue(object value) {
+    public override void ValidateValue(object value, INodeData node) {
         throw new NotImplementedException();
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {

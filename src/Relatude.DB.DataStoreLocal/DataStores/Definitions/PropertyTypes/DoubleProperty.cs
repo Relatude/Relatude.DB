@@ -19,7 +19,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public double DefaultValue;
         public double MinValue = double.MinValue;
         public double MaxValue = double.MaxValue;
-        public override void ValidateValue(object value) {
+        public override void ValidateValue(object value, INodeData node) {
             var v = (double)value;
             if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
             if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");

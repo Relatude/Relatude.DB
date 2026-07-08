@@ -24,7 +24,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public override object ForceValueType(object value, out bool changed) {
             return FloatPropertyModel.ForceValueType(value, out changed);
         }
-        public override void ValidateValue(object value) {
+        public override void ValidateValue(object value, INodeData node) {
             var v = (float)value;
             if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
             if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");

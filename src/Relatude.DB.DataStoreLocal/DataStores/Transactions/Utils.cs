@@ -32,7 +32,7 @@ internal static class Utils {
             if (allProps.TryGetValue(kv.PropertyId, out var prop)) {
                 var value = prop.ForceValueType(kv.Value, out var changed);
                 if (transformValues) value = prop.TransformFromOuterToInnerValue(value, oldNode);
-                prop.ValidateValue(value);
+                prop.ValidateValue(value, node);
                 if (changed) node.AddOrUpdate(kv.PropertyId, value);
             } else {
                 // just ignore properties that does not belong to class
