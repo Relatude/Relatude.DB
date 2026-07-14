@@ -9,6 +9,7 @@ public interface IDemoArticle {
 
     public Guid Id { get; set; }
 
+    [StringProperty(Indexed = true)]
     public string Title { get; set; }
     public string Content { get; set; }
     public int Size { get; set; }

@@ -171,6 +171,7 @@ internal class ActionConverter {
                 break;
             case NodeOperation.Upsert: {
                     if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
+                    ensureIdsAndCreateIdIfMissing(db, node);
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);

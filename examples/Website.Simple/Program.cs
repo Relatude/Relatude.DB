@@ -149,6 +149,13 @@ app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) 
 
 app.MapGet("test", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
+
+    var art2 = new DemoArticle() { Title = "Uploaded file" };
+
+    db.Upsert(art2);
+
+    return art2;
+
     //var article1 = new DemoArticle() { Title = "Test" };
     //var article2 = new DemoArticle() { Title = "Test2" };
     //db.Insert(article1);
@@ -163,7 +170,7 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
 
     var ab = db.Query(article1).Preload(a => a.Site).Single();//.ToString();
 
-    return ab;
+    //return ab;
 
 });
 app.MapGet("t", (RelatudeDBContext ctx) => {
@@ -191,8 +198,6 @@ app.MapGet("t", (RelatudeDBContext ctx) => {
 app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
     var db = ctx.Database;
     var article = db.CreateAndInsert<DemoArticle>(a => { a.Title = "Uploaded file"; });
-    var art2 = new DemoArticle() { Title = "Uploaded file" };
-    db.Upsert(art2);
     var uploadId = await db.InitiateMultipartUploadAsync(article.File, fileName);
     return Results.Json(uploadId);
 });

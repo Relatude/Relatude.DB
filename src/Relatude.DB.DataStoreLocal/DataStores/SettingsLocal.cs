@@ -83,6 +83,7 @@ public enum PersistedTextIndexEngine {
 public enum PersistedValueIndexEngine {
     Memory = 0,
     Sqlite = 1,
+    Native = 2,
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,

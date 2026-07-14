@@ -11,6 +11,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
+		<ProjectReference Include="..\Relatude.DB.KvStore\Relatude.DB.KvStore.csproj" />
 	</ItemGroup>
 
 </Project>

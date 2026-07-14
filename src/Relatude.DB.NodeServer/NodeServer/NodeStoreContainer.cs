@@ -154,7 +154,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Lucene) {
                         textIndexFactory = LateBindings.CreateLucenePersistentWordIndexFactory(indexPath);
                     }
-                    return LateBindings.CreatePersistedIndexStore(indexPath, textIndexFactory);
+                    return LateBindings.CreatePersistedIndexStore(settings.LocalSettings.PersistedValueIndexEngine, indexPath, textIndexFactory);
                 };
             } else {
                 if (settings.LocalSettings.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory) {

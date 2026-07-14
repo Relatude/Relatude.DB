@@ -1,8 +1,10 @@
-﻿using System.Reflection;
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
+using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
+using System.Reflection;
 
 namespace Relatude.DB.NodeServer;
 /// <summary>
@@ -33,8 +35,17 @@ public static class LateBindings {
     public static IPersistentWordIndexFactory CreateLucenePersistentWordIndexFactory(string indexPath) {
         return create<IPersistentWordIndexFactory>("Relatude.DB.DataStores.Indexes.WordIndexLuceneFactory", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
     }
-    public static IPersistedIndexStore CreatePersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
-        return create<IPersistedIndexStore>("Relatude.DB.DataStores.Indexes.PersistedIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath, wordIndexFactory]);
+    public static IPersistedIndexStore CreatePersistedIndexStore(PersistedValueIndexEngine engine, string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
+        switch (engine) {
+            case PersistedValueIndexEngine.Memory:
+                throw new Exception("The Memory engine is not supported for persisted index store. Please use Sqlite or Native engine.");
+            case PersistedValueIndexEngine.Sqlite:
+                return create<IPersistedIndexStore>("Relatude.DB.DataStores.Indexes.PersistedIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath, wordIndexFactory]);
+            case PersistedValueIndexEngine.Native:
+                return new NativeKvIndexStore(indexPath, wordIndexFactory);
+            default:
+                throw new Exception("Unknown PersistedValueIndexEngine: " + engine);
+        }
     }
     public static IQueueStore CreateSqliteQueueStore(string queuePath) {
         return create<IQueueStore>("Relatude.DB.Tasks.SqliteQueueStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [queuePath]);

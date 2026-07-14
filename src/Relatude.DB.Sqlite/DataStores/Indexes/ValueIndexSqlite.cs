@@ -8,12 +8,12 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
-    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string friendlyName) {
+    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string tableName, string friendlyName) {
         _indexId = indexId;
         _store = store;
         _stateId = new();
         _sets = sets;
-        _tableName = store.GetTableName(indexId);
+        _tableName = tableName;
         FriendlyName = friendlyName;
     }
     int _idCount = -1;

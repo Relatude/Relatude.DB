@@ -1,8 +1,6 @@
 ﻿using Microsoft.Data.Sqlite;
-using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
-using System.Data.Common;
 namespace Relatude.DB.DataStores.Indexes;
 
 public class PersistedIndexStore : IPersistedIndexStore {
@@ -93,10 +91,22 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
 
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {
-        var index = new ValueIndexSqlite<T>(sets, this, key, friendlyName);
-        _idxs.Add(key, new(key, type, "P" + key.Replace("-", "_"), index));
+        var tableName = "P" + key.Replace("-", "_");
+        var index = new ValueIndexSqlite<T>(sets, this, key, tableName, friendlyName);
+        var idx = new idxInfo(key, type, tableName, index);
+        ensureIndexTable(idx);
+        _idxs.Add(key, idx);
         index.PersistedTimestamp = GetTimestamp(key);
         return index;
+    }
+    void ensureIndexTable(idxInfo i) {
+        using var cmd = CreateCommand();
+        if (i.Table.StartsWith("P")) {
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
+            cmd.ExecuteNonQuery();
+            cmd.CommandText = "CREATE INDEX IF NOT EXISTS " + i.Table + "_value ON " + i.Table + " (value)";
+            cmd.ExecuteNonQuery();
+        }
     }
     string getSqlType(PropertyType type) {
         return type switch {
@@ -152,7 +162,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     public void FullCleanUpOnBadError() {
         if (_transaction != null) {
             try { _transaction.Rollback(); } catch { }
-            try {_transaction.Dispose(); } catch { }
+            try { _transaction.Dispose(); } catch { }
             _transaction = null;
         }
     }
