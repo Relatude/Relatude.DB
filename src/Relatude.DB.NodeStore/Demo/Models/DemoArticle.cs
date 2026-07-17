@@ -5,7 +5,29 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
-public interface IDemoArticle {
+
+public interface IBluestoneFile {
+
+    public FileValue File { get; set; }
+
+    public string ExternalId { get; set; }
+
+}
+
+
+public interface IProduct{
+    [EmbeddedMapProperty(KeyProperty = nameof(IBluestoneFile.ExternalId))]
+
+    public EmbeddedMap<string, IBluestoneFile> MorePictures { get; set; }
+
+
+
+    [EmbeddedMapProperty(KeyProperty = nameof(IBluestoneFile.ExternalId))]
+
+    public EmbeddedMap<string, IBluestoneFile> Documents { get; set; }
+}
+
+    public interface IDemoArticle {
 
     public Guid Id { get; set; }
 
@@ -21,7 +43,8 @@ public interface IDemoArticle {
     public FileValue File { get; set; }
 
     public Tree.Children Children { get; set; }
-    //public Embedded<DemoParagraph> Paragraphs { get; }
+    [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
+    public EmbeddedMap<string, DemoParagraph> Paragraphs { get; }
     public Reference<IDemoArticle> Site { get; }
     //public UrlLink<DemoArticle> Site { get; }
 
@@ -35,7 +58,7 @@ public interface IDemoParagraph {
 }
 
 
-public class DemoArticle : IDemoArticle {
+public class DemoArticle {
 
     public Guid Id { get; set; }
 
@@ -45,7 +68,7 @@ public class DemoArticle : IDemoArticle {
     public int Size { get; set; }
 
     public NodeMeta Meta { get; set; } = NodeMeta.Empty;
-    
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public FileValue File { get; set; } = FileValue.Empty;

@@ -1,29 +1,33 @@
-﻿using KvStore;
+﻿
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
-using static Relatude.DB.DataStores.Relations.RelationDataDictionary;
-
+using SuperFastIndex;
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 public class NativeKvIndexStore : IPersistedIndexStore {
     string _path;
-    DatabaseFile _fileStorage;
-    KeyValueStore<string, string> _settings;
+    BPlusTreeEngineOptions _options;
+    BPlusTreeStorageEngine _fileStorage;
+    ISortedIndex<string> _settings;
+    enum SettingKey : int {
+        WalId = 1,
+    }
     readonly IPersistentWordIndexFactory _wordIndexFactory;
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexes = [];
     public NativeKvIndexStore(string folderPath, IPersistentWordIndexFactory wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
-        if(!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
+        if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
         var filePath = Path.Combine(folderPath, "kvstore.db");
         _path = filePath;
-        _fileStorage = DatabaseFile.Open(filePath);
-        _settings = _fileStorage.GetStore<string, string>("settings");
+        _options = new BPlusTreeEngineOptions();
+        _fileStorage = new BPlusTreeStorageEngine(filePath, _options);
+        _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
     }
     public void CancelTransaction() {
-        _fileStorage.CancelTransaction();
+        _fileStorage.RollbackTransaction();
     }
     public void CommitTransaction(long timestamp) {
-        _fileStorage.CommitTransaction(timestamp);
+        _fileStorage.CommitTransaction(timestamp, true);
     }
     public void Dispose() {
         _fileStorage.Dispose();
@@ -40,7 +44,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         IWordIndex index;
         if (_wordIndexes.ContainsKey(id)) return _wordIndexes[id];
         var idx = _wordIndexFactory.Create(sets, this, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
-        _wordIndexes.Add(id, idx);        
+        _wordIndexes.Add(id, idx);
         index = idx;
         return index;
     }
@@ -48,24 +52,24 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     }
     public void ReOpen() {
         _fileStorage.Dispose();
-        _fileStorage = DatabaseFile.Open(_path);
-        _settings = _fileStorage.GetStore<string, string>("settings");
+        _fileStorage = new BPlusTreeStorageEngine(_path, _options);
+        _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
     }
     public void ResetAll() {
-        var currentSettings = _settings.RangeAll().ToArray();
+        var currentSettings = _settings.Entries.ToArray();
         _fileStorage.DeleteAll();
-        _fileStorage.StartTransaction();
+        _fileStorage.BeginTransaction();
         foreach (var (key, value) in currentSettings) {
-            _settings.Put(key, value);
+            _settings.Set(key, value);
         }
-        _fileStorage.CommitTransaction(0);
+        _fileStorage.CommitTransaction(0, true);
     }
-    public Guid WalFileId => Guid.TryParse(_settings.TryGet("walFileId", out var walFileIdStr) ? walFileIdStr : null, out var walFileId) ? walFileId : Guid.Empty;
-    public void SetWalFileId(Guid walFileId) => _settings.Put("walFileId", walFileId.ToString());
-    public void StartTransaction() => _fileStorage.StartTransaction();
+    public Guid WalFileId => Guid.TryParse(_settings.TryGetValue((int)SettingKey.WalId, out var walFileIdStr) ? walFileIdStr : null, out var walFileId) ? walFileId : Guid.Empty;
+    public void SetWalFileId(Guid walFileId) => _settings.Set((int)SettingKey.WalId, walFileId.ToString());
+    public void StartTransaction() => _fileStorage.BeginTransaction();
     public void UpdateTimestampsDueToHotswap(long timestamp, Guid walFileId) {
-        _fileStorage.StartTransaction();
-        _settings.Put("walFileId", walFileId.ToString());
-        _fileStorage.CommitTransaction(timestamp);
+        _fileStorage.BeginTransaction();
+        _settings.Set((int)SettingKey.WalId, walFileId.ToString());
+        _fileStorage.CommitTransaction(timestamp, true);
     }
 }

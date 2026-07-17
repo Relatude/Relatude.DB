@@ -150,9 +150,11 @@ app.MapPost("/cancel", async (RelatudeDBContext ctx, Guid id, bool permanently) 
 app.MapGet("test", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
 
-    var art2 = new DemoArticle() { Title = "Uploaded file" };
+    var art2 = db.CreateAndInsert<IDemoArticle>(a => { a.Title = "Uploaded file"; });
 
     db.Upsert(art2);
+
+
 
     return art2;
 

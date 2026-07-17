@@ -1,33 +1,29 @@
-﻿using KvStore;
-using Relatude.DB.Common;
-using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.DataStores.Sets;
+﻿using Relatude.DB.DataStores.Sets;
+using SuperFastIndex;
 
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
-    KeyValueStore<int, T> _valuesById;
-    KeyValueStore<T, IdSet> _idsByValue;
+    ISortedIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
-    public NativeKvValueIndex(string uniqueKey, DatabaseFile store, SetRegister sets, string friendlyName) {
+    public NativeKvValueIndex(string uniqueKey, IStorageEngine store, SetRegister sets, string friendlyName) {
         UniqueKey = uniqueKey;
         _sets = sets;
-        _valuesById = store.GetStore<int, T>(uniqueKey + "_valuesById");
-        _idsByValue = store.GetStore<T, IdSet>(uniqueKey + "_idsByValue");
+        _index = store.OpenOrCreateIndex<T>(uniqueKey);
         _stateId = new();
         FriendlyName = friendlyName;
     }
     public long StateId => _stateId.Current;
 
-    public int IdCount => (int)_valuesById.Count;
+    public int IdCount => _index.Count;
 
-    public IEnumerable<int> Ids => _valuesById.GetAllKeys();
+    public IEnumerable<int> Ids => _index.Keys;
 
-    public IEnumerable<T> UniqueValues => _idsByValue.GetAllKeys();
+    public IEnumerable<T> UniqueValues => _index.DistinctValues;
 
-    public int ValueCount => (int)_idsByValue.Count;
+    public int ValueCount => _index.DistinctValueCount;
 
     public string UniqueKey { get; }
 
@@ -35,20 +31,11 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     public long PersistedTimestamp { get; set; }
 
     void add(int id, T value) {
-        _valuesById.Put(id, value);
-        var ids = _idsByValue.TryGet(value, out var existing) ? new List<int>(existing.Enumerate()) : [];
-        if (!ids.Contains(id)) ids.Add(id);
-        _idsByValue.Put(value, IdSet.UncachableSet(ids));
+        _index.Set(id, value);
         _stateId.RegisterAddition(id, value);
     }
     void remove(int id, T value) {
-        _valuesById.Delete(id);
-        if (_idsByValue.TryGet(value, out var existing)) {
-            var ids = new List<int>(existing.Enumerate());
-            ids.Remove(id);
-            if (ids.Count == 0) _idsByValue.Delete(value);
-            else _idsByValue.Put(value, IdSet.UncachableSet(ids));
-        }
+        _index.Remove(id);
         _stateId.RegisterRemoval(id, value);
     }
     public void Add(int id, T value) => add(id, value);
@@ -59,26 +46,15 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (T)value);
 
     public void ClearCache() {
-        _valuesById.ClearCache();
-        _idsByValue.ClearCache();
+
     }
     public void CompressMemory() {
 
     }
 
     public bool ContainsValue(T value) {
-        return _idsByValue.ContainsKey(value);
+        return _index.ContainsValue(value);
     }
-
-    static int countIds(IEnumerable<KeyValuePair<T, IdSet>> entries) {
-        var count = 0;
-        foreach (var e in entries) count += e.Value.Count;
-        return count;
-    }
-    static IEnumerable<int> flattenIds(IEnumerable<KeyValuePair<T, IdSet>> entries) {
-        foreach (var e in entries) foreach (var id in e.Value.Enumerate()) yield return id;
-    }
-
     public int CountEqual(IdSet nodeIds, T value) {
         var ids = GetIds(value);
         var count = 0;
@@ -87,35 +63,51 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     }
 
     public int CountGreaterThan(T value, bool inclusive) {
-        return countIds(_idsByValue.RangeFrom(value, inclusive));
+        return _index.CountIdsGreaterThan(value, inclusive);
     }
 
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) {
-        var ids = flattenIds(_idsByValue.Range(from, to, fromInclusive, toInclusive));
         var count = 0;
-        foreach (var id in ids) if (nodeIds.Has(id)) count++;
+        var allInRange = _index.GetIdsInRange(from, to, fromInclusive, toInclusive);
+        foreach (var id in allInRange) if (nodeIds.Has(id)) count++;
         return count;
     }
 
     public int CountLessThan(T value, bool inclusive) {
-        return countIds(_idsByValue.RangeTo(value, inclusive));
+        return _index.CountIdsSmallerThan(value, inclusive);
     }
 
     public void Dispose() {
-        // lifetime of underlying stores owned by DatabaseFile
+
     }
 
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) {
-        IEnumerable<int> matches = op switch {
+        if (op == IndexOperator.NotEqual) {
+            List<int> notEqual = [];
+            foreach (var id in nodeIds.Enumerate()) {
+                if (_index.TryGetValue(id, out var value)) {
+                    var comparison = _comparer.Compare(value, v);
+                    if (comparison != 0) {
+                        // If the value is not equal to v, we include it in the result
+                        notEqual.Add(id);
+                    }
+                    ;
+                } else {
+                    // if the id does not exist in the index, we consider it as not equal to v
+                    notEqual.Add(id);
+                }
+            }
+            return IdSet.UncachableSet(notEqual);
+        }
+        IEnumerable<int> possibleMatches = op switch {
             IndexOperator.Equal => GetIds(v),
-            IndexOperator.NotEqual => Ids.Where(id => !_valuesById.TryGet(id, out var val) || !val.Equals(v)),
             IndexOperator.Greater => GreaterThan(v, false),
             IndexOperator.GreaterOrEqual => GreaterThan(v, true),
             IndexOperator.Smaller => LessThan(v, false),
             IndexOperator.SmallerOrEqual => LessThan(v, true),
             _ => throw new Exception("Unknown operator: " + op + ". "),
         };
-        var matchSet = new HashSet<int>(matches);
+        var matchSet = new HashSet<int>(possibleMatches);
         return IdSet.UncachableSet(nodeIds.Enumerate().Where(matchSet.Contains).ToList());
     }
 
@@ -140,16 +132,15 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     }
 
     public ICollection<int> GetIds(T value) {
-        if (_idsByValue.TryGet(value, out var ids)) return ids.Enumerate().ToList();
-        return EmptySet.Instance;
+        return _index.GetIds(value).ToList();
     }
 
     public T GetValue(int nodeId) {
-        return _valuesById[nodeId];
+        return _index.GetValue(nodeId);
     }
 
     public IEnumerable<int> GreaterThan(T value, bool inclusive) {
-        return flattenIds(_idsByValue.RangeFrom(value, inclusive));
+        return _index.GetIdsGreaterThan(value, inclusive);
     }
 
     public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) {
@@ -157,7 +148,7 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     }
 
     public IEnumerable<int> LessThan(T value, bool inclusive) {
-        return flattenIds(_idsByValue.RangeTo(value, inclusive));
+        return _index.GetIdsSmallerThan(value, inclusive);
     }
 
     public int MaxCount(IndexOperator op, T value) {
@@ -175,17 +166,15 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     }
 
     public T? MaxValue() {
-        var keys = _idsByValue.GetAllKeys(true);
-        return keys.Count > 0 ? keys[0] : default;
+        return _index.GetMaxValue();
     }
 
     public T? MinValue() {
-        var keys = _idsByValue.GetAllKeys(false);
-        return keys.Count > 0 ? keys[0] : default;
+        return _index.GetMinValue();
     }
 
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
-        return flattenIds(_idsByValue.Range(from, to, fromInclusive, toInclusive));
+        return _index.GetIdsInRange(from, to, fromInclusive, toInclusive);
     }
 
     public IdSet ReOrder(IdSet unsorted, bool descending) {
