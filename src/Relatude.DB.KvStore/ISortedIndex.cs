@@ -101,6 +101,12 @@ public interface IStorageEngine
     void BeginTransaction();
 
     /// <summary>
+    /// True while the writer transaction is active — between <see cref="BeginTransaction"/> and
+    /// the <see cref="CommitTransaction"/> or <see cref="RollbackTransaction"/> that ends it.
+    /// </summary>
+    bool IsInTransaction { get; }
+
+    /// <summary>
     /// Publishes the transaction's changes and records <paramref name="timestamp"/>.
     /// With <paramref name="durable"/> the commit is flushed to stable storage (power-loss
     /// safe where the engine supports it); without, it trades durability for speed —

@@ -72,7 +72,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
-    public Guid WalFileId => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
+    public Guid GetWalFileId() => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
     public void SetWalFileId(Guid walFileId) { setSetting("WALFileId", walFileId.ToString()); }
     public long GetTimestamp(string indexId) {
         var key = "Timestamp_" + indexId;
@@ -82,7 +82,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         var key = "Timestamp_" + indexId;
         setSetting(key, timestamp.ToString());
     }
-    public void UpdateTimestampsDueToHotswap(long timestamp, Guid walFileId) {
+    public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
         foreach (var i in _idxs.Values) {
             setTimestamp(i.Id, timestamp);
             i.Index.PersistedTimestamp = timestamp;
@@ -149,17 +149,17 @@ public class PersistedIndexStore : IPersistedIndexStore {
         return value;
     }
 
-    public void StartTransaction() {
+    public void BeginTransaction() {
         if (_transaction != null) throw new InvalidOperationException("Transaction already started");
         _transaction = _connection.BeginTransaction();
     }
-    public void CancelTransaction() {
+    public void RollbackTransaction() {
         if (_transaction == null) throw new InvalidOperationException("Transaction not started");
         _transaction.Rollback();
         _transaction.Dispose(); // is this needed?...
         _transaction = null;
     }
-    public void FullCleanUpOnBadError() {
+    public void CleanUpOnUnknownTransactionError() {
         if (_transaction != null) {
             try { _transaction.Rollback(); } catch { }
             try { _transaction.Dispose(); } catch { }

@@ -16,20 +16,13 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         FriendlyName = friendlyName;
     }
     public long StateId => _stateId.Current;
-
     public int IdCount => _index.Count;
-
     public IEnumerable<int> Ids => _index.Keys;
-
     public IEnumerable<T> UniqueValues => _index.DistinctValues;
-
     public int ValueCount => _index.DistinctValueCount;
-
     public string UniqueKey { get; }
-
     public string FriendlyName { get; }
     public long PersistedTimestamp { get; set; }
-
     void add(int id, T value) {
         _index.Set(id, value);
         _stateId.RegisterAddition(id, value);
@@ -44,14 +37,12 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     public void Remove(int id, object value) => remove(id, (T)value);
     public void RegisterAddDuringStateLoad(int id, object value) => add(id, (T)value);
     public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (T)value);
-
     public void ClearCache() {
 
     }
     public void CompressMemory() {
 
     }
-
     public bool ContainsValue(T value) {
         return _index.ContainsValue(value);
     }
@@ -61,26 +52,21 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         foreach (var id in ids) if (nodeIds.Has(id)) count++;
         return count;
     }
-
     public int CountGreaterThan(T value, bool inclusive) {
         return _index.CountIdsGreaterThan(value, inclusive);
     }
-
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) {
         var count = 0;
         var allInRange = _index.GetIdsInRange(from, to, fromInclusive, toInclusive);
         foreach (var id in allInRange) if (nodeIds.Has(id)) count++;
         return count;
     }
-
     public int CountLessThan(T value, bool inclusive) {
         return _index.CountIdsSmallerThan(value, inclusive);
     }
-
     public void Dispose() {
 
     }
-
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) {
         if (op == IndexOperator.NotEqual) {
             List<int> notEqual = [];
@@ -110,7 +96,6 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         var matchSet = new HashSet<int>(possibleMatches);
         return IdSet.UncachableSet(nodeIds.Enumerate().Where(matchSet.Contains).ToList());
     }
-
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) {
         var matchSet = new HashSet<int>();
         foreach (var value in selectedValues) foreach (var id in GetIds(value)) matchSet.Add(id);

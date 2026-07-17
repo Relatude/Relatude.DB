@@ -81,6 +81,8 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         }
     }
 
+    public bool IsInTransaction => _inTransaction;
+
     public void BeginTransaction()
     {
         if (_inTransaction)

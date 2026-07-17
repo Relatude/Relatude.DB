@@ -23,7 +23,8 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         _fileStorage = new BPlusTreeStorageEngine(filePath, _options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
     }
-    public void CancelTransaction() {
+    public void RollbackTransaction() {
+        if (!_fileStorage.IsInTransaction) throw new InvalidOperationException("No transaction is currently active.");
         _fileStorage.RollbackTransaction();
     }
     public void CommitTransaction(long timestamp) {
@@ -32,7 +33,10 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     public void Dispose() {
         _fileStorage.Dispose();
     }
-    public void FullCleanUpOnBadError() {
+    public void CleanUpOnUnknownTransactionError() {
+        if (_fileStorage.IsInTransaction) {
+            _fileStorage.RollbackTransaction();
+        }
     }
     public long GetTotalDiskSpace() {
         return _fileStorage.GetTotalDiskSpace();
@@ -64,10 +68,21 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         }
         _fileStorage.CommitTransaction(0, true);
     }
-    public Guid WalFileId => Guid.TryParse(_settings.TryGetValue((int)SettingKey.WalId, out var walFileIdStr) ? walFileIdStr : null, out var walFileId) ? walFileId : Guid.Empty;
-    public void SetWalFileId(Guid walFileId) => _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-    public void StartTransaction() => _fileStorage.BeginTransaction();
-    public void UpdateTimestampsDueToHotswap(long timestamp, Guid walFileId) {
+    public Guid GetWalFileId() {
+        if (_settings.TryGetValue((int)SettingKey.WalId, out var s)) {
+            if (Guid.TryParse(s, out var walFileId)) {
+                return walFileId;
+            }
+        }
+        return Guid.Empty;
+    }
+    public void SetWalFileId(Guid walFileId) {
+        _fileStorage.BeginTransaction();
+        _settings.Set((int)SettingKey.WalId, walFileId.ToString());
+        _fileStorage.CommitTransaction(_fileStorage.GetTimestamp(), true);
+    }
+    public void BeginTransaction() => _fileStorage.BeginTransaction();
+    public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
         _fileStorage.BeginTransaction();
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());
         _fileStorage.CommitTransaction(timestamp, true);

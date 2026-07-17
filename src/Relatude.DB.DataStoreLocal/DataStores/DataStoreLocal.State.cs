@@ -98,10 +98,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 setStartupProgressEstimate(1 + prg / 2);
             }, walFileId); // could introduce lazy loading of indexes later....
             if (PersistedIndexStore != null) {
-                if (PersistedIndexStore.WalFileId == Guid.Empty) {
+                if (PersistedIndexStore.GetWalFileId() == Guid.Empty) {
                     PersistedIndexStore.SetWalFileId(walFileId);
                     LogInfo(" - Persisted indexes initialized with log file id.");
-                } else if (PersistedIndexStore.WalFileId != walFileId) {
+                } else if (PersistedIndexStore.GetWalFileId() != walFileId) {
                     PersistedIndexStore.ResetAll();
                     LogInfo(" - Persisted indexes reset, log file id different.");
                 }
@@ -191,7 +191,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
-        PersistedIndexStore?.StartTransaction();
+        PersistedIndexStore?.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors);
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());

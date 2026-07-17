@@ -3,6 +3,9 @@
 namespace Relatude.DB.Web;
 
 public static class FileHandler {
+    //public static Task<IResult> HandleFileAsync(HttpContext http, UrlContent c) {
+    //    return HandleFileAsync(http, c.Stream, c.FileName, c.Attachment, c.ContentType, c.Cacheable);
+    //}
     public static async Task<IResult> HandleFileAsync(HttpContext http, Stream? stream, string? fileName = null, bool? attachment = null, string? contentType = null, bool? cached = null) {
         var rangeHeader = http.Request.Headers.Range.ToString();
         if (!cached.HasValue) {
@@ -21,7 +24,8 @@ public static class FileHandler {
         }
         if (stream == null) return Results.Empty;
         var totalLength = stream.CanSeek ? stream.Length : (long?)null;
-        if (stream.CanSeek && !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=")) {
+        bool isRangeRequest = !string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=");
+        if (stream.CanSeek && isRangeRequest) {
             try {
                 var range = rangeHeader["bytes=".Length..].Split('-');
                 var start = long.TryParse(range[0], out var s) ? s : 0;

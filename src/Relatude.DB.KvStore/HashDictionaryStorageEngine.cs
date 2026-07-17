@@ -40,6 +40,8 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         }
     }
 
+    public bool IsInTransaction => _inTransaction;
+
     public void BeginTransaction()
     {
         if (_inTransaction)

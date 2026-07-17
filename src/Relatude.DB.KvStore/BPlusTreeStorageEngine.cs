@@ -157,6 +157,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         }
     }
 
+    public bool IsInTransaction => _activeTxn is not null;
+
     public void BeginTransaction()
     {
         lock (_writeLock)
