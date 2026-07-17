@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
 	  <RootNamespace>Relatude.DB</RootNamespace>
 	  <Nullable>enable</Nullable>
-	  <Version>0.2.0.111</Version>
+	  <Version>0.2.0.113</Version>
   </PropertyGroup>
 
 	<ItemGroup>

@@ -31,6 +31,7 @@
 		<file src="..\src\Relatude.DB.FileStorage\bin\Release\net8.0\Relatude.DB.FileStorage.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.IO\bin\Release\net8.0\Relatude.DB.IO.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.Logger\bin\Release\net8.0\Relatude.DB.Logger.dll" target="lib\net8.0" />
+		<file src="..\src\Relatude.DB.KvStore\bin\Release\net8.0\Relatude.DB.KvStore.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.Model\bin\Release\net8.0\Relatude.DB.Model.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.NodeStore\bin\Release\net8.0\Relatude.DB.NodeStore.dll" target="lib\net8.0" />
 	</files>

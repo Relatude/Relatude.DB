@@ -158,19 +158,19 @@ app.MapGet("test", async (RelatudeDBContext ctx) => {
 
     return art2;
 
-    //var article1 = new DemoArticle() { Title = "Test" };
-    //var article2 = new DemoArticle() { Title = "Test2" };
-    //db.Insert(article1);
-    //db.Insert(article2);
+    ////var article1 = new DemoArticle() { Title = "Test" };
+    ////var article2 = new DemoArticle() { Title = "Test2" };
+    ////db.Insert(article1);
+    ////db.Insert(article2);
 
-    var article1 = db.CreateAndInsert<IDemoArticle>(a => { a.Title = "Test1"; });
-    var article2 = db.CreateAndInsert<DemoArticle>(b => { b.Title = "Test2"; });
+    //var article1 = db.CreateAndInsert<IDemoArticle>(a => { a.Title = "Test1"; });
+    //var article2 = db.CreateAndInsert<DemoArticle>(b => { b.Title = "Test2"; });
 
-    article1.Site.Set(article2.Id);
+    //article1.Site.Set(article2.Id);
 
-    db.Update(article1);
+    //db.Update(article1);
 
-    var ab = db.Query(article1).Preload(a => a.Site).Single();//.ToString();
+    //var ab = db.Query(article1).Preload(a => a.Site).Single();//.ToString();
 
     //return ab;
 

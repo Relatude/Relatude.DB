@@ -76,8 +76,6 @@ public class DemoArticle {
     [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
     public EmbeddedMap<string, DemoParagraph> Paragraphs { get; set; } = [];
 
-    public DemoArticle Test { get; set; }
-
     public Tree.Parent Parent { get; set; } = new();
     public Tree.Children Children { get; set; } = new();
 
