@@ -19,6 +19,15 @@ public interface IPersistedIndexStore : IDisposable {
             }
         }
     }
+    /// <summary>
+    /// Durably deletes every persisted index that has not been opened in this session, data and
+    /// definition included; open indexes are untouched. Call only after every index in the current
+    /// schema has been opened: anything still unopened is then an index that has left the schema,
+    /// and deleting it ensures a later re-add starts fresh (timestamp 0, forcing a rebuild)
+    /// instead of resurrecting stale data that claims to be current.
+    /// Only allowed outside a transaction.
+    /// </summary>
+    void DeleteUnopenedIndexes();
     void BeginTransaction();
     void RollbackTransaction();
     void CleanUpOnUnknownTransactionError();

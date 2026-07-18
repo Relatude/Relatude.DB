@@ -52,6 +52,12 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         index = idx;
         return index;
     }
+    public void DeleteUnopenedIndexes() {
+        // every value index opened this session (and the settings index) is open in the engine,
+        // so this only deletes kv indexes that have left the schema
+        _fileStorage.DeleteUnopenedIndexes();
+        _wordIndexFactory.DeleteUnopenedFiles(_wordIndexes.Keys);
+    }
     public void OptimizeDisk() {
     }
     public void ReOpen() {
@@ -67,6 +73,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
             _settings.Set(key, value);
         }
         _fileStorage.CommitTransaction(0, true);
+
     }
     public Guid GetWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s)) {

@@ -25,6 +25,14 @@ public class WordIndexLuceneFactory : IPersistentWordIndexFactory {
             System.IO.Directory.Delete(_luceneFolderPath, true);
         }
     }
+    public void DeleteUnopenedFiles(IEnumerable<string> openKeys) {
+        if (!System.IO.Directory.Exists(_luceneFolderPath)) return;
+        var openFolders = openKeys.Select(WordIndexLucene.GetFolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in System.IO.Directory.GetDirectories(_luceneFolderPath)) {
+            if (openFolders.Contains(Path.GetFileName(dir))) continue;
+            try { System.IO.Directory.Delete(dir, true); } catch { } // a locked folder is skipped, not fatal
+        }
+    }
 }
 
 public class WordIndexLucene : IPersistentWordIndex {
@@ -40,8 +48,9 @@ public class WordIndexLucene : IPersistentWordIndex {
     public int MaxWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
+    internal static string GetFolderName(string indexId) => indexId.ToLower().Replace("wordindex", "");
     public WordIndexLucene(SetRegister sets, string indexId, string friendlyName,string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        _path = Path.Combine(folderPath, indexId.ToLower().Replace("wordindex", ""));
+        _path = Path.Combine(folderPath, GetFolderName(indexId));
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _indexId = indexId;
         _stateId = new();

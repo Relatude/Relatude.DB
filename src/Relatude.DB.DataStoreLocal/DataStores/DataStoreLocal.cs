@@ -255,7 +255,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);
         _index = new(_definition);
-        _definition.Initialize(this, _settings, _io, _ai);
+        _definition.Initialize(this, _settings, _io, _ai);  // this will open all indexes and set up the variables
+        PersistedIndexStore?.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
         _variables = getRootVariables();
         _nodeWriteLocks = new();
         PersistedIndexStore?.ReOpen();

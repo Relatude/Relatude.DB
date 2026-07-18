@@ -56,8 +56,18 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         Lock.EnterWriteLock();
         _timestamp = timestamp;
         Lock.ExitWriteLock();
+        AdoptEngineTimestampOnAllIndexes();
         _inTransaction = false;
         UndoLog = null;
+    }
+
+    private void AdoptEngineTimestampOnAllIndexes()
+    {
+        lock (_open)
+        {
+            foreach (object index in _open.Values)
+                ((IIndexTimestamp)index).AdoptEngineTimestamp();
+        }
     }
 
     public void RollbackTransaction()
@@ -92,6 +102,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         Lock.EnterWriteLock();
         _timestamp = timestamp;
         Lock.ExitWriteLock();
+        AdoptEngineTimestampOnAllIndexes();
     }
 
     internal void RequireTransaction()
@@ -122,6 +133,13 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         }
     }
 
+    public void DeleteUnopenedIndexes()
+    {
+        if (_inTransaction)
+            throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
+        // memory-only engine: an index exists only while open, so there is never anything to delete
+    }
+
     private interface IClearable
     {
         void ClearAll();
@@ -129,13 +147,33 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
 
     public void Dispose() => Lock.Dispose();
 
-    private sealed class HashDictionaryIndex<T>(HashDictionaryStorageEngine engine, string name) : ISortedIndex<T>, IClearable where T : notnull
+    private sealed class HashDictionaryIndex<T>(HashDictionaryStorageEngine engine, string name) : ISortedIndex<T>, IClearable, IIndexTimestamp where T : notnull
     {
         void IClearable.ClearAll()
         {
             _byId.Clear();
             _byValue.Clear();
         }
+
+        // memory-only engine: an index is always newly created, so it reports 0 until the
+        // engine's first commit/SetTimestamp
+        private volatile bool _hasEngineTimestamp;
+
+        public long GetTimestamp() => _hasEngineTimestamp ? engine.GetTimestamp() : 0;
+
+        public void SetTimestamp(long timestamp)
+        {
+            if (timestamp == 0)
+            {
+                _hasEngineTimestamp = false;
+                return;
+            }
+            if (timestamp != engine.GetTimestamp())
+                throw new ArgumentException($"An index timestamp is always 0 or the engine's; pass 0 or the engine's current timestamp ({engine.GetTimestamp()}), not {timestamp}.", nameof(timestamp));
+            _hasEngineTimestamp = true;
+        }
+
+        void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
 
         private readonly Dictionary<int, T> _byId = new();
         private readonly Dictionary<T, List<int>> _byValue = new();

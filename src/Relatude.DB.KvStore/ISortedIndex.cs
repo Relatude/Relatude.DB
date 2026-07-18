@@ -82,6 +82,31 @@ public interface ISortedIndex<T> where T : notnull
 
     /// <summary>Number of ids whose value is smaller than <paramref name="value"/> (or equal to it when <paramref name="includeValue"/>).</summary>
     int CountIdsSmallerThan(T value, bool includeValue = true);
+
+    /// <summary>
+    /// The engine timestamp this index is synchronized with: 0 for an index that was newly
+    /// created (did not exist) and has not yet seen an engine commit or
+    /// <see cref="IStorageEngine.SetTimestamp"/>; otherwise exactly the engine's timestamp.
+    /// An index never carries a timestamp of its own.
+    /// </summary>
+    long GetTimestamp();
+
+    /// <summary>
+    /// Sets the index timestamp: 0 marks the index as not yet synchronized (as if newly created);
+    /// the engine's current timestamp marks it synchronized. Any other value throws, since an
+    /// index timestamp is always either 0 or the engine's (see <see cref="GetTimestamp"/>).
+    /// </summary>
+    void SetTimestamp(long timestamp);
+}
+
+/// <summary>
+/// Engine-internal hook implemented by every index: flips the index to report the engine
+/// timestamp. Called by the engine on every commit and <see cref="IStorageEngine.SetTimestamp"/>,
+/// so an index timestamp is only ever 0 (new, unsynchronized) or the engine's current value.
+/// </summary>
+internal interface IIndexTimestamp
+{
+    void AdoptEngineTimestamp();
 }
 
 /// <summary>
@@ -94,6 +119,8 @@ public interface IStorageEngine
     /// <summary>
     /// Opens the index named <paramref name="name"/>, creating it if absent.
     /// Throws if the index already exists with a different value type.
+    /// An opened existing index reports the engine's timestamp; a newly created one reports 0
+    /// until the next commit or <see cref="SetTimestamp"/> (see <see cref="ISortedIndex{T}.GetTimestamp"/>).
     /// </summary>
     ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull;
 
@@ -107,7 +134,8 @@ public interface IStorageEngine
     bool IsInTransaction { get; }
 
     /// <summary>
-    /// Publishes the transaction's changes and records <paramref name="timestamp"/>.
+    /// Publishes the transaction's changes and records <paramref name="timestamp"/>,
+    /// which every open index adopts (see <see cref="ISortedIndex{T}.GetTimestamp"/>).
     /// With <paramref name="durable"/> the commit is flushed to stable storage (power-loss
     /// safe where the engine supports it); without, it trades durability for speed —
     /// see each engine's docs for the exact guarantee.
@@ -120,7 +148,10 @@ public interface IStorageEngine
     /// <summary>The timestamp recorded by the most recent commit or <see cref="SetTimestamp"/>.</summary>
     long GetTimestamp();
 
-    /// <summary>Durably records <paramref name="timestamp"/>; only allowed outside a transaction.</summary>
+    /// <summary>
+    /// Durably records <paramref name="timestamp"/>, which every open index adopts
+    /// (see <see cref="ISortedIndex{T}.GetTimestamp"/>); only allowed outside a transaction.
+    /// </summary>
     void SetTimestamp(long timestamp);
 
     /// <summary>Bytes of disk storage currently used by the engine (0 for memory-only engines).</summary>
@@ -133,4 +164,14 @@ public interface IStorageEngine
     /// to call while other threads are reading.
     /// </summary>
     void DeleteAll();
+
+    /// <summary>
+    /// Durably deletes every index present in the store that has not been opened in this session
+    /// (via <see cref="OpenOrCreateIndex{T}"/>), data and definition included; open indexes and the
+    /// engine timestamp are untouched. Lets callers drop indexes that have left the schema, so a
+    /// later re-add opens a fresh, empty index reporting timestamp 0 (see
+    /// <see cref="ISortedIndex{T}.GetTimestamp"/>) instead of stale data claiming to be current.
+    /// Only allowed outside a transaction.
+    /// </summary>
+    void DeleteUnopenedIndexes();
 }

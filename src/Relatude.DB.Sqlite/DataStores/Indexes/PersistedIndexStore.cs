@@ -141,6 +141,8 @@ public class PersistedIndexStore : IPersistedIndexStore {
         if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)DateTimeOffset.Parse((string)value);
         if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value);
         if (value is long && typeof(T) == typeof(int)) return (T)(object)(int)(long)value;
+        if (value is long && typeof(T) == typeof(bool)) return (T)(object)((long)value != 0);
+        if (value is double && typeof(T) == typeof(float)) return (T)(object)(float)(double)value;
         return (T)value;
     }
     public object? CastToDb(object value) {
@@ -174,6 +176,44 @@ public class PersistedIndexStore : IPersistedIndexStore {
         foreach (var i in _idxs.Values) i.Index.PersistedTimestamp = timestamp;
         _transaction.Dispose(); // is this needed?...
         _transaction = null;
+    }
+
+    public void DeleteUnopenedIndexes() {
+        if (_transaction != null) throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
+        var openTables = _idxs.Values.Select(i => i.Table).ToHashSet();
+        List<string> allTables = new();
+        using (var cmd = CreateCommand("SELECT name FROM sqlite_master WHERE type='table'")) {
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) allTables.Add(reader.GetString(0));
+        }
+        // value tables are "P...", word tables "W...". Skip open tables and anything derived from
+        // them ("<openTable>_..." covers the fts5 shadow tables of an open word index). Shorter
+        // names first so an unopened fts5 virtual table drops before its shadow tables; the
+        // shadows then vanish with it, and a direct drop of a still-present shadow table (which
+        // sqlite refuses) is just skipped by the catch.
+        var doomed = allTables
+            .Where(t => t.StartsWith("P") || t.StartsWith("W"))
+            .Where(t => t != _settingsTableName && !openTables.Contains(t) && !openTables.Any(o => t.StartsWith(o + "_")))
+            .OrderBy(t => t.Length)
+            .ToList();
+        foreach (var table in doomed) {
+            try { executeCommand("DROP TABLE IF EXISTS " + table); } catch { }
+        }
+        // remove the deleted indexes' persisted timestamps, so a re-added index starts at 0
+        List<string> timestampKeys = new();
+        using (var cmd = CreateCommand("SELECT key FROM " + _settingsTableName + " WHERE key LIKE 'Timestamp_%'")) {
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) timestampKeys.Add(reader.GetString(0));
+        }
+        var openIds = _idxs.Keys.ToHashSet();
+        foreach (var key in timestampKeys) {
+            var id = key.Substring("Timestamp_".Length);
+            if (openIds.Contains(id)) continue;
+            using var cmd = CreateCommand("DELETE FROM " + _settingsTableName + " WHERE key = @key");
+            cmd.Parameters.AddWithValue("@key", key);
+            cmd.ExecuteNonQuery();
+        }
+        _wordIndexFactory?.DeleteUnopenedFiles(_wordIndexLucenes.Keys);
     }
 
     public void OptimizeDisk() {

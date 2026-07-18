@@ -1,4 +1,5 @@
-﻿using Relatude.DB.DataStores.Sets;
+﻿using System.Text;
+using Relatude.DB.DataStores.Sets;
 using SuperFastIndex;
 
 namespace Relatude.DB.DataStores.Indexes.KvStore;
@@ -38,7 +39,7 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     public void RegisterAddDuringStateLoad(int id, object value) => add(id, (T)value);
     public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (T)value);
     public void ClearCache() {
-
+        _gap = null;
     }
     public void CompressMemory() {
 
@@ -112,8 +113,77 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         return FilterRanges(set, [new Tuple<T, T>((T)from, (T)to)]);
     }
 
+    // Returns the same cache key for any query that yields the same result set, so the
+    // SetRegister can reuse cached sets across varying query values (see ValueIndex<T>.GetCacheKey).
+    // For range queries we key on the number of matching ids instead of the raw value: two query
+    // values landing in the same gap between indexed values produce the same count, hence the same
+    // (nested and equal-sized, therefore identical) result set. For equality we only need the value
+    // when it actually exists; all queries for a non-existent value are equivalent.
+    // The bounds and counts of the last such gap are kept in _gap, so repeated queries with varying
+    // values in the same gap (typically DateTime.Now on every request) resolve without touching the index.
     public object[] GetCacheKey(T queryValue, QueryType queryType) {
-        return [queryType, queryValue];
+        var gap = _gap;
+        if (gap == null || gap.StateId != StateId || !inGap(gap, queryValue)) {
+            if (ContainsValue(queryValue)) {
+                return queryType switch {
+                    QueryType.Equal or QueryType.NotEqual => [queryType, queryValue],
+                    QueryType.Greater => [queryType, CountGreaterThan(queryValue, false)],
+                    QueryType.GreaterOrEqual => [queryType, CountGreaterThan(queryValue, true)],
+                    QueryType.Less => [queryType, CountLessThan(queryValue, false)],
+                    QueryType.LessOrEqual => [queryType, CountLessThan(queryValue, true)],
+                    _ => throw new Exception("Unknown query type: " + queryType + ". "),
+                };
+            }
+            gap = buildGap(queryValue);
+            _gap = gap;
+        }
+        // queryValue lies strictly inside the gap: no indexed value equals it,
+        // and the inclusive/exclusive distinction cannot matter
+        return queryType switch {
+            QueryType.Equal or QueryType.NotEqual => [queryType],
+            QueryType.Greater or QueryType.GreaterOrEqual => [queryType, gap.CountAbove],
+            QueryType.Less or QueryType.LessOrEqual => [queryType, gap.CountBelow],
+            _ => throw new Exception("Unknown query type: " + queryType + ". "),
+        };
+    }
+    // the open interval between the two indexed values that surrounded the last non-indexed query value,
+    // with the id counts on either side; only valid for the exact index state it was built at
+    GapCache? _gap;
+    sealed class GapCache(long stateId, int countBelow, int countAbove) {
+        public readonly long StateId = stateId;
+        public readonly int CountBelow = countBelow; // ids with a value below the gap
+        public readonly int CountAbove = countAbove; // ids with a value above the gap
+        public bool HasLower; public T Lower = default!; // greatest indexed value below the gap, if any
+        public bool HasUpper; public T Upper = default!; // smallest indexed value above the gap, if any
+    }
+    static bool inGap(GapCache gap, T value) {
+        if (gap.HasLower && compareIndexOrder(value, gap.Lower) <= 0) return false;
+        if (gap.HasUpper && compareIndexOrder(value, gap.Upper) >= 0) return false;
+        return true;
+    }
+    GapCache buildGap(T value) { // value is known not to be in the index
+        var gap = new GapCache(StateId, _index.CountIdsSmallerThan(value, false), _index.CountIdsGreaterThan(value, false));
+        if (_index.Count > 0) {
+            if (compareIndexOrder(value, _index.GetMaxValue()) < 0)
+                foreach (var entry in _index.GetEntriesInRange(value, _index.GetMaxValue(), false, true)) { gap.Upper = entry.Value; gap.HasUpper = true; break; }
+            if (compareIndexOrder(value, _index.GetMinValue()) > 0)
+                foreach (var entry in _index.GetEntriesInRange(_index.GetMinValue(), value, true, false, descending: true)) { gap.Lower = entry.Value; gap.HasLower = true; break; }
+        }
+        return gap;
+    }
+    // must match the index's own ordering (its order-preserving byte encoding): strings are ordered
+    // by their UTF-8 bytes and Guids by their big-endian RFC 4122 bytes, neither of which agrees
+    // with Comparer<T>.Default; all other supported types match it
+    static int compareIndexOrder(T a, T b) {
+        if (a is string sa && b is string sb) return Encoding.UTF8.GetBytes(sa).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(sb));
+        if (a is Guid ga && b is Guid gb) return compareGuidBigEndian(ga, gb);
+        return _comparer.Compare(a, b);
+    }
+    static int compareGuidBigEndian(Guid a, Guid b) {
+        Span<byte> ba = stackalloc byte[16], bb = stackalloc byte[16];
+        a.TryWriteBytes(ba, bigEndian: true, out _);
+        b.TryWriteBytes(bb, bigEndian: true, out _);
+        return ba.SequenceCompareTo(bb);
     }
 
     public ICollection<int> GetIds(T value) {

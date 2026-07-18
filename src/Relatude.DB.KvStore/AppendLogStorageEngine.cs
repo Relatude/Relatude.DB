@@ -18,6 +18,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
     private const byte OpAdd = 1;
     private const byte OpRemove = 2;
     private const byte OpDefineIndex = 3;
+    private const byte OpDeleteIndex = 4;
 
     internal readonly ReaderWriterLockSlim Lock = new(LockRecursionPolicy.NoRecursion);
 
@@ -29,6 +30,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
     private readonly Dictionary<string, List<(byte Op, int Id, byte[] Value)>> _pendingReplay = new();
     private readonly Dictionary<string, IReplayTarget> _openIndexes = new();
 
+    private ushort _nextNameId; // monotonic: deleted indexes' name ids are never reused
     private long _timestamp;
     private bool _inTransaction;
     private MemoryStream? _txnPayload;
@@ -63,10 +65,11 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
             }
 
             byte typeId = KeyCodec.GetTypeId<T>();
-            if (_names.TryGetValue(name, out var known) && known.TypeId != typeId)
+            bool existed = _names.TryGetValue(name, out var known);
+            if (existed && known.TypeId != typeId)
                 throw new InvalidOperationException($"Index '{name}' exists with a different value type.");
 
-            var index = new AppendLogIndex<T>(this, name);
+            var index = new AppendLogIndex<T>(this, name, hasEngineTimestamp: existed);
             if (_pendingReplay.Remove(name, out var ops))
             {
                 foreach (var (op, id, value) in ops)
@@ -102,6 +105,8 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         _txnDefinedNames.Clear();
         Lock.EnterWriteLock();
         _timestamp = timestamp;
+        foreach (var index in _openIndexes.Values)
+            ((IIndexTimestamp)index).AdoptEngineTimestamp();
         Lock.ExitWriteLock();
         _inTransaction = false;
         _txnPayload = null;
@@ -143,6 +148,8 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         WriteFrame(timestamp, [], deepDiskFlush: true);
         Lock.EnterWriteLock();
         _timestamp = timestamp;
+        foreach (var index in _openIndexes.Values)
+            ((IIndexTimestamp)index).AdoptEngineTimestamp();
         Lock.ExitWriteLock();
     }
 
@@ -162,6 +169,45 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
             _log.SetLength(0);
             _log.Flush(true);
             _timestamp = 0;
+        }
+        finally
+        {
+            Lock.ExitWriteLock();
+        }
+    }
+
+    public void DeleteUnopenedIndexes()
+    {
+        if (_inTransaction)
+            throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
+        Lock.EnterWriteLock();
+        try
+        {
+            var doomed = new List<string>();
+            foreach (string name in _names.Keys)
+            {
+                if (!_openIndexes.ContainsKey(name))
+                    doomed.Add(name);
+            }
+            if (doomed.Count == 0)
+                return;
+
+            // The log is append-only, so deletion is a durable tombstone frame: replay discards
+            // the index's definition and parked operations when it encounters the tombstone.
+            var payload = new MemoryStream();
+            Span<byte> record = stackalloc byte[3];
+            foreach (string name in doomed)
+            {
+                var (nameId, _) = _names[name];
+                record[0] = OpDeleteIndex;
+                BinaryPrimitives.WriteUInt16LittleEndian(record[1..], nameId);
+                payload.Write(record);
+                _names.Remove(name);
+                _namesById.Remove(nameId);
+                _persistedNames.Remove(name);
+                _pendingReplay.Remove(name);
+            }
+            WriteFrame(_timestamp, payload.ToArray(), deepDiskFlush: true);
         }
         finally
         {
@@ -189,7 +235,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         var w = _txnPayload!;
         if (!_names.TryGetValue(indexName, out var entry))
         {
-            entry = ((ushort)_names.Count, typeId);
+            entry = (_nextNameId++, typeId);
             _names[indexName] = entry;
             _namesById[entry.NameId] = indexName;
         }
@@ -299,7 +345,21 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
                 _names[name] = (nameId, typeId);
                 _namesById[nameId] = name;
                 _persistedNames.Add(name);
+                if (nameId >= _nextNameId)
+                    _nextNameId = (ushort)(nameId + 1);
                 off += 6 + nameLen;
+                continue;
+            }
+            if (op == OpDeleteIndex)
+            {
+                ushort nameId = BinaryPrimitives.ReadUInt16LittleEndian(p[(off + 1)..]);
+                if (_namesById.Remove(nameId, out string? name))
+                {
+                    _names.Remove(name);
+                    _persistedNames.Remove(name);
+                    _pendingReplay.Remove(name);
+                }
+                off += 3;
                 continue;
             }
 
@@ -332,7 +392,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
     }
 
     /// <summary>In-memory bidirectional index; see engine docs for the trade-offs.</summary>
-    private sealed class AppendLogIndex<T> : ISortedIndex<T>, IReplayTarget where T : notnull
+    private sealed class AppendLogIndex<T> : ISortedIndex<T>, IReplayTarget, IIndexTimestamp where T : notnull
     {
         private readonly AppendLogStorageEngine _engine;
         private readonly string _name;
@@ -342,10 +402,32 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         private readonly Dictionary<T, int> _valueRefs = new();
         private readonly IComparer<T> _valueComparer;
 
-        public AppendLogIndex(AppendLogStorageEngine engine, string name)
+        // true when this index is synchronized with the engine timestamp: set for an index whose
+        // definition was replayed from the log and after every commit/SetTimestamp on the engine;
+        // a newly created index reports 0
+        private volatile bool _hasEngineTimestamp;
+
+        public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
+
+        public void SetTimestamp(long timestamp)
+        {
+            if (timestamp == 0)
+            {
+                _hasEngineTimestamp = false;
+                return;
+            }
+            if (timestamp != _engine.GetTimestamp())
+                throw new ArgumentException($"An index timestamp is always 0 or the engine's; pass 0 or the engine's current timestamp ({_engine.GetTimestamp()}), not {timestamp}.", nameof(timestamp));
+            _hasEngineTimestamp = true;
+        }
+
+        void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
+
+        public AppendLogIndex(AppendLogStorageEngine engine, string name, bool hasEngineTimestamp)
         {
             _engine = engine;
             _name = name;
+            _hasEngineTimestamp = hasEngineTimestamp;
             _valueComparer = typeof(T) == typeof(string)
                 ? (IComparer<T>)(object)StringComparer.Ordinal
                 : Comparer<T>.Default;

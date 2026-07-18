@@ -14,11 +14,31 @@ namespace SuperFastIndex;
 /// (for <see cref="DistinctValueCount"/>) are resolved inside the tree operations themselves via
 /// <see cref="WriteExtras"/>, with a fallback lookup only when a leaf boundary is inconclusive.
 /// </summary>
-internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string name) : ISortedIndex<T>, IValueCacheOwner where T : notnull
+internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp) : ISortedIndex<T>, IValueCacheOwner, IIndexTimestamp where T : notnull
 {
     private const int StackBufferSize = 512;
 
     private readonly IKeyCodec<T> _codec = KeyCodec.Get<T>();
+
+    // true when this index is synchronized with the engine timestamp: set for an opened existing
+    // index and after every commit/SetTimestamp on the engine; a newly created index reports 0
+    private volatile bool _hasEngineTimestamp = hasEngineTimestamp;
+
+    public long GetTimestamp() => _hasEngineTimestamp ? engine.GetTimestamp() : 0;
+
+    public void SetTimestamp(long timestamp)
+    {
+        if (timestamp == 0)
+        {
+            _hasEngineTimestamp = false;
+            return;
+        }
+        if (timestamp != engine.GetTimestamp())
+            throw new ArgumentException($"An index timestamp is always 0 or the engine's; pass 0 or the engine's current timestamp ({engine.GetTimestamp()}), not {timestamp}.", nameof(timestamp));
+        _hasEngineTimestamp = true;
+    }
+
+    void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
     private readonly ValueCache<T>? _valueCache =
         engine.ValueCacheEntries > 0 ? new ValueCache<T>(engine.ValueCacheEntries) : null;
 

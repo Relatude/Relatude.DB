@@ -138,9 +138,10 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                     ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
             }
 
-            if (_committed.Indexes.TryGetValue(name, out var state))
+            bool existed = _committed.Indexes.TryGetValue(name, out var state);
+            if (existed)
             {
-                if (state.TypeId != KeyCodec.GetTypeId<T>())
+                if (state!.TypeId != KeyCodec.GetTypeId<T>())
                     throw new InvalidOperationException($"Index '{name}' exists with a different value type.");
             }
             else
@@ -151,7 +152,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                 _uncataloged.Add(name);
             }
 
-            var index = new BPlusTreeIndex<T>(this, name);
+            var index = new BPlusTreeIndex<T>(this, name, hasEngineTimestamp: existed);
             _openIndexes[name] = index;
             return index;
         }
@@ -191,6 +192,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 
             _pager.Commit(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, durable);
             _committed = new EngineSnapshot(txn.TxId, timestamp, indexes);
+            foreach (object open in _openIndexes.Values)
+                ((IIndexTimestamp)open).AdoptEngineTimestamp();
 
             // Evict AFTER publishing: a populate racing this window re-checks CommittedTxId and
             // undoes itself, so no stale entry can outlive this method (see ValueCache docs).
@@ -227,6 +230,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             long txId = _committed.TxId + 1;
             _pager.CommitMetaOnly(txId, timestamp, deepDiskFlush: true);
             _committed = new EngineSnapshot(txId, timestamp, _committed.Indexes);
+            foreach (object open in _openIndexes.Values)
+                ((IIndexTimestamp)open).AdoptEngineTimestamp();
         }
     }
 
@@ -253,6 +258,56 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             }
             _committed = new EngineSnapshot(_pager.CurrentMeta.TxId, 0, indexes);
         }
+    }
+
+    public void DeleteUnopenedIndexes()
+    {
+        lock (_writeLock)
+        {
+            if (_activeTxn is not null)
+                throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
+
+            var doomed = new List<string>();
+            foreach (string name in _committed.Indexes.Keys)
+            {
+                if (!_openIndexes.ContainsKey(name))
+                    doomed.Add(name);
+            }
+            if (doomed.Count == 0)
+                return;
+
+            // A private mini-transaction: frees every page of the doomed trees and removes their
+            // catalog entries, committed under the unchanged timestamp. Freed pages go through the
+            // reader-protected free batches, so pinned snapshots can still walk them.
+            _pager.PromoteFreeBatches(_readers.MinActiveTxId());
+            var txn = new WriteTxn(_pager, _committed.TxId + 1, _pager.CurrentMeta.CatalogRoot);
+            var indexes = new Dictionary<string, IndexState>(_committed.Indexes);
+            foreach (string name in doomed)
+            {
+                IndexState st = indexes[name];
+                FreeTree(txn, st.ValueRoot);
+                FreeTree(txn, st.IdRoot);
+                txn.CatalogRoot = BTree.Delete(txn, txn.CatalogRoot, Encoding.UTF8.GetBytes(name), out _);
+                indexes.Remove(name);
+            }
+            _pager.Commit(txn.TxId, _committed.Timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, deepDiskFlush: true);
+            _committed = new EngineSnapshot(txn.TxId, _committed.Timestamp, indexes);
+        }
+    }
+
+    /// <summary>Frees every page of the tree rooted at <paramref name="root"/> (0 = empty tree).</summary>
+    private static void FreeTree(WriteTxn txn, uint root)
+    {
+        if (root == 0)
+            return;
+        byte[] page = txn.GetPage(root);
+        if (!NodePage.IsLeaf(page))
+        {
+            int count = NodePage.Count(page);
+            for (int i = 0; i <= count; i++) // Count separator children + the rightmost
+                FreeTree(txn, NodePage.ChildAt(page, i));
+        }
+        txn.Free(root);
     }
 
     public void Dispose() => _pager.Dispose();

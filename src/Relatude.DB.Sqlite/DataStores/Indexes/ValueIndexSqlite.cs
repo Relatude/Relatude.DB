@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using System.Text;
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -78,7 +79,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         }
     }
     public string UniqueKey => _indexId;
-    public void ClearCache() { }
+    public void ClearCache() { _gap = null; }
     public void CompressMemory() { }
     public bool ContainsValue(T value) {
         using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value");
@@ -89,7 +90,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public int CountGreaterThan(T value, bool inclusive) {
         using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value");
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return (int)cmd.ExecuteScalar()!;
+        return _store.CastFromDb<int>(cmd.ExecuteScalar());
     }
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) => _sets.CountInRange(this, nodeIds, from, to, fromInclusive, toInclusive);
     public int CountLessThan(T value, bool inclusive) {
@@ -107,8 +108,82 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public IdSet FilterRangesObject(IdSet set, object from, object to) => _sets.FilterRangesObject(this, set, from, to);
     public IdSet ReOrder(IdSet unsorted, bool descending) => _sets.OrderBy(this, unsorted, descending);
 
+    // Returns the same cache key for any query that yields the same result set, so the
+    // SetRegister can reuse cached sets across varying query values (see ValueIndex<T>.GetCacheKey).
+    // For range queries we key on the number of matching ids instead of the raw value: two query
+    // values landing in the same gap between indexed values produce the same count, hence the same
+    // (nested and equal-sized, therefore identical) result set. For equality we only need the value
+    // when it actually exists; all queries for a non-existent value are equivalent.
+    // The bounds and counts of the last such gap are kept in _gap, so repeated queries with varying
+    // values in the same gap (typically DateTime.Now on every request) resolve without any sql queries.
     public object[] GetCacheKey(T queryValue, QueryType queryType) {
-        return [queryType, queryValue]; // further optimization possible....
+        var gap = _gap;
+        if (gap == null || gap.StateId != StateId || !inGap(gap, queryValue)) {
+            if (ContainsValue(queryValue)) {
+                return queryType switch {
+                    QueryType.Equal or QueryType.NotEqual => [queryType, queryValue],
+                    QueryType.Greater => [queryType, CountGreaterThan(queryValue, false)],
+                    QueryType.GreaterOrEqual => [queryType, CountGreaterThan(queryValue, true)],
+                    QueryType.Less => [queryType, CountLessThan(queryValue, false)],
+                    QueryType.LessOrEqual => [queryType, CountLessThan(queryValue, true)],
+                    _ => throw new Exception("Unknown query type: " + queryType + ". "),
+                };
+            }
+            gap = buildGap(queryValue);
+            _gap = gap;
+        }
+        // queryValue lies strictly inside the gap: no indexed value equals it,
+        // and the inclusive/exclusive distinction cannot matter
+        return queryType switch {
+            QueryType.Equal or QueryType.NotEqual => [queryType],
+            QueryType.Greater or QueryType.GreaterOrEqual => [queryType, gap.CountAbove],
+            QueryType.Less or QueryType.LessOrEqual => [queryType, gap.CountBelow],
+            _ => throw new Exception("Unknown query type: " + queryType + ". "),
+        };
+    }
+    // the open interval between the two indexed values that surrounded the last non-indexed query value,
+    // with the id counts on either side; only valid for the exact index state it was built at.
+    // bounds stored as TEXT (string, and DateTime via CastToDb) are kept as the raw db string and
+    // never parsed back to T: CastFromDb's DateTime.Parse converts "Z" values to local time, so a
+    // round-tripped bound would re-serialize to a different string than the one the db ordered by
+    GapCache? _gap;
+    sealed class GapCache(long stateId, int countBelow, int countAbove) {
+        public readonly long StateId = stateId;
+        public readonly int CountBelow = countBelow; // ids with a value below the gap
+        public readonly int CountAbove = countAbove; // ids with a value above the gap
+        public object? Lower; // greatest indexed value below the gap (string for TEXT columns, else T), null if none
+        public object? Upper; // smallest indexed value above the gap, same representation
+    }
+    bool inGap(GapCache gap, T value) {
+        if (gap.Lower != null && compareDbOrder(value, gap.Lower) <= 0) return false;
+        if (gap.Upper != null && compareDbOrder(value, gap.Upper) >= 0) return false;
+        return true;
+    }
+    GapCache buildGap(T value) { // value is known not to be in the index
+        var (lower, countBelow) = boundAndCount(value, "MAX", "<");
+        var (upper, countAbove) = boundAndCount(value, "MIN", ">");
+        return new GapCache(StateId, countBelow, countAbove) { Lower = lower, Upper = upper };
+    }
+    (object? bound, int count) boundAndCount(T value, string aggregate, string op) {
+        using var cmd = _store.CreateCommand("SELECT " + aggregate + "(value), COUNT(*) FROM " + _tableName + " WHERE value " + op + " @value");
+        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
+        using var reader = cmd.ExecuteReader();
+        reader.Read();
+        var count = _store.CastFromDb<int>(reader.GetValue(1));
+        if (reader.IsDBNull(0)) return (null, count);
+        var raw = reader.GetValue(0);
+        if (raw is string s) return (s, count); // keep db representation, see comment above _gap
+        return (_store.CastFromDb<T>(raw), count); // numeric types round-trip exactly
+    }
+    // must match how sqlite compares the stored values: TEXT columns use the default BINARY
+    // collation, a memcmp of the UTF-8 bytes; the remaining supported types are stored
+    // numerically and match Comparer<T>.Default
+    int compareDbOrder(T value, object bound) {
+        if (bound is string sb) {
+            var sv = (string)_store.CastToDb(value)!;
+            return Encoding.UTF8.GetBytes(sv).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(sb));
+        }
+        return comparer.Compare(value, (T)bound);
     }
     public ICollection<int> GetIds(T value) {
         using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value = @value");
@@ -158,7 +233,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     int countEqual(T value) {
         using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value");
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return (int)cmd.ExecuteScalar()!;
+        return _store.CastFromDb<int>(cmd.ExecuteScalar());
     }
     public T? MaxValue() {
         using var cmd = _store.CreateCommand("SELECT MAX(value) FROM " + _tableName);

@@ -425,7 +425,7 @@ public class SetRegister(long maxSize) {
         if (nodeIds.Count == 0) return 0;
         var key = new SetCacheKey(SetOperation.CountInRange, [index.StateId, nodeIds.StateId], [
             .. index.GetCacheKey(from, fromInclusive ? QueryType.GreaterOrEqual : QueryType.Greater),
-            .. index.GetCacheKey(to, fromInclusive ? QueryType.LessOrEqual : QueryType.Less),
+            .. index.GetCacheKey(to, toInclusive ? QueryType.LessOrEqual : QueryType.Less),
             fromInclusive,
             toInclusive]);
         return countOrLookup(key, () => index.InSetRangeCount(nodeIds, from, to, fromInclusive, toInclusive));
