@@ -32,6 +32,7 @@ public interface IPersistedIndexStore : IDisposable {
     void RollbackTransaction();
     void CleanUpOnUnknownTransactionError();
     void CommitTransaction(long timestamp);
+    long GetTimestamp();
     long GetTotalDiskSpace();
     void OptimizeDisk();
     void ReOpen();

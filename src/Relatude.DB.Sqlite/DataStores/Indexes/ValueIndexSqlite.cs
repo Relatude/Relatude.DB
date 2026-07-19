@@ -3,18 +3,20 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
+public class ValueIndexSqlite<T> : IValueIndex<T>, IPersistedIndex where T : notnull {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
-    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string tableName, string friendlyName) {
+    bool _justCreated;
+    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string tableName, string friendlyName, bool justCreated) {
         _indexId = indexId;
         _store = store;
         _stateId = new();
         _sets = sets;
         _tableName = tableName;
+        _justCreated = justCreated;
         FriendlyName = friendlyName;
     }
     int _idCount = -1;
@@ -27,7 +29,8 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
             return _idCount;
         }
     }
-
+    public void FlagFirstCommit() => _justCreated = false;
+    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
     void add(int id, T value) {
         using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
         cmd.Parameters.AddWithValue("@id", id);
@@ -50,7 +53,6 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
 
     public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
-    public long PersistedTimestamp { get; set; } // only set during state load
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // will be updated from store instead
     }

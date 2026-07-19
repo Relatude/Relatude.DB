@@ -16,6 +16,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
     SqliteTransaction? _transaction;
     readonly bool _useExternalWordIndex;
     readonly Dictionary<string, idxInfo> _idxs = [];
+    readonly HashSet<string> _justCreated = [];
     public string GetTableName(string id) => _idxs[id].Table;
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
     readonly IPersistentWordIndexFactory? _wordIndexFactory;
@@ -74,39 +75,34 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public Guid GetWalFileId() => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
     public void SetWalFileId(Guid walFileId) { setSetting("WALFileId", walFileId.ToString()); }
-    public long GetTimestamp(string indexId) {
-        var key = "Timestamp_" + indexId;
-        return long.Parse(getSetting(key, "0"));
-    }
-    private void setTimestamp(string indexId, long timestamp) {
-        var key = "Timestamp_" + indexId;
-        setSetting(key, timestamp.ToString());
-    }
     public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
-        foreach (var i in _idxs.Values) {
-            setTimestamp(i.Id, timestamp);
-            i.Index.PersistedTimestamp = timestamp;
-            setSetting("WALFileId", walFileId.ToString());
-        }
+        setSetting("Timestamp", timestamp.ToString());
+        setSetting("WALFileId", walFileId.ToString());
     }
-
+    public long GetTimestamp() {
+        var tsStr = getSetting("Timestamp", "0");
+        if (long.TryParse(tsStr, out var ts)) return ts;
+        return 0;
+    }
+    long setTimestamp(long timestamp) {
+        setSetting("Timestamp", timestamp.ToString());
+        return timestamp;
+    }
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {
         var tableName = "P" + key.Replace("-", "_");
-        var index = new ValueIndexSqlite<T>(sets, this, key, tableName, friendlyName);
+        var create = !doesTableExist(tableName);
+        var index = new ValueIndexSqlite<T>(sets, this, key, tableName, friendlyName, create);
         var idx = new idxInfo(key, type, tableName, index);
-        ensureIndexTable(idx);
-        _idxs.Add(key, idx);
-        index.PersistedTimestamp = GetTimestamp(key);
-        return index;
-    }
-    void ensureIndexTable(idxInfo i) {
-        using var cmd = CreateCommand();
-        if (i.Table.StartsWith("P")) {
-            cmd.CommandText = "CREATE TABLE IF NOT EXISTS " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
+        if (create) {
+            using var cmd = CreateCommand();
+            cmd.CommandText = "CREATE TABLE IF " + idx.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(idx.DataType) + ")";
             cmd.ExecuteNonQuery();
-            cmd.CommandText = "CREATE INDEX IF NOT EXISTS " + i.Table + "_value ON " + i.Table + " (value)";
+            cmd.CommandText = "CREATE INDEX IF " + idx.Table + "_value ON " + idx.Table + " (value)";
             cmd.ExecuteNonQuery();
+            _justCreated.Add(idx.Table);
         }
+        _idxs.Add(key, idx);
+        return index;
     }
     string getSqlType(PropertyType type) {
         return type switch {
@@ -130,7 +126,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         } else {
             index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
         }
-        index.PersistedTimestamp = GetTimestamp(key);
         _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
         return index;
     }
@@ -170,10 +165,15 @@ public class PersistedIndexStore : IPersistedIndexStore {
     }
     public void CommitTransaction(long timestamp) {
         if (_transaction == null) throw new InvalidOperationException("Transaction not started");
-        foreach (var i in _idxs.Values) setTimestamp(i.Id, timestamp);
+        setTimestamp(timestamp);
         _transaction.Commit();
         foreach (var i in _wordIndexLucenes.Values) i.Commit();
-        foreach (var i in _idxs.Values) i.Index.PersistedTimestamp = timestamp;
+        if (_justCreated.Count > 0) {
+            foreach (var i in _justCreated) {
+                _idxs[i].Index.FlagFirstCommit();
+            }
+            _justCreated.Clear();
+        }
         _transaction.Dispose(); // is this needed?...
         _transaction = null;
     }

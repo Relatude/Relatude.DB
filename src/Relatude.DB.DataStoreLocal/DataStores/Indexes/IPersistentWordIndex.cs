@@ -10,7 +10,7 @@ public interface IPersistentWordIndexFactory {
     /// </summary>
     void DeleteUnopenedFiles(IEnumerable<string> openKeys);
 }
-public interface IPersistentWordIndex : IWordIndex {
+public interface IPersistentWordIndex : IWordIndex, IPersistedIndex {
     void Commit();
     void Close();
     void Open();

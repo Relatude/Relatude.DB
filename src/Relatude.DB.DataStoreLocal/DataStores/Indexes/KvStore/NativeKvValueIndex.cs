@@ -4,17 +4,19 @@ using SuperFastIndex;
 
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
-internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
+internal class NativeKvValueIndex<T> : IValueIndex<T>, IPersistedIndex where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
     ISortedIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
+    bool _justCreated;
     public NativeKvValueIndex(string uniqueKey, IStorageEngine store, SetRegister sets, string friendlyName) {
         UniqueKey = uniqueKey;
         _sets = sets;
         _index = store.OpenOrCreateIndex<T>(uniqueKey);
         _stateId = new();
         FriendlyName = friendlyName;
+        _justCreated = _index.GetTimestamp() == 0;
     }
     public long StateId => _stateId.Current;
     public int IdCount => _index.Count;
@@ -23,7 +25,10 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     public int ValueCount => _index.DistinctValueCount;
     public string UniqueKey { get; }
     public string FriendlyName { get; }
-    public long PersistedTimestamp { get; set; }
+    public long PersistedTimestamp => _justCreated ? 0 : _stateId.Current;
+    public void FlagFirstCommit() {
+        _justCreated = false;
+    }
     void add(int id, T value) {
         _index.Set(id, value);
         _stateId.RegisterAddition(id, value);
@@ -102,17 +107,14 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         foreach (var value in selectedValues) foreach (var id in GetIds(value)) matchSet.Add(id);
         return IdSet.UncachableSet(nodeIds.Enumerate().Where(matchSet.Contains).ToList());
     }
-
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) {
         var matchSet = new HashSet<int>();
         foreach (var range in selectedRanges) foreach (var id in RangeSearch(range.Item1, range.Item2, true, true)) matchSet.Add(id);
         return IdSet.UncachableSet(nodeIds.Enumerate().Where(matchSet.Contains).ToList());
     }
-
     public IdSet FilterRangesObject(IdSet set, object from, object to) {
         return FilterRanges(set, [new Tuple<T, T>((T)from, (T)to)]);
     }
-
     // Returns the same cache key for any query that yields the same result set, so the
     // SetRegister can reuse cached sets across varying query values (see ValueIndex<T>.GetCacheKey).
     // For range queries we key on the number of matching ids instead of the raw value: two query
@@ -185,27 +187,21 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         b.TryWriteBytes(bb, bigEndian: true, out _);
         return ba.SequenceCompareTo(bb);
     }
-
     public ICollection<int> GetIds(T value) {
         return _index.GetIds(value).ToList();
     }
-
     public T GetValue(int nodeId) {
         return _index.GetValue(nodeId);
     }
-
     public IEnumerable<int> GreaterThan(T value, bool inclusive) {
         return _index.GetIdsGreaterThan(value, inclusive);
     }
-
     public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) {
         return CountInRangeEqual(ids, from, to, fromInclusive, toInclusive);
     }
-
     public IEnumerable<int> LessThan(T value, bool inclusive) {
         return _index.GetIdsSmallerThan(value, inclusive);
     }
-
     public int MaxCount(IndexOperator op, T value) {
         if (IdCount == 0) return 0;
         var min = MinValue();
@@ -219,28 +215,22 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
             _ => IdCount,
         };
     }
-
     public T? MaxValue() {
         return _index.GetMaxValue();
     }
-
     public T? MinValue() {
         return _index.GetMinValue();
     }
-
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
         return _index.GetIdsInRange(from, to, fromInclusive, toInclusive);
     }
-
     public IdSet ReOrder(IdSet unsorted, bool descending) {
         var withValues = unsorted.Enumerate().Select(id => (id, value: GetValue(id))).ToList();
         withValues.Sort((a, b) => descending ? _comparer.Compare(b.value, a.value) : _comparer.Compare(a.value, b.value));
         return IdSet.UncachableSet(withValues.Select(x => x.id).ToList());
     }
-
     public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for sqlite indexes  
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for sqlite indexes  
-
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0 || indexTo.ValueCount == 0) return [];
         Func<T, bool> fromCmp = fromInclusive ? (v => _comparer.Compare(v, queryTo) <= 0) : (v => _comparer.Compare(v, queryTo) < 0);
@@ -253,7 +243,6 @@ internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
         }
         return result;
     }
-
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         PersistedTimestamp = newTimestamp;
     }

@@ -27,7 +27,7 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
     //public int MaxCount(string value, bool orSearch) { _o.Dequeue(); return _i.MaxCount(value, orSearch); }
     public void ClearCache() { _o.Dequeue(); _i.ClearCache(); }
     public void CompressMemory() { _o.Dequeue(); _i.CompressMemory(); }
-    public long PersistedTimestamp { get { _o.Dequeue(); return _i.PersistedTimestamp; } set { _o.Dequeue(); _i.PersistedTimestamp = value; } }
+    public long PersistedTimestamp { get { _o.Dequeue(); return _i.PersistedTimestamp; } }
     public string FriendlyName => _i.FriendlyName;
     public void Dispose() { _o.Dequeue(); _i.Dispose(); }
 }

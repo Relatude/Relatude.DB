@@ -4,7 +4,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class WordIndexSqlite : IWordIndex {
+public class WordIndexSqlite : IWordIndex, IPersistedIndex {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<string> _stateId;

@@ -8,6 +8,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     string _path;
     BPlusTreeEngineOptions _options;
     BPlusTreeStorageEngine _fileStorage;
+    HashSet<string> _justCreated;
     ISortedIndex<string> _settings;
     enum SettingKey : int {
         WalId = 1,
@@ -42,7 +43,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         return _fileStorage.GetTotalDiskSpace();
     }
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type) where T : notnull {
-        return new NativeKvValueIndex<T>(id, _fileStorage, sets, friendlyName);
+        var index = new NativeKvValueIndex<T>(id, _fileStorage, sets, friendlyName);
     }
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         IWordIndex index;
@@ -93,5 +94,8 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         _fileStorage.BeginTransaction();
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());
         _fileStorage.CommitTransaction(timestamp, true);
+    }
+    public long GetTimestamp() {
+        return _fileStorage.GetTimestamp();
     }
 }
