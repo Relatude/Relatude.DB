@@ -131,7 +131,16 @@ internal sealed class LinqToQueryString : ExpressionVisitor {
         bool parens = NeedParens(Precedence.Unary);
         if (parens) _sb.Append('(');
         if (!isPost) _sb.Append(op);
-        VisitCore(node.Operand, Precedence.Unary);
+        // parenthesize a prefix operand of a prefix operator, otherwise !!x and - -x tokenize as one operator
+        bool operandIsPrefix = UnwrapConvert(node.Operand) is UnaryExpression inner
+            && inner.NodeType is ExpressionType.Negate or ExpressionType.UnaryPlus or ExpressionType.Not or ExpressionType.OnesComplement;
+        if (operandIsPrefix) {
+            _sb.Append('(');
+            VisitCore(node.Operand, Precedence.Root);
+            _sb.Append(')');
+        } else {
+            VisitCore(node.Operand, Precedence.Unary);
+        }
         if (isPost) _sb.Append(op);
         if (parens) _sb.Append(')');
         return node;
@@ -189,7 +198,9 @@ internal sealed class LinqToQueryString : ExpressionVisitor {
         if (parens) _sb.Append('(');
         EmitWithParensIfNeeded(node.Left, prec);
         _sb.Append(' ').Append(op).Append(' ');
-        EmitWithParensIfNeeded(node.Right, prec);
+        // prec + 1: an equal-precedence right operand must keep its parentheses,
+        // otherwise a - (b - c) round-trips as a - b - c
+        EmitWithParensIfNeeded(node.Right, prec + 1);
         if (parens) _sb.Append(')');
         return node;
     }

@@ -61,6 +61,7 @@ public class ValueConstantToken : TokenBase {
     public object[] GetPropertyValues(Datamodel dm, Guid propertyId) {
         var property = dm.Properties[propertyId];
         if (_value == null) return [];
+        if (ParsedTypeHint == ParsedTypes.ArrayOfNone) return [];
         if (_value is not string[] strArray) throw new Exception("Stored value is not string array. ");
         object[] values = new object[strArray.Length];
         for (int n = 0; n < strArray.Length; n++) {

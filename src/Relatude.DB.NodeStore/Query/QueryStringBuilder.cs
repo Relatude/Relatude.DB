@@ -190,6 +190,11 @@ internal sealed class QueryStringBuilder {
         if (value is DateTime dt) return dt.Ticks.ToString();
         if (value is Enum e)
             return Convert.ToInt32(e).ToString();
+        if (value is int or long or short or byte or sbyte or ushort or uint or ulong)
+            return Convert.ToString(value, CultureInfo.InvariantCulture)!;
+        if (value is double d) return d.ToString("R", CultureInfo.InvariantCulture);
+        if (value is float f) return f.ToString("R", CultureInfo.InvariantCulture);
+        if (value is decimal m) return m.ToString(CultureInfo.InvariantCulture);
         throw new NotImplementedException();
 
     }

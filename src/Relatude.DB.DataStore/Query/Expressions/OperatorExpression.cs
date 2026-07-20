@@ -235,30 +235,16 @@ public class OperatorExpression : IExpression {
         // must be reduced to (article) => article.Name == "tests243"
         // otherwise it will not be recognized it as a native expression
         // and will be evaluated using a loop for every record ( like link Objects ).
-        var n = 0;
-        while (n <= Operators.Count) {
-            var e1 = Expressions[n];
-            if (e1 is OperatorExpression op1) {
-                e1 = op1.Simplify();
-                Expressions[n] = e1;
-            }
-            if (n >= Operators.Count) break;
-            var e2 = Expressions[n + 1];
-            if (e2 is OperatorExpression op2) {
-                e2 = op2.Simplify();
-                Expressions[n + 1] = e2;
-            }
-            if (e1 is ConstantExpression c1 && e2 is ConstantExpression c2) {
-                var v1 = c1.Value;
-                var v2 = c2.Value;
-                var v = evaluate(v1, Operators[n], v2);
-                var combined = toConstantExpression(v);
-                Expressions.RemoveAt(n + 1);
-                Operators.RemoveAt(n);
-                Expressions[n] = combined;
-            } else {
-                n++;
-            }
+        for (var n = 0; n < Expressions.Count; n++) {
+            if (Expressions[n] is OperatorExpression op) Expressions[n] = op.Simplify();
+        }
+        // evaluation is left to right, so only the two leftmost operands can be folded.
+        // folding later pairs changes the result of non-associative chains: x - 1 - 2 must be (x - 1) - 2, not x - (1 - 2)
+        while (Operators.Count > 0 && Expressions[0] is ConstantExpression c1 && Expressions[1] is ConstantExpression c2) {
+            var v = evaluate(c1.Value, Operators[0], c2.Value);
+            Expressions.RemoveAt(1);
+            Operators.RemoveAt(0);
+            Expressions[0] = toConstantExpression(v);
         }
         return this.removeBracketsIfPossible();
     }

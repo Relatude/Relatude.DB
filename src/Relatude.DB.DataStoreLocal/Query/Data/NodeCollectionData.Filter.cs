@@ -140,6 +140,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 }
             }
         } else if (orgFilter is ConstantExpression consExp) {
+            if (consExp.Value is bool boolValue) return new ConstantBooleanNativeExpression(boolValue); // filter fully folded to a constant, eg. Where(c => 2 + 2 == 4)
             return consExp;
         } else if (orgFilter is VariableReferenceExpression varExp) {
             return varExp;

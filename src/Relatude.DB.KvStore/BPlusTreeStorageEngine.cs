@@ -27,12 +27,16 @@ internal interface IValueCacheOwner
 }
 
 /// <summary>
-/// Disk-based storage engine built on a copy-on-write B+Tree with shadow paging.
+/// Storage engine built on a copy-on-write B+Tree with shadow paging.
 /// One writer at a time (a transaction), any number of concurrent readers: every
 /// commit publishes an immutable snapshot, so reads never take a lock and never
 /// block behind the writer. Commits with <c>durable: true</c> are power-loss
 /// safe (data pages are flushed before the checksummed meta page that references
 /// them); with <c>false</c> they are process-crash safe and much faster.
+/// <para>
+/// Pass a <c>null</c> path to the constructor for a memory-only engine: pages live
+/// in memory instead of a file, nothing is persisted, and durability flags are no-ops.
+/// </para>
 /// </summary>
 public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 {
@@ -116,7 +120,12 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     internal int ValueCacheEntries { get; }
     internal long CommittedTxId => _committed.TxId;
 
-    public BPlusTreeStorageEngine(string path, BPlusTreeEngineOptions? options = null)
+    /// <summary>True when this engine keeps all data in memory and persists nothing (constructed with a null path).</summary>
+    public bool IsMemoryOnly => _pager.IsMemoryOnly;
+
+    /// <param name="path">Backing file for the database, or <c>null</c> for a memory-only engine.</param>
+    /// <param name="options">Tuning options, or <c>null</c> for defaults.</param>
+    public BPlusTreeStorageEngine(string? path, BPlusTreeEngineOptions? options = null)
     {
         options ??= new BPlusTreeEngineOptions();
         ValueCacheEntries = options.ValueCacheEntries;
@@ -235,7 +244,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         }
     }
 
-    public long GetTotalDiskSpace() => _pager.FileLength;
+    public long GetTotalDiskSpace() => _pager.IsMemoryOnly ? 0 : _pager.FileLength;
 
     public void DeleteAll()
     {

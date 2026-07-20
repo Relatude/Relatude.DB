@@ -13,7 +13,7 @@ public class FileConversionEngine : IDisposable {
     readonly RunningConversions _conversions;
     readonly FileConversionCache _fileCache;
     readonly FileConversionScheduler _scheduler;
-    readonly string _localTempFolderPath;
+    readonly string? _localTempFolderPath;
     public readonly IDataStore Store;
     public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
         Store = store;
@@ -23,13 +23,14 @@ public class FileConversionEngine : IDisposable {
         if (io.TryGetLocalFolderPath(_tempBaseFolder, out var tempFolder)) {
             _localTempFolderPath = tempFolder;
         } else {
-            _localTempFolderPath = Path.GetTempPath();
+            _localTempFolderPath = null;
         }
         _fileCache = new(io, _cacheBaseFolder);
         _scheduler = new FileConversionScheduler(pulse, ex => Store.LogError("File conversion scheduler error: ", ex));
         _scheduler.Start();
     }
     public void ClearTempFolder() {
+        if(_localTempFolderPath == null) return;
         if (Directory.Exists(_localTempFolderPath)) {
             var fileCount = Directory.GetFiles(_localTempFolderPath).Length;
             Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
@@ -322,7 +323,7 @@ public class FileConversionEngine : IDisposable {
         _conversions.ClearAll();
     }
     public FileConverterLibrary ConverterLibrary => _fileConverters;
-    public string LocalTempFolderPath => _localTempFolderPath;
+    public string LocalTempFolderPath => _localTempFolderPath ?? throw new Exception("Local temp folder path is not available. ");
 
     public FileConversions GetConversions() {
         var running = _conversions.GetAll();

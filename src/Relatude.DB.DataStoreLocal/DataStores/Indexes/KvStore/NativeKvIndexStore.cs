@@ -5,7 +5,6 @@ using SuperFastIndex;
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 public class NativeKvIndexStore : IPersistedIndexStore {
-    string _path;
     BPlusTreeEngineOptions _options;
     BPlusTreeStorageEngine _fileStorage;
     HashSet<string> _justCreated = [];
@@ -13,13 +12,17 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     enum SettingKey : int {
         WalId = 1,
     }
-    readonly IPersistentWordIndexFactory _wordIndexFactory;
+    readonly IPersistentWordIndexFactory? _wordIndexFactory;
     readonly Dictionary<string, IPersistentWordIndex> _wordIndexes = [];
-    public NativeKvIndexStore(string folderPath, IPersistentWordIndexFactory wordIndexFactory) {
+    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) {
         _wordIndexFactory = wordIndexFactory;
-        if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
-        var filePath = Path.Combine(folderPath, "kvstore.db");
-        _path = filePath;
+        string? filePath;
+        if (folderPath != null) {
+            if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
+            filePath = Path.Combine(folderPath, "kvstore.db");
+        } else {
+            filePath = null;// memory only
+        }
         _options = new BPlusTreeEngineOptions();
         _fileStorage = new BPlusTreeStorageEngine(filePath, _options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
@@ -51,6 +54,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         return index;
     }
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+        if (_wordIndexFactory == null) throw new InvalidOperationException("Word index factory is not set.");
         IWordIndex index;
         if (_wordIndexes.ContainsKey(id)) return _wordIndexes[id];
         var idx = _wordIndexFactory.Create(sets, this, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
@@ -62,7 +66,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         // every value index opened this session (and the settings index) is open in the engine,
         // so this only deletes kv indexes that have left the schema
         _fileStorage.DeleteUnopenedIndexes();
-        _wordIndexFactory.DeleteUnopenedFiles(_wordIndexes.Keys);
+        _wordIndexFactory?.DeleteUnopenedFiles(_wordIndexes.Keys);
     }
     public void OptimizeDisk() {
     }
@@ -91,7 +95,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());
         _fileStorage.CommitTransaction(_fileStorage.GetTimestamp(), true);
     }
-    public void BeginTransaction() 
+    public void BeginTransaction()
         => _fileStorage.BeginTransaction();
     public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
         _fileStorage.BeginTransaction();
