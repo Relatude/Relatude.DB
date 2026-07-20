@@ -1,6 +1,6 @@
 using System.Buffers;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>Read access to committed or transaction-local pages.</summary>
 internal interface IPageSource

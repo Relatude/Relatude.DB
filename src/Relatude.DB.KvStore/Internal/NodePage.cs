@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Slotted-page B+Tree node layout over a raw 4 KiB page:

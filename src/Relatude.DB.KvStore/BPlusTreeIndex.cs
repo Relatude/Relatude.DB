@@ -1,7 +1,7 @@
 using System.Buffers;
-using SuperFastIndex.Internal;
+using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
-namespace SuperFastIndex;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
 /// Bidirectional disk-based index backed by two B+Trees:

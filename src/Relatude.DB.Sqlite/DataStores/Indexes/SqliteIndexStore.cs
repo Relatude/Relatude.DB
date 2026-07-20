@@ -1,14 +1,18 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class PersistedIndexStore : IPersistedIndexStore {
-    class idxInfo(string id, PropertyType dataType, string tableName, IIndex index) {
+/// <summary>
+/// SQLite-backed <see cref="IPersistedIndexStore"/>. All the cross-cutting orchestration
+/// (transaction guard, first-commit protocol, word-index lifecycle, WAL-id/timestamp/reset rules)
+/// lives in <see cref="PersistedIndexStoreBase"/>; this class only implements the SQLite specifics.
+/// </summary>
+public class SqliteIndexStore : PersistedIndexStoreBase {
+    class idxInfo(string id, PropertyType dataType, string tableName) {
         public string Id { get; } = id;
         public PropertyType DataType { get; } = dataType;
         public string Table { get; } = tableName;
-        public IIndex Index { get; } = index;
     }
     string _cnnStr;
     static string _settingsTableName = "settings";
@@ -16,13 +20,9 @@ public class PersistedIndexStore : IPersistedIndexStore {
     SqliteTransaction? _transaction;
     readonly bool _useExternalWordIndex;
     readonly Dictionary<string, idxInfo> _idxs = [];
-    readonly HashSet<string> _justCreated = [];
     public string GetTableName(string id) => _idxs[id].Table;
-    readonly Dictionary<string, IPersistentWordIndex> _wordIndexLucenes = [];
-    readonly IPersistentWordIndexFactory? _wordIndexFactory;
     readonly string _indexPath;
-    public PersistedIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
-        _wordIndexFactory = wordIndexFactory;
+    public SqliteIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
         _useExternalWordIndex = wordIndexFactory != null;
         _indexPath = indexPath;
         var sqlLiteFolder = Path.Combine(indexPath, "sqlite");
@@ -49,7 +49,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand("SELECT value FROM " + _settingsTableName + " WHERE key = @key");
         cmd.Parameters.AddWithValue("@key", key);
         var result = cmd.ExecuteScalar();
-        // Console.WriteLine("GetSetting: " + key + " = " + (result == null ? "null" : (string)result));
         return result == null ? fallback : (string)result;
     }
     void setSetting(string key, string value) {
@@ -57,7 +56,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         cmd.Parameters.AddWithValue("@key", key);
         cmd.Parameters.AddWithValue("@value", value);
         cmd.ExecuteNonQuery();
-        // Console.WriteLine("SetSetting: " + key + " = " + value);
     }
     public SqliteCommand CreateCommand(string? sql = null) {
         var cmd = _connection.CreateCommand();
@@ -73,35 +71,35 @@ public class PersistedIndexStore : IPersistedIndexStore {
         using var cmd = CreateCommand(sql);
         return cmd.ExecuteScalar();
     }
-    public Guid GetWalFileId() => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
-    public void SetWalFileId(Guid walFileId) { setSetting("WALFileId", walFileId.ToString()); }
-    public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
-        setSetting("Timestamp", timestamp.ToString());
+
+    // ---- WAL id / timestamp (backend primitives; see base for the public surface) ----
+
+    protected override Guid ReadWalFileId() => Guid.Parse(getSetting("WALFileId", Guid.Empty.ToString()));
+    protected override void WriteWalFileId(Guid walFileId, long? timestamp) {
+        if (timestamp.HasValue) setSetting("Timestamp", timestamp.Value.ToString());
         setSetting("WALFileId", walFileId.ToString());
     }
-    public long GetTimestamp() {
+    public override long GetTimestamp() {
         var tsStr = getSetting("Timestamp", "0");
         if (long.TryParse(tsStr, out var ts)) return ts;
         return 0;
     }
-    long setTimestamp(long timestamp) {
-        setSetting("Timestamp", timestamp.ToString());
-        return timestamp;
-    }
-    public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string key, string friendlyName, PropertyType type) where T : notnull {
-        var tableName = "P" + key.Replace("-", "_");
-        var create = !doesTableExist(tableName);
-        var index = new ValueIndexSqlite<T>(sets, this, key, tableName, friendlyName, create);
-        var idx = new idxInfo(key, type, tableName, index);
-        if (create) {
+    void setTimestamp(long timestamp) => setSetting("Timestamp", timestamp.ToString());
+
+    // ---- index creation ----
+
+    protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
+        var tableName = "P" + id.Replace("-", "_");
+        justCreated = !doesTableExist(tableName);
+        _idxs.Add(id, new idxInfo(id, type, tableName));
+        var index = new SqliteValueIndex<T>(sets, this, id, tableName, friendlyName, justCreated);
+        if (justCreated) {
             using var cmd = CreateCommand();
-            cmd.CommandText = "CREATE TABLE IF " + idx.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(idx.DataType) + ")";
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value " + getSqlType(type) + ")";
             cmd.ExecuteNonQuery();
-            cmd.CommandText = "CREATE INDEX IF " + idx.Table + "_value ON " + idx.Table + " (value)";
+            cmd.CommandText = "CREATE INDEX IF NOT EXISTS " + tableName + "_value ON " + tableName + " (value)";
             cmd.ExecuteNonQuery();
-            _justCreated.Add(idx.Id);
         }
-        _idxs.Add(key, idx);
         return index;
     }
     string getSqlType(PropertyType type) {
@@ -116,22 +114,20 @@ public class PersistedIndexStore : IPersistedIndexStore {
         };
     }
 
-    public IWordIndex OpenWordIndex(SetRegister sets, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        IWordIndex index;
-        if (_wordIndexLucenes.ContainsKey(key)) return _wordIndexLucenes[key];
-        if (_wordIndexFactory != null) {
-            var idx = _wordIndexFactory!.Create(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
-            _wordIndexLucenes.Add(key, idx);
-            index = idx;
-        } else {
-            var tableName = GetTableName(key);
-            var created = !doesTableExist(tableName);
-            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch, created);
-            if (created) _justCreated.Add(key);
+    // Only reached when no word-index factory was supplied (the built-in FTS5 word index). Both
+    // shipped backends run with a factory, so this path is effectively unused; the table entry is
+    // registered before constructing the index because WordIndexSqlite resolves its table via
+    // GetTableName(id).
+    protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
+        var tableName = "W" + id.Replace("-", "_");
+        justCreated = !doesTableExist(tableName);
+        _idxs.Add(id, new idxInfo(id, PropertyType.String, tableName)); // registered first: WordIndexSqlite resolves its table via GetTableName(id)
+        if (justCreated) {
+            executeCommand("CREATE VIRTUAL TABLE " + tableName + " USING fts5(id, value, prefix ='2 3')");
         }
-        _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
-        return index;
+        return new SqliteWordIndex(sets, this, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch, justCreated);
     }
+
     public T CastFromDb<T>(object? value) {
         if (value == null) return default!;
         if (value is T t) return t;
@@ -149,40 +145,25 @@ public class PersistedIndexStore : IPersistedIndexStore {
         return value;
     }
 
-    public void BeginTransaction() {
-        if (_transaction != null) throw new InvalidOperationException("Transaction already started");
+    // ---- transactions (backend primitives; the base owns the guard + first-commit protocol) ----
+
+    protected override void BeginTransactionCore() {
         _transaction = _connection.BeginTransaction();
     }
-    public void RollbackTransaction() {
-        if (_transaction == null) throw new InvalidOperationException("Transaction not started");
-        _transaction.Rollback();
-        _transaction.Dispose(); // is this needed?...
+    protected override void CommitTransactionCore(long timestamp) {
+        setTimestamp(timestamp); // persisted in the same transaction as the index data
+        _transaction!.Commit();
+        _transaction.Dispose();
         _transaction = null;
     }
-    public void CleanUpOnUnknownTransactionError() {
-        if (_transaction != null) {
-            try { _transaction.Rollback(); } catch { }
-            try { _transaction.Dispose(); } catch { }
-            _transaction = null;
-        }
-    }
-    public void CommitTransaction(long timestamp) {
-        if (_transaction == null) throw new InvalidOperationException("Transaction not started");
-        setTimestamp(timestamp);
-        _transaction.Commit();
-        foreach (var i in _wordIndexLucenes.Values) i.Commit();
-        if (_justCreated.Count > 0) {
-            foreach (var i in _justCreated) {
-                _idxs[i].Index.FlagFirstCommit();
-            }
-            _justCreated.Clear();
-        }
-        _transaction.Dispose(); // is this needed?...
-        _transaction = null;
+    protected override void RollbackTransactionCore() {
+        try { _transaction!.Rollback(); }
+        finally { _transaction?.Dispose(); _transaction = null; }
     }
 
-    public void DeleteUnopenedIndexes() {
-        if (_transaction != null) throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
+    // ---- maintenance / lifecycle (backend primitives; word indexes handled by the base) ----
+
+    protected override void DeleteUnopenedIndexesCore() {
         var openTables = _idxs.Values.Select(i => i.Table).ToHashSet();
         List<string> allTables = new();
         using (var cmd = CreateCommand("SELECT name FROM sqlite_master WHERE type='table'")) {
@@ -216,18 +197,16 @@ public class PersistedIndexStore : IPersistedIndexStore {
             cmd.Parameters.AddWithValue("@key", key);
             cmd.ExecuteNonQuery();
         }
-        _wordIndexFactory?.DeleteUnopenedFiles(_wordIndexLucenes.Keys);
     }
 
-    public void OptimizeDisk() {
+    protected override void OptimizeDiskCore() {
         _connection.Close();
         _connection.Open();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "VACUUM";
         cmd.ExecuteNonQuery();
-        foreach (var i in _wordIndexLucenes) i.Value.OptimizeAndMerge();
     }
-    public long GetTotalDiskSpace() {
+    public override long GetTotalDiskSpace() {
         if (!Directory.Exists(_indexPath)) return 0;
         return Directory.GetFiles(_indexPath, "*", SearchOption.AllDirectories).Sum(f => {
             try {
@@ -238,7 +217,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
         });
     }
 
-    public void ResetAll() {
+    protected override void ResetAllDataCore() {
         _connection.Close();
         _connection.Open(); // reopen connection to clear all tables
         using var cmd = _connection.CreateCommand();
@@ -253,6 +232,9 @@ public class PersistedIndexStore : IPersistedIndexStore {
                 cmd.ExecuteNonQuery();
             } catch { }
         }
+        // The settings table is dropped with the rest above; recreate it empty so the base can
+        // re-persist the WAL id and a timestamp of 0 immediately after this returns.
+        createSettingsTable();
         foreach (var i in _idxs.Values) {
             if (i.Table.StartsWith("P")) {
                 cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
@@ -270,13 +252,9 @@ public class PersistedIndexStore : IPersistedIndexStore {
         cmd.ExecuteNonQuery();
         _connection.Close();
         _connection.Open();
-        foreach (var i in _wordIndexLucenes) i.Value.Close();
-        if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
-        foreach (var i in _wordIndexLucenes) i.Value.Open();
     }
 
-    public void Dispose() {
-        foreach (var i in _wordIndexLucenes) i.Value.Dispose();
+    protected override void DisposeCore() {
         try {
             if (_connection.State != System.Data.ConnectionState.Closed) _connection.Close();
         } catch { }

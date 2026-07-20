@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Tracks the transaction ids of in-flight snapshot readers so the writer knows which

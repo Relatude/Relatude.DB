@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Bounded cache of decoded values keyed by id, fronting <c>GetValue</c> tree descents.

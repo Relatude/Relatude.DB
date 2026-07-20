@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Order-preserving, prefix-free binary encoding for index keys.

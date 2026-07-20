@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
 using System.Text;
-using SuperFastIndex.Internal;
+using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
-namespace SuperFastIndex;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>Tuning options for <see cref="BPlusTreeStorageEngine"/>.</summary>
 public sealed class BPlusTreeEngineOptions

@@ -3,21 +3,22 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
+public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheKeyBuilder<T>.IGapSource where T : notnull {
     readonly string _indexId;
-    readonly PersistedIndexStore _store;
+    readonly SqliteIndexStore _store;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
-    bool _justCreated;
-    public ValueIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string tableName, string friendlyName, bool justCreated) {
+    readonly GapCacheKeyBuilder<T> _keyBuilder;
+    public SqliteValueIndex(SetRegister sets, SqliteIndexStore store, string indexId, string tableName, string friendlyName, bool justCreated)
+        : base(store, justCreated) {
         _indexId = indexId;
         _store = store;
         _stateId = new();
         _sets = sets;
         _tableName = tableName;
-        _justCreated = justCreated;
         FriendlyName = friendlyName;
+        _keyBuilder = new GapCacheKeyBuilder<T>(this);
     }
     int _idCount = -1;
     public int IdCount {
@@ -29,8 +30,6 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
             return _idCount;
         }
     }
-    public void FlagFirstCommit() => _justCreated = false;
-    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
     void add(int id, T value) {
         using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
         cmd.Parameters.AddWithValue("@id", id);
@@ -53,12 +52,6 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
 
     public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
-    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
-        // will be updated from store instead
-    }
-    public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for sqlite indexes  
-    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for sqlite indexes  
-
     public IEnumerable<int> Ids {
         get {
             using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName);
@@ -81,7 +74,7 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
         }
     }
     public string UniqueKey => _indexId;
-    public void ClearCache() { _gap = null; }
+    public void ClearCache() { _keyBuilder.Clear(); _idCount = -1; }
     public void CompressMemory() { }
     public bool ContainsValue(T value) {
         using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value");
@@ -110,61 +103,22 @@ public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     public IdSet FilterRangesObject(IdSet set, object from, object to) => _sets.FilterRangesObject(this, set, from, to);
     public IdSet ReOrder(IdSet unsorted, bool descending) => _sets.OrderBy(this, unsorted, descending);
 
-    // Returns the same cache key for any query that yields the same result set, so the
-    // SetRegister can reuse cached sets across varying query values (see ValueIndex<T>.GetCacheKey).
-    // For range queries we key on the number of matching ids instead of the raw value: two query
-    // values landing in the same gap between indexed values produce the same count, hence the same
-    // (nested and equal-sized, therefore identical) result set. For equality we only need the value
-    // when it actually exists; all queries for a non-existent value are equivalent.
-    // The bounds and counts of the last such gap are kept in _gap, so repeated queries with varying
-    // values in the same gap (typically DateTime.Now on every request) resolve without any sql queries.
-    public object[] GetCacheKey(T queryValue, QueryType queryType) {
-        var gap = _gap;
-        if (gap == null || gap.StateId != StateId || !inGap(gap, queryValue)) {
-            if (ContainsValue(queryValue)) {
-                return queryType switch {
-                    QueryType.Equal or QueryType.NotEqual => [queryType, queryValue],
-                    QueryType.Greater => [queryType, CountGreaterThan(queryValue, false)],
-                    QueryType.GreaterOrEqual => [queryType, CountGreaterThan(queryValue, true)],
-                    QueryType.Less => [queryType, CountLessThan(queryValue, false)],
-                    QueryType.LessOrEqual => [queryType, CountLessThan(queryValue, true)],
-                    _ => throw new Exception("Unknown query type: " + queryType + ". "),
-                };
-            }
-            gap = buildGap(queryValue);
-            _gap = gap;
-        }
-        // queryValue lies strictly inside the gap: no indexed value equals it,
-        // and the inclusive/exclusive distinction cannot matter
-        return queryType switch {
-            QueryType.Equal or QueryType.NotEqual => [queryType],
-            QueryType.Greater or QueryType.GreaterOrEqual => [queryType, gap.CountAbove],
-            QueryType.Less or QueryType.LessOrEqual => [queryType, gap.CountBelow],
-            _ => throw new Exception("Unknown query type: " + queryType + ". "),
-        };
+    // Cache-key logic lives in the shared GapCacheKeyBuilder; the ordering-sensitive pieces are
+    // provided through IGapSource below. See GapCacheKeyBuilder for the full explanation.
+    public object[] GetCacheKey(T queryValue, QueryType queryType) => _keyBuilder.GetCacheKey(queryValue, queryType);
+
+    // Bounds are kept as their raw db representation (string for TEXT columns, else T) and never
+    // parsed back to T: CastFromDb's DateTime.Parse converts "Z" values to local time, so a
+    // round-tripped bound would re-serialize to a different string than the one the db ordered by.
+    GapCacheKeyBuilder<T>.Gap GapCacheKeyBuilder<T>.IGapSource.BuildGap(T value) { // value is known not to be in the index
+        var (lower, countBelow) = boundAndCount(value, "MAX", "<");
+        var (upper, countAbove) = boundAndCount(value, "MIN", ">");
+        return new GapCacheKeyBuilder<T>.Gap { StateId = StateId, CountBelow = countBelow, CountAbove = countAbove, Lower = lower, Upper = upper };
     }
-    // the open interval between the two indexed values that surrounded the last non-indexed query value,
-    // with the id counts on either side; only valid for the exact index state it was built at.
-    // bounds stored as TEXT (string, and DateTime via CastToDb) are kept as the raw db string and
-    // never parsed back to T: CastFromDb's DateTime.Parse converts "Z" values to local time, so a
-    // round-tripped bound would re-serialize to a different string than the one the db ordered by
-    GapCache? _gap;
-    sealed class GapCache(long stateId, int countBelow, int countAbove) {
-        public readonly long StateId = stateId;
-        public readonly int CountBelow = countBelow; // ids with a value below the gap
-        public readonly int CountAbove = countAbove; // ids with a value above the gap
-        public object? Lower; // greatest indexed value below the gap (string for TEXT columns, else T), null if none
-        public object? Upper; // smallest indexed value above the gap, same representation
-    }
-    bool inGap(GapCache gap, T value) {
+    bool GapCacheKeyBuilder<T>.IGapSource.InGap(GapCacheKeyBuilder<T>.Gap gap, T value) {
         if (gap.Lower != null && compareDbOrder(value, gap.Lower) <= 0) return false;
         if (gap.Upper != null && compareDbOrder(value, gap.Upper) >= 0) return false;
         return true;
-    }
-    GapCache buildGap(T value) { // value is known not to be in the index
-        var (lower, countBelow) = boundAndCount(value, "MAX", "<");
-        var (upper, countAbove) = boundAndCount(value, "MIN", ">");
-        return new GapCache(StateId, countBelow, countAbove) { Lower = lower, Upper = upper };
     }
     (object? bound, int count) boundAndCount(T value, string aggregate, string op) {
         using var cmd = _store.CreateCommand("SELECT " + aggregate + "(value), COUNT(*) FROM " + _tableName + " WHERE value " + op + " @value");

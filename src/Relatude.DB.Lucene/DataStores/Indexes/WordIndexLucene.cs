@@ -35,7 +35,7 @@ public class WordIndexLuceneFactory : IPersistentWordIndexFactory {
     }
 }
 
-public class WordIndexLucene : IPersistentWordIndex {
+public class WordIndexLucene : PersistedIndexBase, IPersistentWordIndex {
     static LuceneVersion _version = LuceneVersion.LUCENE_48;
     readonly string _indexId;
     readonly StateIdValueTracker<string> _stateId;
@@ -48,24 +48,25 @@ public class WordIndexLucene : IPersistentWordIndex {
     public int MaxWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    IPersistedIndexStore _store;
     internal static string GetFolderName(string indexId) => indexId.ToLower().Replace("wordindex", "");
-    bool _justCreated;
-    public WordIndexLucene(SetRegister sets, IPersistedIndexStore store, string indexId, string friendlyName, string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    public WordIndexLucene(SetRegister sets, IPersistedIndexStore store, string indexId, string friendlyName, string folderPath, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch)
+        : base(store, isEmptyOrMissing(System.IO.Path.Combine(folderPath, GetFolderName(indexId)))) {
         _path = Path.Combine(folderPath, GetFolderName(indexId));
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _indexId = indexId;
         _stateId = new();
         _sets = sets;
-        _store = store;
         MinWordLength = minWordLength;
         MaxWordLength = maxWordLength;
         PrefixSearch = prefixSearch;
         InfixSearch = infixSearch;
         FriendlyName = friendlyName;
-        var totalExistingFileSize = System.IO.Directory.GetFiles(_path, "*", System.IO.SearchOption.AllDirectories).Sum(f => new System.IO.FileInfo(f).Length);
-        _justCreated = totalExistingFileSize == 0;
         Open();
+    }
+    // A word index is "just created" when its folder holds no data yet (checked before Open() creates files).
+    static bool isEmptyOrMissing(string path) {
+        if (!System.IO.Directory.Exists(path)) return true;
+        return System.IO.Directory.GetFiles(path, "*", System.IO.SearchOption.AllDirectories).Sum(f => new System.IO.FileInfo(f).Length) == 0;
     }
     public string UniqueKey => _indexId;
     void add(int id, string value) {
@@ -88,11 +89,6 @@ public class WordIndexLucene : IPersistentWordIndex {
     public void CompressMemory() { }
     public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public int GetQueuedTaskCount() => 0;
-    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
-        // will be updated from store instead
-    }
-    public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for lucene indexes
-    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for lucene indexes
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
@@ -183,10 +179,6 @@ public class WordIndexLucene : IPersistentWordIndex {
         _writer.ForceMerge(1, true);
         Close();
         Open();
-    }
-    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
-    public void FlagFirstCommit() {
-        _justCreated = false;
     }
     public string FriendlyName { get; }
 }

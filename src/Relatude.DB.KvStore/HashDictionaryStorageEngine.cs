@@ -1,4 +1,4 @@
-namespace SuperFastIndex;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
 /// Memory-only comparison engine built on plain hash dictionaries:

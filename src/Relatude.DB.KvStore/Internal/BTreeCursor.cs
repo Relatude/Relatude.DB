@@ -1,4 +1,4 @@
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Bidirectional cursor over a B+Tree snapshot. COW trees have no leaf sibling links

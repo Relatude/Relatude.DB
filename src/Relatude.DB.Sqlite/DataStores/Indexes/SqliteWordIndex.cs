@@ -1,12 +1,11 @@
 ﻿using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class WordIndexSqlite : IWordIndex {
+public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     readonly string _indexId;
-    readonly PersistedIndexStore _store;
+    readonly SqliteIndexStore _store;
     readonly StateIdValueTracker<string> _stateId;
     readonly SetRegister _sets;
     readonly string _tableName;
@@ -14,13 +13,12 @@ public class WordIndexSqlite : IWordIndex {
     public int MinWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    bool _justCreated;
-    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, bool justCreated) {
+    public SqliteWordIndex(SetRegister sets, SqliteIndexStore store, string indexId, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, bool justCreated)
+        : base(store, justCreated) {
         _indexId = indexId;
         _store = store;
         _stateId = new();
         _sets = sets;
-        _justCreated = justCreated;
         _tableName = store.GetTableName(indexId);
         FriendlyName = friendlyName;
         MaxWordLength = maxWordLength;
@@ -53,11 +51,6 @@ public class WordIndexSqlite : IWordIndex {
     public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public void Dispose() { }
     public int GetQueuedTaskCount() => 0;
-    public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
-        // will be updated from store instead
-    }
-    public void ReadStateForMemoryIndexes(Guid walFileId) { } // not relevant for sqlite indexes
-    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { } // not relevant for sqlite indexes
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
@@ -129,7 +122,5 @@ public class WordIndexSqlite : IWordIndex {
 
         return hits;
     }
-    public void FlagFirstCommit() => _justCreated = false;
-    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
     public string FriendlyName { get; }
 }

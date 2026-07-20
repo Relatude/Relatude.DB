@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Thread-safe page cache with a configurable byte budget.

@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
 using System.Text;
-using SuperFastIndex.Internal;
+using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
-namespace SuperFastIndex;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
 /// Alternative engine used to validate the B+Tree design in practice: all data lives in

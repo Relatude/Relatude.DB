@@ -1,4 +1,4 @@
-namespace SuperFastIndex;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
 /// A bidirectional map between int ids and ordered values: point lookups in both directions

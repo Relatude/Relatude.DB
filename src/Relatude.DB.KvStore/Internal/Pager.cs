@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using Microsoft.Win32.SafeHandles;
 
-namespace SuperFastIndex.Internal;
+namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 internal readonly record struct Meta(long TxId, long Timestamp, uint CatalogRoot, uint FreelistHead, uint PageCount);
 

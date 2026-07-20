@@ -1,21 +1,15 @@
-﻿
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
-using SuperFastIndex;
+using Relatude.DB.Datastores.Indexes.BTreeIndex;
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
-public class NativeKvIndexStore : IPersistedIndexStore {
-    BPlusTreeEngineOptions _options;
-    BPlusTreeStorageEngine _fileStorage;
-    HashSet<string> _justCreated = [];
-    ISortedIndex<string> _settings;
+public class NativeKvIndexStore : PersistedIndexStoreBase {
+    readonly BPlusTreeStorageEngine _fileStorage;
+    readonly ISortedIndex<string> _settings;
     enum SettingKey : int {
         WalId = 1,
     }
-    readonly IPersistentWordIndexFactory? _wordIndexFactory;
-    readonly Dictionary<string, IPersistentWordIndex> _wordIndexes = [];
-    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) {
-        _wordIndexFactory = wordIndexFactory;
+    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
         string? filePath;
         if (folderPath != null) {
             if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
@@ -23,86 +17,52 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         } else {
             filePath = null;// memory only
         }
-        _options = new BPlusTreeEngineOptions();
-        _fileStorage = new BPlusTreeStorageEngine(filePath, _options);
+        var options = new BPlusTreeEngineOptions() {
+            PageCacheBytes = 1024 * 1024 * 50, // 50 MB
+            ValueCacheEntries = 5000,
+        };
+        _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
     }
-    public void RollbackTransaction() {
-        if (!_fileStorage.IsInTransaction) throw new InvalidOperationException("No transaction is currently active.");
-        _fileStorage.RollbackTransaction();
-    }
-    public void CommitTransaction(long timestamp) {
-        _fileStorage.CommitTransaction(timestamp, true);
-    }
-    public void Dispose() {
-        _fileStorage.Dispose();
-    }
-    public void CleanUpOnUnknownTransactionError() {
-        if (_fileStorage.IsInTransaction) {
-            _fileStorage.RollbackTransaction();
-        }
-    }
-    public long GetTotalDiskSpace() {
-        return _fileStorage.GetTotalDiskSpace();
-    }
-    public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type) where T : notnull {
+    // The native store's word indexes are always factory-supplied (Lucene). They use a near-real-time
+    // reader and are rebuilt from the WAL when behind, so committing them on every data transaction
+    // would only add cost — defer instead (they still commit on OptimizeDisk and Dispose).
+    protected override bool CommitFactoryWordIndexesOnCommit => false;
+    protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
-        var justCreated = index.PersistedTimestamp == 0;
-        if (justCreated) {
-            _justCreated.Add(id);
-        }
+        justCreated = index.PersistedTimestamp == 0;
         return index;
     }
-    public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
-        if (_wordIndexFactory == null) throw new InvalidOperationException("Word index factory is not set.");
-        IWordIndex index;
-        if (_wordIndexes.ContainsKey(id)) return _wordIndexes[id];
-        var idx = _wordIndexFactory.Create(sets, this, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
-        _wordIndexes.Add(id, idx);
-        index = idx;
-        return index;
+    protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
+        throw new InvalidOperationException("The native KV index store has no built-in word index; a word index factory is required.");
     }
-    public void DeleteUnopenedIndexes() {
-        // every value index opened this session (and the settings index) is open in the engine,
-        // so this only deletes kv indexes that have left the schema
-        _fileStorage.DeleteUnopenedIndexes();
-        _wordIndexFactory?.DeleteUnopenedFiles(_wordIndexes.Keys);
-    }
-    public void OptimizeDisk() {
-    }
-    public void ResetAll() {
-        var currentSettings = _settings.Entries.ToArray();
-        _fileStorage.DeleteAll();
-        _fileStorage.BeginTransaction();
-        foreach (var (key, value) in currentSettings) {
-            _settings.Set(key, value);
-        }
-        _fileStorage.CommitTransaction(0, true);
-        foreach (var i in _wordIndexes) i.Value.Close();
-        if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
-        foreach (var i in _wordIndexes) i.Value.Open();
-    }
-    public Guid GetWalFileId() {
-        if (_settings.TryGetValue((int)SettingKey.WalId, out var s)) {
-            if (Guid.TryParse(s, out var walFileId)) {
-                return walFileId;
-            }
-        }
+    protected override void BeginTransactionCore() => _fileStorage.BeginTransaction();
+    protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, true);
+    protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
+    protected override Guid ReadWalFileId() {
+        if (_settings.TryGetValue((int)SettingKey.WalId, out var s) && Guid.TryParse(s, out var walFileId)) return walFileId;
         return Guid.Empty;
     }
-    public void SetWalFileId(Guid walFileId) {
+    protected override void WriteWalFileId(Guid walFileId, long? timestamp) {
+        // A one-off durable engine transaction; when no timestamp is given, keep the current one.
         _fileStorage.BeginTransaction();
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-        _fileStorage.CommitTransaction(_fileStorage.GetTimestamp(), true);
+        _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), true);
     }
-    public void BeginTransaction()
-        => _fileStorage.BeginTransaction();
-    public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
-        _fileStorage.BeginTransaction();
-        _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-        _fileStorage.CommitTransaction(timestamp, true);
+    public override long GetTimestamp() => _fileStorage.GetTimestamp();
+    public override long GetTotalDiskSpace() => _fileStorage.GetTotalDiskSpace();
+    protected override void OptimizeDiskCore() {
+        // The KV engine has no separate compaction step.
     }
-    public long GetTimestamp() {
-        return _fileStorage.GetTimestamp();
+    protected override void DeleteUnopenedIndexesCore() {
+        // Every value index opened this session (and the settings index) is open in the engine,
+        // so this only deletes KV indexes that have left the schema.
+        _fileStorage.DeleteUnopenedIndexes();
     }
+    protected override void ResetAllDataCore() {
+        // DeleteAll keeps the opened indexes (including settings) as empty, uncataloged definitions;
+        // the base re-persists the WAL id and a timestamp of 0 immediately after this returns.
+        _fileStorage.DeleteAll();
+    }
+    protected override void DisposeCore() => _fileStorage.Dispose();
 }
