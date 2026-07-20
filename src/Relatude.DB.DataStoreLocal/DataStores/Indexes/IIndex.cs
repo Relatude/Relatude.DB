@@ -8,10 +8,6 @@ public enum IndexState {
     Loading,
     Saving,
 }
-public interface IPersistedIndex : IDisposable {
-    long PersistedTimestamp { get; }
-    void FlagFirstCommit();
-}
 public interface IIndex : IDisposable {
 
     string UniqueKey { get; }
@@ -32,4 +28,8 @@ public interface IIndex : IDisposable {
     void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId);
 
     void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId);
+}
+public interface IPersistedIndex : IIndex{
+    long PersistedTimestamp { get; }
+    void FlagFirstCommit();
 }

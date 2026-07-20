@@ -4,11 +4,11 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
 public class PersistedIndexStore : IPersistedIndexStore {
-    class idxInfo(string id, PropertyType dataType, string tableName, IIndex index) {
+    class idxInfo(string id, PropertyType dataType, string tableName, IPersistedIndex index) {
         public string Id { get; } = id;
         public PropertyType DataType { get; } = dataType;
         public string Table { get; } = tableName;
-        public IIndex Index { get; } = index;
+        public IPersistedIndex Index { get; } = index;
     }
     string _cnnStr;
     static string _settingsTableName = "settings";
@@ -251,7 +251,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
             } catch { }
         }
         foreach (var i in _idxs.Values) {
-            i.Index.PersistedTimestamp = 0;
             if (i.Table.StartsWith("P")) {
                 cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value " + getSqlType(i.DataType) + ")";
                 cmd.ExecuteNonQuery();
