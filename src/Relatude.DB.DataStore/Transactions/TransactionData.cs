@@ -11,6 +11,7 @@ public class TransactionData {
     public TransactionData(List<ActionBase> actions) {
         Actions = actions;
     }
+    public bool NoRetriesIfLocked;
     public Action? InnerCallbackBeforeCommitting;
     public List<Guid>? LockExcemptions { get; set; }
     public List<ActionBase> Actions { get; set; }

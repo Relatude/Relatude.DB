@@ -10,7 +10,7 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
-    static int[] _optimisticRetriesPausingMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 2000, 2000, 2000, 2000, 2000]; // 20x20.5s
+    static int[] _optimisticRetriesPausingMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000]; // in sum: max 5.5 seconds of waiting time
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
@@ -24,7 +24,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             try {
                 return ExecuteNoRetries(transaction, transformValues, flushToDisk, ctx);
             } catch (NodeLockedException err) {
-                if (++attempt > _optimisticRetriesPausingMs.Length) {
+                if (transaction.NoRetriesIfLocked) {
+                    var error = new NodeLockedException("Node locked, no retry attempts. ", err);
+                    LogError(error.Message, error);
+                    throw error;
+                }else if (++attempt > _optimisticRetriesPausingMs.Length) {
                     var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + _optimisticRetriesPausingMs.Length + " attempts.", err);
                     LogError(error.Message, error);
                     throw error;

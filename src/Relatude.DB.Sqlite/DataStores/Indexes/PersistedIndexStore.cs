@@ -4,11 +4,11 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
 public class PersistedIndexStore : IPersistedIndexStore {
-    class idxInfo(string id, PropertyType dataType, string tableName, IPersistedIndex index) {
+    class idxInfo(string id, PropertyType dataType, string tableName, IIndex index) {
         public string Id { get; } = id;
         public PropertyType DataType { get; } = dataType;
         public string Table { get; } = tableName;
-        public IPersistedIndex Index { get; } = index;
+        public IIndex Index { get; } = index;
     }
     string _cnnStr;
     static string _settingsTableName = "settings";
@@ -99,7 +99,7 @@ public class PersistedIndexStore : IPersistedIndexStore {
             cmd.ExecuteNonQuery();
             cmd.CommandText = "CREATE INDEX IF " + idx.Table + "_value ON " + idx.Table + " (value)";
             cmd.ExecuteNonQuery();
-            _justCreated.Add(idx.Table);
+            _justCreated.Add(idx.Id);
         }
         _idxs.Add(key, idx);
         return index;
@@ -118,13 +118,16 @@ public class PersistedIndexStore : IPersistedIndexStore {
 
     public IWordIndex OpenWordIndex(SetRegister sets, string key, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         IWordIndex index;
-        if (_idxs.ContainsKey(key)) return _wordIndexLucenes[key];
+        if (_wordIndexLucenes.ContainsKey(key)) return _wordIndexLucenes[key];
         if (_wordIndexFactory != null) {
             var idx = _wordIndexFactory!.Create(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
             _wordIndexLucenes.Add(key, idx);
             index = idx;
         } else {
-            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch);
+            var tableName = GetTableName(key);
+            var created = !doesTableExist(tableName);
+            index = new WordIndexSqlite(sets, this, key, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch, created);
+            if (created) _justCreated.Add(key);
         }
         _idxs.Add(key, new(key, PropertyType.String, "W" + key.Replace("-", "_"), index));
         return index;
@@ -270,12 +273,6 @@ public class PersistedIndexStore : IPersistedIndexStore {
         foreach (var i in _wordIndexLucenes) i.Value.Close();
         if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
         foreach (var i in _wordIndexLucenes) i.Value.Open();
-    }
-    public void ReOpen() {
-        _transaction?.Dispose();
-        _transaction = null;
-        _connection.Close();
-        _connection.Open();
     }
 
     public void Dispose() {

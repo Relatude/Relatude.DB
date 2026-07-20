@@ -138,6 +138,7 @@ public class StringArrayIndex : IIndex {
     public void CompressMemory() { }
     public void Dispose() { }
     public void ClearCache() { }
-    public long PersistedTimestamp { get; set; }
+    public long PersistedTimestamp { get; private set; }
+    public void FlagFirstCommit() { }
     public string FriendlyName { get; }
 }

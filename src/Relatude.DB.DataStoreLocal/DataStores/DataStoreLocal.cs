@@ -259,7 +259,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         PersistedIndexStore?.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
         _variables = getRootVariables();
         _nodeWriteLocks = new();
-        PersistedIndexStore?.ReOpen();
+        //PersistedIndexStore?.ReOpen();
         logLine___________________________();
         LogInfo("Database intialized");
         _state = DataStoreState.Closed; // ready to be opened

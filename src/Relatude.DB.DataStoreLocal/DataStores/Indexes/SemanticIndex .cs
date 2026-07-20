@@ -128,6 +128,7 @@ internal class SemanticIndex : IIndex {
         // more to be done later here....
         return sourceText;
     }
-    public long PersistedTimestamp { get; set; }
+    public long PersistedTimestamp { get; private set; }
+    public void FlagFirstCommit() { }
     public string FriendlyName { get; }
 }

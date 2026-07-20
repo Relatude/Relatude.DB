@@ -34,6 +34,7 @@ public interface IProduct{
     [StringProperty(Indexed = true)]
     public string Title { get; set; }
     public string Content { get; set; }
+    [IntegerProperty(Indexed = true)]
     public int Size { get; set; }
 
     public NodeMeta Meta { get; }
@@ -65,6 +66,7 @@ public class DemoArticle {
     [StringProperty(Indexed = true)]
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    [IntegerProperty(Indexed = true)]
     public int Size { get; set; }
 
     public NodeMeta Meta { get; set; } = NodeMeta.Empty;

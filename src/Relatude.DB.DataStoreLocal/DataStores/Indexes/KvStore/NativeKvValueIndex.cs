@@ -4,16 +4,18 @@ using SuperFastIndex;
 
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
-internal class NativeKvValueIndex<T> : IValueIndex<T>, IPersistedIndex where T : notnull {
+internal class NativeKvValueIndex<T> : IValueIndex<T> where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
     ISortedIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     bool _justCreated;
-    public NativeKvValueIndex(string uniqueKey, IStorageEngine store, SetRegister sets, string friendlyName) {
+    NativeKvIndexStore _store;
+    public NativeKvValueIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName) {
         UniqueKey = uniqueKey;
         _sets = sets;
-        _index = store.OpenOrCreateIndex<T>(uniqueKey);
+        _store = store;
+        _index = engine.OpenOrCreateIndex<T>(uniqueKey);
         _stateId = new();
         FriendlyName = friendlyName;
         _justCreated = _index.GetTimestamp() == 0;
@@ -25,7 +27,7 @@ internal class NativeKvValueIndex<T> : IValueIndex<T>, IPersistedIndex where T :
     public int ValueCount => _index.DistinctValueCount;
     public string UniqueKey { get; }
     public string FriendlyName { get; }
-    public long PersistedTimestamp => _justCreated ? 0 : _stateId.Current;
+    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
     public void FlagFirstCommit() {
         _justCreated = false;
     }
@@ -244,6 +246,6 @@ internal class NativeKvValueIndex<T> : IValueIndex<T>, IPersistedIndex where T :
         return result;
     }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
-        PersistedTimestamp = newTimestamp;
+        _store.SetWalFileIdAndTimestamp(newTimestamp, walFileId);
     }
 }

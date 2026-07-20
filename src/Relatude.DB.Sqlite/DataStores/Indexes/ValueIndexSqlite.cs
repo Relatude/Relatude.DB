@@ -3,7 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class ValueIndexSqlite<T> : IValueIndex<T>, IPersistedIndex where T : notnull {
+public class ValueIndexSqlite<T> : IValueIndex<T> where T : notnull {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<T> _stateId;

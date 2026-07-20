@@ -40,6 +40,10 @@ public partial class Transaction {
             LockExcemptions = lockExcemptions.ToList()
         };
     }
+    public bool NoRetriesIfLocked {
+        get => _transactionData.NoRetriesIfLocked;
+        set => _transactionData.NoRetriesIfLocked = value;
+    }
     public void AddLockExcemptions(Guid lockId) {
         if (_transactionData.LockExcemptions == null) _transactionData.LockExcemptions = [];
         _transactionData.LockExcemptions.Add(lockId);
@@ -415,7 +419,7 @@ public partial class Transaction {
         return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemAddressPropertyId, value);
     }
     public Transaction UpdateIfDifferentAddress(NodeKey key, string value) {
-        if(key.HasGuid) {
+        if (key.HasGuid) {
             return UpdateIfDifferentProperty(key.Guid, NodeConstants.SystemAddressPropertyId, value);
         } else if (key.HasInt) {
             return UpdateIfDifferentProperty(key.Int, NodeConstants.SystemAddressPropertyId, value);
@@ -842,7 +846,7 @@ public partial class Transaction {
     }
     public Transaction ForceUpsert(object node) {
         Store.Mapper.TryGetIdGuidAndCreateIfPossible(node, out _);
-        _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null,null));
+        _transactionData.ForceUpsert(Store.Mapper.CreateNodeDataFromObject(node, null, null));
         return this;
     }
     public Transaction Upsert(IEnumerable<object> nodes) {

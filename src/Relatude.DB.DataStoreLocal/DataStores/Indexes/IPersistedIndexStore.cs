@@ -35,6 +35,5 @@ public interface IPersistedIndexStore : IDisposable {
     long GetTimestamp();
     long GetTotalDiskSpace();
     void OptimizeDisk();
-    void ReOpen();
     void ResetAll();
 }

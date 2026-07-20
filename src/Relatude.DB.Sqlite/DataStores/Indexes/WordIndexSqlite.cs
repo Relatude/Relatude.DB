@@ -4,7 +4,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class WordIndexSqlite : IWordIndex, IPersistedIndex {
+public class WordIndexSqlite : IWordIndex {
     readonly string _indexId;
     readonly PersistedIndexStore _store;
     readonly StateIdValueTracker<string> _stateId;
@@ -14,11 +14,13 @@ public class WordIndexSqlite : IWordIndex, IPersistedIndex {
     public int MinWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string friendlyName, string indexId, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
+    bool _justCreated;
+    public WordIndexSqlite(SetRegister sets, PersistedIndexStore store, string indexId, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, bool justCreated) {
         _indexId = indexId;
         _store = store;
         _stateId = new();
         _sets = sets;
+        _justCreated = justCreated;
         _tableName = store.GetTableName(indexId);
         FriendlyName = friendlyName;
         MaxWordLength = maxWordLength;
@@ -127,6 +129,7 @@ public class WordIndexSqlite : IWordIndex, IPersistedIndex {
 
         return hits;
     }
-    public long PersistedTimestamp { get; set; }
+    public void FlagFirstCommit() => _justCreated = false;
+    public long PersistedTimestamp => _justCreated ? 0 : _store.GetTimestamp();
     public string FriendlyName { get; }
 }

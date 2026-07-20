@@ -8,7 +8,7 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     string _path;
     BPlusTreeEngineOptions _options;
     BPlusTreeStorageEngine _fileStorage;
-    HashSet<string> _justCreated;
+    HashSet<string> _justCreated = [];
     ISortedIndex<string> _settings;
     enum SettingKey : int {
         WalId = 1,
@@ -43,7 +43,12 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         return _fileStorage.GetTotalDiskSpace();
     }
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type) where T : notnull {
-        var index = new NativeKvValueIndex<T>(id, _fileStorage, sets, friendlyName);
+        var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
+        var justCreated = index.PersistedTimestamp == 0;
+        if (justCreated) {
+            _justCreated.Add(id);
+        }
+        return index;
     }
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
         IWordIndex index;
@@ -61,11 +66,6 @@ public class NativeKvIndexStore : IPersistedIndexStore {
     }
     public void OptimizeDisk() {
     }
-    public void ReOpen() {
-        _fileStorage.Dispose();
-        _fileStorage = new BPlusTreeStorageEngine(_path, _options);
-        _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
-    }
     public void ResetAll() {
         var currentSettings = _settings.Entries.ToArray();
         _fileStorage.DeleteAll();
@@ -74,7 +74,9 @@ public class NativeKvIndexStore : IPersistedIndexStore {
             _settings.Set(key, value);
         }
         _fileStorage.CommitTransaction(0, true);
-
+        foreach (var i in _wordIndexes) i.Value.Close();
+        if (_wordIndexFactory != null) _wordIndexFactory.DeleteAllFiles();
+        foreach (var i in _wordIndexes) i.Value.Open();
     }
     public Guid GetWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s)) {
@@ -89,7 +91,8 @@ public class NativeKvIndexStore : IPersistedIndexStore {
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());
         _fileStorage.CommitTransaction(_fileStorage.GetTimestamp(), true);
     }
-    public void BeginTransaction() => _fileStorage.BeginTransaction();
+    public void BeginTransaction() 
+        => _fileStorage.BeginTransaction();
     public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
         _fileStorage.BeginTransaction();
         _settings.Set((int)SettingKey.WalId, walFileId.ToString());

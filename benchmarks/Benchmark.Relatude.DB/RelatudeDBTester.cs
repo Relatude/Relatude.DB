@@ -14,14 +14,21 @@ public enum RelatudeDiskFlushMode {
     StreamFlush,
     DiskFlush
 }
+public enum RelatudeIndexType {
+    Memory,
+    Sqlite,
+    Native,
+}
 public class RelatudeDBTester : ITester {
-    public RelatudeDBTester(RelatudeDiskFlushMode mode) {
+    public RelatudeDBTester(RelatudeDiskFlushMode mode, RelatudeIndexType indexType) {
         _flushMode = mode;
+        _indexType = indexType;
     }
     RelatudeDiskFlushMode _flushMode;
+    RelatudeIndexType _indexType;
     string _dataFolderPath = null!;
     IDataStore _dataStore = null!;
-    public string Name => "Relatude " + _flushMode.ToString().Decamelize(false);
+    public string Name => "Relatude " + _flushMode.ToString().Decamelize(false) + " " + _indexType.ToString().Decamelize(false);
     NodeStore _store = null!;
     bool _flushEveryTrans = false;
     public void Initalize(string dataFolderPath, TestOptions options) {
@@ -50,6 +57,15 @@ public class RelatudeDBTester : ITester {
         settings.ForceDiskFlushAfterActionCountLimit = int.MaxValue;
         settings.AutoFlushDiskInBackground = _flushMode == RelatudeDiskFlushMode.AutoFlush;
         settings.DeepFlushDisk = _flushMode == RelatudeDiskFlushMode.DiskFlush;
+
+        if(_indexType == RelatudeIndexType.Sqlite) {
+            settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Sqlite;
+            settings.UsePersistedValueIndexesByDefault = true;
+        } else if (_indexType == RelatudeIndexType.Native) {
+            settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Native;
+            settings.UsePersistedValueIndexesByDefault = true;
+        }
+
         var io = new IOProviderDisk(_dataFolderPath!);
         _dataStore = new DataStoreLocal(dm, settings, io);
         _dataStore.Open();

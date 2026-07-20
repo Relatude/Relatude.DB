@@ -267,6 +267,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             _ => IdCount,
         };
     }
-    public long PersistedTimestamp { get; set; }
+    public long PersistedTimestamp { get; private set; }
+    public void FlagFirstCommit() { }
     public string FriendlyName { get; }
 }
