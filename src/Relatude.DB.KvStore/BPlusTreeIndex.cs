@@ -503,51 +503,34 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         }
     }
 
+    // Counts descend the value tree's branch counts (see BTree.CountLessThan) instead of scanning
+    // leaves: [startKey, stopKey) bounds are prefix-free, so "entries < boundary" is exact.
+
     public int CountIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true)
     {
         var (startKey, stopKey) = BuildRangeKeys(from, to, includeFrom, includeTo);
         using var read = engine.BeginRead();
-        return CountFrom(read, startKey, stopKey);
+        uint valueRoot = RootsFor(read).ValueRoot;
+        int n = BTree.CountLessThan(read.Source, valueRoot, stopKey)
+              - BTree.CountLessThan(read.Source, valueRoot, startKey);
+        return n > 0 ? n : 0; // an inverted range (from > to) matches nothing
     }
 
     public int CountIdsGreaterThan(T value, bool includeValue = true)
     {
         byte[] startKey = BuildStartKey(value, includeValue);
         using var read = engine.BeginRead();
-        return CountFrom(read, startKey, null);
+        int total = read.Txn is not null
+            ? engine.GetTxnState(read.Txn, name).IdCount
+            : engine.GetCommittedState(read.Snapshot!, name).IdCount;
+        return total - BTree.CountLessThan(read.Source, RootsFor(read).ValueRoot, startKey);
     }
 
     public int CountIdsSmallerThan(T value, bool includeValue = true)
     {
         byte[] stopKey = BuildStopKey(value, includeValue);
         using var read = engine.BeginRead();
-        var cursor = new BTreeCursor(read.Source);
-        if (!cursor.SeekFirst(RootsFor(read).ValueRoot))
-            return 0;
-        int n = 0;
-        do
-        {
-            if (cursor.Key.SequenceCompareTo(stopKey) >= 0)
-                break;
-            n++;
-        } while (cursor.MoveNext());
-        return n;
-    }
-
-    /// <summary>Counts value-tree entries from startKey up to stopKey (or the end when null), without decoding.</summary>
-    private int CountFrom(in BPlusTreeStorageEngine.ReadHandle read, byte[] startKey, byte[]? stopKey)
-    {
-        var cursor = new BTreeCursor(read.Source);
-        if (!cursor.Seek(RootsFor(read).ValueRoot, startKey))
-            return 0;
-        int n = 0;
-        do
-        {
-            if (stopKey is not null && cursor.Key.SequenceCompareTo(stopKey) >= 0)
-                break;
-            n++;
-        } while (cursor.MoveNext());
-        return n;
+        return BTree.CountLessThan(read.Source, RootsFor(read).ValueRoot, stopKey);
     }
 
     /// <summary>Splits a composite key into (id, decoded value), reusing the last decode for repeated values.</summary>

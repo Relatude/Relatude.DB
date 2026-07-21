@@ -10,17 +10,20 @@ namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 /// [2..4] cell count (u16)
 /// [4..6] cellStart: lowest byte offset used by the cell heap, grows downward (u16)
 /// [6..8] fragmented (reclaimable-by-compaction) bytes inside the cell heap (u16)
-/// [8..12] rightmost child page id (branch only, u32)
-/// [12..] slot array: u16 cell offsets, sorted by key
+/// [8..12]  rightmost child page id (branch only, u32)
+/// [12..16] entry count of the rightmost child's subtree (branch only, u32)
+/// [16..] slot array: u16 cell offsets, sorted by key
 /// </code>
 /// Leaf cell: <c>[keyLen:u16][valLen:u16][key][value]</c>.
-/// Branch cell: <c>[keyLen:u16][child:u32][key]</c> — child holds keys &lt; this key;
-/// keys ≥ the last cell key live under the rightmost child.
+/// Branch cell: <c>[keyLen:u16][child:u32][count:u32][key]</c> — child holds keys &lt; this key
+/// and count is the number of leaf entries in its subtree; keys ≥ the last cell key live under
+/// the rightmost child. The per-child counts make order-statistic queries (count of keys below
+/// a bound) a single descent instead of a leaf scan.
 /// </summary>
 internal static class NodePage
 {
     public const int PageSize = Pager.PageSize;
-    public const int HeaderSize = 12;
+    public const int HeaderSize = 16;
     public const byte TypeBranch = 1;
     public const byte TypeLeaf = 2;
 
@@ -52,6 +55,9 @@ internal static class NodePage
     public static uint Rightmost(byte[] p) => BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8));
     public static void SetRightmost(byte[] p, uint child) => BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(8), child);
 
+    public static int RightmostCount(byte[] p) => (int)BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(12));
+    public static void SetRightmostCount(byte[] p, int count) => BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(12), (uint)count);
+
     public static void InitLeaf(byte[] p)
     {
         Array.Clear(p, 0, HeaderSize);
@@ -76,7 +82,7 @@ internal static class NodePage
     {
         int off = CellOffset(p, i);
         int keyLen = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off));
-        int dataOff = p[0] == TypeLeaf ? off + 4 : off + 6;
+        int dataOff = p[0] == TypeLeaf ? off + 4 : off + 10;
         return p.AsSpan(dataOff, keyLen);
     }
 
@@ -94,7 +100,7 @@ internal static class NodePage
     {
         int off = CellOffset(p, i);
         int keyLen = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off));
-        int dataOff = p[0] == TypeLeaf ? off + 4 : off + 6;
+        int dataOff = p[0] == TypeLeaf ? off + 4 : off + 10;
         return p.AsMemory(dataOff, keyLen);
     }
 
@@ -105,9 +111,26 @@ internal static class NodePage
     public static void SetBranchChild(byte[] p, int i, uint child)
         => BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(CellOffset(p, i) + 2), child);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int BranchCount(byte[] p, int i)
+        => (int)BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(CellOffset(p, i) + 6));
+
+    public static void SetBranchCount(byte[] p, int i, int count)
+        => BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(CellOffset(p, i) + 6), (uint)count);
+
     /// <summary>Child covering index <paramref name="i"/> in the inclusive range [0, Count]; Count maps to the rightmost child.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint ChildAt(byte[] p, int i) => i < Count(p) ? BranchChild(p, i) : Rightmost(p);
+
+    /// <summary>Subtree entry count of the child at inclusive index <paramref name="i"/> (see <see cref="ChildAt"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ChildCountAt(byte[] p, int i) => i < Count(p) ? BranchCount(p, i) : RightmostCount(p);
+
+    public static void SetChildCountAt(byte[] p, int i, int count)
+    {
+        if (i < Count(p)) SetBranchCount(p, i, count);
+        else SetRightmostCount(p, count);
+    }
 
     private static int CellSizeAt(byte[] p, int i)
     {
@@ -115,11 +138,11 @@ internal static class NodePage
         int keyLen = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off));
         return p[0] == TypeLeaf
             ? 4 + keyLen + BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off + 2))
-            : 6 + keyLen;
+            : 10 + keyLen;
     }
 
     public static int LeafCellSize(int keyLen, int valLen) => 4 + keyLen + valLen;
-    public static int BranchCellSize(int keyLen) => 6 + keyLen;
+    public static int BranchCellSize(int keyLen) => 10 + keyLen;
 
     // ---- search ----
 
@@ -176,7 +199,7 @@ internal static class NodePage
         return true;
     }
 
-    public static bool TryInsertBranchCell(byte[] p, int pos, ReadOnlySpan<byte> key, uint child)
+    public static bool TryInsertBranchCell(byte[] p, int pos, ReadOnlySpan<byte> key, uint child, int count)
     {
         int cellSize = BranchCellSize(key.Length);
         if (!EnsureSpace(p, cellSize))
@@ -184,7 +207,8 @@ internal static class NodePage
         int off = CellStart(p) - cellSize;
         BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(off), (ushort)key.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(off + 2), child);
-        key.CopyTo(p.AsSpan(off + 6));
+        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(off + 6), (uint)count);
+        key.CopyTo(p.AsSpan(off + 10));
         FinishInsert(p, pos, off);
         return true;
     }
@@ -233,7 +257,7 @@ internal static class NodePage
             int keyLen = BinaryPrimitives.ReadUInt16LittleEndian(tmp[off..]);
             int size = tmp[0] == TypeLeaf
                 ? 4 + keyLen + BinaryPrimitives.ReadUInt16LittleEndian(tmp[(off + 2)..])
-                : 6 + keyLen;
+                : 10 + keyLen;
             write -= size;
             tmp.Slice(off, size).CopyTo(p.AsSpan(write));
             BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(HeaderSize + 2 * i), (ushort)write);

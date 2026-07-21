@@ -82,6 +82,30 @@ internal static class BTree
         return exact;
     }
 
+    // ---- order-statistic count ----
+
+    /// <summary>
+    /// Number of entries whose key is strictly less than <paramref name="key"/> (0 for an empty tree).
+    /// One descent: at each branch the subtree counts of the children left of the taken path are
+    /// summed, and the leaf contributes the position of the first key ≥ <paramref name="key"/>.
+    /// </summary>
+    public static int CountLessThan(IPageSource src, uint root, ReadOnlySpan<byte> key)
+    {
+        if (root == 0)
+            return 0;
+        int n = 0;
+        byte[] page = src.GetPage(root);
+        while (!NodePage.IsLeaf(page))
+        {
+            int idx = NodePage.UpperBound(page, key);
+            // Child i (< idx) only holds keys < separator i ≤ key, so its whole subtree counts.
+            for (int i = 0; i < idx; i++)
+                n += NodePage.BranchCount(page, i);
+            page = src.GetPage(NodePage.ChildAt(page, idx));
+        }
+        return n + NodePage.LowerBound(page, key, out _);
+    }
+
     // ---- insert ----
 
     private struct SplitResult
@@ -90,6 +114,8 @@ internal static class BTree
         public bool Split;
         public ReadOnlyMemory<byte> SepKey;
         public uint RightId;
+        public int LeftCount;  // entries under PageId after the operation (split only)
+        public int RightCount; // entries under RightId after the operation (split only)
     }
 
     /// <summary>Inserts or replaces; returns the new root page id.</summary>
@@ -127,7 +153,8 @@ internal static class BTree
 
         var (rootId, rootPage) = txn.Allocate();
         NodePage.InitBranch(rootPage, r.RightId);
-        NodePage.TryInsertBranchCell(rootPage, 0, r.SepKey.Span, r.PageId);
+        NodePage.SetRightmostCount(rootPage, r.RightCount);
+        NodePage.TryInsertBranchCell(rootPage, 0, r.SepKey.Span, r.PageId, r.LeftCount);
         return rootId;
     }
 
@@ -171,17 +198,33 @@ internal static class BTree
             return new SplitResult { PageId = pageId };
 
         (uint cowId, page) = txn.Cow(pageId);
-        if (idx < NodePage.Count(page))
-            NodePage.SetBranchChild(page, idx, r.Split ? r.RightId : r.PageId);
-        else
-            NodePage.SetRightmost(page, r.Split ? r.RightId : r.PageId);
         if (!r.Split)
+        {
+            if (idx < NodePage.Count(page))
+                NodePage.SetBranchChild(page, idx, r.PageId);
+            else
+                NodePage.SetRightmost(page, r.PageId);
+            if (extras.Outcome == InsertOutcome.AddedNew)
+                NodePage.SetChildCountAt(page, idx, NodePage.ChildCountAt(page, idx) + 1);
             return new SplitResult { PageId = cowId };
+        }
+
+        // Split halves report their post-insert totals, so the slot counts are set, not adjusted.
+        if (idx < NodePage.Count(page))
+        {
+            NodePage.SetBranchChild(page, idx, r.RightId);
+            NodePage.SetBranchCount(page, idx, r.RightCount);
+        }
+        else
+        {
+            NodePage.SetRightmost(page, r.RightId);
+            NodePage.SetRightmostCount(page, r.RightCount);
+        }
 
         // The split's left half is keyed by the separator, inserted before the (now right-pointing) old slot.
-        if (NodePage.TryInsertBranchCell(page, idx, r.SepKey.Span, r.PageId))
+        if (NodePage.TryInsertBranchCell(page, idx, r.SepKey.Span, r.PageId, r.LeftCount))
             return new SplitResult { PageId = cowId };
-        return SplitBranch(txn, cowId, page, idx, r.SepKey.Span, r.PageId);
+        return SplitBranch(txn, cowId, page, idx, r.SepKey.Span, r.PageId, r.LeftCount);
     }
 
     /// <summary>
@@ -256,6 +299,8 @@ internal static class BTree
                 Split = true,
                 SepKey = NodePage.GetKeyMemory(right, 0),
                 RightId = rightId,
+                LeftCount = splitAt,
+                RightCount = n - splitAt,
             };
         }
         finally
@@ -271,7 +316,7 @@ internal static class BTree
     }
 
     private static SplitResult SplitBranch(IWritePageSource txn, uint leftId, byte[] page, int newPos,
-        ReadOnlySpan<byte> newKey, uint newChild)
+        ReadOnlySpan<byte> newKey, uint newChild, int newCount)
     {
         byte[] tmp = ArrayPool<byte>.Shared.Rent(NodePage.PageSize);
         try
@@ -298,27 +343,39 @@ internal static class BTree
 
             byte[] sepKey = (promote == newPos ? newKey : NodePage.GetKey(tmp, promote < newPos ? promote : promote - 1)).ToArray();
             uint promoteChild = promote == newPos ? newChild : NodePage.BranchChild(tmp, promote < newPos ? promote : promote - 1);
+            int promoteCount = promote == newPos ? newCount : NodePage.BranchCount(tmp, promote < newPos ? promote : promote - 1);
+            int oldRightmostCount = NodePage.RightmostCount(tmp);
 
             var (rightId, right) = txn.Allocate();
             NodePage.InitBranch(right, NodePage.Rightmost(tmp));
+            NodePage.SetRightmostCount(right, oldRightmostCount);
             NodePage.InitBranch(page, promoteChild); // keys in [sep-of-left-half, sep) live under the promoted cell's child
+            NodePage.SetRightmostCount(page, promoteCount);
 
+            int leftSum = promoteCount, rightSum = oldRightmostCount;
             for (int i = 0; i < n; i++)
             {
                 if (i == promote)
                     continue;
                 byte[] target = i < promote ? page : right;
                 int pos = i < promote ? i : i - promote - 1;
+                int count = i == newPos ? newCount : NodePage.BranchCount(tmp, i < newPos ? i : i - 1);
                 bool ok = i == newPos
-                    ? NodePage.TryInsertBranchCell(target, pos, newKey, newChild)
+                    ? NodePage.TryInsertBranchCell(target, pos, newKey, newChild, count)
                     : NodePage.TryInsertBranchCell(target, pos,
                         NodePage.GetKey(tmp, i < newPos ? i : i - 1),
-                        NodePage.BranchChild(tmp, i < newPos ? i : i - 1));
+                        NodePage.BranchChild(tmp, i < newPos ? i : i - 1), count);
                 if (!ok)
                     throw new InvalidOperationException("Internal error: split halves must always fit.");
+                if (i < promote) leftSum += count;
+                else rightSum += count;
             }
 
-            return new SplitResult { PageId = leftId, Split = true, SepKey = sepKey, RightId = rightId };
+            return new SplitResult
+            {
+                PageId = leftId, Split = true, SepKey = sepKey, RightId = rightId,
+                LeftCount = leftSum, RightCount = rightSum,
+            };
         }
         finally
         {
@@ -407,6 +464,7 @@ internal static class BTree
                 NodePage.SetBranchChild(page, idx, r.PageId);
             else
                 NodePage.SetRightmost(page, r.PageId);
+            NodePage.SetChildCountAt(page, idx, NodePage.ChildCountAt(page, idx) - 1);
             return new DeleteResult(cowId, true, false);
         }
 
@@ -414,11 +472,12 @@ internal static class BTree
         int count = NodePage.Count(page);
         if (idx < count)
         {
-            NodePage.RemoveCell(page, idx); // drops the separator together with the emptied child
+            NodePage.RemoveCell(page, idx); // drops the separator together with the emptied child (its count is 0)
         }
         else if (count > 0)
         {
             NodePage.SetRightmost(page, NodePage.BranchChild(page, count - 1));
+            NodePage.SetRightmostCount(page, NodePage.BranchCount(page, count - 1));
             NodePage.RemoveCell(page, count - 1);
         }
         else

@@ -16,7 +16,8 @@ internal readonly record struct Meta(long TxId, long Timestamp, uint CatalogRoot
 internal sealed class Pager : IPageSource, IDisposable
 {
     public const int PageSize = 4096;
-    private const ulong Magic = 0x5346495830303031ul; // "SFIX0001"
+    private const ulong Magic = 0x5346495830303032ul; // "SFIX0002" (0002: subtree entry counts in branch pages)
+    private const ulong MagicV1 = 0x5346495830303031ul; // "SFIX0001" — pre-count page format, no longer readable
     private const int MetaPayload = 40;
 
     private readonly SafeFileHandle? _handle;
@@ -72,10 +73,14 @@ internal sealed class Pager : IPageSource, IDisposable
 
         if (isNew)
         {
-            _meta = new Meta(TxId: 0, Timestamp: 0, CatalogRoot: 0, FreelistHead: 0, PageCount: 2);
-            WriteMetaSlot(0, _meta);
-            WriteMetaSlot(1, _meta);
-            _flushStream.Flush(true);
+            InitializeEmptyFile();
+        }
+        else if (IsSupersededFormat())
+        {
+            // A valid file in an older page format: it cannot be read, but index data is derived —
+            // start empty and let the store rebuild everything from the data-store WAL.
+            _flushStream.SetLength(2L * PageSize);
+            InitializeEmptyFile();
         }
         else
         {
@@ -83,6 +88,30 @@ internal sealed class Pager : IPageSource, IDisposable
             LoadFreelist(_meta.FreelistHead);
         }
         _pageCount = _meta.PageCount;
+    }
+
+    private void InitializeEmptyFile()
+    {
+        _meta = new Meta(TxId: 0, Timestamp: 0, CatalogRoot: 0, FreelistHead: 0, PageCount: 2);
+        WriteMetaSlot(0, _meta);
+        WriteMetaSlot(1, _meta);
+        _flushStream!.Flush(true);
+    }
+
+    /// <summary>True when either meta slot is a checksum-valid meta page of a superseded format version.</summary>
+    private bool IsSupersededFormat()
+    {
+        Span<byte> buf = stackalloc byte[PageSize];
+        for (int slot = 0; slot < 2; slot++)
+        {
+            if (RandomAccess.Read(_handle!, buf, (long)slot * PageSize) != PageSize)
+                continue;
+            if (BinaryPrimitives.ReadUInt64LittleEndian(buf) != MagicV1)
+                continue;
+            if (BinaryPrimitives.ReadUInt64LittleEndian(buf[MetaPayload..]) == Fnv1a64(buf[..MetaPayload]))
+                return true;
+        }
+        return false;
     }
 
     // ---- page IO ----

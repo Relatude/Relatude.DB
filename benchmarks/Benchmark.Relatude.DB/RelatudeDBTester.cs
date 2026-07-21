@@ -49,7 +49,7 @@ public class RelatudeDBTester : ITester {
         settings.DefaultReadAccess = SystemGroupType.Everyone;
         settings.DefaultWriteAccess = SystemGroupType.Everyone;
         settings.NodeCacheSizeGb = 10;
-        settings.SetCacheSizeGb = 10;
+        settings.SetCacheSizeGb = 0;
         settings.SecondaryBackupLog = false;
         settings.AutoPurgeCache = false;
         settings.AutoSaveIndexStates = false;
