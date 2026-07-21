@@ -2,7 +2,7 @@
 public class LambdaToken : TokenBase {
     public LambdaToken(string code, int pos1, int pos2) : base(code, pos1, pos2) {
     }
-    public List<string>? Paramaters { get; set; }
+    public string[]? Paramaters { get; set; }
     public TokenBase? Body { get; set; }
     static public LambdaToken Parse(string code, int pos, out int newPos, IEnumerable<Parameter> parameters) {
         pos = SkipWhiteSpace(code, pos);
@@ -18,7 +18,7 @@ public class LambdaToken : TokenBase {
         var arguments = code[startOfArguments..endOfArguments].Split(',', StringSplitOptions.TrimEntries);
 
         for (int i = 0; i < arguments.Length; i++) arguments[i] = arguments[i].Split(' ').Last(); // removing type, ie: "Article a" to "a"
-        expression.Paramaters = arguments.ToList();
+        expression.Paramaters = arguments;
         pos = code.IndexOf('>', endOfArguments);
         pos++;
         pos = SkipWhiteSpace(code, pos);

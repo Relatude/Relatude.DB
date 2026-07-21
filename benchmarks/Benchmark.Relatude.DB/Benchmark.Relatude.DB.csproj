@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
     <ProjectReference Include="..\Benchmark.Base\Benchmark.Base.csproj" />
   </ItemGroup>
 

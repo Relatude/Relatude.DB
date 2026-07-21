@@ -82,7 +82,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     Dictionary<string, ITaskRunner> _taskRunners = [];
 
     public DataStoreLocal(
-        Datamodel dm,
+        Datamodel datamodel,
         SettingsLocal? settings = null,
         IIOProvider? dbIO = null,
         IFileStore[]? filestores = null,
@@ -121,7 +121,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         _createPersistedIndexStore = createPersistedIndexStore;
         _fileKeys = new(_settings.FilePrefix);
-        _logger = new(_ioLog, _fileKeys, dm);
+        _logger = new(_ioLog, _fileKeys, datamodel);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
         _fileConversionEngine = new(this, fileConverters, converterIoProvider, _fileKeys);
         RegisterRunner(new TextIndexTaskRunner(this));
@@ -138,9 +138,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         TaskQueuePersisted = new(this, queueStore, _taskRunners);
-        Datamodel = dm;
-        dm.EnsureInitalization();
-        dm.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
+        Datamodel = datamodel;
+        datamodel.EnsureInitalization();
+        datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
         _nativeModelStore = new(this);
         if (_settings.DefaultFileStore.HasValue) {
             if (_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out var fileStore)) {

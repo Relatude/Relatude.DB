@@ -2,6 +2,8 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.Native;
 using Relatude.DB.Nodes;
@@ -57,17 +59,20 @@ public class RelatudeDBTester : ITester {
         settings.ForceDiskFlushAfterActionCountLimit = int.MaxValue;
         settings.AutoFlushDiskInBackground = _flushMode == RelatudeDiskFlushMode.AutoFlush;
         settings.DeepFlushDisk = _flushMode == RelatudeDiskFlushMode.DiskFlush;
-
-        if(_indexType == RelatudeIndexType.Sqlite) {
+        Func<IPersistedIndexStore>? createIndex = null;
+        
+        if (_indexType == RelatudeIndexType.Sqlite) {
             settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Sqlite;
             settings.UsePersistedValueIndexesByDefault = true;
+            createIndex = () => new SqliteIndexStore(_dataFolderPath, null);
         } else if (_indexType == RelatudeIndexType.Native) {
             settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Native;
             settings.UsePersistedValueIndexesByDefault = true;
+            createIndex = () => new NativeKvIndexStore(_dataFolderPath, null);
         }
 
         var io = new IOProviderDisk(_dataFolderPath!);
-        _dataStore = new DataStoreLocal(dm, settings, io);
+        _dataStore = new DataStoreLocal(datamodel: dm, settings: settings, dbIO: io, createPersistedIndexStore: createIndex);
         _dataStore.Open();
         _store = new NodeStore(_dataStore);
     }

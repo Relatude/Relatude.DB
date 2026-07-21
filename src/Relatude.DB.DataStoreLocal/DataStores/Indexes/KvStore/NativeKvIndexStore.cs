@@ -12,8 +12,9 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
         string? filePath;
         if (folderPath != null) {
-            if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
-            filePath = Path.Combine(folderPath, "kvstore.db");
+            var kvFolder = Path.Combine(folderPath, "nativekv");
+            if (!Directory.Exists(kvFolder)) Directory.CreateDirectory(kvFolder);
+            filePath = Path.Combine(kvFolder, "nativekv.db");
         } else {
             filePath = null;// memory only
         }

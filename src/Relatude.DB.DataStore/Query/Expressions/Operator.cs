@@ -63,18 +63,6 @@ public static class OperatorUtil {
             Operator.Minus => 2,
             Operator.Multiply => 1,
             Operator.Divide => 1,
-            //Operator.And => 4,
-            //Operator.Or => 4,
-            //Operator.Equal => 3,
-            //Operator.NotEqual => 3,
-            //Operator.Greater => 3,
-            //Operator.Smaller => 3,
-            //Operator.GreaterOrEqual => 3,
-            //Operator.SmallerOrEqual => 3,
-            //Operator.Plus => 2,
-            //Operator.Minus => 2,
-            //Operator.Multiply => 1,
-            //Operator.Divide => 1,
             _ => throw new Exception("Unknown operator: " + o + ". "),
         };
     }

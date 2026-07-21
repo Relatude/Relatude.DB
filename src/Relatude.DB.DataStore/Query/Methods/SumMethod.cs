@@ -26,7 +26,7 @@ public class SumMethod : IExpression {
             throw new Exception("Sum is not supported for type " + firstValue.GetType() + ". Use a lambda expression to specify the property to sum. ");
         } else {
             var rowVars = vars.CreateScope();
-            if (_lambda.Parameters.Count != 1) throw new Exception("Lambda expression does only support one paramater. ");
+            if (_lambda.Parameters.Length != 1) throw new Exception("Lambda expression does only support one paramater. ");
             var lambdaParamaterName = _lambda.Parameters[0];
             rowVars.Declare(lambdaParamaterName);
             if (data.Count == 0) return 0;

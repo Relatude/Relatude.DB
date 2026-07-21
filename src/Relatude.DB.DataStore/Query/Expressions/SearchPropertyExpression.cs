@@ -1,7 +1,4 @@
-﻿using Relatude.DB.Datamodels.Properties;
-using Relatude.DB.Query.Data;
-
-namespace Relatude.DB.Query.Expressions;
+﻿namespace Relatude.DB.Query.Expressions;
 // not currently used
 public class SearchPropertyExpression : IExpression {
     public SearchPropertyExpression(PropertyReferenceExpression propertyReference, string searchText) {

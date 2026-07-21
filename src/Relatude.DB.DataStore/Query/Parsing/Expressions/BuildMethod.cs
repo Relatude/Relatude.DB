@@ -59,7 +59,7 @@ abstract class MethodDef {
     }
 
     protected static LambdaExpression BuildLambda(LambdaToken lambda, Datamodel dm, string methodName) {
-        if (lambda.Paramaters == null || lambda.Paramaters.Count != 1)
+        if (lambda.Paramaters == null || lambda.Paramaters.Length != 1)
             throw new Exception($"'{methodName}' only accepts a lambda with exactly one parameter.");
         return ExpressionTreeBuilder.BuildLambda(lambda, dm);
     }

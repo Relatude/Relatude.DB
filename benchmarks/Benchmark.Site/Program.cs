@@ -12,8 +12,8 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 500000;
-    var timeMultiplier = 3;
+    var dataSetMultiplier = 50000;
+    var timeMultiplier = 2;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
     options.UserCount = 1 * dataSetMultiplier;
@@ -28,7 +28,7 @@ app.MapPost("/start", () => {
         //new MsSqlDBTester(),
         //new RavenDBEmbeddedTester(),
         //new LiteDBTester(),
-        new SQLiteDBTester(),
+        //new SQLiteDBTester(),
         //new RelatudeDBTester( RelatudeDiskFlushMode.DiskFlush),
         //new RelatudeDBTester( RelatudeDiskFlushMode.StreamFlush),
         new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Memory),

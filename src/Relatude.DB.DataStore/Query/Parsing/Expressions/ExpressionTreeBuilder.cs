@@ -67,8 +67,10 @@ public class ExpressionTreeBuilder {
         return ex;
     }
     public static AnonymousObjectExpression BuildAnonymousObject(AnonymousObjectToken e, Datamodel dm) {
-        var valueExpressions = new List<IExpression>();
-        foreach (var valueExp in e.Values) valueExpressions.Add(Build(valueExp, dm));
+        var valueExpressions = new IExpression[e.Values.Count];
+        for (int i = 0; i < e.Values.Count; i++) {
+            valueExpressions[i] = Build(e.Values[i], dm);
+        }
         var props = e.Names.Select(n => new KeyValuePair<string, PropertyType>(n, PropertyType.Any)).ToArray();
         var ex = new AnonymousObjectExpression(props, valueExpressions);
         return ex;

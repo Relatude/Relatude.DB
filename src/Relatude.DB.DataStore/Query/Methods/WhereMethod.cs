@@ -4,6 +4,7 @@ namespace Relatude.DB.Query.Methods;
 public class WhereMethod(IExpression input, LambdaExpression lamda) : IExpression {
     public object Evaluate(IVariables vars) {
         var evaluatedInput = (ICollectionData)input.Evaluate(vars)!;
+        var effectiveLamda = lamda;
         if (evaluatedInput is IStoreNodeDataCollection sd) {
             // If the input is a store node data collection, we can try to evaluate expression using sets, and indexes:
             var scope = vars.CreateScope();
@@ -11,11 +12,11 @@ public class WhereMethod(IExpression input, LambdaExpression lamda) : IExpressio
             scope.DeclarerAndSetConstant(inputParamaterName, sd);
             evaluatedInput = sd.FilterAsMuchAsPossibleUsingIndexes(scope, lamda.Body, out var remainingFilter);
             if (remainingFilter == null) return evaluatedInput; // if no remaining filter, we are done
-            lamda.Body = remainingFilter; // if there is a remaining filter, we will evaluate the remaining filter using the evaluated input
+            effectiveLamda = new LambdaExpression(lamda.Parameters, remainingFilter);
         }
         // evaluating each row to a bool value ( where expression must return a bool value )
         // the mask is basically an array of bools, where each bool represents if the row should be included in the result or not
-        var maskAsObjects = Helper.EvaluateLambdaOnCollection(vars, evaluatedInput, lamda);
+        var maskAsObjects = Helper.EvaluateLambdaOnCollection(vars, evaluatedInput, effectiveLamda);
         var mask = new bool[maskAsObjects.TotalCount];
         var i = 0;
         foreach (var o in maskAsObjects.Values) mask[i++] = (bool)o!;
