@@ -1,33 +1,10 @@
 ﻿
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
-using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Demo.Models;
 
-
-public interface IBluestoneFile {
-
-    public FileValue File { get; set; }
-
-    public string ExternalId { get; set; }
-
-}
-
-
-public interface IProduct{
-    [EmbeddedMapProperty(KeyProperty = nameof(IBluestoneFile.ExternalId))]
-
-    public EmbeddedMap<string, IBluestoneFile> MorePictures { get; set; }
-
-
-
-    [EmbeddedMapProperty(KeyProperty = nameof(IBluestoneFile.ExternalId))]
-
-    public EmbeddedMap<string, IBluestoneFile> Documents { get; set; }
-}
-
-    public interface IDemoArticle {
+public interface IDemoArticle {
 
     public Guid Id { get; set; }
 

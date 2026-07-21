@@ -13,8 +13,9 @@ public sealed class BPlusTreeEngineOptions
     /// <summary>
     /// Maximum number of decoded values cached per index to serve <see cref="ISortedIndex{T}.GetValue"/>
     /// without a tree descent. 0 (the default) disables the cache. Snapshot-consistent: every
-    /// commit evicts the ids it touched. The budget is entries, not bytes — size it to the hot
-    /// id working set and remember each entry holds one decoded value alive.
+    /// commit evicts the ids it touched. The budget is entries, not bytes (rounded up to a power
+    /// of two — the cache is a direct-mapped slot array) — size it to the hot id working set and
+    /// remember each entry holds one decoded value alive.
     /// </summary>
     public int ValueCacheEntries { get; init; }
 }
@@ -84,7 +85,10 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         public (uint Id, byte[] Page) Allocate()
         {
             uint id = _pager.AllocatePage();
-            var page = new byte[Pager.PageSize];
+            // Uninitialized on purpose: a Cow overwrites all of it, and Init/insert paths write
+            // the header and cells while the heap gap in between is never read back. Zeroing
+            // fresh pages was a top CPU cost of write transactions.
+            var page = GC.AllocateUninitializedArray<byte>(Pager.PageSize);
             Dirty[id] = page;
             return (id, page);
         }

@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Relatude.DB</RootNamespace>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-    <Version>0.2.0.113</Version>
+    <Version>0.2.0.114</Version>
   </PropertyGroup>
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />

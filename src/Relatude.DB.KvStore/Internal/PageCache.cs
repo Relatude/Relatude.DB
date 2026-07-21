@@ -34,7 +34,8 @@ internal sealed class PageCache
     {
         if (_map.TryGetValue(pageId, out var e))
         {
-            e.Touched = true;
+            if (!e.Touched)
+                e.Touched = true; // write only on transition: a hot page stays read-only for other cores
             return e.Page;
         }
         return null;

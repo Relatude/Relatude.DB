@@ -134,7 +134,7 @@ internal sealed class Pager : IPageSource, IDisposable
                 throw new InvalidDataException($"Page {pageId} is not present in the in-memory store.");
             return mp;
         }
-        var buf = new byte[PageSize];
+        var buf = GC.AllocateUninitializedArray<byte>(PageSize); // fully overwritten by the read below
         var handle = _readHandles![(uint)Environment.CurrentManagedThreadId % (uint)_readHandles.Length];
         int read = RandomAccess.Read(handle, buf, (long)pageId * PageSize);
         if (read != PageSize)
@@ -263,24 +263,25 @@ internal sealed class Pager : IPageSource, IDisposable
                 _mem[id] = page;
             return;
         }
-        var ids = new uint[dirty.Count];
-        dirty.Keys.CopyTo(ids, 0);
-        Array.Sort(ids);
+        // One enumeration of the dictionary instead of two lookups per page while building runs.
+        var pages = new KeyValuePair<uint, byte[]>[dirty.Count];
+        ((ICollection<KeyValuePair<uint, byte[]>>)dirty).CopyTo(pages, 0);
+        Array.Sort(pages, static (a, b) => a.Key.CompareTo(b.Key));
 
         // Coalesce contiguous page runs into single vectored writes.
         var run = new List<ReadOnlyMemory<byte>>();
         int i = 0;
-        while (i < ids.Length)
+        while (i < pages.Length)
         {
             int start = i;
             run.Clear();
-            run.Add(dirty[ids[i]]);
-            while (i + 1 < ids.Length && ids[i + 1] == ids[i] + 1)
+            run.Add(pages[i].Value);
+            while (i + 1 < pages.Length && pages[i + 1].Key == pages[i].Key + 1)
             {
                 i++;
-                run.Add(dirty[ids[i]]);
+                run.Add(pages[i].Value);
             }
-            RandomAccess.Write(_handle!, run, (long)ids[start] * PageSize);
+            RandomAccess.Write(_handle!, run, (long)pages[start].Key * PageSize);
             i++;
         }
     }
@@ -329,7 +330,7 @@ internal sealed class Pager : IPageSource, IDisposable
         int e = 0;
         for (int i = 0; i < pageCountNeeded; i++)
         {
-            var buf = new byte[PageSize];
+            var buf = GC.AllocateUninitializedArray<byte>(PageSize); // the gap after the last entry is never read
             uint next = i + 1 < pageCountNeeded ? chain[i + 1] : 0;
             BinaryPrimitives.WriteUInt32LittleEndian(buf, next);
             int inPage = Math.Clamp(total - e, 0, EntriesPerPage);

@@ -1,35 +1,41 @@
-using System.Collections.Concurrent;
+using System.Numerics;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Bounded cache of decoded values keyed by id, fronting <c>GetValue</c> tree descents.
-/// Each entry is tagged with the txid of the snapshot it was read from; a hit requires
-/// entry.TxId &lt;= the reader's snapshot, and every commit evicts the ids it touched
-/// (under the commit lock, after the new snapshot is published), so a surviving entry is
-/// the live value for every snapshot its tag admits. A populate that races a commit is
-/// undone by the caller re-checking the committed txid after <see cref="TryAdd"/> and
-/// calling <see cref="RemoveIfFrom"/>. Eviction mirrors <see cref="PageCache"/>:
-/// an atomic count plus a single-threaded second-chance sweep.
+/// A lock-free, direct-mapped slot array (capacity rounded up to a power of two): a slot is
+/// found by <c>id &amp; mask</c>, holds at most one immutable entry, and is simply overwritten
+/// on collision. There is no eviction machinery and no lock anywhere — a miss costs one array
+/// read, an insert one small allocation — so a working set larger than the cache degrades to
+/// near-free misses instead of thrashing (replacements of a colliding id are sampled to keep
+/// allocation churn low under uniform scans).
+/// <para>
+/// Consistency contract (unchanged): each entry is tagged with the txid of the snapshot it was
+/// read from; a hit requires entry.TxId &lt;= the reader's snapshot, and every commit evicts the
+/// ids it touched (under the commit lock, after the new snapshot is published), so a surviving
+/// entry is the live value for every snapshot its tag admits. A populate that races a commit is
+/// undone by the caller re-checking the committed txid after <see cref="TryAdd"/> and calling
+/// <see cref="RemoveIfFrom"/>.
+/// </para>
 /// </summary>
 internal sealed class ValueCache<T>(int capacity)
 {
-    private sealed class Entry(long txId, T value)
+    private sealed class Entry(int id, long txId, T value)
     {
+        public readonly int Id = id;
         public readonly long TxId = txId;
         public readonly T Value = value;
-        public bool Touched = true;
     }
 
-    private readonly ConcurrentDictionary<int, Entry> _map = new();
-    private readonly object _evictLock = new();
-    private int _count;
+    private readonly Entry?[] _slots = new Entry?[(int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(2, capacity))];
+    private int _replaceTick; // racy by design: only samples replacements of colliding ids
 
     public bool TryGet(int id, long snapshotTxId, out T value)
     {
-        if (_map.TryGetValue(id, out var e) && e.TxId <= snapshotTxId)
+        Entry? e = Volatile.Read(ref _slots[id & (_slots.Length - 1)]);
+        if (e is not null && e.Id == id && e.TxId <= snapshotTxId)
         {
-            e.Touched = true;
             value = e.Value;
             return true;
         }
@@ -37,68 +43,44 @@ internal sealed class ValueCache<T>(int capacity)
         return false;
     }
 
-    /// <summary>Caches id → value as read at snapshot <paramref name="txId"/>; false if an entry is already present.</summary>
+    /// <summary>Caches id → value as read at snapshot <paramref name="txId"/>; false if not admitted (slot held by a colliding id that was not sampled for replacement).</summary>
     public bool TryAdd(int id, long txId, T value)
     {
-        if (!_map.TryAdd(id, new Entry(txId, value)))
+        ref Entry? slot = ref _slots[id & (_slots.Length - 1)];
+        Entry? cur = Volatile.Read(ref slot);
+        // Replace a DIFFERENT id only 1-in-8 times: a scan over a working set larger than the
+        // cache then allocates rarely instead of on every miss, while a genuinely hot id still
+        // claims its slot within a few touches and serves hits from then on.
+        if (cur is not null && cur.Id != id && (++_replaceTick & 7) != 0)
             return false;
-        if (Interlocked.Increment(ref _count) > capacity)
-            Evict();
+        Volatile.Write(ref slot, new Entry(id, txId, value));
         return true;
     }
 
     /// <summary>
-    /// Undoes a <see cref="TryAdd"/> that raced a commit: removes the entry only if it still
-    /// carries <paramref name="txId"/> (an equal-tag entry from another reader holds the same
-    /// value, so removing it merely costs a future miss).
+    /// Undoes a <see cref="TryAdd"/> that raced a commit: clears the slot only if it still holds
+    /// this exact (id, txId) entry (an equal-tag entry from another reader holds the same value,
+    /// so clearing it merely costs a future miss).
     /// </summary>
     public void RemoveIfFrom(int id, long txId)
     {
-        if (_map.TryGetValue(id, out var e) && e.TxId == txId)
-            RemovePair(id, e);
+        ref Entry? slot = ref _slots[id & (_slots.Length - 1)];
+        Entry? e = Volatile.Read(ref slot);
+        if (e is not null && e.Id == id && e.TxId == txId)
+            Volatile.Write(ref slot, null);
     }
 
     public void Remove(int id)
     {
-        if (_map.TryRemove(id, out _))
-            Interlocked.Decrement(ref _count);
+        ref Entry? slot = ref _slots[id & (_slots.Length - 1)];
+        Entry? e = Volatile.Read(ref slot);
+        if (e is not null && e.Id == id)
+            Volatile.Write(ref slot, null);
     }
 
     public void Clear()
     {
-        foreach (var kv in _map)
-            RemovePair(kv.Key, kv.Value);
-    }
-
-    private void RemovePair(int id, Entry e)
-    {
-        if (((ICollection<KeyValuePair<int, Entry>>)_map).Remove(new KeyValuePair<int, Entry>(id, e)))
-            Interlocked.Decrement(ref _count);
-    }
-
-    private void Evict()
-    {
-        if (!Monitor.TryEnter(_evictLock))
-            return; // someone else is already sweeping
-        try
-        {
-            int target = capacity - capacity / 8; // free ~12.5% headroom per sweep
-            for (int pass = 0; pass < 2 && Volatile.Read(ref _count) > target; pass++)
-            {
-                foreach (var kv in _map)
-                {
-                    if (Volatile.Read(ref _count) <= target)
-                        break;
-                    if (kv.Value.Touched && pass == 0)
-                        kv.Value.Touched = false; // second chance
-                    else
-                        RemovePair(kv.Key, kv.Value);
-                }
-            }
-        }
-        finally
-        {
-            Monitor.Exit(_evictLock);
-        }
+        for (int i = 0; i < _slots.Length; i++)
+            Volatile.Write(ref _slots[i], null);
     }
 }

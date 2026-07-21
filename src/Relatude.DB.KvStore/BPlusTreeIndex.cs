@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
@@ -14,6 +15,7 @@ namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 /// (for <see cref="DistinctValueCount"/>) are resolved inside the tree operations themselves via
 /// <see cref="WriteExtras"/>, with a fallback lookup only when a leaf boundary is inconclusive.
 /// </summary>
+[SkipLocalsInit] // Set/Remove stackalloc ~1.5 KB of scratch per call; zeroing it is pure cost (every read is length-bounded to written bytes)
 internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp) : ISortedIndex<T>, IValueCacheOwner, IIndexTimestamp where T : notnull
 {
     private const int StackBufferSize = 512;
