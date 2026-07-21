@@ -18,11 +18,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\..\..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
-	  <ProjectReference Include="..\..\..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
-	  <ProjectReference Include="..\..\..\..\src\Relatude.DB.Logger\Relatude.DB.Logger.csproj" />
-	  <ProjectReference Include="..\..\..\..\src\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
-	  <ProjectReference Include="..\..\..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.Logger\Relatude.DB.Logger.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
 	</ItemGroup>
 
 </Project>
