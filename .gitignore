@@ -374,3 +374,4 @@ nuget.exe
 
 # JetBrains IDE
 .idea
+/examples/Website.Lucene/lucene.index

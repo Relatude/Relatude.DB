@@ -230,6 +230,7 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
 // Facet search example used by wwwroot/search.html. The facets are computed from the free text
 // search result, so counts and range buckets adapt to the query as you type.
 app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
+    var swQuery = System.Diagnostics.Stopwatch.StartNew();
     var db = ctx.Database;
     var query = db.Query<Product>();
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
@@ -240,17 +241,19 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
         .AddValueFacet("InStock")
         .AddValueFacet("Tags")
         .SetFacetOptions("Tags", maxValues: 8, sortByCount: true)
-        .Page(req.Page, 20);
+        .Page(req.Page, 10);
     foreach (var sel in req.Selections ?? []) {
         foreach (var v in sel.Values ?? []) facetQuery.SetFacetValue(sel.Property, v);
         foreach (var r in sel.Ranges ?? []) facetQuery.SetFacetRangeValue(sel.Property, r.From, r.To);
     }
     var res = facetQuery.Execute();
+    swQuery.Stop();
     return Results.Json(new {
         total = res.TotalCount,
         sourceCount = res.SourceCount,
         page = req.Page,
         pageSize = 20,
+        durationMs = swQuery.Elapsed.TotalMilliseconds,
         items = res.Select(p => new {
             p.Name, p.Description, p.Category, p.Price, p.InStock, p.Tags,
             Brand = p.Brand.TryGet(out var b) ? b.Name : "",

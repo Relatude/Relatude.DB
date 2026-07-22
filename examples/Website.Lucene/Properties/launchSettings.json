@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Website.Lucene": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "search.html",
+      "applicationUrl": "http://localhost:5053",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

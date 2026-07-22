@@ -5,7 +5,7 @@ using Website.Simple.Models;
 // datamodel source in relatude.db.json, and every class in it is treated as a node type.
 namespace Website.Simple.Data;
 
-// Seeds the store with a deterministic product catalog on first run (10 000 products, 12 brands).
+// Seeds the store with a deterministic product catalog on first run (10 million products, 12 brands).
 // Names and descriptions are combined from word banks so free text search has meaningful words
 // to match: try searching for "waterproof", "leather", "wireless", "bamboo", "titanium"...
 public static class ShopSeeder {
@@ -25,7 +25,7 @@ public static class ShopSeeder {
     static readonly string[] _tags = ["bestseller", "eco", "new", "sale", "premium", "handmade", "limited"];
     static readonly string[] _brandNames = ["Fjellrev", "Nordlys", "Kvist & Co", "Bluewhale", "Habitat 7", "Solvind", "Granheim", "Urban Nest", "Polarix", "Drivved", "Lysne", "Vandrer"];
 
-    public static void SeedIfEmpty(NodeStore db, int productCount = 10_000) {
+    public static void SeedIfEmpty(NodeStore db, int productCount = 10_000_000) {
         if (db.Query<Product>().Count() > 0) return;
         var rnd = new Random(2026); // deterministic content
         var brands = _brandNames.Select(n => new Brand { Id = Guid.NewGuid(), Name = n }).ToList();
