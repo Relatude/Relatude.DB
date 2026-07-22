@@ -122,6 +122,7 @@ namespace Relatude.DB.DataStores.Definitions {
         }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             var index = GetValueIndex(ctx);
+            if (countFacetsInOnePassOverSet(index, nodeIds, facets)) return;
             foreach (var fv in facets.Values) {
                 if (fv.Value == null) {
                     var having = index.IdCount == 0 ? 0 : index.CountInRangeEqual(nodeIds, index.MinValue()!, index.MaxValue()!, true, true);
@@ -132,6 +133,40 @@ namespace Relatude.DB.DataStores.Definitions {
                     fv.Count = index.CountInRangeEqual(nodeIds, coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
                 }
             }
+        }
+        // When the set is much smaller than the index, one pass over the set with per-id value
+        // lookups beats the per-bucket path above: the buckets' id sets are cached per index
+        // state, but any write invalidates them, and rebuilding costs a scan of every indexed id
+        // per facet. Small sets also probe faster than they'd intersect. For larger sets the
+        // cached per-bucket intersections win, so the cutoff is deliberately conservative:
+        bool countFacetsInOnePassOverSet(IValueIndex<T> index, IdSet nodeIds, Facets facets) {
+            if (!facets.HasValues() || (long)nodeIds.Count * 16 > index.IdCount) return false;
+            Dictionary<T, FacetValue>? byValue = null;
+            List<(T from, T to, FacetValue fv)>? ranges = null;
+            FacetValue? missing = null;
+            foreach (var fv in facets.Values) {
+                fv.Count = 0;
+                if (fv.Value == null) missing = fv;
+                else if (fv.Value2 == null) {
+                    byValue ??= new();
+                    if (!byValue.TryAdd(coerce(fv.Value), fv)) return false; // duplicate buckets: let the per-bucket path count them
+                } else (ranges ??= []).Add((coerce(fv.Value), coerce(fv.Value2), fv));
+            }
+            var comparer = ValueIndex<T>.comparer;
+            foreach (var id in nodeIds.Enumerate()) {
+                if (!index.TryGetValue(id, out var v)) {
+                    if (missing != null) missing.Count++;
+                    continue;
+                }
+                if (byValue != null && byValue.TryGetValue(v, out var fv)) fv.Count++;
+                if (ranges != null) {
+                    foreach (var r in ranges) {
+                        if (r.fv.FromInclusive ? comparer.Compare(v, r.from) < 0 : comparer.Compare(v, r.from) <= 0) continue;
+                        if (r.fv.ToInclusive ? comparer.Compare(v, r.to) <= 0 : comparer.Compare(v, r.to) < 0) r.fv.Count++;
+                    }
+                }
+            }
+            return true;
         }
         public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
             List<T> typedValues = new();

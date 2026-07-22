@@ -380,7 +380,7 @@ public class SetRegister(long maxSize) {
         });
     }
 
-    // { x ∈ a | from ≤ x ≤ to }  // NOT USED YET. IMPLEMENT LATER
+    // all ids whose value is within the range (used by CountInRange, i.e. range facets)
     internal IdSet WhereValueInRange<T>(IValueIndex<T> index, T from, T to, bool fromInclusive, bool toInclusive) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereInRange, [index.StateId], [
             .. index.GetCacheKey(from, fromInclusive ? QueryType.GreaterOrEqual : QueryType.Greater),
@@ -418,13 +418,10 @@ public class SetRegister(long maxSize) {
     }
     public int CountEqual<T>(IValueIndex<T> index, IdSet nodeIds, T v) where T : notnull {
         var key = new SetCacheKey(SetOperation.CountEqual, [index.StateId, nodeIds.StateId], index.GetCacheKey(v, QueryType.Equal));
-        return countOrLookup(key, () => {
-            var count = 0;
-            foreach (var id in index.GetIds(v)) {
-                if (nodeIds.Has(id)) count++;
-            }
-            return count;
-        });
+        // counting against the cached value set intersects the smaller side over in-memory ids;
+        // enumerating index.GetIds(v) directly would re-read every id of the value from the
+        // index for every set the count cache has not seen (e.g. every new search string)
+        return countOrLookup(key, () => IdSet.IntersectionCount(this.WhereEqual(index, v), nodeIds));
     }
     public int CountInRange<T>(IValueIndex<T> index, IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) where T : notnull {
         if (nodeIds.Count == 0) return 0;
@@ -433,7 +430,9 @@ public class SetRegister(long maxSize) {
             .. index.GetCacheKey(to, toInclusive ? QueryType.LessOrEqual : QueryType.Less),
             fromInclusive,
             toInclusive]);
-        return countOrLookup(key, () => index.InSetRangeCount(nodeIds, from, to, fromInclusive, toInclusive));
+        // same reasoning as CountEqual: the range's id set is cached per index state, so only the
+        // first count of a given range pays for reading it from the index
+        return countOrLookup(key, () => IdSet.IntersectionCount(this.WhereValueInRange(index, from, to, fromInclusive, toInclusive), nodeIds));
     }
 
     internal void ClearCache() {

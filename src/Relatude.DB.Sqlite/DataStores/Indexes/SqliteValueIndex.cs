@@ -155,6 +155,14 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         cmd.Parameters.AddWithValue("@id", nodeId);
         return _store.CastFromDb<T>(cmd.ExecuteScalar());
     }
+    public bool TryGetValue(int nodeId, out T value) {
+        using var cmd = _store.CreateCommand("SELECT value FROM " + _tableName + " WHERE id = @id");
+        cmd.Parameters.AddWithValue("@id", nodeId);
+        var result = cmd.ExecuteScalar();
+        if (result == null || result is DBNull) { value = default!; return false; }
+        value = _store.CastFromDb<T>(result);
+        return true;
+    }
     public IEnumerable<int> GreaterThan(T value, bool inclusive) {
         using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value");
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));

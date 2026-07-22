@@ -10,6 +10,7 @@ using Relatude.DB.Transactions;
 using System.Text;
 using System.Text.Json;
 using Website.Simple;
+using Website.Simple.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
@@ -17,7 +18,10 @@ builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
-    };    
+    };
+    options.OnStoreOpen = db => {
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 10_000_000); // populates the facet search example (see wwwroot/search.html)
+    };
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
@@ -36,6 +40,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     var html = "<html><body>"
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
     + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"
+    + $@"<p><a href='/search.html'>Facet search example</a></p>"
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
@@ -222,6 +227,49 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
     return db.EvaluateForJsonAsync(query, []);
 });
 
+// Facet search example used by wwwroot/search.html. The facets are computed from the free text
+// search result, so counts and range buckets adapt to the query as you type.
+app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
+    var db = ctx.Database;
+    var query = db.Query<Product>();
+    if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
+    var facetQuery = query.Facets()
+        .AddValueFacet("Category")
+        .AddValueFacet("Brand")
+        .AddRangeFacet("Price") // no bounds given: buckets are generated from the values in the current result set
+        .AddValueFacet("InStock")
+        .AddValueFacet("Tags")
+        .SetFacetOptions("Tags", maxValues: 8, sortByCount: true)
+        .Page(req.Page, 20);
+    foreach (var sel in req.Selections ?? []) {
+        foreach (var v in sel.Values ?? []) facetQuery.SetFacetValue(sel.Property, v);
+        foreach (var r in sel.Ranges ?? []) facetQuery.SetFacetRangeValue(sel.Property, r.From, r.To);
+    }
+    var res = facetQuery.Execute();
+    return Results.Json(new {
+        total = res.TotalCount,
+        sourceCount = res.SourceCount,
+        page = req.Page,
+        pageSize = 20,
+        items = res.Select(p => new {
+            p.Name, p.Description, p.Category, p.Price, p.InStock, p.Tags,
+            Brand = p.Brand.TryGet(out var b) ? b.Name : "",
+        }),
+        facets = res.Facets.Select(f => new {
+            property = f.CodeName,
+            displayName = f.DisplayName,
+            isRange = f.IsRangeFacet == true,
+            values = f.Values.Select(v => new {
+                value = FacetJson.Str(v.Value),
+                value2 = FacetJson.Str(v.Value2),
+                display = v.DisplayName,
+                count = v.Count,
+                selected = v.Selected,
+            }),
+        }),
+    });
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -234,6 +282,19 @@ app.StartRelatudeDB();
 app.MapRelatudeDBAdmin();
 app.MapRelatudeDBClient();
 app.Run();
+
+record ShopSearchRequest(string? Query, int Page, List<ShopFacetSelection>? Selections);
+record ShopFacetSelection(string Property, List<string>? Values, List<ShopFacetRange>? Ranges);
+record ShopFacetRange(string From, string To);
+static class FacetJson {
+    // facet values are sent as invariant strings so the client can post them back unchanged
+    public static string? Str(object? v) => v switch {
+        null => null,
+        double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => v.ToString(),
+    };
+}
 
 class DemoArticlePlugin : NodeTransactionPlugin<DemoArticle> {
     public override void OnBeforeNodeAction(NodeKey key, NodeOperation operation, Transaction transaction, NodeHelper<DemoArticle> helper) {

@@ -188,6 +188,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         }
     }
     public T GetValue(int nodeId) => _valueById[nodeId];
+    public bool TryGetValue(int nodeId, out T value) => _valueById.TryGetValue(nodeId, out value!);
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);

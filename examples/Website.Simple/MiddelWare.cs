@@ -9,16 +9,16 @@ public class RelatudeDBMiddleware {
         _next = next;
     }
     public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
-        if (RelatudeDBRuntime.IsReady) {
-            var url = http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)) {
-                var result = await handleRequest(http, content);
-                if (result != null) {
-                    await result.ExecuteAsync(http);
-                    return;
-                }
-            }
-        }
+        //if (RelatudeDBRuntime.IsReady) {
+        //    var url = http.Request.Path.Value + http.Request.QueryString;
+        //    if (ctx.Database.TryParseUrlForContent(url, out var content)) {
+        //        var result = await handleRequest(http, content);
+        //        if (result != null) {
+        //            await result.ExecuteAsync(http);
+        //            return;
+        //        }
+        //    }
+        //}
         await _next.Invoke(http);
     }
     async Task<IResult?> handleRequest(HttpContext http, UrlContent content) {

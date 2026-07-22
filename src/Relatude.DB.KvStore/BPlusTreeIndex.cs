@@ -326,21 +326,28 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
     {
         get
         {
-            // Same-value composites are contiguous in the value tree; decode once per prefix change.
-            byte[]? lastValueBytes = null;
             using var read = engine.BeginRead();
+            var root = RootsFor(read).ValueRoot;
             var cursor = new BTreeCursor(read.Source);
-            if (!cursor.SeekFirst(RootsFor(read).ValueRoot))
+            if (!cursor.SeekFirst(root))
                 yield break;
-            do
+            while (true)
             {
-                ReadOnlySpan<byte> valueBytes = cursor.Key[..^KeyCodec.IdSize];
-                if (lastValueBytes is null || !valueBytes.SequenceEqual(lastValueBytes))
-                {
-                    lastValueBytes = valueBytes.ToArray(); // the key span dies when the cursor moves
-                    yield return _codec.Decode(valueBytes);
-                }
-            } while (cursor.MoveNext());
+                byte[] valueBytes = cursor.Key[..^KeyCodec.IdSize].ToArray(); // the key span dies when the cursor moves
+                yield return _codec.Decode(valueBytes);
+                // Skip-scan: same-value composites are contiguous, so seek directly past the largest
+                // possible (value, id) composite instead of stepping through every duplicate id.
+                // The codec is prefix-free, so no other value's composite can sort inside that range,
+                // making this O(distinct · log n) instead of O(n).
+                Span<byte> seekKey = new byte[valueBytes.Length + KeyCodec.IdSize];
+                valueBytes.CopyTo(seekKey);
+                seekKey[valueBytes.Length..].Fill(0xFF);
+                if (!cursor.Seek(root, seekKey))
+                    yield break;
+                // 0xFF x 4 is the encoding of id int.MaxValue: if such an id exists the seek lands on it
+                if (cursor.Key[..^KeyCodec.IdSize].SequenceEqual(valueBytes) && !cursor.MoveNext())
+                    yield break;
+            }
         }
     }
 

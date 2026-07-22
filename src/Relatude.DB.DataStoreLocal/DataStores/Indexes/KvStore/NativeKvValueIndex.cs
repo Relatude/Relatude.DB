@@ -116,6 +116,7 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     public T GetValue(int nodeId) {
         return _index.GetValue(nodeId);
     }
+    public bool TryGetValue(int nodeId, out T value) => _index.TryGetValue(nodeId, out value);
     public IEnumerable<int> GreaterThan(T value, bool inclusive) {
         return _index.GetIdsGreaterThan(value, inclusive);
     }

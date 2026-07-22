@@ -45,6 +45,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public object[] GetCacheKey(T queryValue, QueryType queryType) { _o.Dequeue(); return _i.GetCacheKey(queryValue, queryType); }
     public ICollection<int> GetIds(T value) { _o.Dequeue(); return _i.GetIds(value); }
     public T GetValue(int nodeId) { _o.Dequeue(); return _i.GetValue(nodeId); }
+    public bool TryGetValue(int nodeId, out T value) { _o.Dequeue(); return _i.TryGetValue(nodeId, out value); }
     public IEnumerable<int> GreaterThan(T value, bool inclusive) { _o.Dequeue(); return _i.GreaterThan(value, inclusive); }
     public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.InSetRangeCount(ids, from, to, fromInclusive, toInclusive); }
     public IEnumerable<int> LessThan(T value, bool inclusive) { _o.Dequeue(); return _i.LessThan(value, inclusive); }
