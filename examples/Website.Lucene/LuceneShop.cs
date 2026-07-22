@@ -36,6 +36,7 @@ public sealed class LuceneShop : IDisposable {
         _ssdvState = new DefaultSortedSetDocValuesReaderState(_reader);
         _priceMin = priceBound(reverse: false);
         _priceMax = priceBound(reverse: true);
+        precomputeLanding();
     }
     public int Count => _reader.NumDocs;
 
@@ -97,6 +98,9 @@ public sealed class LuceneShop : IDisposable {
             if ((i + 1) % 1_000_000 == 0) Console.WriteLine($"  indexed {i + 1:n0} in {sw.Elapsed.TotalSeconds:0}s");
         }
         writer.Commit();
+        Console.WriteLine($"  merging segments (single segment makes facet counting much faster)...");
+        writer.ForceMerge(1);
+        writer.Commit();
         Console.WriteLine($"Index complete: {productCount:n0} products in {sw.Elapsed.TotalSeconds:0}s");
     }
     #endregion
@@ -110,31 +114,37 @@ public sealed class LuceneShop : IDisposable {
     public object Search(string? query, int page, List<Selection>? selections) {
         var sw = Stopwatch.StartNew();
         const int pageSize = 10;
+        var noSelections = selections == null || selections.Count == 0;
+        var noQuery = string.IsNullOrWhiteSpace(query);
         var textQuery = parseText(query);
         var buckets = priceBuckets();
 
-        // AND across facets, OR within one (DrillDownQuery does exactly that):
-        var full = drillDown(textQuery, selections, exceptProperty: null);
-        var collector = new FacetsCollector();
-        var top = FacetsCollector.Search(_searcher, full, (page + 1) * pageSize, collector);
-
-        // like Relatude: a selected facet's counts are computed against all OTHER selections,
-        // so the alternatives in the selected facet stay visible:
-        var countsByDim = new Dictionary<string, FacetsCollector> { };
-        foreach (var dim in _valueDims.Append("Price")) {
-            if (selections?.Any(s => s.Property == dim) == true) {
-                var fc = new FacetsCollector();
-                _searcher.Search(drillDown(textQuery, selections, exceptProperty: dim), fc);
-                countsByDim[dim] = fc;
+        TopDocs top;
+        Facets valueCounts;
+        int[] priceCounts;
+        if (noSelections) {
+            if (noQuery && _landing != null) { // landing page: counts precomputed at startup, only the page of items is live
+                top = _searcher.Search(textQuery, (page + 1) * pageSize);
+                (valueCounts, priceCounts) = _landing.Value;
             } else {
-                countsByDim[dim] = collector;
+                var collector = new FacetsCollector();
+                top = FacetsCollector.Search(_searcher, textQuery, (page + 1) * pageSize, collector);
+                (valueCounts, priceCounts) = buildCounts(collector, collector);
             }
+        } else {
+            // one pass with drill-sideways: results honor all selections (AND across facets, OR
+            // within one), while each selected facet is counted against the OTHER selections only,
+            // so its alternatives stay visible - the same semantics as Relatude:
+            var ds = new ShopDrillSideways(this, buckets);
+            var result = ds.Search(drillDown(textQuery, selections), (page + 1) * pageSize);
+            top = result.Hits;
+            valueCounts = result.Facets;
+            priceCounts = ds.PriceCounts!;
         }
 
         var facets = new List<object>();
         foreach (var dim in _valueDims) {
-            var counts = new SortedSetDocValuesFacetCounts(_ssdvState, countsByDim[dim]);
-            var result = counts.GetTopChildren(64, dim);
+            var result = valueCounts.GetTopChildren(64, dim);
             var values = (result?.LabelValues ?? [])
                 .Select(lv => new { label = lv.Label, count = (int)lv.Value })
                 .ToList();
@@ -149,8 +159,6 @@ public sealed class LuceneShop : IDisposable {
             });
         }
         {
-            var priceCounts = new DoubleRangeFacetCounts("price_dv", countsByDim["Price"], buckets);
-            var result = priceCounts.GetTopChildren(buckets.Length, "price_dv");
             var selectedRanges = (selections?.FirstOrDefault(s => s.Property == "Price")?.Ranges ?? [])
                 .Select(r => (from: double.Parse(r.From, CultureInfo.InvariantCulture), to: double.Parse(r.To, CultureInfo.InvariantCulture))).ToList();
             facets.Add(new {
@@ -161,7 +169,7 @@ public sealed class LuceneShop : IDisposable {
                     value = str(b.Min),
                     value2 = (string?)str(b.Max),
                     display = b.Label,
-                    count = (int)result.LabelValues[i].Value,
+                    count = priceCounts[i],
                     selected = selectedRanges.Any(r => r.from == b.Min && r.to == b.Max),
                 }),
             });
@@ -180,9 +188,7 @@ public sealed class LuceneShop : IDisposable {
             };
         }).ToList();
 
-        var hitCounter = new TotalHitCountCollector();
-        _searcher.Search(textQuery, hitCounter);
-        var sourceCount = hitCounter.TotalHits;
+        var sourceCount = noSelections ? top.TotalHits : countTextHits(query!, textQuery);
         return new {
             total = top.TotalHits,
             sourceCount,
@@ -194,6 +200,79 @@ public sealed class LuceneShop : IDisposable {
         };
     }
 
+    (Facets values, int[] price) buildCounts(FacetsCollector valuesCollector, FacetsCollector priceCollector) {
+        // the two counting passes are independent: run them in parallel
+        Facets values = null!;
+        int[] price = null!;
+        Parallel.Invoke(
+            () => values = new SortedSetDocValuesFacetCounts(_ssdvState, valuesCollector),
+            () => price = countPriceRanges(priceCollector, priceBuckets()));
+        return (values, price);
+    }
+
+    // Counts all price buckets in one pass over the matching docs, with the same raw double
+    // comparisons the range filter uses, so displayed counts and filtered totals always agree
+    // (Lucene's DoubleRangeFacetCounts interval logic was observed double counting a few docs).
+    static int[] countPriceRanges(FacetsCollector hits, DoubleRange[] buckets) {
+        var counts = new int[buckets.Length];
+        var lastMax = buckets[^1].Max;
+        foreach (var matching in hits.GetMatchingDocs()) {
+            var values = matching.Context.AtomicReader.GetNumericDocValues("price_dv");
+            if (values == null || matching.Bits == null) continue;
+            var it = matching.Bits.GetIterator();
+            if (it == null) continue;
+            int doc;
+            while ((doc = it.NextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+                var v = BitConverter.Int64BitsToDouble(values.Get(doc));
+                if (v < buckets[0].Min || v > lastMax) continue;
+                for (var i = buckets.Length - 1; i >= 0; i--) {
+                    if (v >= buckets[i].Min) { counts[i]++; break; } // buckets are contiguous half open ranges
+                }
+            }
+        }
+        return counts;
+    }
+
+    (Facets values, int[] price)? _landing; // precomputed counts for the landing page (static index)
+    void precomputeLanding() {
+        var collector = new FacetsCollector();
+        FacetsCollector.Search(_searcher, new MatchAllDocsQuery(), 1, collector);
+        _landing = buildCounts(collector, collector);
+    }
+
+    readonly Dictionary<string, int> _textHitCounts = []; // the index is static, so text hit counts never change
+    int countTextHits(string query, Query textQuery) {
+        lock (_textHitCounts) if (_textHitCounts.TryGetValue(query, out var cached)) return cached;
+        var counter = new TotalHitCountCollector();
+        _searcher.Search(textQuery, counter);
+        lock (_textHitCounts) {
+            if (_textHitCounts.Count > 10_000) _textHitCounts.Clear();
+            _textHitCounts[query] = counter.TotalHits;
+        }
+        return counter.TotalHits;
+    }
+
+    // Drill-sideways collects, per selected facet, the documents matching everything EXCEPT that
+    // facet's own selection - which is exactly the "count against the other selections" rule.
+    sealed class ShopDrillSideways(LuceneShop shop, DoubleRange[] buckets) : DrillSideways(shop._searcher, shop._config, shop._ssdvState) {
+        public int[]? PriceCounts;
+        protected override Facets BuildFacetsResult(FacetsCollector? drillDowns, FacetsCollector[]? drillSideways, string[]? drillSidewaysDims) {
+            var byDim = new Dictionary<string, Facets>();
+            Facets main = null!;
+            var work = new List<Action> { () => main = new SortedSetDocValuesFacetCounts(shop._ssdvState, drillDowns!) };
+            var priceCollector = drillDowns!; // price counted over the full result unless Price itself is selected
+            for (var i = 0; i < (drillSidewaysDims?.Length ?? 0); i++) {
+                var dim = drillSidewaysDims![i];
+                var fc = drillSideways![i];
+                if (dim == "Price") priceCollector = fc;
+                else work.Add(() => { var f = new SortedSetDocValuesFacetCounts(shop._ssdvState, fc); lock (byDim) byDim[dim] = f; });
+            }
+            work.Add(() => PriceCounts = countPriceRanges(priceCollector, buckets));
+            Parallel.Invoke([.. work]);
+            return new MultiFacets(byDim, main);
+        }
+    }
+
     Query parseText(string? query) {
         if (string.IsNullOrWhiteSpace(query)) return new MatchAllDocsQuery();
         var terms = query.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -202,30 +281,29 @@ public sealed class LuceneShop : IDisposable {
         foreach (var t in terms) bq.Add(new TermQuery(new Term("text", t)), Occur.MUST);
         return bq;
     }
-    DrillDownQuery drillDown(Query baseQuery, List<Selection>? selections, string? exceptProperty) {
+    DrillDownQuery drillDown(Query baseQuery, List<Selection>? selections) {
         var ddq = new DrillDownQuery(_config, baseQuery);
         foreach (var sel in selections ?? []) {
-            if (sel.Property == exceptProperty) continue;
             foreach (var v in sel.Values ?? []) ddq.Add(sel.Property, v);
             foreach (var r in sel.Ranges ?? []) {
                 var from = double.Parse(r.From, CultureInfo.InvariantCulture);
                 var to = double.Parse(r.To, CultureInfo.InvariantCulture);
-                ddq.Add("Price", NumericRangeQuery.NewDoubleRange("price_num", from, to, true, isLastBucket(from, to)));
+                // filter on the same docvalues the range counting reads, so filter and count always agree
+                ddq.Add("Price", new ConstantScoreQuery(FieldCacheRangeFilter.NewDoubleRange("price_dv", from, to, true, false)));
             }
         }
         return ddq;
     }
-    // buckets are half open except the last, like the generated ranges in Relatude
-    bool isLastBucket(double from, double to) => to >= _priceMax;
     DoubleRange[] priceBuckets() {
         const int bucketCount = 10;
         var step = (_priceMax - _priceMin) / bucketCount;
         var buckets = new DoubleRange[bucketCount];
         for (var i = 0; i < bucketCount; i++) {
-            var from = Math.Round(_priceMin + i * step);
-            var to = i == bucketCount - 1 ? _priceMax : Math.Round(_priceMin + (i + 1) * step);
-            var last = i == bucketCount - 1;
-            buckets[i] = new DoubleRange($"{from} -> {to}", from, true, to, last);
+            var lo = Math.Round(_priceMin + i * step);
+            var hi = i == bucketCount - 1 ? _priceMax : Math.Round(_priceMin + (i + 1) * step);
+            // prices have two decimals, so boundaries offset by 0.005 sit BETWEEN representable
+            // prices: counting and filtering can then never disagree about a boundary document
+            buckets[i] = new DoubleRange($"{lo} -> {hi}", lo - 0.005, true, hi + (i == bucketCount - 1 ? 0.005 : -0.005), false);
         }
         return buckets;
     }
