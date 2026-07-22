@@ -160,7 +160,7 @@ public class CharArrayTrie : IDisposable {
                         double docsWithHit = hits.Count;
                         foreach (var hit in hits.Values.Take(maxHitsEval)) {
                             if (sorted) {
-                                var docWordCount = _docWordCounts.Get(hit.NodeId);
+                                if (!_docWordCounts.TryGet(hit.NodeId, out var docWordCount)) continue; // stale hit, doc no longer has a word count (partially deindexed), skip it instead of failing the search
                                 var bm25 = BM25.Score(hit.Hits, docsWithHit, docWordCount, averageDocWordCount, totalDocDount);
                                 score = bm25 / variation; // isFirstVariation == exact match
                             }

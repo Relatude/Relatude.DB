@@ -87,11 +87,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
         try {
             _lock.EnterWriteLock();
-            UpdateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
-            FlushToDisk(true, activityId); // ensuring all old and queued writes to old log file are flushed before finalizing rewrite ( so they do not write after hot swap )
-            if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
             try {
+                UpdateActivity(activityId, "Finalizing rewrite", 90);  // (90%-100%)
+                FlushToDisk(true, activityId); // ensuring all old and queued writes to old log file are flushed before finalizing rewrite ( so they do not write after hot swap )
+                if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
                 _rewriter.Step2_HotSwap_RequiresWriteLock(_wal, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
+                // the flag file must be deleted while still holding the write lock, before any new transaction can be
+                // written to the new log file. If deleted after the lock is released, a crash in between would cause
+                // the startup cleanup to delete the new log file, which is now the live log with acknowledged transactions:
+                LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
                 if (hotSwapToNewFile) {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
                     // reset, since we have a new log file
@@ -99,11 +103,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _index.WriteNewTimestampDueToRewriteHotswapJustAfterSaveState(_wal.LastTimestamp, _wal.FileId);
                     PersistedIndexStore?.SetWalFileIdAndTimestamp(_wal.LastTimestamp, _wal.FileId); // will update all sub indexes with new timestamp
                 }
+                // must be cleared while still holding the write lock: after the swap _rewriter.FileKey is the LIVE
+                // log file, and a concurrent CancelRunningRewriteIfAny seeing a non-null _rewriter would delete it
+                _rewriter = null;
             } finally {
                 _lock.ExitWriteLock();
             }
-            LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
-            _rewriter = null;
         } catch (Exception err) {
             throw createCriticalErrorAndSetDbToErrorState("Error finalizing log rewrite. ", err);
         }

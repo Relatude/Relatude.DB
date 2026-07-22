@@ -28,6 +28,15 @@ internal class ArrayDictionaryInt {
             return _dic[id];
         }
     }
+    public bool TryGetValue(int id, out int v) {
+        if (id < _upperId) {
+            var v0 = id < _arr.Length ? _arr[id] : 0;
+            if (v0 == 0) { v = 0; return false; }
+            v = v0 - 1;
+            return true;
+        }
+        return _dic.TryGetValue(id, out v);
+    }
     public void Add(int id, int v) {
         if (id < _upperId) {
             ensureArraySize(id);

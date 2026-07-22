@@ -39,31 +39,37 @@ public sealed partial class DataStoreLocal : IDataStore {
             _isRewritingOrCopying = true;
         }
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Copying log file");
-        FlushToDisk(true, activityId);
-        _lock.EnterWriteLock();
-        try {
-            _wal.Copy(newLogFileKey, destinationIO);
-        } catch (Exception err) {
-            throw createCriticalErrorAndSetDbToErrorState("Failed to copy log file. ", err);
+        try { // all fallible work inside try/finally so the flag and activity are always reset
+            FlushToDisk(true, activityId);
+            _lock.EnterWriteLock();
+            try {
+                _wal.Copy(newLogFileKey, destinationIO);
+            } catch (Exception err) {
+                throw createCriticalErrorAndSetDbToErrorState("Failed to copy log file. ", err);
+            } finally {
+                _lock.ExitWriteLock();
+            }
         } finally {
             DeRegisterActivity(activityId);
-            _lock.ExitWriteLock();
             lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
         }
     }
     public void TruncateIndexes() {
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Truncate indexes");
-        FlushToDisk(true, activityId); // ensuring all writes are flushed before entering lock
-        _lock.EnterWriteLock();
-        try {
-            FlushToDisk(true, activityId);
-            validateDatabaseState();
-            PersistedIndexStore?.OptimizeDisk();
-        } catch (Exception err) {
-            throw createCriticalErrorAndSetDbToErrorState("Failed to truncate indexes. ", err);
+        try { // outer try so a flush failure before the lock still deregisters the activity
+            FlushToDisk(true, activityId); // ensuring all writes are flushed before entering lock
+            _lock.EnterWriteLock();
+            try {
+                FlushToDisk(true, activityId);
+                validateDatabaseState();
+                PersistedIndexStore?.OptimizeDisk();
+            } catch (Exception err) {
+                throw createCriticalErrorAndSetDbToErrorState("Failed to truncate indexes. ", err);
+            } finally {
+                _lock.ExitWriteLock();
+            }
         } finally {
             DeRegisterActivity(activityId);
-            _lock.ExitWriteLock();
         }
     }
     public int DeleteOldLogs() {
@@ -90,11 +96,16 @@ public sealed partial class DataStoreLocal : IDataStore {
     object _saveStateLock = new();
     public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) {
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
-        FlushToDisk(true, activityId); // ensuring all writes are flushed before locking, to minimize time spent locked
+        try { // outer try so a flush failure before the lock still deregisters the activity
+            FlushToDisk(true, activityId); // ensuring all writes are flushed before locking, to minimize time spent locked
+        } catch {
+            DeRegisterActivity(activityId);
+            throw;
+        }
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
             _lock.EnterWriteLock();
-            FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock
             try {
+                FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock ( inside try so the write lock is released if it throws )
                 validateDatabaseState();
                 var anyOutOfSyncIndexes = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Any();
                 if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {

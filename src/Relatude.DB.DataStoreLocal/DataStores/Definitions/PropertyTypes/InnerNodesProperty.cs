@@ -35,6 +35,7 @@ internal class EmbeddedProperty : Property {
             var node2 = values2[i];
             var props1 = node1.Values.ToArray();
             var props2 = node2.Values.ToArray();
+            if (props1.Length != props2.Length) return false;
             for (var j = 0; j < props1.Length; j++) {
                 var p1 = props1[j];
                 var p2 = props2[j];

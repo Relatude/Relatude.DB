@@ -35,7 +35,7 @@ public class InternalUrlProvider : IUrlProvider {
         return urlTypeChar(UrlTarget.Node) + B64.EncodeForUrl(idKey.ToBytes());
     }
     public string GetUrl(NodePath nodePath, bool absolute) {
-        return urlTypeChar(UrlTarget.Node) + B64.EncodeForUrl(nodePath.ToBytes());
+        return urlTypeChar(UrlTarget.EmbeddedNode) + B64.EncodeForUrl(nodePath.ToBytes());
     }
     public string GetUrl(PropertyPath property, string? contentVersionId, bool absolute) {
         var url = urlTypeChar(UrlTarget.Property) + B64.EncodeForUrl(property.ToBytes());

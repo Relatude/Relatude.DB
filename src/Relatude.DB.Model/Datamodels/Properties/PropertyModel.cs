@@ -47,7 +47,7 @@ public abstract class PropertyModel {
                 }
                 break;
             case PropertyType.Integer:
-                if (int.TryParse(anyFormat.ToString(), out var valueInt)) {
+                if (int.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueInt)) {
                     value = valueInt;
                     return true;
                 }

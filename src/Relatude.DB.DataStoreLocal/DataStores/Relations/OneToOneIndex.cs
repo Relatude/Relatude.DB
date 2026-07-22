@@ -27,12 +27,12 @@ public class OneToOneIndex(SetRegister setRegister) : IRelationIndex {
     public int CountTarget(int source) => _targetBySource.ContainsKey(source) ? 1 : 0;
     public int CountSource(int target) => _sourceByTarget.ContainsKey(target) ? 1 : 0;
     public void Remove(int source, int target) {
-        if (_targetBySource.TryGetValue(source, out var oldTo)) {
-            _sourceByTarget.Remove(oldTo);
+        if (_targetBySource.TryGetValue(source, out var oldTo) && oldTo == target) {
+            _sourceByTarget.Remove(target);
             _targetBySource.Remove(source);
             _relData.Remove(source, target);
         } else {
-            throw new Exception("Cannot remove unknown relation: " + source.ToString() + " -> " + target.ToString());
+            throw new ItemNotInRelationException();
         }
     }
     public void DeleteIfReferenced(int id) {
@@ -42,11 +42,11 @@ public class OneToOneIndex(SetRegister setRegister) : IRelationIndex {
     public void Add(int source, int target, DateTime changedUtc) {
         if (Contains(source, target)) throw new ItemAlreadyInRelationException();
         if (_targetBySource.TryGetValue(source, out var oldTarget)) {
-            throw new Exception("Existing relation from " + source + " to " + oldTarget + ", must be removed first. ");
+            throw new ExceptionWithoutIntegrityLoss("Existing relation from " + source + " to " + oldTarget + ", must be removed first. ");
             // Remove(source, oldTarget);
         }
         if (_sourceByTarget.TryGetValue(target, out var oldSource)) {
-            throw new Exception("Existing relation from " + oldSource + " to " + target + ", must be removed first. ");
+            throw new ExceptionWithoutIntegrityLoss("Existing relation from " + oldSource + " to " + target + ", must be removed first. ");
             // Remove(oldSource, target);
         }
         _targetBySource.Add(source, target);

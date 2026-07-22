@@ -30,6 +30,10 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     Func<IReadStream, T> _readValue;
     T? _min;
     T? _max;
+    // for value types "_min == null" is always false and "_min = default" is a real value (0, DateTime.MinValue...),
+    // so validity of _min/_max is tracked explicitly:
+    bool _hasMin;
+    bool _hasMax;
     readonly object _sortLock = new();
     (List<(int id, T from, T to)> list, long fromStateId, long toStateId)? _last;
     readonly SetRegister _sets;
@@ -75,7 +79,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             }
         }
         var values = GetSortedValues(); // potentially expensive, but only done once per query as sort is cached...
-        var idx = values.BinarySearch(queryValue);
+        var idx = values.BinarySearch(queryValue, comparer); // must use the same comparer as the sort (see IdByValue)
         if (idx >= 0) {
             switch (queryType) {
                 case QueryType.Greater: return [queryType, idx + 1];
@@ -97,15 +101,16 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         _valueById.Add(id, value);
         _idByValue.Index(value, id);
         _stateId.RegisterAddition(id, value);
-        if (_min == null || Comparer<T>.Default.Compare(value, _min) < 0) _min = value;
-        if (_max == null || Comparer<T>.Default.Compare(value, _max) > 0) _max = value;
+        if (!_hasMin || comparer.Compare(value, _min!) < 0) { _min = value; _hasMin = true; }
+        if (!_hasMax || comparer.Compare(value, _max!) > 0) { _max = value; _hasMax = true; }
     }
     void remove(int id, T value) {
         _valueById.Remove(id);
         _idByValue.DeIndex(value, id);
         _stateId.RegisterRemoval(id, value);
-        if (value.Equals(_min)) _min = default;
-        if (value.Equals(_max)) _max = default;
+        // only invalidate min/max when the last id with the extreme value is removed, lazily re-evaluated in MinValue()/MaxValue():
+        if (_hasMin && value.Equals(_min) && !_idByValue.ContainsValue(value)) { _min = default; _hasMin = false; }
+        if (_hasMax && value.Equals(_max) && !_idByValue.ContainsValue(value)) { _max = default; _hasMax = false; }
     }
     public void Add(int id, object value) => add(id, (T)value);
     public void Remove(int id, object value) => remove(id, (T)value);
@@ -114,13 +119,13 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public T? MinValue() {
-        if (_min != null) return _min;
-        if (ValueCount > 0) _min = _idByValue.Values.Min();
+        if (_hasMin) return _min;
+        if (ValueCount > 0) { _min = _idByValue.Values.Min(comparer); _hasMin = true; }
         return _min;
     }
     public T? MaxValue() {
-        if (_max != null) return _max;
-        if (ValueCount > 0) _max = _idByValue.Values.Max();
+        if (_hasMax) return _max;
+        if (ValueCount > 0) { _max = _idByValue.Values.Max(comparer); _hasMax = true; }
         return _max;
     }
     public ICollection<int> GetIds(T value) {
@@ -156,7 +161,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             if (_last != null && _last.Value.fromStateId == StateId && _last.Value.toStateId == indexTo.StateId) return _last.Value.list;
             List<(int id, T from, T to)> rangesSortedByFrom = new(IdCount);
             foreach (var id in GetIdsSortedByValue()) {
-                if (!_valueById.TryGetValue(id, out var from) || !_valueById.TryGetValue(id, out var to)) throw new Exception("Integrity problems with index. ");
+                if (!_valueById.TryGetValue(id, out var from) || !indexTo._valueById.TryGetValue(id, out var to)) throw new Exception("Integrity problems with index. ");
                 rangesSortedByFrom.Add((id, from, to));
             }
             _last = (rangesSortedByFrom, StateId, indexTo.StateId);
@@ -166,27 +171,21 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0 || indexTo.ValueCount == 0) return [];
         if (indexTo is not ValueIndex<T> valueIndex) throw new NotSupportedException("Index is not a ValueIndex. ");
-        var rangesSortedByFrom = getRangesSortedByFrom((ValueIndex<T>)indexTo);
+        var rangesSortedByFrom = getRangesSortedByFrom(valueIndex);
         return whereRangeOverlapsRange(rangesSortedByFrom, queryFrom, queryTo, fromInclusive, toInclusive);
     }
+    // Full overlap semantics, matching NativeKvValueIndex.WhereRangeOverlapsRange:
+    // the stored range must START before the query end (governed by toInclusive) and
+    // END after the query start (governed by fromInclusive). The scan starts from the
+    // beginning to catch ranges that span the query start, but can stop as soon as a
+    // range starts past the query end since the list is sorted by "from".
     static IEnumerable<int> whereRangeOverlapsRange(List<(int id, T from, T to)> rangesSortedByFrom, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
-        var c = Comparer<T>.Default;
-        (int id, T from, T to) r = new(0, queryFrom, queryFrom);
-        var startIndex = rangesSortedByFrom.BinarySearch(r, new rangeComparer(c));
-        if (!fromInclusive && startIndex >= 0) {
-            while (startIndex < rangesSortedByFrom.Count && rangesSortedByFrom[startIndex].to.Equals(queryFrom)) startIndex++;
-            if (startIndex < 0) yield break;
+        foreach (var range in rangesSortedByFrom) {
+            var startsBeforeQueryEnd = toInclusive ? comparer.Compare(range.from, queryTo) <= 0 : comparer.Compare(range.from, queryTo) < 0;
+            if (!startsBeforeQueryEnd) break; // sorted by "from", so every later range starts even later
+            var endsAfterQueryStart = fromInclusive ? comparer.Compare(range.to, queryFrom) >= 0 : comparer.Compare(range.to, queryFrom) > 0;
+            if (endsAfterQueryStart) yield return range.id;
         }
-        if (startIndex < 0) startIndex = ~startIndex;
-        Func<T, bool> pastLast = toInclusive ? ((T v) => c.Compare(v, queryTo) > 0) : ((T v) => c.Compare(v, queryTo) >= 0);
-        for (int i = startIndex; i < rangesSortedByFrom.Count; i++) {
-            var range = rangesSortedByFrom[i];
-            if (pastLast(range.from)) break;
-            yield return range.id;
-        }
-    }
-    class rangeComparer(Comparer<T> c) : IComparer<(int id, T from, T to)> {
-        public int Compare((int id, T from, T to) x, (int id, T from, T to) y) => c.Compare(x.to, y.to);
     }
     public T GetValue(int nodeId) => _valueById[nodeId];
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
@@ -255,15 +254,18 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) => _sets.FilterInValues(this, nodeIds, selectedValues);
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) => _sets.FilterRanges(this, nodeIds, selectedRanges);
     public IdSet FilterRangesObject(IdSet set, object from, object to) => _sets.FilterRangesObject(this, set, from, to);
-    static readonly Comparer<T> comparer = Comparer<T>.Default;
+    // strings are compared ordinally, matching the ordinal hashing of the dictionaries; culture based
+    // comparison is not stable (it may vary per thread) and can order distinct keys as equal.
+    // must be used by every sort, binary search and min/max over the values of this index (see IdByValue).
+    internal static readonly IComparer<T> comparer = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal : Comparer<T>.Default;
     public int MaxCount(IndexOperator op, T value) {
         // optimized for fastest speed, not accuracy, important for performance of query engine
         if (IdCount == 0) return 0;
-        if (comparer.Compare(value, MaxValue()) > 0) return 0; // value is larger than max value in index
-        if (comparer.Compare(value, MinValue()) < 0) return 0; // value is smaller than min value in index
+        if (comparer.Compare(value, MaxValue()!) > 0) return 0; // value is larger than max value in index
+        if (comparer.Compare(value, MinValue()!) < 0) return 0; // value is smaller than min value in index
         return op switch {
             IndexOperator.Equal => countEqual(value),
-            IndexOperator.NotEqual => ValueCount - countEqual(value),
+            IndexOperator.NotEqual => IdCount - countEqual(value),
             _ => IdCount,
         };
     }

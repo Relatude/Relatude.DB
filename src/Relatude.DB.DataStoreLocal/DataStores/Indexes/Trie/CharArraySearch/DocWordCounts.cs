@@ -9,6 +9,7 @@ internal class DocWordCounts {
 
     public double AverageWordCount => _counts.Count > 0 ? (double)_totalWordCount / _counts.Count : 0d;
     public int Get(int id) => _counts[id];
+    public bool TryGet(int id, out int wordCount) => _counts.TryGetValue(id, out wordCount);
     internal void Add(int id, int wordCount) {
         _counts.Add(id, wordCount); // throws on duplicate id, before the total is touched
         _totalWordCount += wordCount;

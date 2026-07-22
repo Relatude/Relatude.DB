@@ -11,12 +11,19 @@ internal class LogRewriter {
     static readonly string _logRewriterStartFile = "rewrite.flag";
     public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io, FileKeyUtility keys) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
-        using var stream = io.OpenRead(_logRewriterStartFile, 0);
-        var fileKey = stream.ReadString();
+        string fileKey;
+        using (var stream = io.OpenRead(_logRewriterStartFile, 0)) {
+            fileKey = stream.ReadString();
+        }
         if (string.IsNullOrWhiteSpace(fileKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
-        io.DeleteFileIfItExists(fileKey);
+        // Defensive: never delete the flagged file if it is the only log file present.
+        // While a rewrite is running the old log file always exists alongside the new one,
+        // so if the flagged file is the only log file the hot swap must have completed
+        // and the flagged file is the live log file. Deleting it would lose all data.
+        var allLogFiles = keys.WAL_GetAllFileKeys(io);
+        var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0] == fileKey;
+        if (!flaggedFileIsOnlyLogFile) io.DeleteFileIfItExists(fileKey);
         io.DeleteFileIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
-        stream.Dispose();
         io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {
@@ -38,7 +45,7 @@ internal class LogRewriter {
     readonly Definition _definition;
     readonly IIOProvider _destIO;
     public readonly string FileKey;
-    public bool _cancelled = false;
+    public volatile bool _cancelled = false; // volatile, set by Cancel() on another thread while Step1 is running
     List<ExecutedPrimitiveTransaction> _newTransactionsWhileRewriting;
     (int nodeId, NodeSegment segment)[] _snapshot;
     public Dictionary<int, NodeSegment> _newSegements;
@@ -76,7 +83,7 @@ internal class LogRewriter {
         _cancelled = true;
         _newWAL.Dispose();
         _destIO.DeleteFileIfItExists(FileKey);
-        DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey);        
+        if (LogRewriterAlreadyInprogress(_destIO)) DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey); // flag file is already deleted if the hot swap completed
         CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO, fileKeys);
     }
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
@@ -84,6 +91,16 @@ internal class LogRewriter {
     }
     public void Step1_RewriteLog_NoLockRequired(Action<string, int> reportProgress) { // does not block simultaneous writes or reads
         if (_finalizing) throw new Exception("Finalizing already started. ");
+        try {
+            step1RewriteLog(reportProgress);
+        } catch (ObjectDisposedException err) {
+            // Cancel() disposes _newWAL from another thread while this method may be writing,
+            // treat a disposed stream as a cancellation instead of an unknown error
+            if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ", err);
+            throw;
+        }
+    }
+    void step1RewriteLog(Action<string, int> reportProgress) {
         var dm = _definition.Datamodel;
         var chunkSize = 97;
         var chunks = _snapshot.Chunk(chunkSize).ToArray();

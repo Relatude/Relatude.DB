@@ -36,15 +36,20 @@ internal class LogReader : IDisposable {
     }
     static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId) {
         var readStream = io.OpenRead(fileKey, 0);
-        readStream.ValidateMarker(WALFile._logStartMarker);
-        var version = readStream.ReadVerifiedLong();
-        if (version != WALFile._logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " but found " + version + " .");
-        fileId = readStream.ReadGuid();
-        if (fromTransactionAtPos > 0) { // reopen at a specific position
-            readStream.Dispose();
-            readStream = io.OpenRead(fileKey, fromTransactionAtPos);
+        try {
+            readStream.ValidateMarker(WALFile._logStartMarker);
+            var version = readStream.ReadVerifiedLong();
+            if (version != WALFile._logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " but found " + version + " .");
+            fileId = readStream.ReadGuid();
+            if (fromTransactionAtPos > 0) { // reopen at a specific position
+                readStream.Dispose();
+                readStream = io.OpenRead(fileKey, fromTransactionAtPos);
+            }
+            return readStream;
+        } catch {
+            readStream.Dispose(); // do not leak an open file handle on validation errors
+            throw;
         }
-        return readStream;
     }
     public long LastReadTimestamp { get => _lastTimestampID; }
     public bool ReadNextTransaction([MaybeNullWhen(false)] out ExecutedPrimitiveTransaction transaction, bool throwOnErrors, Action<string, Exception?> log, out long byteSizeOfTransaction) {

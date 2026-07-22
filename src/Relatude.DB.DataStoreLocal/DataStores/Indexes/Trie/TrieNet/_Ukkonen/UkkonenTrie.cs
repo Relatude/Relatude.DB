@@ -169,10 +169,10 @@ public class UkkonenTrie<T> : ITrie<T> {
             e.Target.AddRef(value);
             return new Tuple<bool, Node<T>>(true, s);
         }
-        if (remainder.StartsWith(e.Label)) {
+        if (remainder.StartsWith(e.Label, StringComparison.Ordinal)) {
             return new Tuple<bool, Node<T>>(true, s);
         }
-        if (!e.Label.StartsWith(remainder)) {
+        if (!e.Label.StartsWith(remainder, StringComparison.Ordinal)) {
             return new Tuple<bool, Node<T>>(true, s);
         }
         // need to split as above
@@ -202,7 +202,7 @@ public class UkkonenTrie<T> : ITrie<T> {
         var str = inputstr;
         var g = s.GetEdge(str[0]);
         // descend the tree as long as a proper label is found
-        while (g != null && str.StartsWith(g.Label)) {
+        while (g != null && str.StartsWith(g.Label, StringComparison.Ordinal)) {
             str = str.Substring(g.Label.Length);
             currentNode = g.Target;
             if (str.Length > 0) {

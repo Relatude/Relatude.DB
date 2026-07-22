@@ -99,7 +99,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (!AllTargetTypes.Contains(typeIdTo)) { reason = $"Relation {Model} does not support to type {_store._definition.NodeTypes[typeIdTo]}"; return false; }
             if (_index.Contains(source, target)) { reason = $"Relation {getDescription(source, target)} already exists. "; return false; }
             if (_index.CountSource(target) >= MaxCountFrom) { reason = $"Adding relation would violate the max from constraint which is {MaxCountFrom}. Remove existing relations first. "; return false; }
-            if (_index.CountTarget(target) >= MaxCountTo) { reason = $"Adding relation would violate the max to constraint which is {MaxCountTo}. Remove existing relations first. "; return false; }
+            if (_index.CountTarget(source) >= MaxCountTo) { reason = $"Adding relation would violate the max to constraint which is {MaxCountTo}. Remove existing relations first. "; return false; }
             if (Model.DisallowCircularReferences) {
                 if (RelationUtils.WillCauseCircularReference(source, target, _index, out var loop)) {
                     reason = $"Adding relation would cause circular references which is disallowed for relation {Model}. Circle: {string.Join(" -> ", loop)}";

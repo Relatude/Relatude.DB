@@ -26,12 +26,12 @@ public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
     public int CountTarget(int source) => _rel.ContainsKey(source) ? 1 : 0;
     public int CountSource(int target) => _rel.ContainsKey(target) ? 1 : 0;
     public void Remove(int source, int target) {
-        if (_rel.TryGetValue(source, out var oldTarget)) {
-            _rel.Remove(oldTarget);
-            if (source != oldTarget) _rel.Remove(source);
+        if (_rel.TryGetValue(source, out var oldTarget) && oldTarget == target) {
+            _rel.Remove(target);
+            if (source != target) _rel.Remove(source);
             _relData.Remove(Math.Min(source, target), Math.Max(source, target));
         } else {
-            throw new Exception("Cannot remove unknown relation: " + source.ToString() + " -> " + target.ToString());
+            throw new ItemNotInRelationException();
         }
     }
     public void DeleteIfReferenced(int id) {
@@ -41,11 +41,11 @@ public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
     public void Add(int source, int target, DateTime changedUtc) {
         if (Contains(source, target)) throw new ItemAlreadyInRelationException();
         if (_rel.TryGetValue(source, out var oldTarget)) {
-            throw new Exception("Existing relation from " + source + " to " + oldTarget + ", must be removed first. ");
+            throw new ExceptionWithoutIntegrityLoss("Existing relation from " + source + " to " + oldTarget + ", must be removed first. ");
             //Remove(source, oldTarget);
         }
         if (_rel.TryGetValue(target, out var oldSource)) {
-            throw new Exception("Existing relation from " + oldSource + " to " + target + ", must be removed first. ");
+            throw new ExceptionWithoutIntegrityLoss("Existing relation from " + oldSource + " to " + target + ", must be removed first. ");
             //Remove(oldSource, target);
         }
         _rel.Add(source, target);
@@ -96,7 +96,7 @@ public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
             yield return new RelData(oldSource, target, _relData.Get(s, t));
         }
     }
-    public int TotalCount => _rel.Count;
+    public int TotalCount => _relData.Count;
 }
 
 

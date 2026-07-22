@@ -571,9 +571,12 @@ public sealed class EncodedVector {
             ResidualBits.CopyTo(data, 4 + Indices.Length);
         return data;
     }
-    public static EncodedVector FromByteArray(byte[] data) {
+    // The byte layout is [4 byte norm][dimension bytes of indices][optional residual bits].
+    // There is no residual length field, so the caller must supply the dimension
+    // (known from the quantizer) to locate the residual bytes. Vectors without
+    // residuals keep the exact same byte layout as before.
+    public static EncodedVector FromByteArray(byte[] data, int dimension) {
         float norm = BitConverter.ToSingle(data, 0);
-        int dimension = data.Length - 4;
         byte[] indices = new byte[dimension];
         Array.Copy(data, 4, indices, 0, dimension);
         byte[]? residualBits = null;

@@ -57,7 +57,7 @@ internal class WALFile : IDisposable {
         _secondaryAppendStream?.Dispose();
     }
     static long getFirstTimestampIfAny(IAppendStream appendStream) {
-        if (appendStream.Length > posOfFirstTransaction) {
+        if (appendStream.Length >= posOfFirstTransaction + 8) { // full 8 byte timestamp must be present ( a torn write may leave a shorter file )
             return appendStream.GetLong(posOfFirstTransaction);
         } else {
             return 0;
@@ -106,7 +106,7 @@ internal class WALFile : IDisposable {
         if (_ioSecondary != null) {
             Action<string, int>? progress2 = progress != null ? (msg, perc) => progress("Secondary: " + msg, 50 + (perc / 2)) : null;
             if (_secondaryAppendStream == null) _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey!, true);
-            writeStatic(transactions, _secondaryAppendStream, _definition.Datamodel, null, progress, actionCount, transactionCount);
+            writeStatic(transactions, _secondaryAppendStream, _definition.Datamodel, null, progress2, actionCount, transactionCount);
         }
         return written;
     }
@@ -195,12 +195,18 @@ internal class WALFile : IDisposable {
         foreach (var segment in segments) segWithPos[i] = new(i++, segment);
         var batch = new List<(int pos, NodeSegment seg)>();
         var batchSize = 0L;
+        var batchStart = -1L; // absolute position of first segment in current batch
         var lastEndPos = -1L;
         foreach (var p in segWithPos.OrderBy(i => i.seg.AbsolutePosition)) {
             var deltaNext = lastEndPos > 0 ? p.seg.AbsolutePosition - lastEndPos : 0;
-            if (batchSize > batchLimit || deltaNext > deltaLimit) {
+            // spanWithNext is the total byte span (including gaps) the batch would cover if this segment is added,
+            // it must be limited as the whole span is read into one buffer ( and cast to int )
+            var spanWithNext = batchStart >= 0 ? p.seg.AbsolutePosition + p.seg.Length - batchStart : 0;
+            if (batchSize > batchLimit || deltaNext > deltaLimit || spanWithNext > batchLimit) {
                 readBatchAndAddToResult(batch, result, ref batchSize, ref diskReads); // read batch, and start new batch
+                batchStart = -1;
             }
+            if (batchStart < 0) batchStart = p.seg.AbsolutePosition;
             batch.Add(p);
             batchSize += p.seg.Length;
             lastEndPos = p.seg.AbsolutePosition + p.seg.Length;
@@ -208,6 +214,7 @@ internal class WALFile : IDisposable {
         if (batch.Count > 0) readBatchAndAddToResult(batch, result, ref batchSize, ref diskReads); // read last batch
         return result;
     }
+    readonly object _bufferLock = new(); // dedicated lock object, _buffer itself cannot be used as it is reassigned when it grows
     byte[] _buffer = new byte[batchLimit]; // common buffer for reading segments, ( simultaneous reads are not allowed)
     void readBatchAndAddToResult(List<(int pos, NodeSegment seg)> batch, byte[][] result, ref long batchSize, ref int diskReads) {
         //Console.WriteLine("Reading batch of " + batch.Count);
@@ -215,7 +222,7 @@ internal class WALFile : IDisposable {
         var lastSeg = batch.Last();
         var end = lastSeg.seg.AbsolutePosition + lastSeg.seg.Length;
         var length = (int)(end - start);
-        lock (_buffer) { // lock to avoid simultaneous reads to common buffer
+        lock (_bufferLock) { // lock to avoid simultaneous reads to common buffer
             if (_buffer.Length < length) _buffer = new byte[length];  // ensure buffer is large enough
             _appendStream.Get(start, length, _buffer);
             diskReads++;
@@ -235,7 +242,9 @@ internal class WALFile : IDisposable {
     }
     internal void ReplaceDataFile(string newFileKey, long lastTimestamp) {
         FirstTimestamp = 0; // 0 means it will be read from file
-        _lastTimestampID = lastTimestamp;
+        // transactions queued during a rewrite carry timestamps newer than the new file's last timestamp,
+        // so the timestamp may only move forward, otherwise duplicate timestamps could be issued after the swap:
+        EnsureTimestamps(lastTimestamp);
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         Close();
         FileKey = newFileKey;

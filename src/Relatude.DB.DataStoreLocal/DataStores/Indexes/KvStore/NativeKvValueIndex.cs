@@ -152,8 +152,10 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     public IdSet ReOrder(IdSet unsorted, bool descending) => _sets.OrderBy(this, unsorted, descending);
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0 || indexTo.ValueCount == 0) return [];
-        Func<T, bool> fromCmp = fromInclusive ? (v => _comparer.Compare(v, queryTo) <= 0) : (v => _comparer.Compare(v, queryTo) < 0);
-        Func<T, bool> toCmp = toInclusive ? (v => _comparer.Compare(v, queryFrom) >= 0) : (v => _comparer.Compare(v, queryFrom) > 0);
+        // overlap: range.from must be before the query end (governed by toInclusive) and
+        // range.to must be after the query start (governed by fromInclusive)
+        Func<T, bool> fromCmp = toInclusive ? (v => _comparer.Compare(v, queryTo) <= 0) : (v => _comparer.Compare(v, queryTo) < 0);
+        Func<T, bool> toCmp = fromInclusive ? (v => _comparer.Compare(v, queryFrom) >= 0) : (v => _comparer.Compare(v, queryFrom) > 0);
         var result = new List<int>();
         foreach (var id in Ids) {
             var from = GetValue(id);

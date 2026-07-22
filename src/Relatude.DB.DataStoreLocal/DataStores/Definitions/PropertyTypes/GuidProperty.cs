@@ -12,11 +12,11 @@ internal class GuidProperty : ValueProperty<Guid>, IPropertyContainsValue {
     }
     protected override void WriteValue(Guid v, IAppendStream stream) => stream.WriteGuid(v);
     protected override Guid ReadValue(IReadStream stream) => stream.ReadGuid();
-    public override PropertyType PropertyType => PropertyType.Long;
+    public override PropertyType PropertyType => PropertyType.Guid;
     public Guid DefaultValue;
     public override void ValidateValue(object value, INodeData node) {
     }
-    public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
+    public static object GetValue(byte[] bytes) => new Guid(bytes);
     public override bool CanBeFacet() => false;
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = GuidPropertyModel.ForceValueType(value1, out _);

@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Relatude.DB</RootNamespace>
-    <Version>0.2.0.114</Version>
+    <Version>0.2.0.115</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />

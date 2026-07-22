@@ -20,14 +20,19 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     public void Clear(int nodeId) => _index.Remove(nodeId);
     public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
         if (_index.Count == 0) return [];
+        // Loosen thresholds at the extremes so float rounding of dot products computed
+        // at exactly +/-1 never excludes intended matches:
         if (minCosineSimilarity >= 1f) minCosineSimilarity = 0.9999f;
-        else if (minCosineSimilarity <= -1f) minCosineSimilarity = -0.9999f; // avoid precision issues
+        else if (minCosineSimilarity <= -1f) minCosineSimilarity = -1.0001f; // no effective lower bound
 #if DEBUG
         var result1 = SearchOld(u, skip, take, minCosineSimilarity);
         var result2 = SearchNew(u, skip, take, minCosineSimilarity);
         var countDif = Math.Abs(result1.Count - result2.Count);
         var sumDiff = result1.Zip(result2, (a, b) => Math.Abs(a.Similarity - b.Similarity)).Sum() / (result1.Count > 0 ? result1.Count : 1);
-        if (countDif > 0 || sumDiff > 0.00001) {
+        // Scalar and SIMD summation can round differently, so a few hits at the exact
+        // threshold boundary may be included by one implementation and not the other.
+        // Only compare similarities when the counts match, as differing counts misalign the Zip.
+        if (countDif > 2 || (countDif == 0 && sumDiff > 0.00001)) {
             throw new Exception($"Vector search results differ significantly between old and new implementations! ");
         }
         return result1;
@@ -53,12 +58,13 @@ public class FlatMemoryVectorIndex : IVectorIndex {
                 lock (hits) hits.Add(new(kv.Key, similarity));
             }
         }
-        Parallel.ForEach(_index, search);
+        // Snapshot to avoid enumeration invalidation if the index changes concurrently
+        Parallel.ForEach(_index.ToArray(), search);
         return hits;
     }
     List<VectorHit> single(float[] u, float minCosineSimilarity) {
         var hits = new List<VectorHit>();
-        foreach (var kv in _index) {
+        foreach (var kv in _index.ToArray()) {
             float similarity = 0;
             var v = kv.Value;
             if (v.Length != u.Length)
@@ -162,6 +168,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     #endregion
 
     public void ReadState(IReadStream stream) {
+        _index.Clear();
         var nodeCount = stream.ReadVerifiedInt();
         for (var i = 0; i < nodeCount; i++) {
             var nodeId = (int)stream.ReadUInt();

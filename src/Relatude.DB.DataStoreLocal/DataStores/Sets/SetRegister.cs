@@ -92,12 +92,17 @@ public class SetRegister(long maxSize) {
         return this.Intersection(nodeIds, matches);
     }
     public IdSet FilterRanges<T>(IValueIndex<T> index, IdSet nodeIds, List<Tuple<T, T>> selectedRanges) where T : notnull {
-        // to be implemented later
-        throw new NotImplementedException();
+        // optimize later, intersect in index directly
+        IdSet? matches = null; // ranges are inclusive at both ends, matching NativeKvValueIndex.FilterRanges
+        foreach (var range in selectedRanges) {
+            var rangeMatch = this.Intersection(this.WhereGreaterOrEqual(index, range.Item1), this.WhereLessOrEqual(index, range.Item2));
+            matches = matches == null ? rangeMatch : this.Union(matches, rangeMatch);
+        }
+        if (matches == null) return IdSet.Empty;
+        return this.Intersection(nodeIds, matches);
     }
     public IdSet FilterRangesObject<T>(IValueIndex<T> index, IdSet set, object from, object to) where T : notnull {
-        // to be implemented later
-        throw new NotImplementedException();
+        return FilterRanges(index, set, [new Tuple<T, T>((T)from, (T)to)]);
     }
 
     // Generates a set with a single value, and caches it for future use.

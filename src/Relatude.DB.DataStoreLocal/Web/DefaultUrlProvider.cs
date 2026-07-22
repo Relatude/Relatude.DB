@@ -301,30 +301,36 @@ public class DefaultUrlProvider : IUrlProvider {
     void parseQueryParamValue(string url, out string? value, out int posQuery, out string? idParam) {
         int startPos = _urlNodeRoot.Length;
         idParam = null;
+        value = null;
         posQuery = url.IndexOf('?', startPos);
         if (posQuery == -1) {
             posQuery = url.Length;
-            value = null;
-        } else {
-            var search = $"{_queryParamName}=";
-            var from = url.IndexOf(search, posQuery);
-            if (from == -1) {
-                value = null;
+            return;
+        }
+        // find the parameter, matching only at the start of the query or right after '&',
+        // and terminating the value at the next '&' or end of string:
+        var search = $"{_queryParamName}=";
+        var pos = posQuery + 1;
+        while (pos < url.Length) {
+            var end = url.IndexOf('&', pos);
+            if (end == -1) end = url.Length;
+            if (end - pos >= search.Length && string.CompareOrdinal(url, pos, search, 0, search.Length) == 0) {
+                value = url[(pos + search.Length)..end];
+                break;
+            }
+            pos = end + 1;
+        }
+        if (value == null) return;
+        if (queryOnlyFormat()) {
+            var posDot = value.IndexOf(dot);
+            if (posDot != -1) {
+                idParam = value[..posDot];
+                value = value[(posDot + 1)..];
             } else {
-                from += search.Length;
-                var to = url.IndexOf(search, from);
-                if (to == -1) to = url.Length;
-                value = url[from..to];
-                if (queryOnlyFormat()) {
-                    var posDot = url.IndexOf(dot, from);
-                    if (posDot != -1) {
-                        idParam = url.Substring(from, posDot - from);
-                        value = url[(posDot + 1)..to];
-                    }
-                }
+                idParam = value; // bare id without payload, e.g. "?nid=123"
+                value = null;
             }
         }
-
     }
     bool tryParseUrlNodeKey(string url, out NodeKey nodeKey, out string? queryParamValue) {
 
@@ -376,6 +382,7 @@ public class DefaultUrlProvider : IUrlProvider {
         }
 
         // Third try, parse the id from the address part of the url:
+        if (addressWithoutFileName.Length == 0) return false; // no address part to parse an id from (e.g. root url with query string)
         var posFirstSlash = addressWithoutFileName.IndexOf(slash, 1);
         if (posFirstSlash == -1) posFirstSlash = addressWithoutFileName.Length;
         var idString = addressWithoutFileName.AsSpan(0, posFirstSlash);
@@ -422,7 +429,13 @@ public class DefaultUrlProvider : IUrlProvider {
             nodePath = default;
             return false;
         }
-        var d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        UrlData d;
+        try {
+            d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        } catch {
+            nodePath = default;
+            return false; // malformed query parameter value
+        }
         if (d.Path == null || d.UrlType != UrlDataType.NodePath) {
             nodePath = default;
             return false;
@@ -435,7 +448,13 @@ public class DefaultUrlProvider : IUrlProvider {
             propertyPath = default;
             return false;
         }
-        var d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        UrlData d;
+        try {
+            d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        } catch {
+            propertyPath = default;
+            return false; // malformed query parameter value
+        }
         if (d.Property == null || d.UrlType != UrlDataType.PropertyPath) {
             propertyPath = default;
             return false;
@@ -449,7 +468,14 @@ public class DefaultUrlProvider : IUrlProvider {
             adjustment = default;
             return false;
         }
-        var d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        UrlData d;
+        try {
+            d = UrlData.ParseQueryParamValue(queryParam, nodeKey, _options);
+        } catch {
+            propertyPath = default;
+            adjustment = default;
+            return false; // malformed query parameter value
+        }
         if (d.Property == null || d.Adjustment == null || d.UrlType != UrlDataType.PropertyPathAdjusted) {
             propertyPath = default;
             adjustment = default;

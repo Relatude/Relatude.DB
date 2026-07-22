@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties;
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties;
 public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.DateTime; }
@@ -22,10 +23,10 @@ public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContrain
         //if (value is double) return (int)value;
         //if (value is float) return (int)value;
         if (value is string sv) {
-            if (DateTime.TryParse(sv, out var v)) {
+            if (DateTime.TryParse(sv, CultureInfo.InvariantCulture, out var v)) {
                 if (v.Kind != DateTimeKind.Utc) return DateTime.SpecifyKind(v, DateTimeKind.Utc);
                 return v;
-            } else if (long.TryParse(sv, out var lv)) {
+            } else if (long.TryParse(sv, CultureInfo.InvariantCulture, out var lv)) {
                 return new DateTime(lv, DateTimeKind.Utc);
             }
         }

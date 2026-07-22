@@ -21,11 +21,26 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     }
     static bool canBeNative(Variables vars, IExpression exp, NodeType nodeType) {
         if (exp is OperatorExpression opExp && opExp.IsBooleanExpression) {
-            foreach (var e in opExp.Expressions) {
-                if (!canBeNative(vars, e, nodeType))
-                    return false;
+            if (opExp.Operators.Count == 0) { // parenthesized single expression
+                return opExp.Expressions.Count == 1 && canBeNative(vars, opExp.Expressions[0], nodeType);
             }
-            return true;
+            var operand = opExp.Operators[0];
+            if (operand == Operator.Or || operand == Operator.And) {
+                foreach (var e in opExp.Expressions) {
+                    if (!canBeNative(vars, e, nodeType))
+                        return false;
+                }
+                return true;
+            }
+            // comparison: getIndexExpression only supports exactly one property compared to one constant,
+            // anything else (property vs property, chained comparisons, etc.) must fall back to row evaluation
+            if (opExp.Expressions.Count != 2) return false;
+            var c1 = opExp.Expressions[0];
+            var c2 = opExp.Expressions[1];
+            var propSide = (c1 as PropertyReferenceExpression) ?? (c2 as PropertyReferenceExpression);
+            if (propSide == null || c1 is PropertyReferenceExpression && c2 is PropertyReferenceExpression) return false;
+            if (c1 is not ConstantExpression && c2 is not ConstantExpression) return false;
+            return canBeNative(vars, propSide, nodeType);
         } else if (exp is ConstantExpression) {
             return true;
         } else if (exp is PropertyReferenceExpression propEx) { // simplification: other expression like freetext search could be supported....
@@ -56,6 +71,9 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
     }
     static IExpression getIndexExpression(Variables vars, IExpression orgFilter, Definition def, DataStores.DataStoreLocal db) {
         if (orgFilter is OperatorExpression opExp && opExp.IsBooleanExpression) {
+            if (opExp.Operators.Count == 0 && opExp.Expressions.Count == 1) { // parenthesized single expression
+                return getIndexExpression(vars, opExp.Expressions[0], def, db);
+            }
             var operand = opExp.Operators[0];
             IAndOrNativeExpression e;
             if (operand == Operator.Or || operand == Operator.And) {
@@ -84,6 +102,13 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 } else if (e2 is PropertyReferenceExpression p2 && e1 is ConstantExpression c1) {
                     propEx = p2;
                     constEx = c1;
+                    op = op switch { // constant was on the left, so flip the comparison to read property-vs-constant
+                        IndexOperator.Greater => IndexOperator.Smaller,
+                        IndexOperator.Smaller => IndexOperator.Greater,
+                        IndexOperator.GreaterOrEqual => IndexOperator.SmallerOrEqual,
+                        IndexOperator.SmallerOrEqual => IndexOperator.GreaterOrEqual,
+                        _ => op,
+                    };
                 } else {
                     return orgFilter;
                 }
@@ -134,6 +159,9 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     case PropertyType.Decimal:
                         var decimalValue = DecimalPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeDecimalProperty((DecimalProperty)prop, decimalValue, op);
+                    case PropertyType.Guid:
+                        var guidValue = GuidPropertyModel.ForceValueType(constEx.Value!, out _);
+                        return new OperatorExpressionNativeGuidProperty((GuidProperty)prop, guidValue, op);
                     case PropertyType.Any:
                     case PropertyType.Relation:
                     default: throw new NotSupportedException();

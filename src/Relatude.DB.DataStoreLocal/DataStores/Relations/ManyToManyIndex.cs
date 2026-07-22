@@ -7,17 +7,17 @@ public class ManyToManyIndex() : IRelationIndex {
     readonly RelationDataDictionary _relData = new();
     readonly Dictionary<int, RelatedList> _relTargetBySource = new();
     readonly Dictionary<int, RelatedList> _relSourceByTarget = new();
-    public RelatedList GetTarget(int target) {
+    public RelatedList GetTarget(int source) {
+        if (_relTargetBySource.TryGetValue(source, out var r)) return r;
+        throw new Exception("There is no relation target " + source.ToString());
+    }
+    public RelatedList GetSource(int target) {
         if (_relSourceByTarget.TryGetValue(target, out var r)) return r;
         throw new Exception("There is no relation source " + target.ToString());
     }
-    public RelatedList GetSource(int source) {
-        if (_relTargetBySource.TryGetValue(source, out var r)) return r;
-        throw new Exception("There is no relation source " + source.ToString());
-    }
     public bool Contains(int source, int target) => _relData.Contains(source, target);
-    public int CountTarget(int source) => _relSourceByTarget.TryGetValue(source, out var r) ? r.Count : 0;
-    public int CountSource(int target) => _relTargetBySource.TryGetValue(target, out var r) ? r.Count : 0;
+    public int CountTarget(int source) => _relTargetBySource.TryGetValue(source, out var r) ? r.Count : 0;
+    public int CountSource(int target) => _relSourceByTarget.TryGetValue(target, out var r) ? r.Count : 0;
     public void Remove(int source, int target) {
         if (_relTargetBySource.TryGetValue(source, out var targets)) {
             targets.Remove(target);
@@ -91,8 +91,16 @@ public class ManyToManyIndex() : IRelationIndex {
         }
     }
     public void DeleteIfReferenced(int id) {
-        if (_relSourceByTarget.TryGetValue(id, out var sources)) foreach (var source in sources) Remove(source, id);
-        if (_relTargetBySource.TryGetValue(id, out var targets)) foreach (var target in targets) Remove(id, target);
+        if (_relSourceByTarget.TryGetValue(id, out var sources)) {
+            List<int> copy = new(); // copy to avoid mutating while enumerating, Remove changes the lists
+            foreach (var source in sources) copy.Add(source);
+            foreach (var source in copy) Remove(source, id);
+        }
+        if (_relTargetBySource.TryGetValue(id, out var targets)) {
+            List<int> copy = new();
+            foreach (var target in targets) copy.Add(target);
+            foreach (var target in copy) Remove(id, target);
+        }
     }
     public IdSet Get(int id, bool fromTargetToSource) {
         if (fromTargetToSource) {

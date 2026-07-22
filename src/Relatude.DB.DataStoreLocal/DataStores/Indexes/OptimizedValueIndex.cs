@@ -11,6 +11,10 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     readonly IValueIndex<T> _i = index;
     readonly AddRemoveOptimization _o = new(index);
 
+    // exposed so the persisted index store can flush the queued remove into its backend before a
+    // commit and discard it on rollback (see PersistedIndexStoreBase)
+    internal AddRemoveOptimization Queue => _o;
+
     public string UniqueKey => _i.UniqueKey;
 
     public void Add(int id, object value) => _o.Add(id, value);
@@ -52,7 +56,14 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
-    public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive); }
+    public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
+        _o.Dequeue();
+        if (indexTo is OptimizedValueIndex<T> optimized) { // unwrap so the inner index can read the "to" values, flushing its queue first
+            optimized._o.Dequeue();
+            indexTo = optimized._i;
+        }
+        return _i.WhereRangeOverlapsRange(indexTo, queryFrom, queryTo, fromInclusive, toInclusive);
+    }
     public long PersistedTimestamp { get { return _i.PersistedTimestamp; } }
     public void FlagFirstCommit() { _i.FlagFirstCommit(); }
     public string FriendlyName => _i.FriendlyName;

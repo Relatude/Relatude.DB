@@ -36,12 +36,14 @@ public class StringArrayIndex : IIndex {
     public void Add(int nodeId, object value) {
         var v = (string[])value;
         _valueByNodeId.Add(nodeId, v);
-        foreach (var str in v) _nodeIdByValue.Index(str, nodeId);
+        // dedup: the same string may occur several times in one node's array,
+        // but the node must only be indexed once per unique value (and deindexed symmetrically)
+        foreach (var str in v.Distinct()) _nodeIdByValue.Index(str, nodeId);
     }
     public void Remove(int nodeId, object value) {
         var v = (string[])value;
         _valueByNodeId.Remove(nodeId);
-        foreach (var str in v) _nodeIdByValue.DeIndex(str, nodeId);
+        foreach (var str in v.Distinct()) _nodeIdByValue.DeIndex(str, nodeId);
     }
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);

@@ -19,17 +19,19 @@ internal class LogQueue : IDisposable {
         System.Threading.Interlocked.Increment(ref _estimatedTransactionCount);
     }
     public void DequeAllWorkThreadSafe(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
-        ExecutedPrimitiveTransaction[] batch;
-        lock (_queueLock) {
-            actionCount = _queue.Sum(x => x.ExecutedActions.Count);
-            batch = _queue.ToArray();
-            transactionCount = _queue.Count;
-            _queue = [];
-        }
-        lock (_workLock) { 
+        lock (_workLock) {
             // _workLock is needed to prevent multiple batches running simultaneously
             // ( would cause problem with disk flushes as they have no lock,
             // and could interleave with db rewrite, that uses flush to ensure all node segments are written)
+            // the queue snapshot is taken INSIDE _workLock so that the order batches are written
+            // always matches the order transactions were queued (snapshot order == write order)
+            ExecutedPrimitiveTransaction[] batch;
+            lock (_queueLock) {
+                actionCount = _queue.Sum(x => x.ExecutedActions.Count);
+                batch = _queue.ToArray();
+                transactionCount = _queue.Count;
+                _queue = [];
+            }
             bytesWritten = 0;
             if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
         }

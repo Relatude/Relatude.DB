@@ -71,30 +71,20 @@ internal class SetCacheKey {
     }
 }
 internal class StateIdTracker() {
-    // state with logic to handle removal and re-addition of same value
-    // clears cache when state changes
+    // every mutation advances the state id, clearing cached results based on it
+    // NB: remove followed by re-add of the same id must NOT revert to the old state id,
+    // as the enumeration ORDER changes (removal shifts elements, re-add appends), and
+    // order-dependent cached results (Page/Skip/Take) are keyed by StateId
     private long _stateId = SetRegister.NewStateId();
     public long Current => _stateId;
-    int _lastIdRemoved;
-    long _lastStateIdBeforeRemove;
     public void RegisterAddition(int id) {
-        if (_lastStateIdBeforeRemove > 0 && _lastIdRemoved == id) {
-            // added same value for same id, that was just removed, so revert to old state id            
-            _stateId = _lastStateIdBeforeRemove;
-        } else {
-            _stateId = SetRegister.NewStateId();
-        }
-        _lastStateIdBeforeRemove = 0;
+        _stateId = SetRegister.NewStateId();
     }
     public void RegisterRemoval(int id) {
-        _lastIdRemoved = id;
-        _lastStateIdBeforeRemove = _stateId;
         _stateId = SetRegister.NewStateId();
     }
 
     internal void Reset() {
-        _lastStateIdBeforeRemove = 0;
-        _lastIdRemoved = 0;
         _stateId = SetRegister.NewStateId();
     }
 }

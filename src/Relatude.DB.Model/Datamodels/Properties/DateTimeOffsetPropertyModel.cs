@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties;
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties;
 public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.DateTimeOffset; }
@@ -20,10 +21,10 @@ public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueCo
         //if (value is double) return (int)value;
         //if (value is float) return (int)value;
         if (value is string sv) {
-            if (DateTimeOffset.TryParse(sv, out var v)) {
+            if (DateTimeOffset.TryParse(sv, CultureInfo.InvariantCulture, out var v)) {
                 return v;
             }
-            if (long.TryParse(sv, out var lv)) {
+            if (long.TryParse(sv, CultureInfo.InvariantCulture, out var lv)) {
                 return new DateTimeOffset(lv, TimeSpan.Zero);
             }
         }

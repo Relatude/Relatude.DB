@@ -30,8 +30,10 @@ internal class UploadSessions(DataStoreLocal store) {
         List<UploadSession> toRemove;
         lock (_uploadSessions) {
             toRemove = _uploadSessions.Values.Where(s => DateTime.UtcNow - s.LastAccessed > _maxStaleAgeForUploadSessions).ToList();
-            foreach (var s in toRemove) 
+            foreach (var s in toRemove) {
+                s.Hash.Dispose();
                 _uploadSessions.Remove(s.FileValue.FileId);
+            }
         }
         foreach (var s in toRemove) {
             try {
@@ -44,6 +46,7 @@ internal class UploadSessions(DataStoreLocal store) {
     }
     public void AddSession(FileValue fileValue) {
         lock (_uploadSessions) {
+            if (_uploadSessions.TryGetValue(fileValue.FileId, out var oldSession)) oldSession.Hash.Dispose();
             _uploadSessions[fileValue.FileId] = new UploadSession(fileValue);
         }
     }

@@ -50,8 +50,12 @@ internal sealed class NodeStore {
         if (missing.Any()) { // load to cache
             // load all missing from cache from log in one batch
             nodesFromDisk += missing.Count;
-            var segments = missing.Select(id => _segments[id]).ToArray();
-            var bytes = _read(segments, out diskReads);  // takes time...
+            NodeSegment[] segments;
+            lock (_lock) { // _segments is not threadsafe
+                segments = missing.Select(id => _segments[id]).ToArray();
+            }
+            var bytes = _read(segments, out var diskReadsInBatch);  // takes time...
+            diskReads += diskReadsInBatch; // accumulate, callers pass a running counter
             // there is no read lock, so we need to check again if the item is in cache
             // there is a change both threads will read same item from log, but that is ok
             // better than locking the whole cache and block other threads

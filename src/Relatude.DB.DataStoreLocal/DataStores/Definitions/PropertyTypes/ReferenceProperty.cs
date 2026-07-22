@@ -23,7 +23,6 @@ internal class ReferenceProperty : ValueProperty<Guid> {
         if (value is not Guid guid) throw new ArgumentException("Value must be a Guid.");
         if (guid == Guid.Empty) return;
         // validate type:
-        var id = Definition.Store.GetId(guid);
         Guid suggestedTypeId;
         if (node.Id == guid) {
             suggestedTypeId = node.NodeType;
@@ -47,11 +46,14 @@ internal class ReferenceProperty : ValueProperty<Guid> {
                         }
                         break;
                     case IncludeTypeOptions.ThisTypeOnly:
-                        _nodeTypes.Contains(suggestedTypeId);
+                        if (allowedTypeId == suggestedTypeId) {
+                            _isTypeValidCache[suggestedTypeId] = true;
+                            return;
+                        }
                         break;
                     case IncludeTypeOptions.DescendingTypesOnly:
-                        if (suggestedType.Model.ThisAndAllInheritedTypes.ContainsKey(allowedTypeId)) {
-                            _isTypeValidCache[suggestedTypeId] = allowedTypeId != suggestedTypeId;
+                        if (allowedTypeId != suggestedTypeId && suggestedType.Model.ThisAndAllInheritedTypes.ContainsKey(allowedTypeId)) {
+                            _isTypeValidCache[suggestedTypeId] = true;
                             return;
                         }
                         break;

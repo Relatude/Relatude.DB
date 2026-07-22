@@ -171,6 +171,9 @@ namespace Relatude.DB.Query.Expressions {
     internal class OperatorExpressionNativeStringProperty : OperatorExpressionNativeProperty<string> {
         public OperatorExpressionNativeStringProperty(StringProperty property, string value, IndexOperator op) : base(property, value, op) { }
     }
+    internal class OperatorExpressionNativeGuidProperty : OperatorExpressionNativeProperty<Guid> {
+        public OperatorExpressionNativeGuidProperty(GuidProperty property, Guid value, IndexOperator op) : base(property, value, op) { }
+    }
 
 
     //    internal class OperatorExpressionNativeBooleanProperty : IBooleanNativeExpression {

@@ -67,7 +67,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_logger.LoggingTransactions) _logger.RecordTransaction(result.TransactionId, sw.Elapsed, transaction.Actions.Count, primitiveActionCount, flush);
             return result;
         } else { // faster path without logging:
-            var result = execute_outer(transaction, true, flush, ctx, out _);
+            var result = execute_outer(transaction, transformValues, flush, ctx, out _);
             return result;
         }
     }
@@ -152,7 +152,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             foreach (var action in transaction.Actions) {
 
                 UpdateActivityProgress(activityId, 100 * i++ / count);
-                var enumerator = _converter.Convert(this, action, transformValues, newTasks, ctx, out var resultingOperation).GetEnumerator();
+                var enumerator = _converter.Convert(this, action, transformValues, newTasks, ctx).GetEnumerator();
                 // not using foreach here to be able to catch exceptions from MoveNext() and know which action caused it, for better error messages.
                 while (true) {
                     try {
@@ -165,12 +165,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
                     executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(primitive);
-                    resultingOperations[i - 1] = resultingOperation;
                 }
+                resultingOperations[i - 1] = _converter.LastResultingOperation; // must be read after enumeration, as it is set during enumeration
 
             }
-            _guids.Commit();
-            _addresses.Commit();
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
                     transaction.InnerCallbackBeforeCommitting();
@@ -178,6 +176,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                     throw new ExceptionWithoutIntegrityLoss("Transaction callback failed: " + err.Message, err);
                 }
             }
+            _guids.Commit();
+            _addresses.Commit();
             return executed;
         } catch (ExceptionWithoutIntegrityLoss) { // rollback
             // rollback with opposite actions in reverse order:
@@ -243,8 +243,8 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     public Task<Guid> RequestGlobalLockAsync(double lockDurationInMs, double maxWaitTimeInMs) {
         _lock.EnterWriteLock();
-        validateDatabaseState();
         try {
+            validateDatabaseState();
             return _nodeWriteLocks.RequestLockAsync(0, lockDurationInMs, maxWaitTimeInMs);
         } finally {
             _lock.ExitWriteLock();
@@ -256,8 +256,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public Task<Guid> RequestLockAsync(int nodeId, double lockDurationInMs, double maxWaitTimeInMs) {
         _lock.EnterWriteLock();
-        validateDatabaseState();
         try {
+            validateDatabaseState();
             if (lockDurationInMs > 60 * 1000) throw new Exception("Node write locks only supported up to 60 seconds. ");
             return _nodeWriteLocks.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
         } finally {
@@ -266,8 +266,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void RefreshLock(Guid lockId) {
         _lock.EnterWriteLock();
-        validateDatabaseState();
         try {
+            validateDatabaseState();
             _nodeWriteLocks.RefreshLock(lockId);
         } finally {
             _lock.ExitWriteLock();
@@ -275,8 +275,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void ReleaseLock(Guid lockId) {
         _lock.EnterWriteLock();
-        validateDatabaseState();
         try {
+            validateDatabaseState();
             _nodeWriteLocks.Unlock(lockId);
         } finally {
             _lock.ExitWriteLock();

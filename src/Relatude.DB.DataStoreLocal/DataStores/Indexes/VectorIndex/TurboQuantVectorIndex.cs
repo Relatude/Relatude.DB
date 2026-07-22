@@ -52,14 +52,15 @@ public class TurboQuantVectorIndex : IVectorIndex {
                 lock (hits) hits.Add(new(kv.Key, similarity));
             }
         }
-        Parallel.ForEach(_index, search);
+        // Snapshot to avoid enumeration invalidation if the index changes concurrently
+        Parallel.ForEach(_index.ToArray(), search);
         return hits;
     }
     List<VectorHit> single(float[] u, float minCosineSimilarity) {
         var hits = new List<VectorHit>();
         var turboQuant = getTurboQuant();
         var e = turboQuant.Encode(padVector(u));
-        foreach (var kv in _index) {
+        foreach (var kv in _index.ToArray()) {
             float similarity = turboQuant.ApproxDot(e, kv.Value);
             if (similarity >= minCosineSimilarity) hits.Add(new(kv.Key, similarity));
         }
@@ -68,20 +69,25 @@ public class TurboQuantVectorIndex : IVectorIndex {
     public void CompressMemory() {
 
     }
-    public void ReadState(IReadStream stream) {        
-        _turboQuant = TurboQuant.FromByteArray(stream.ReadByteArray());
+    public void ReadState(IReadStream stream) {
+        _index.Clear(); // reading state replaces any current content
+        var quantizerState = stream.ReadByteArray();
+        // An empty byte array marks a state saved before the quantizer was ever trained (empty index):
+        _turboQuant = quantizerState.Length == 0 ? null : TurboQuant.FromByteArray(quantizerState);
         var indexDimensions = stream.ReadInt();
         if (indexDimensions != _indexDimensions) throw new InvalidDataException($"Index dimensions mismatch. Expected {_indexDimensions}, got {indexDimensions}");
         int count = stream.ReadInt();
         for (int i = 0; i < count; i++) {
             int nodeId = stream.ReadInt();
-            var encodedVector = EncodedVector.FromByteArray(stream.ReadByteArray());
+            var encodedVector = EncodedVector.FromByteArray(stream.ReadByteArray(), _indexDimensions);
             _index[nodeId] = encodedVector;
         }
     }
     public void SaveState(IAppendStream stream) {
-        var turboQuant = getTurboQuant();
-        var state = turboQuant.ToByteArray();
+        // If the index is empty and no quantizer exists yet, avoid triggering the
+        // expensive lazy training just to serialize an empty index. An empty byte
+        // array marks this state (a trained quantizer never serializes to 0 bytes).
+        var state = _turboQuant == null && _index.Count == 0 ? Array.Empty<byte>() : getTurboQuant().ToByteArray();
         stream.WriteByteArray(state);
         stream.WriteInt(_indexDimensions);
         stream.WriteInt(_index.Count);

@@ -23,16 +23,15 @@ public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
     public int CountSource(int target) => _sourceByTarget.ContainsKey(target) ? 1 : 0;
     public int CountTarget(int source) => _targetBySource.TryGetValue(source, out var r) ? r.Count : 0;
     public void Remove(int source, int target) {
-        if (_sourceByTarget.ContainsKey(target)) {
-            _sourceByTarget.Remove(target);
-        } else {
-            throw new Exception("No relation target " + target);
-        }
+        // verify the requested pair matches the actual mapping BEFORE mutating, so a mismatched
+        // source cannot partially remove and desynchronize the two dictionaries:
+        if (!_sourceByTarget.TryGetValue(target, out var actualSource) || actualSource != source) throw new ItemNotInRelationException();
+        _sourceByTarget.Remove(target);
         if (_targetBySource.TryGetValue(source, out var targets)) {
             targets.Remove(target);
             if (targets.Count == 0) _targetBySource.Remove(source);
         } else {
-            throw new Exception("No relation source " + source);
+            throw new ItemNotInRelationException(); // unreachable if the two maps are consistent
         }
         _relData.Remove(source, target);
     }
@@ -46,7 +45,7 @@ public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
     public void Add(int source, int target, DateTime changedUtc) {
         if (Contains(source, target)) throw new ItemAlreadyInRelationException();
         if (_sourceByTarget.TryGetValue(target, out var oldSource)) {
-            throw new Exception("Existing relation from " + oldSource + " to " + target + ", must be removed first. ");
+            throw new ExceptionWithoutIntegrityLoss("Existing relation from " + oldSource + " to " + target + ", must be removed first. "); // thrown before any mutation, so safe rollback is possible
             //Remove(oldSource, target); // To preserver One target Many rule
         } else {
             _sourceByTarget.Add(target, source);
@@ -106,7 +105,11 @@ public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
     }
     public void DeleteIfReferenced(int id) {
         if (_sourceByTarget.TryGetValue(id, out var source)) Remove(source, id);
-        if (_targetBySource.TryGetValue(id, out var targets)) foreach (var target in targets) Remove(id, target);
+        if (_targetBySource.TryGetValue(id, out var targets)) {
+            List<int> copy = new(); // copy to avoid mutating while enumerating, Remove changes the list
+            foreach (var target in targets) copy.Add(target);
+            foreach (var target in copy) Remove(id, target);
+        }
     }
     public IdSet Get(int id, bool fromTargetToSource) {
         if (fromTargetToSource) {

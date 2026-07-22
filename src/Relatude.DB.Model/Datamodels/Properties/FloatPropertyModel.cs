@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties;
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties;
 public class FloatPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Float; }
@@ -19,7 +20,7 @@ public class FloatPropertyModel : PropertyModel {
         if (value is byte) return (float)value;
         if (value is decimal) return (float)value;
         if (value is float) return (float)value;
-        if (value is string && float.TryParse((string)value, out var v)) return v;
+        if (value is string && float.TryParse((string)value, CultureInfo.InvariantCulture, out var v)) return v;
         return default;
     }
     public override string GetDefaultValueAsCode() => DefaultValue.ToString();

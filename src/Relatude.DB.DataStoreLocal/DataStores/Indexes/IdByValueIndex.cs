@@ -14,6 +14,9 @@ namespace Relatude.DB.DataStores.Indexes;
 /// <typeparam name="T"></typeparam>
 internal class IdByValue<T>(SetRegister sets) where T : notnull {
 
+    // the same comparer as the owning ValueIndex (ordinal for strings), used by every sort and
+    // binary search over the sorted values so they always agree
+    static readonly IComparer<T> _comparer = ValueIndex<T>.comparer;
     int _idCount = 0;
     // the values are split into to dictionaries to save memory. 
     // for values with only one id, is stored in _idByValue
@@ -126,7 +129,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         lock (_sortLock) {
             if (_sortedValues == null) {
                 _sortedValues = Values.ToList();
-                _sortedValues.Sort();
+                _sortedValues.Sort(_comparer);
             }
         }
     }
@@ -227,23 +230,23 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         }
     }
     static IEnumerable<T> greaterThan(List<T> sortedList, T from, bool inclusive) {
-        int index = sortedList.BinarySearch(from);
+        int index = sortedList.BinarySearch(from, _comparer);
         if (index < 0) index = ~index;
         else if (!inclusive) index++;
         if (index < 0 || index >= sortedList.Count) yield break;
         for (int i = index; i < sortedList.Count; i++) yield return sortedList[i];
     }
     static IEnumerable<T> lessThan(List<T> sortedList, T to, bool inclusive) {
-        int index = sortedList.BinarySearch(to);
+        int index = sortedList.BinarySearch(to, _comparer);
         if (index < 0) index = ~index - 1;
         else if (!inclusive) index--;
         if (index < 0 || index >= sortedList.Count) yield break;
         for (int i = index; i >= 0; i--) yield return sortedList[i];
     }
     static IEnumerable<T> rangeSearch(List<T> sortedList, T from, T to, bool fromInclusive, bool toInclusive) {
-        int lower = sortedList.BinarySearch(from!);
+        int lower = sortedList.BinarySearch(from!, _comparer);
         lower = lower < 0 ? ~lower : fromInclusive ? lower : lower + 1;
-        int upper = sortedList.BinarySearch(to!);
+        int upper = sortedList.BinarySearch(to!, _comparer);
         upper = upper < 0 ? ~upper - 1 : toInclusive ? upper : upper - 1;
         if (lower < 0 || lower >= sortedList.Count || upper < 0 || upper >= sortedList.Count) yield break;
         for (int i = lower; i <= upper; i++) yield return sortedList[i];

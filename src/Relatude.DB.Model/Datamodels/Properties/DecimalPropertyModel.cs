@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties;
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties;
 public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Decimal; }
@@ -18,7 +19,7 @@ public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraint
         if (value is byte) return (decimal)value;
         if (value is double) return (decimal)value;
         if (value is float) return (decimal)value;
-        if (value is string s && decimal.TryParse(s, out var dec)) return dec;
+        if (value is string s && decimal.TryParse(s, CultureInfo.InvariantCulture, out var dec)) return dec;
         return default;
     }
     public static decimal ToDecimal(byte[] buffer, int offset = 0) {

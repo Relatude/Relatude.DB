@@ -45,6 +45,7 @@ public class BinaryUrlFileAdjustmentEncoder(Guid secretHashKey) : IUrlFileAdjust
                 bytes = output.ToArray();
             }
             var adjustment = FileAdjustment.FromBytes(bytes);
+            adjustment.BasicSanitization(); // to prevent "crazy" values, causing issues in downstream processing (e.g. negative or extreme dimensions, memory exhaustion, etc.)
             _cache1.Set(urlString, adjustment, 1);
             return adjustment;
         }

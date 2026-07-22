@@ -34,7 +34,8 @@ public static class UtilsText {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     foreach (var relatedNode in relatedNodes) {
-                        sb.AppendLine(getTextExtract(db, nodeType, relatedNode, dm, recursiveLevelLimit - 1, --callCountLimit));
+                        var relatedNodeType = dm.NodeTypes[relatedNode.NodeType]; // use the related node's own type, not the parent's
+                        sb.AppendLine(getTextExtract(db, relatedNodeType, relatedNode, dm, recursiveLevelLimit - 1, --callCountLimit));
                         if (callCountLimit <= 0) {
                             sb.AppendLine("...");
                             break;
@@ -45,7 +46,7 @@ public static class UtilsText {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     foreach (var relatedNode in relatedNodes) {
-                        nodeType.BuildDisplayName(relatedNode, sb);
+                        dm.NodeTypes[relatedNode.NodeType].BuildDisplayName(relatedNode, sb); // use the related node's own type, not the parent's
                         sb.AppendLine();
                     }
                 }
@@ -74,7 +75,8 @@ public static class UtilsText {
                     if (relatedNodes.Length == 0) continue;
                     sb.AppendLine(rm.DisplayName + ":");
                     foreach (var relatedNode in relatedNodes) {
-                        sb.AppendLine(getSemanticExtract(db, nodeType, relatedNode, dm, recursiveLevelLimit - 1, --callCountLimit));
+                        var relatedNodeType = dm.NodeTypes[relatedNode.NodeType]; // use the related node's own type, not the parent's
+                        sb.AppendLine(getSemanticExtract(db, relatedNodeType, relatedNode, dm, recursiveLevelLimit - 1, --callCountLimit));
                         if (callCountLimit <= 0) {
                             sb.AppendLine("...");
                             break;
@@ -88,7 +90,7 @@ public static class UtilsText {
                     if (relatedNodes.Length == 0) continue;
                     sb.AppendLine(rm.DisplayName + ":");
                     foreach (var relatedNode in relatedNodes) {
-                        nodeType.BuildDisplayName(relatedNode, sb);
+                        dm.NodeTypes[relatedNode.NodeType].BuildDisplayName(relatedNode, sb); // use the related node's own type, not the parent's
                         sb.AppendLine();
                     }
                     sb.AppendLine();

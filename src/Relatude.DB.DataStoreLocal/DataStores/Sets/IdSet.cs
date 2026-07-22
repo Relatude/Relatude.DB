@@ -11,7 +11,8 @@ namespace Relatude.DB.DataStores.Sets;
 /// </summary>
 public class IdSet {
     const int arrayHashLimit = 200;
-    ICollection<int> _ids;
+    ICollection<int> _ids; // keeps original (possibly sorted) order, never replaced as order matters for cached paged/ordered results
+    ISet<int>? _fastSet; // lookup accelerator only, created on demand for large sets
     int[]? _asArray;
     public IdSet(ICollection<int> uniqueListOfIds, long stateId) {
         StateId = stateId;
@@ -32,7 +33,7 @@ public class IdSet {
     public IEnumerable<int> Enumerate() => _ids;
     public bool Has(int id) { // Using "Has" name instead of "Contains" to avoid confusion with the "Contains" method of Enumerable or LINQ
         ensureFastSetIfBetter();
-        return _ids.Contains(id);
+        return _fastSet != null ? _fastSet.Contains(id) : _ids.Contains(id);
     }
     public int First() => _ids.First();
     string? _s = null;
@@ -50,19 +51,18 @@ public class IdSet {
 
     }
     void ensureFastSetIfBetter() {
-        if (_ids is int[] && _ids.Count > arrayHashLimit) {
-            _ids = FastSet.Create(_ids);
+        // never replaces _ids, only adds a lookup accelerator, so enumeration order is preserved
+        if (_fastSet == null && _ids.Count > arrayHashLimit) {
+            _fastSet = FastSet.Create(_ids);
         }
     }
     static internal int IntersectionCount(IdSet set1, IdSet set2) {
-        var s1 = set1._ids;
-        var s2 = set2._ids;
-        if (s1.Count == 0 || s2.Count == 0) return 0;
-        set1.ensureFastSetIfBetter();
-        set2.ensureFastSetIfBetter();
-        var (small, big) = s1.Count < s2.Count ? (s1, s2) : (s2, s1);
+        if (set1.Count == 0 || set2.Count == 0) return 0;
+        var (small, big) = set1.Count < set2.Count ? (set1, set2) : (set2, set1);
+        big.ensureFastSetIfBetter();
+        ICollection<int> lookup = big._fastSet != null ? big._fastSet : big._ids;
         var count = 0;
-        foreach (var id in small) if (big.Contains(id)) count++;
+        foreach (var id in small._ids) if (lookup.Contains(id)) count++;
         return count;
     }
     public int MemSizeEstimate => 3 * sizeof(int) * _ids.Count + 30;

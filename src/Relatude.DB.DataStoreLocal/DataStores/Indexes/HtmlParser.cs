@@ -184,7 +184,10 @@ namespace Relatude.DB.DataStores.Indexes {
                 if (p == lastPos) throw new Exception("Invalid HTML or parser error."); // just a safety to prevent infinite loops due to bugs
                 lastPos = p;
                 var tagStart = findTagStart(html, p, ref tagName);
-                if (tagStart == -1) break;
+                if (tagStart == -1) {
+                    if (p < html.Length) text.Append(extractText(html[p..])); // text after the last tag
+                    break;
+                }
                 if (p < tagStart) text.Append(extractText(html[p..tagStart]));
                 tagName = tagName.ToLower();
                 if (omitTags(tagName)) {
@@ -238,8 +241,8 @@ namespace Relatude.DB.DataStores.Indexes {
                 if (tagStart == -1) break;
                 if (hasOutput) doc.Append(html[p..tagStart]); // text until tag start
                 p = tagStart;
-                if (omitTags(tagName)) {
-                    var startOfClosingTag = findStartOfClosingTag(html, tagStart + tagName.Length, tagName);
+                if (omitTags(tagName.ToLower())) {
+                    var startOfClosingTag = findStartOfClosingTag(html, tagStart, tagName.ToLower());
                     if (startOfClosingTag != -1) {
                         var endOfClosing = findTagEnd(html, startOfClosingTag);
                         if (endOfClosing != -1) {
@@ -259,24 +262,33 @@ namespace Relatude.DB.DataStores.Indexes {
             if (hasOutput && p < html.Length) doc.Append(html[p..html.Length]);
             return doc.ToString();
         }
-        static int findStartOfClosingTag(string html, int startTagEnd, string tagName) {
-            if (startTagEnd + tagName.Length + 3 > html.Length) return -1;
+        static int findStartOfClosingTag(string html, int tagStart, string tagName) { // tagName must be lowercase
+            if (tagStart + tagName.Length + 3 > html.Length) return -1;
             if (tagName == "!--") {
-                var start = startTagEnd;
+                var start = html.IndexOf('-', tagStart + 4); // first candidate after "<!--"
             startOfCommentSearch:
-                start = html.IndexOf('-', start + 4);
-                if (start == -1) return -1;
-                if (html[start + 1] != '-') goto startOfCommentSearch;
-                if (html[start + 2] != '>') goto startOfCommentSearch;
+                // "-->" needs 3 chars, so a match too close to the end is impossible:
+                if (start == -1 || start + 2 >= html.Length) return -1;
+                if (html[start + 1] != '-' || html[start + 2] != '>') {
+                    start = html.IndexOf('-', start + 1);
+                    goto startOfCommentSearch;
+                }
                 return start;
             } else {
-                var start = startTagEnd;
+                var start = html.IndexOf('<', tagStart + tagName.Length + 2); // first possible position after the opening "<tagName>"
             startOfSearch:
-                start = html.IndexOf('<', start + tagName.Length + 2);
-                if (start == -1) return -1;
-                if (html[start + 1] != '/') goto startOfSearch;
-                for (int n = 0; n < tagName.Length; n++) if (html[start + 2 + n] != tagName[n]) goto startOfSearch;
-                if (html[start + 2 + tagName.Length] != '>') goto startOfSearch;
+                // "</tagName>" needs tagName.Length + 3 chars, so a match too close to the end is impossible:
+                if (start == -1 || start + tagName.Length + 2 >= html.Length) return -1;
+                if (html[start + 1] != '/') { start = html.IndexOf('<', start + 1); goto startOfSearch; }
+                for (int n = 0; n < tagName.Length; n++) {
+                    if (char.ToLowerInvariant(html[start + 2 + n]) != tagName[n]) { // closing tags may use a different casing than the opening tag
+                        start = html.IndexOf('<', start + 1);
+                        goto startOfSearch;
+                    }
+                }
+                var afterName = start + 2 + tagName.Length;
+                while (afterName < html.Length && char.IsWhiteSpace(html[afterName])) afterName++; // "</script >" is legal
+                if (afterName >= html.Length || html[afterName] != '>') { start = html.IndexOf('<', start + 1); goto startOfSearch; }
                 return start;
             }
         }
@@ -331,12 +343,12 @@ namespace Relatude.DB.DataStores.Indexes {
             var start = html.IndexOf('<', p);
             if (start == -1 || html.Length - start < 5) return -1; // no tag left
             p = start + 1;
-            while (++p < html.Length || p - start > 14) { // 14 is max length tag name
+            while (++p < html.Length) {
                 var c = html[p];
                 if (char.IsWhiteSpace(c) && p - start > 1 || c == '>') {
                     tagName = html[(start + 1)..p];
                     return start;
-                } else if (!(char.IsLetterOrDigit(c) || c == '/' || c == '-' || c == '!')) { // invalid char, so look for next tag. only interested in tags with letters in their name
+                } else if (!(char.IsLetterOrDigit(c) || c == '/' || c == '-' || c == '!') || p - start > 14) { // invalid char or too long tag name (max 14), so look for next tag. only interested in tags with letters in their name
                     start = html.IndexOf('<', p);
                     if (start == -1 || html.Length - start < 5) return -1; // no tag left
                     p = start + 1;

@@ -34,14 +34,29 @@ public class RangeGenerator<T> where T : IComparable {
             return (T)(object)(double)n;
         }
         if (typeof(T) == typeof(decimal)) return (T)(object)n;
+        if (typeof(T) == typeof(DateTime)) {
+            if (n > DateTime.MaxValue.Ticks) return (T)(object)DateTime.MaxValue;
+            if (n < DateTime.MinValue.Ticks) return (T)(object)DateTime.MinValue;
+            return (T)(object)new DateTime((long)n);
+        }
+        if (typeof(T) == typeof(TimeSpan)) {
+            if (n > TimeSpan.MaxValue.Ticks) return (T)(object)TimeSpan.MaxValue;
+            if (n < TimeSpan.MinValue.Ticks) return (T)(object)TimeSpan.MinValue;
+            return (T)(object)new TimeSpan((long)n);
+        }
         throw new NotImplementedException();
+    }
+    static decimal convertToDecimal(T value) {
+        if (typeof(T) == typeof(DateTime)) return ((DateTime)(object)value!).Ticks;
+        if (typeof(T) == typeof(TimeSpan)) return ((TimeSpan)(object)value!).Ticks;
+        return Convert.ToDecimal(value);
     }
     static Dictionary<string, List<Tuple<T, T>>> _rangeCache = new();
     public List<Tuple<T, T>> GetRanges(T value1, T value2, int maxNoRanges, double powerBase, byte precision) {
         var key = typeof(T).Name + "|" + value1 + "|" + value2 + "|" + maxNoRanges + "|" + powerBase + "|" + precision;
         lock (_rangeCache) {
             if (_rangeCache.TryGetValue(key, out var rr)) return rr;
-            var d = getDecimalRanges(Convert.ToDecimal(value1), Convert.ToDecimal(value2), maxNoRanges, powerBase, precision);
+            var d = getDecimalRanges(convertToDecimal(value1), convertToDecimal(value2), maxNoRanges, powerBase, precision);
             var r = new List<Tuple<T, T>>();
             foreach (var t in d) {
                 r.Add(new(convertToT(t.Item1), convertToT(t.Item2)));
@@ -97,7 +112,7 @@ public class RangeGenerator<T> where T : IComparable {
             if (n == decimal.MinValue) n = decimal.MinValue + 1; // avoids recursive loop...
             return -roundOfNumber(-n, !ceiling, precision);
         }
-        var expOf10 = ceiling ? Math.Ceiling(Math.Log10((double)n)) : Math.Ceiling(Math.Log10((double)n));
+        var expOf10 = ceiling ? Math.Ceiling(Math.Log10((double)n)) : Math.Floor(Math.Log10((double)n));
         var multipler = Math.Pow(10, expOf10);
         var fraction = (double)n / multipler;
         var roundedFraction = (ceiling ? Math.Ceiling(fraction * (double)precision) : Math.Floor(fraction * (double)precision)) / (double)precision;

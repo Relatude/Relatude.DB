@@ -13,8 +13,8 @@ namespace Relatude.DB.DataStores.Transactions
         public NodeSegment? Segment { get; set; }
         public override PrimitiveNodeAction Opposite() {
             return Operation switch {
-                PrimitiveOperation.Add => new PrimitiveNodeAction(PrimitiveOperation.Remove, Node),
-                PrimitiveOperation.Remove => new PrimitiveNodeAction(PrimitiveOperation.Add, Node),
+                PrimitiveOperation.Add => new PrimitiveNodeAction(PrimitiveOperation.Remove, Node) { Segment = Segment },
+                PrimitiveOperation.Remove => new PrimitiveNodeAction(PrimitiveOperation.Add, Node) { Segment = Segment }, // segment must be kept so the re-added node still points to its data in the log
                 _ => throw new NotSupportedException(),
             };
         }

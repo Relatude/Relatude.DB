@@ -45,10 +45,13 @@ namespace Relatude.DB.DataStores.Definitions {
         public override bool CanBeFacet() => Indexed;
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             var index = GetValueIndex(ctx);
+            List<T> selectedValues = new();
             foreach (var facetValue in facets.Values) {
+                if (!facetValue.Selected) continue;
                 var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
-                nodeIds = index.Filter(nodeIds, IndexOperator.Equal, (T)v);
+                selectedValues.Add(v);
             }
+            if (selectedValues.Count > 0) nodeIds = index.FilterInValues(nodeIds, selectedValues);
             return nodeIds;
         }
 
@@ -78,7 +81,12 @@ namespace Relatude.DB.DataStores.Definitions {
             }
         }
         public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
-            return GetValueIndex(ctx).FilterInValues(ids, values.Cast<T>().ToList());
+            List<T> typedValues = new();
+            foreach (var value in values) {
+                if (value == null) continue;
+                typedValues.Add(PropertyModel.ForceValueAnyType<T>(value, Model.PropertyType, out _));
+            }
+            return GetValueIndex(ctx).FilterInValues(ids, typedValues);
         }
     }
     internal abstract class Property : IProperty {

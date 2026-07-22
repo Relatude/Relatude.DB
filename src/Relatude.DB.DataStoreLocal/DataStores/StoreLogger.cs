@@ -210,8 +210,11 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _logStore = new LogStore(_io, getSettings(), fileKeys);
     }
     void reloadLogsWithNewSettings() {
-        _logStore?.Dispose();
+        // swap in the new store before disposing the old one, so concurrent Record* calls
+        // never see a disposed store through the field (creating the new store does IO and takes time)
+        var oldStore = _logStore;
         _logStore = new LogStore(_io, getSettings(), _fileKeys);
+        oldStore?.Dispose();
     }
 
     public void RecordSystem(SystemLogEntryType type, string text, string? details = null) {
@@ -290,7 +293,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
         entry.Values.Add("nodeCacheCount", metrics.NodeCacheCount);
         entry.Values.Add("nodeCacheSizeMb", (int)(metrics.NodeCacheSize / 1024 / 1024));
         entry.Values.Add("setCacheCount", metrics.SetCacheCount);
-        entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 * 1024));
+        entry.Values.Add("setCacheSizeMb", (int)(metrics.SetCacheSize / 1024 / 1024));
         entry.Values.Add("taskQueueCount", metrics.TasksQueued);
         entry.Values.Add("taskPersistedQueueCount", metrics.TasksPersistedQueued);
         //entry.Values.Add("taskExecutedCount", metrics.TasksExecuted);

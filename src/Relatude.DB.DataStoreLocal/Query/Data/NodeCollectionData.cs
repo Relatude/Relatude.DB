@@ -99,6 +99,15 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         var prop = _def.NodeTypes[_nodeType.Id].AllPropertiesByName[propertyName];
         if (prop is not IValueProperty valueProperty) return false;
         if (!valueProperty.TryReorder(_ids, descending, _ctx, out var sorted)) return false;
+        if (_nodes != null) { // permute already materialized nodes to match the new order, same as ReOrder
+            var oldPosById = new Dictionary<int, int>(_nodes.Length);
+            var i = 0;
+            foreach (var id in _ids.Enumerate()) oldPosById.Add(id, i++);
+            var newNodeDatas = new INodeDataExternal[_nodes.Length];
+            i = 0;
+            foreach (var id in sorted.Enumerate()) newNodeDatas[i++] = _nodes[oldPosById[id]];
+            _nodes = newNodeDatas;
+        }
         _ids = sorted;
         return true;
     }

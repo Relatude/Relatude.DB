@@ -155,7 +155,7 @@ public class TransactionData {
         if (source == Guid.Empty) throw new Exception("Source cannot be empty. "); // to prevent accidental deletion of all relations
         Add(new RelationAction(RelationOperation.Clear, relationId) { SourceGuid = source });
     }
-    public void ClearRelationsWithAny(Guid relationId) => Add(new RelationAction(RelationOperation.Remove, relationId));
+    public void ClearRelationsWithAny(Guid relationId) => Add(new RelationAction(RelationOperation.Clear, relationId));
 
     public void ClearRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Clear, relationId) { Source = source, Target = target });
     public void ClearRelation(Guid relationId, Guid source, Guid target) => Add(new RelationAction(RelationOperation.Clear, relationId) { SourceGuid = source, TargetGuid = target });

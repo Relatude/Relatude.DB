@@ -150,14 +150,26 @@ public sealed partial class DataStoreLocal : IDataStore {
 
 
     public bool TryGetAddress(int id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
-        return _addresses.TryGetAddressAndTryMatchCulture(id, getBestCultureId(ctx), out address);
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            return _addresses.TryGetAddressAndTryMatchCulture(id, getBestCultureId(ctx), out address);
+        } finally {
+            _lock.ExitReadLock();
+        }
     }
     public bool TryGetAddress(Guid id, [MaybeNullWhen(false)] out string? address, QueryContext? ctx = null) {
-        if (_guids.TryGetId(id, out var uid)) {
-            return TryGetAddress(uid, out address, ctx);
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            if (_guids.TryGetId(id, out var uid)) {
+                return TryGetAddress(uid, out address, ctx);
+            }
+            address = null;
+            return false;
+        } finally {
+            _lock.ExitReadLock();
         }
-        address = null;
-        return false;
     }
     public bool TryGetAddress(NodeKey id, [MaybeNullWhen(false)] out string? meta, QueryContext? ctx = null) {
         if (id.Int == 0) return TryGetAddress(id.Guid, out meta, ctx);
@@ -165,35 +177,59 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId) {
-        if (TryGetNodeIdFromAddress(address, out int uid)) {
-            if (_guids.TryGetId(uid, out nodeId)) {
-                return true;
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            if (TryGetNodeIdFromAddress(address, out int uid)) {
+                if (_guids.TryGetId(uid, out nodeId)) {
+                    return true;
+                }
             }
+            nodeId = Guid.Empty;
+            return false;
+        } finally {
+            _lock.ExitReadLock();
         }
-        nodeId = Guid.Empty;
-        return false;
     }
     public bool TryGetNodeIdFromAddress(string address, out Guid nodeId, out string? cultureCode) {
-        if (TryGetNodeIdFromAddress(address, out int uid, out cultureCode)) {
-            if (_guids.TryGetId(uid, out nodeId)) {
-                return true;
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            if (TryGetNodeIdFromAddress(address, out int uid, out cultureCode)) {
+                if (_guids.TryGetId(uid, out nodeId)) {
+                    return true;
+                }
             }
+            nodeId = Guid.Empty;
+            cultureCode = null;
+            return false;
+        } finally {
+            _lock.ExitReadLock();
         }
-        nodeId = Guid.Empty;
-        cultureCode = null;
-        return false;
     }
     public bool TryGetNodeIdFromAddress(string address, out int nodeId) {
-        return _addresses.TryGetId(address, out nodeId, out _);
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            return _addresses.TryGetId(address, out nodeId, out _);
+        } finally {
+            _lock.ExitReadLock();
+        }
     }
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) {
-        if (address == null) address = string.Empty; // treat null and empty as the same address
-        if (_addresses.TryGetId(address, out nodeId, out var cultureId)) {
-            _nativeModelStore.TryGetCultureCode(cultureId, out cultureCode);
-            return true;
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            if (address == null) address = string.Empty; // treat null and empty as the same address
+            if (_addresses.TryGetId(address, out nodeId, out var cultureId)) {
+                _nativeModelStore.TryGetCultureCode(cultureId, out cultureCode);
+                return true;
+            }
+            cultureCode = null;
+            return false;
+        } finally {
+            _lock.ExitReadLock();
         }
-        cultureCode = null;
-        return false;
     }
     public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) {
         if (TryGetNodeIdFromAddress(address, out int uid, out string? cultureCode)) {

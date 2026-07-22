@@ -67,7 +67,7 @@ internal class NodeWithChildren<T> : NodeBase<T> {
                     cNode.Remove(word, shift + 1, firstParentToKeep, indexOfChildToRemove, parentOfFirstParentToKeep);
                 }
             } else if (node is NodeWithValue<T> nodeWV) {
-                if (word.Length - shift - nodeWV.Tail.Length > 1) throw new Exception("Unknow node: \"" + new string(word) + "\""); // reached end of branch, but word is longer...
+                if (!TrieNodeHelpers<T>.IsWordEqual(nodeWV.Tail, word, shift + 1)) throw new Exception("Unknow node: \"" + new string(word) + "\""); // reached end of branch, but word does not match tail...
                 if (firstParentToKeep.Children.Length == 1) { // means branch will be cut off from parent, so convert parent to edge
                     if (firstParentToKeep is NodeWithChildrenAndValue<T> v) {
                         var newEdge = new NodeWithValue<T>(new char[] { v.Character }, 0, v.Value);

@@ -30,6 +30,21 @@ public class FlatDiskVectorIndex : IVectorIndex {
     }
     long offsetFromSegment(int segment) => (long)segment * _recordSegmentLength;
     int segmentFromOffset(long pos) => (int)(pos / _recordSegmentLength);
+    // A scanned record is only current if the dictionary still points at its file position.
+    // (Clear followed by Set appends a new record; the stale record remains in the file.)
+    bool isCurrentRecord(int nodeId, long recordOffset) =>
+        _fileIndex.TryGetValue(nodeId, out var segment) && segment == segmentFromOffset(recordOffset);
+    // Stream.Read may legally return fewer bytes than requested mid-stream.
+    // Read until the requested count is filled or 0 bytes are returned (true EOF).
+    static int readFully(Stream s, byte[] buffer, int offset, int count) {
+        int total = 0;
+        while (total < count) {
+            int n = s.Read(buffer, offset + total, count - total);
+            if (n == 0) break;
+            total += n;
+        }
+        return total;
+    }
     void writeRecord(int nodeId, float[] vector, int segment) {
         // avoiding object instantiation and minimum memory allocation
         BitConverter.GetBytes(nodeId).CopyTo(_buffer, 0);
@@ -72,12 +87,13 @@ public class FlatDiskVectorIndex : IVectorIndex {
         s.Seek(0, SeekOrigin.Begin);
 
         var pool = ArrayPool<byte>.Shared;
-        var queue = new BlockingCollection<(byte[] buf, int bytes)>(boundedCapacity: Environment.ProcessorCount * 2);
+        var queue = new BlockingCollection<(byte[] buf, int bytes, long fileOffset)>(boundedCapacity: Environment.ProcessorCount * 2);
 
         // Producer: read from stream into pooled buffers.
         var producer = Task.Run(() => {
             // Small carry for tail bytes across reads (at most recordLen-1)
             byte[] carry = Array.Empty<byte>();
+            long nextChunkOffset = 0; // file offset of the first byte of the next emitted chunk
             try {
                 while (true) {
                     var buf = pool.Rent(bufSize + recordLen); // +recordLen so we can prepend carry without another alloc
@@ -90,13 +106,13 @@ public class FlatDiskVectorIndex : IVectorIndex {
                         carry = Array.Empty<byte>();
                     }
 
-                    int read = s.Read(buf, start, bufSize);
+                    int read = readFully(s, buf, start, bufSize);
                     if (read <= 0) {
                         if (start > 0) {
                             // We had only carry; emit it if it forms a full record (usually it won’t, so drop)
                             int total = start;
                             int full = (total / recordLen) * recordLen;
-                            if (full > 0) queue.Add((buf, full));
+                            if (full > 0) queue.Add((buf, full, nextChunkOffset));
                             else pool.Return(buf);
                         }
                         break;
@@ -112,10 +128,12 @@ public class FlatDiskVectorIndex : IVectorIndex {
                         Buffer.BlockCopy(buf, fullBytes, carry, 0, tailBytes);
                     }
 
-                    if (fullBytes > 0) queue.Add((buf, fullBytes));
-                    else pool.Return(buf);
+                    if (fullBytes > 0) {
+                        queue.Add((buf, fullBytes, nextChunkOffset));
+                        nextChunkOffset += fullBytes;
+                    } else pool.Return(buf);
 
-                    // EOF if we filled less than requested (after accounting for carry)
+                    // EOF if we filled less than requested (readFully only returns short at true EOF)
                     if (read < bufSize) break;
                 }
             } finally {
@@ -127,47 +145,54 @@ public class FlatDiskVectorIndex : IVectorIndex {
         var threadHeaps = new ConcurrentBag<PriorityQueue<VectorHit, float>>();
 
         // Consumers: process chunks in parallel
-        Parallel.ForEach(
-            queue.GetConsumingEnumerable(),
-            new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-            chunk => {
-                var (buf, bytes) = chunk;
-                try {
-                    var localHeap = new PriorityQueue<VectorHit, float>(); // min-heap by similarity
-                    int pos = 0;
+        try {
+            Parallel.ForEach(
+                // NoBuffering: default partitioner chunk-buffering would drop already-dequeued
+                // items (and their rented buffers) if the loop throws mid-flight
+                System.Collections.Concurrent.Partitioner.Create(queue.GetConsumingEnumerable(), System.Collections.Concurrent.EnumerablePartitionerOptions.NoBuffering),
+                new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                chunk => {
+                    var (buf, bytes, fileOffset) = chunk;
+                    try {
+                        var localHeap = new PriorityQueue<VectorHit, float>(); // min-heap by similarity
+                        int pos = 0;
 
-                    var uSpan = u.AsSpan();
+                        var uSpan = u.AsSpan();
 
-                    while (pos + recordLen <= bytes) {
-                        int nodeId = BitConverter.ToInt32(buf, pos);
+                        while (pos + recordLen <= bytes) {
+                            int nodeId = BitConverter.ToInt32(buf, pos);
 
-                        // If you add a tombstone flag to records, check it here; otherwise keep dictionary check.
-                        if (_fileIndex.ContainsKey(nodeId)) {
-                            // reinterpret bytes as float[] without copying
-                            var vecBytes = buf.AsSpan(pos + 4, _dimensions * 4);
-                            var v = MemoryMarshal.Cast<byte, float>(vecBytes);
+                            // If you add a tombstone flag to records, check it here; otherwise keep dictionary check.
+                            if (isCurrentRecord(nodeId, fileOffset + pos)) {
+                                // reinterpret bytes as float[] without copying
+                                var vecBytes = buf.AsSpan(pos + 4, _dimensions * 4);
+                                var v = MemoryMarshal.Cast<byte, float>(vecBytes);
 
-                            float sim = DotSimd(uSpan, v);
-                            if (sim >= minSimilarity && k > 0) {
-                                if (localHeap.Count < k)
-                                    localHeap.Enqueue(new VectorHit(nodeId, sim), sim);
-                                else if (localHeap.Peek().Similarity < sim) {
-                                    localHeap.Dequeue();
-                                    localHeap.Enqueue(new VectorHit(nodeId, sim), sim);
+                                float sim = DotSimd(uSpan, v);
+                                if (sim >= minSimilarity && k > 0) {
+                                    if (localHeap.Count < k)
+                                        localHeap.Enqueue(new VectorHit(nodeId, sim), sim);
+                                    else if (localHeap.Peek().Similarity < sim) {
+                                        localHeap.Dequeue();
+                                        localHeap.Enqueue(new VectorHit(nodeId, sim), sim);
+                                    }
                                 }
                             }
+
+                            pos += recordLen;
                         }
 
-                        pos += recordLen;
+                        threadHeaps.Add(localHeap);
+                    } finally {
+                        pool.Return(buf);
                     }
-
-                    threadHeaps.Add(localHeap);
-                } finally {
-                    pool.Return(buf);
-                }
-            });
-
-        producer.Wait();
+                });
+        } finally {
+            // If the consumer loop threw, keep draining so the producer is never blocked
+            // forever on the bounded queue, and return any remaining rented buffers.
+            foreach (var (buf, _, _) in queue.GetConsumingEnumerable()) pool.Return(buf);
+            producer.Wait();
+        }
 
         // Merge per-thread heaps
         if (k == 0) return new(); // nothing requested
@@ -223,9 +248,10 @@ public class FlatDiskVectorIndex : IVectorIndex {
 
         try {
             var uSpan = u.AsSpan();
+            long fileOffset = 0; // file offset of the first byte of the current buffer
 
             while (true) {
-                int bytesRead = s.Read(buf, 0, bufSize);
+                int bytesRead = readFully(s, buf, 0, bufSize);
                 if (bytesRead <= 0) break;
 
                 int pos = 0;
@@ -234,7 +260,7 @@ public class FlatDiskVectorIndex : IVectorIndex {
                     int nodeId = BitConverter.ToInt32(buf, pos);
 
                     // Optional: if you add a tombstone flag, check it here and skip the dictionary.
-                    if (_fileIndex.ContainsKey(nodeId)) {
+                    if (isCurrentRecord(nodeId, fileOffset + pos)) {
                         var vecBytes = buf.AsSpan(pos + 4, _dimensions * 4);
                         var v = MemoryMarshal.Cast<byte, float>(vecBytes);
 
@@ -261,8 +287,9 @@ public class FlatDiskVectorIndex : IVectorIndex {
                     long unread = bytesRead - pos;
                     s.Seek(-unread, SeekOrigin.Current);
                 }
+                fileOffset += pos; // advance by the bytes actually consumed
 
-                if (bytesRead < bufSize) break; // EOF
+                if (bytesRead < bufSize) break; // EOF (readFully only returns short at true EOF)
             }
         } finally {
             ArrayPool<byte>.Shared.Return(buf);
@@ -301,9 +328,10 @@ public class FlatDiskVectorIndex : IVectorIndex {
         var hits = new List<VectorHit>();
         _stream.Seek(0, SeekOrigin.Begin);
         while (_stream.Position < _stream.Length) {
-            _stream.Read(_buffer, 0, _buffer.Length);
+            long recordOffset = _stream.Position;
+            if (readFully(_stream, _buffer, 0, _buffer.Length) < _buffer.Length) break; // partial trailing record
             var nodeId = BitConverter.ToInt32(_buffer, 0);
-            if (_fileIndex.ContainsKey(nodeId)) {
+            if (isCurrentRecord(nodeId, recordOffset)) {
                 Buffer.BlockCopy(_buffer, 4, _vector, 0, _dimensions * 4);
                 float similarity = 0;
                 for (var i = 0; i < _dimensions; i++) similarity += u[i] * _vector[i];

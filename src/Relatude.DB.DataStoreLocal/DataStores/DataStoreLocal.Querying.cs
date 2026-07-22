@@ -81,10 +81,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             else if (path.NodeKey.HasGuid) return TryGet(path.NodeKey.Guid, out node, ctx);
             else throw new Exception("NodePath has no NodeKey.");
         } else {
-            if (path.NodeKey.HasInt) TryGet(path.NodeKey.Int, out node, ctx);
-            else if (path.NodeKey.HasGuid) TryGet(path.NodeKey.Guid, out node, ctx);
+            bool found;
+            if (path.NodeKey.HasInt) found = TryGet(path.NodeKey.Int, out node, ctx);
+            else if (path.NodeKey.HasGuid) found = TryGet(path.NodeKey.Guid, out node, ctx);
             else throw new Exception("NodePath has no NodeKey.");
-            return node!.TryGetInnerNode(path, out node);
+            if (!found || node == null) return false;
+            return node.TryGetInnerNode(path, out node);
         }
     }
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) {

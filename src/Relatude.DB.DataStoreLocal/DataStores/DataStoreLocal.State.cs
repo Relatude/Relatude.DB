@@ -166,7 +166,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
 
-        var whereOutSide = _nodes.Snapshot().Where(n => n.segment.AbsolutePosition + n.segment.Length > walFileSize);
+        var nodeSnapshot = _nodes.Snapshot();
+        var whereOutSide = nodeSnapshot.Where(n => n.segment.AbsolutePosition + n.segment.Length > walFileSize);
         if (whereOutSide.Any()) throw new StateFileReadException("Some node segments point outside log file. ", null);
 
         // figuring out from where to read the log file to reach latest state, building on current read state
@@ -193,9 +194,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var lastBytesRead = 0D;
         PersistedIndexStore?.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors);
+        idValidator.Seed(nodeSnapshot.Select(n => n.nodeId)); // ids loaded from the state file snapshot; validation below only runs for actions newer than the snapshot
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
-            double progressBarFactor = (1 - readLogFileFom / logReader.FileSize);
+            double progressBarFactor = 1 - readLogFileFom / (double)logReader.FileSize;
             sw.Restart();
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
@@ -203,7 +205,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
                 foreach (var a in transaction.ExecutedActions) {
-                    if (!idValidator.Validate(a, transaction.Timestamp)) continue;
+                    // only validate actions that are applied to the state stores; older actions are already reflected
+                    // in the seeded snapshot, so validating them again would produce false add/remove errors:
+                    if (isTransactionRelevantForStateStores && !idValidator.Validate(a, transaction.Timestamp)) continue;
                     try {
                         if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
                             var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
@@ -219,7 +223,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             lastProgress = (int)sw.ElapsedMilliseconds;
                             var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
                             LogInfo(desc, null, true);
-                            var progressBar = progressBarFactor > 0 ? (int)(estimatedTotalProgress / progressBarFactor) : 100;
+                            var progressBar = progressBarFactor > 0 ? Math.Clamp((int)((estimatedTotalProgress - positionInPercentage) / progressBarFactor), 0, 100) : 100;
                             UpdateActivity(activityId, desc.Trim(), progressBar);
                             setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
                             lastBytesRead = readBytes;
@@ -322,6 +326,9 @@ class IdValidator(DataStoreLocal store, bool throwOnErrors) {
     HashSet<int> ids = [];
     int maxErrorCount = 256;
     int errorCount = 0;
+    public void Seed(IEnumerable<int> existingIds) {
+        foreach (var id in existingIds) ids.Add(id);
+    }
     public List<string> errors = [];
     public IEnumerable<string> GetErrors() {
         if(maxErrorCount <= errorCount) {

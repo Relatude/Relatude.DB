@@ -17,7 +17,7 @@ builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
-    };
+    };    
 });
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:

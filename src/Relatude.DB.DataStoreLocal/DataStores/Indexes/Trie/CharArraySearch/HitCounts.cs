@@ -53,14 +53,30 @@ internal class HitCounts {
         }
     }
     public void RemoveIfPresent(WordHit hit) {
-        if(Count < 1) 
+        if(Count < 1)
             return; // nothing to remove
+        if (_justRemoved.NodeId == hit.NodeId) return; // removal of this id is already pending
+        if (!contains(hit.NodeId)) return; // not present, pending it would corrupt Count (which subtracts any pending remove)
         if (_justRemoved.NodeId == 0) {
             _justRemoved = hit;
         } else {
             remove(_justRemoved.NodeId);
             _justRemoved = hit;
         }
+    }
+    bool contains(int nodeId) {
+        if (_set is null) return false;
+        if (_set is WordHit one) return one.NodeId == nodeId;
+        if (_set is WordHit[] arr) {
+            foreach (var i in arr) if (i.NodeId == nodeId) return true;
+            return false;
+        }
+        if (_set is List<WordHit> list) {
+            foreach (var i in list) if (i.NodeId == nodeId) return true;
+            return false;
+        }
+        if (_set is HashSet<WordHit> hash) return hash.Contains(new WordHit(nodeId, 0));
+        throw new Exception("Internal error: " + _set?.GetType().FullName + ".contains not implemented");
     }
     void remove(int nodeId) {
         if (_set is null) return;

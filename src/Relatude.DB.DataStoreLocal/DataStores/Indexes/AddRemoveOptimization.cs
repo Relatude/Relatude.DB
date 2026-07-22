@@ -43,4 +43,12 @@ public class AddRemoveOptimization(IIndex index) {
             _lastRemovedNodeId = 0;
         }
     }
+    public void Discard() {
+        // drops a queued remove without executing it, used by the persisted index store on rollback
+        // as the queued remove belongs to the transaction being discarded
+        lock (_lock) {
+            _lastRemovedNodeId = 0;
+            _lastRemovedValue = default!;
+        }
+    }
 }

@@ -17,7 +17,7 @@ public class BooleanPropertyModel : PropertyModel {
         if (value is decimal dec) return dec != 0;
         if (value is double d) return d != 0;
         if (value is byte bt) return bt != 0;
-        if (value is string s) return s.Equals("true", StringComparison.CurrentCultureIgnoreCase) || s == "1" || s == "-1";
+        if (value is string s) return s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" || s == "-1";
         return default;
     }
     public override string GetDefaultValueAsCode() => DefaultValue.ToString().ToLower();

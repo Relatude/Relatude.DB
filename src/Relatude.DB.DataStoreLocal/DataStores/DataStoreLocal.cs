@@ -272,8 +272,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo("Database opening");
         var activityId = RegisterActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
         setStartupProgressEstimate(1);
-        var currentModelHash = getCheckSumForStateFileAndIndexes();
-        try {
+        var currentModelHash = Guid.Empty;
+        try { // inside try so the write lock is released if it throws
+            currentModelHash = getCheckSumForStateFileAndIndexes();
             if (_state != DataStoreState.Closed) throw new Exception("Store cannot be opened as current state is " + _state);
             _state = DataStoreState.Opening;
             _wal.EnsureSecondaryLogFile(activityId, this, false);
@@ -292,9 +293,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                     LogInfo("Rebuilding index from log");
                     UpdateActivity(activityId, "Rebuilding index from log", 0);
                     resetStateAndIndexes();
-                    Dispose();
+                    // dispose only the components that initialize() recreates,
+                    // a full Dispose() would also destroy the logger, AI engine, task queues and file stores,
+                    // which are created in the constructor only and never recreated by initialize():
+                    try { _index?.Dispose(); } catch { }
+                    try { _wal?.Dispose(); } catch { }
+                    try { PersistedIndexStore?.Dispose(); } catch { }
                     initialize();
                     readState(throwOnBadStateFile, currentModelHash, activityId);
+                    TaskQueue?.ReOpen();
+                    TaskQueuePersisted?.ReOpen();
                     _state = DataStoreState.Open;
                     _startUpTimeMs = sw.ElapsedMilliseconds;
                     LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");

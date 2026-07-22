@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties {
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties {
     public class TimeSpanPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
         public override bool ExcludeFromTextIndex { get; set; } = true;
         public override PropertyType PropertyType { get => PropertyType.TimeSpan; }
@@ -14,7 +15,7 @@
             changed = true;
             if (value is null) return default;
             if (value is long l) return new TimeSpan(l);
-            if (value is string s && TimeSpan.TryParse(s, out var v)) return v;
+            if (value is string s && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var v)) return v;
             return default;
         }
         public override string GetDefaultValueAsCode() => $"new TimeSpan({DefaultValue.Ticks})";

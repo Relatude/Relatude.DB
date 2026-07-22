@@ -41,6 +41,16 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     readonly Dictionary<string, IIndex> _flaggableIndexes = [];
     // Ids of indexes created (not merely opened) this session, awaiting their first commit.
     readonly HashSet<string> _justCreated = [];
+    // The add/remove optimization queues of the wrappers handed out by OpenValueIndex/OpenWordIndex,
+    // keyed by index id so repeated opens do not register duplicates.
+    // A queued remove only exists in memory: it must be executed against the backend before every
+    // commit (otherwise the commit durably records a timestamp that covers a remove it does not
+    // contain, and the later lazy dequeue would mutate the backend outside any transaction). It must
+    // also be executed on rollback: factory word indexes (e.g. Lucene) are not covered by
+    // RollbackTransactionCore, so for them the queued remove is the compensating operation of the
+    // reversal actions that already ran; for transactional backends the extra remove lands in the
+    // transaction that is rolled back right after, which is harmless.
+    readonly Dictionary<string, AddRemoveOptimization> _indexQueues = [];
 
     bool _inTransaction;
 
@@ -60,7 +70,12 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     public IValueIndex<T> OpenValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type) where T : notnull {
         var index = CreateValueIndex<T>(sets, id, friendlyName, type, out var justCreated);
         registerFlaggable(id, index, justCreated);
-        return index;
+        // The store (not IndexFactory) applies the add/remove optimization wrapper so that it can
+        // flush the wrapper's queued remove at commit and discard it on rollback; memory indexes
+        // are wrapped by IndexFactory and keep their fully lazy queue.
+        var optimized = new OptimizedValueIndex<T>(index);
+        _indexQueues["v:" + id] = optimized.Queue;
+        return optimized;
     }
 
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch) {
@@ -76,8 +91,11 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
             index = CreateBuiltInWordIndex(sets, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch, out var justCreated);
             registerFlaggable(id, index, justCreated);
         }
-        _wordIndexes[id] = index;
-        return index;
+        // Wrapped here for the same reason as in OpenValueIndex: the store owns the queue lifecycle.
+        var optimized = new OptimizedWordIndex(index);
+        _indexQueues["w:" + id] = optimized.Queue;
+        _wordIndexes[id] = optimized;
+        return optimized;
     }
 
     void registerFlaggable(string id, IIndex index, bool justCreated) {
@@ -95,6 +113,9 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
 
     public void CommitTransaction(long timestamp) {
         if (!_inTransaction) throw new InvalidOperationException("No transaction is currently active.");
+        // 0) Execute any queued (lazy) removes now, while the backend transaction is still open,
+        //    so the commit actually contains them. Outside a transaction every queue is empty.
+        foreach (var q in _indexQueues.Values) q.Dequeue();
         // 1) The backend atomically persists both the index data and the timestamp.
         CommitTransactionCore(timestamp);
         // 2) Flush factory word indexes (unless the backend defers this, see the flag below).
@@ -110,12 +131,22 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
 
     public void RollbackTransaction() {
         if (!_inTransaction) throw new InvalidOperationException("No transaction is currently active.");
+        // Execute (not discard) queued removes: the reversal actions that ran before this call may
+        // have queued a compensating remove, and factory word indexes (e.g. Lucene) are not undone
+        // by RollbackTransactionCore — dropping the remove would leave a phantom document there.
+        // For transactional backends the remove lands in the transaction rolled back below: harmless.
+        foreach (var q in _indexQueues.Values) {
+            try { q.Dequeue(); } catch { q.Discard(); } // queue must be empty afterwards either way
+        }
         RollbackTransactionCore();
         _inTransaction = false;
     }
 
     public void CleanUpOnUnknownTransactionError() {
         if (!_inTransaction) return;
+        // No reversal ran on this path and the store is moving to error state: discarding is the
+        // safest way to guarantee empty queues without risking further backend calls.
+        foreach (var q in _indexQueues.Values) q.Discard();
         try { RollbackTransactionCore(); } catch { /* best effort: the caller is already failing */ }
         _inTransaction = false;
     }

@@ -19,7 +19,7 @@ internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValu
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
     }
-    public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
+    public static object GetValue(byte[] bytes) => new TimeSpan(BitConverter.ToInt64(bytes, 0));
 
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = TimeSpanPropertyModel.ForceValueType(value1, out _);

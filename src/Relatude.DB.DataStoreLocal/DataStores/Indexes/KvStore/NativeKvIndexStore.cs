@@ -47,8 +47,15 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     protected override void WriteWalFileId(Guid walFileId, long? timestamp) {
         // A one-off durable engine transaction; when no timestamp is given, keep the current one.
         _fileStorage.BeginTransaction();
-        _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-        _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), true);
+        try {
+            _settings.Set((int)SettingKey.WalId, walFileId.ToString());
+            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), true);
+        } catch {
+            // roll back so the engine transaction is not left open, which would make every later
+            // BeginTransaction fail and wedge the store
+            try { _fileStorage.RollbackTransaction(); } catch { /* best effort: the original error is rethrown */ }
+            throw;
+        }
     }
     public override long GetTimestamp() => _fileStorage.GetTimestamp();
     public override long GetTotalDiskSpace() => _fileStorage.GetTotalDiskSpace();

@@ -376,9 +376,9 @@ public class NativeModelStore(DataStoreLocal store) {
         var userType = Native.SystemUserType.Anonymous;
         if (ctx.UserId == Guid.Empty) {
             membershipIds = null;
-        } else if (store._guids.TryGetId(ctx.UserId, out var userId)) {
+        } else if (store._guids.TryGetId(ctx.UserId, out var userId) && _users.TryGetValue(userId, out var user)) {
             membershipIds = GetEffectiveMembershipsOfUser(userId);
-            userType = _users[userId].UserType;
+            userType = user.UserType;
         } else if (ctx.UserId == NodeConstants.MasterAdminUserId) {
             userType = SystemUserType.Admin;
             membershipIds = null;

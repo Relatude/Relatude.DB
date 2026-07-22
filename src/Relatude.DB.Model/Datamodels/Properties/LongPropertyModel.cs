@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.Datamodels.Properties;
+﻿using System.Globalization;
+namespace Relatude.DB.Datamodels.Properties;
 
 public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override bool ExcludeFromTextIndex { get; set; } = false;
@@ -19,7 +20,7 @@ public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
         if (value is decimal dec) return (long)dec;
         if (value is double d) return (long)d;
         if (value is float f) return (long)f;
-        if (value is string s && int.TryParse(s, out var v)) return v;
+        if (value is string s && long.TryParse(s, CultureInfo.InvariantCulture, out var v)) return v;
         return default;
     }
     public override string GetDefaultValueAsCode() => DefaultValue.ToString();

@@ -38,6 +38,7 @@ internal class Scheduler {
 
     const int _throttleDefault = 90; // 0-100
     int _throttle = -1;
+    volatile bool _stopped; // set by Stop(), prevents in-flight timer callbacks from rescheduling disposed timers
 
     public Scheduler(DataStoreLocal db) {
         _db = db;
@@ -58,14 +59,24 @@ internal class Scheduler {
         taskQueueMaxRuntimeMs = (int)(10000d * (0.1d + 0.9d * factor)); // from 10s to 0s, 50% => 5s^
         taskQueuePauseLimitDbActionsPerSec = 4 * (int)Math.Pow((factor * 100d), 2d); // from 0 to 40,000, 50% => 2,500
         taskQueuePulseIntervalMs = 100 + (int)(5000 * (1d - factor)); // from 5100ms to 100ms, 50% => 2,550ms
-        _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);
-        _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);
+        safeTimerChange(_taskDequeueTimer, taskQueuePulseIntervalMs);
+        safeTimerChange(_taskDequeuePersistedTimer, taskQueuePulseIntervalMs);
+    }
+    void safeTimerChange(Timer? timer, int dueTimeMs) {
+        if (_stopped) return;
+        try {
+            timer?.Change(dueTimeMs, Timeout.Infinite);
+        } catch (ObjectDisposedException) {
+            // timer disposed by Stop() while a callback was in flight, safe to ignore
+        }
     }
     //Timer _test = new Timer(_ => {
     //    Console.WriteLine("Transactions last 10 sec:" + _db._transactionActivity.EstimateLast10Seconds().To1000N() + ", Queries last 10 sec:" + _db._queryActivity.EstimateLast10Seconds().To1000N());
     //}, null, 10, 500); // just to have a timer for testing purposes
 
     public void Start() {
+
+        _stopped = false;
 
         // avoid zero interval:
         if (_s.AutoSaveIndexStates && _s.AutoSaveIndexStatesIntervalInMinutes <= 0) _s.AutoSaveIndexStatesIntervalInMinutes = 30;
@@ -106,6 +117,7 @@ internal class Scheduler {
 
     }
     public void Stop() {
+        _stopped = true;
         _autoFlushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _backgroundTaskTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite);
@@ -127,41 +139,53 @@ internal class Scheduler {
 
     long _actionCountAtCompletionOfTaskDequeue;
     void dequeueTaskQueues(object? state) {
-        if (_db.State != DataStoreState.Open) return;
-        _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
-        var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfTaskDequeue;
-        _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-        var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
-        if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
-            // postpone background tasks if db is busy
+        if (_stopped || _db.State != DataStoreState.Open) return;
+        try {
+            _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
+            var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfTaskDequeue;
             _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-            _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
-            return;
+            var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
+            if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
+                // postpone background tasks if db is busy
+                _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+                return;
+            }
+            deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
+            dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db, taskQueueMaxRuntimeMs);
+            _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        } catch (ObjectDisposedException) {
+            // timer disposed by Stop() while callback was in flight, safe to ignore
+        } catch (Exception err) {
+            _db.LogError("Task queue dequeue failed: ", err);
+        } finally {
+            safeTimerChange(_taskDequeueTimer, taskQueuePulseIntervalMs); // start it again... to make sure intervals between runs are consistent
         }
-        deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
-        dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db, taskQueueMaxRuntimeMs);
-        _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-        _taskDequeueTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite); // start it again... to make sure intervals between runs are consistent
     }
     long _actionCountAtCompletionOfPersistedTaskDequeue;
     void dequeuePersistedTaskQueues(object? state) {
-        if (_db.State != DataStoreState.Open) return;
-        _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
-        var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfPersistedTaskDequeue;
-        _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-        var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
-        if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
-            // postpone background tasks if db is busy:
+        if (_stopped || _db.State != DataStoreState.Open) return;
+        try {
+            _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
+            var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfPersistedTaskDequeue;
             _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-            _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
-            return;
+            var actionsPerSecondSinceLastDequeue = actionsSinceLastDequeue * 1000 / taskQueuePulseIntervalMs;
+            if (actionsPerSecondSinceLastDequeue > taskQueuePauseLimitDbActionsPerSec) {
+                // postpone background tasks if db is busy:
+                _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+                return;
+            }
+            if (_db.TaskQueuePersisted != null) {  // it will be null if persisted queue is not enabled, ( all tasks will then be run by non persisted queue )
+                deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
+                dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db, taskQueueMaxRuntimeMs);
+            }
+            _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
+        } catch (ObjectDisposedException) {
+            // timer disposed by Stop() while callback was in flight, safe to ignore
+        } catch (Exception err) {
+            _db.LogError("Persisted task queue dequeue failed: ", err);
+        } finally {
+            safeTimerChange(_taskDequeuePersistedTimer, taskQueuePulseIntervalMs); // start it again... to make sure intervals between runs are consistent
         }
-        if (_db.TaskQueuePersisted != null) {  // it will be null if persisted queue is not enabled, ( all tasks will then be run by non persisted queue )
-            deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
-            dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db, taskQueueMaxRuntimeMs);
-        }
-        _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
-        _taskDequeuePersistedTimer?.Change(taskQueuePulseIntervalMs, Timeout.Infinite);  // start it again... to make sure intervals between runs are consistent
     }
 
     static void initTaskQueue(DataStoreLocal db, TaskQueue queue, string name) {
@@ -288,7 +312,7 @@ internal class Scheduler {
     DateTime _lastQueryLogMaintenance = DateTime.UtcNow;
     void flushLoggerIfRunning() {
         try {
-            if ((DateTime.UtcNow - _lastQueryLogFlush).TotalSeconds < 30) {
+            if ((DateTime.UtcNow - _lastQueryLogFlush).TotalSeconds >= 30) {
                 _db.Logger.FlushToDiskNow();
                 _lastQueryLogFlush = DateTime.UtcNow;
             }
@@ -452,7 +476,7 @@ internal class Scheduler {
         // based on weekly backups, keep one per week
         var isFileInWeek = (DateTime file, DateTime now, int weeksAgo) => {
             var referenceDate = now.AddDays(-7 * weeksAgo);
-            var monday = referenceDate.Date.AddDays(-(int)referenceDate.DayOfWeek + 1);
+            var monday = referenceDate.Date.AddDays(-(((int)referenceDate.DayOfWeek + 6) % 7)); // days since Monday, Sunday (0) => 6 days back
             var nextMonday = monday.AddDays(7);
             return file.Date >= monday && file.Date < nextMonday;
         };

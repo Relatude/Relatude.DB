@@ -69,12 +69,14 @@ internal static class IndexFactory {
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
         if (useProvider && store.PersistedIndexStore != null) {
             var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Value Index " + classDef.CodeName + "." + property.CodeName;
+            // already wrapped in OptimizedValueIndex by the store, which flushes the wrapper's
+            // queued remove into the backend on every commit
             index = store.PersistedIndexStore.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Value Index " + classDef.CodeName + "." + property.CodeName;
             index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, store.FileKeys, writeValue, readValue);
+            if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
         }
-        if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
         return index;
     }
 
@@ -106,7 +108,9 @@ internal static class IndexFactory {
         var classDef = store.Datamodel.NodeTypes[p.Model.NodeType];
         if (useProvider && store.PersistedIndexStore != null) {
             var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Word Index " + classDef.CodeName + "." + p.CodeName;
-            index = store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, name, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            // already wrapped in OptimizedWordIndex by the store, which flushes the wrapper's
+            // queued remove into the backend on every commit
+            return store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, name, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
         } else {
             var name = "Memory Word Index " + classDef.CodeName + "." + p.CodeName;
             index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));

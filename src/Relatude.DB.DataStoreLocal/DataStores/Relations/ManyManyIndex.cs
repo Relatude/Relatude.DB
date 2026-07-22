@@ -82,8 +82,16 @@ public class ManyManyIndex() : IRelationIndex {
 
     }
     public void DeleteIfReferenced(int id) {
-        if (_rel.TryGetValue(id, out var sources)) foreach (var source in sources) Remove(source, id);
-        if (_rel.TryGetValue(id, out var targets)) foreach (var target in targets) Remove(id, target);
+        if (_rel.TryGetValue(id, out var sources)) {
+            List<int> copy = new(); // copy to avoid mutating while enumerating, Remove changes the lists
+            foreach (var source in sources) copy.Add(source);
+            foreach (var source in copy) Remove(source, id);
+        }
+        if (_rel.TryGetValue(id, out var targets)) {
+            List<int> copy = new();
+            foreach (var target in targets) copy.Add(target);
+            foreach (var target in copy) Remove(id, target);
+        }
     }
     public IdSet Get(int id, bool fromTargetToSource) {
         if (_rel.TryGetValue(id, out var related)) return related.ToIdSet();
@@ -106,5 +114,5 @@ public class ManyManyIndex() : IRelationIndex {
         }
         return ids;
     }
-    public int TotalCount => _rel.Count;
+    public int TotalCount => _relData.Count;
 }

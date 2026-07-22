@@ -208,6 +208,7 @@ internal static class InterfaceGen {
                 sb.AppendLine("}");
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine("} ");
+                sb.AppendLine("set { throw new Exception(\"Reference properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");

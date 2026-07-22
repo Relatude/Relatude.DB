@@ -45,6 +45,11 @@ class idSet {
         _lastSet = null;
         // cannot update time constraints on removal, so just keep interval the smallest it has been
     }
+    public void RegisterExcludedFutureRelease(DateTime releaseUtc) {
+        // a node excluded because its release is in the future becomes visible at releaseUtc,
+        // so this set is only valid until then:
+        if (!ValidTo.HasValue || releaseUtc < ValidTo.Value) ValidTo = releaseUtc;
+    }
     public int Count => _ids.Count;
     public IdSet AsUnmutableIdSet() {
         if (_lastSet != null) return _lastSet;
@@ -133,10 +138,13 @@ class nodeMetasByNodeId {
                 throw new Exception("Internal error. Attempting to remove non-existing metaId from nodeId.");
             }
         } else if (_multiple.TryGetValue(nodeId, out var existingMetaIds)) {
-            var newMetaIds = existingMetaIds.Where(id => id != metaId).ToArray();
-            if (newMetaIds.Length == existingMetaIds.Length) {
+            // remove exactly ONE occurrence, as duplicates are legal (two identical revisions of one node):
+            var indexToRemove = Array.IndexOf(existingMetaIds, metaId);
+            if (indexToRemove < 0) {
                 throw new Exception("Internal error. Attempting to remove non-existing metaId from nodeId.");
-            } else if (newMetaIds.Length == 0) {
+            }
+            var newMetaIds = existingMetaIds.Where((_, i) => i != indexToRemove).ToArray();
+            if (newMetaIds.Length == 0) {
                 _multiple.Remove(nodeId);
             } else if (newMetaIds.Length == 1) {
                 _multiple.Remove(nodeId);
@@ -206,21 +214,31 @@ internal class NodeTypesByIds {
     }
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
         var ids = new idSet(nowUtc);
-        var relevantMetaIds = _idByMeta
-            .Where(kv => isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc))
-            .Select(kv => kv.Value).ToHashSet();
+        var relevantMetaIds = new HashSet<uint>();
+        Dictionary<uint, DateTime>? pendingReleaseByMetaId = null; // metas excluded only until their release date passes
+        foreach (var kv in _idByMeta) {
+            if (isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc, out var pendingReleaseUtc)) relevantMetaIds.Add(kv.Value);
+            else if (pendingReleaseUtc.HasValue) (pendingReleaseByMetaId ??= []).TryAdd(kv.Value, pendingReleaseUtc.Value);
+        }
         _metaIdsByNodeId.ForEach((nodeId, shortMetaId) => {
             if (relevantMetaIds.Contains(shortMetaId)) {
                 var meta = _metaById[shortMetaId].Meta;
                 ids.Add(nodeId, meta.ReleaseUtc, meta.ExpireUtc);
                 return true; // break inner loop as we found a relevant meta for this node
             }
+            // a node excluded due to a future release date must invalidate the cached set when that date passes:
+            if (pendingReleaseByMetaId != null && pendingReleaseByMetaId.TryGetValue(shortMetaId, out var releaseUtc)) ids.RegisterExcludedFutureRelease(releaseUtc);
             return false;
         });
         return ids;
     }
 
-    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc) {
+    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc)
+        => isMetaRelevantForContext(mt, ctxTypeId, ctx, nowUtc, out _);
+    // pendingReleaseUtc is set when the meta was excluded because its release date has not yet passed,
+    // so the caller can invalidate cached sets when it does:
+    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc, out DateTime? pendingReleaseUtc) {
+        pendingReleaseUtc = null;
         var meta = mt.Meta;
 
         // Filter based on node type
@@ -242,7 +260,10 @@ internal class NodeTypesByIds {
 
         // Release/expire date:
         if (!ctx.IncludeUnpublished) {
-            if (!isReleased(nowUtc, meta)) return false;
+            if (!isReleased(nowUtc, meta)) {
+                if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) pendingReleaseUtc = meta.ReleaseUtc.Value;
+                return false;
+            }
         }
 
         // Collection:
@@ -398,8 +419,11 @@ internal class NodeTypesByIds {
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             var ids = kv.Value;
-            if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) { // no time constraint
+            if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var pendingReleaseUtc)) { // no time constraint
                 kv.Value.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
+            } else if (pendingReleaseUtc.HasValue) {
+                // excluded only until its release date passes, so the cached set must expire then:
+                kv.Value.RegisterExcludedFutureRelease(pendingReleaseUtc.Value);
             }
         }
         if (_countByType.TryGetValue(nodeTypeId, out var count)) {

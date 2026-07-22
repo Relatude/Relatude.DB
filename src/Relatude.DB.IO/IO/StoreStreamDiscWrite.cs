@@ -74,9 +74,11 @@ public class StoreStreamDiscWrite : IAppendStream {
             if (_stream.CanRead == false) return; // stream is closed
             try {
                 _stream.Flush(deepFlush);
-            } catch {
-                // ignore, stream is closed
+            } catch (ObjectDisposedException) {
+                return; // stream was closed/disposed concurrently, keep _unflushed so failure is not acknowledged as durable
             }
+            // IO errors (disk full etc.) must propagate, and _unflushed must stay true,
+            // so a failed flush is never acknowledged as durable
             _unflushed = false;
         }
     }
@@ -92,11 +94,19 @@ public class StoreStreamDiscWrite : IAppendStream {
         lock (_lock) {
             var length = _stream.Length;
             if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
-            if (count > length - position) count = (int)(length - position);
+            if (count > length - position) throw new EndOfStreamException("Attempt to read " + count + " bytes at position " + position + " which is past the end of file \"" + _filePath + "\" (" + length + " bytes). ");
             long position1 = this._stream.Position;
-            _stream.Position = position;
-            _stream.Read(buffer, 0, count);
-            _stream.Position = position1;
+            try {
+                _stream.Position = position;
+                var totalRead = 0;
+                while (totalRead < count) { // Stream.Read may return fewer bytes than requested, a partial read would leave stale bytes in the buffer
+                    var read = _stream.Read(buffer, totalRead, count - totalRead);
+                    if (read <= 0) throw new EndOfStreamException("Unexpected end of file \"" + _filePath + "\" while reading " + count + " bytes at position " + position + ". ");
+                    totalRead += read;
+                }
+            } finally {
+                _stream.Position = position1; // must be restored even on a failed read, or a later Append would write mid-file
+            }
             _bytesRead += count;
         }
     }

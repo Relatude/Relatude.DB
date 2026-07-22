@@ -215,7 +215,7 @@ static void TryDelete(string dir)
 
 sealed class Options
 {
-    public int N = 5_00_000;
+    public int N = 500_000;
     public string[] Engines = KvBenchmarks.Harness.Engines.All;
     public string[] Scenarios = ["int", "long", "string", "guid", "datetime"];
     public string DataDir = Path.GetTempPath();

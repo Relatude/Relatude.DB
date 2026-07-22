@@ -7,8 +7,9 @@ namespace Relatude.DB.DataStores.Transactions;
 
 internal class ActionConverter {
     ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
-    public IEnumerable<PrimitiveActionBase> Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx, out ResultingOperation resultingOperation) {
-        _lastResultingOperation = ResultingOperation.None; // default
+    public ResultingOperation LastResultingOperation => _lastResultingOperation ?? ResultingOperation.None; // NB: only valid after the primitives returned by Convert have been enumerated
+    public IEnumerable<PrimitiveActionBase> Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
+        _lastResultingOperation = null; // reset for each action, set during enumeration of the returned primitives
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
@@ -18,7 +19,6 @@ internal class ActionConverter {
             //NodeAddressAction nodeAddressAction => toPrimitiveActions(db, nodeAddressAction, transformValues, ctx, newTasks),
             _ => throw new NotSupportedException(),
         };
-        resultingOperation = _lastResultingOperation == null ? ResultingOperation.None : _lastResultingOperation.Value;
         return src;
     }
     void ensureIdAndGuid(DataStoreLocal db, INodeData node) {
@@ -153,6 +153,7 @@ internal class ActionConverter {
                                 var typeDef = db._definition.NodeTypes[oldNode.NodeType];
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
+                                Utils.EnsureOrQueueIndex(db, newNode, doNotRegenTheseProps, newTasks);
                                 db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
                                 if (addressWasChanged) newNode.Address = newAddress;
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
@@ -282,6 +283,9 @@ internal class ActionConverter {
                     }
                 }
             } else { // source == 0 && target == 0 // remove all relations
+                // NB: these Clear loops enumerate relation.Values (a live Dictionary) while each yielded
+                // Remove executes immediately and mutates that dictionary. This is only safe because
+                // .NET Core 3.0+ guarantees Dictionary.Remove does not invalidate enumerators.
                 foreach (var r in relation.Values) { // remove all relations
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedAllRelations;
                     yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
@@ -324,7 +328,7 @@ internal class ActionConverter {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
-                        yield break;
+                        break; // continue with next node
                     }
                 case NodePropertyOperation.UpdateIfDifferent: {
                         if (a.Values == null) throw new("Value cannot be null if ensuring a property. ");
@@ -343,7 +347,7 @@ internal class ActionConverter {
                             var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                             foreach (var action in actions) yield return action;
                         }
-                        yield break;
+                        break; // continue with next node
                     }
                 case NodePropertyOperation.Reset: {
                         for (var i = 0; i < a.PropertyIds.Length; i++) {
@@ -352,7 +356,7 @@ internal class ActionConverter {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
-                        yield break;
+                        break; // continue with next node
                     }
                 case NodePropertyOperation.Add: {
                         if (a.Values == null) throw new("Value cannot be null if adding to a property. ");
@@ -367,7 +371,7 @@ internal class ActionConverter {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
-                        yield break;
+                        break; // continue with next node
                     }
                 case NodePropertyOperation.Multiply: {
                         if (a.Values == null) throw new("Value cannot be null if adding to a property. ");
@@ -382,7 +386,7 @@ internal class ActionConverter {
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
                         var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
                         foreach (var action in actions) yield return action;
-                        yield break;
+                        break; // continue with next node
                     }
                 default:
                     throw new NotImplementedException();
