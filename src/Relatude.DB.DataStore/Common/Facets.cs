@@ -28,6 +28,28 @@ public class Facets {
     public double RangePowerBase = 1;//5d;
     public double MaxValue;
     public double MinValue;
+    public int MaxValues; // 0 = unlimited; selected values are never trimmed away
+    public int MinCount; // values with a lower count are dropped (unless selected); 0 = keep all
+    public bool IncludeMissing; // adds a bucket (Value == null) for nodes without a value for the property
+    public bool SortByCount; // sort values by descending count (after counting) instead of by value
+    public void CopyOptionsFrom(Facets? given) {
+        if (given == null) return;
+        if (given._displayName != null) _displayName = given._displayName;
+        MaxValues = given.MaxValues;
+        MinCount = given.MinCount;
+        IncludeMissing = given.IncludeMissing;
+        SortByCount = given.SortByCount;
+        RangeCount = given.RangeCount;
+        RangePowerBase = given.RangePowerBase;
+    }
+    public void ApplyOptions() { // called after counting; must never remove or hide selected values
+        if (MinCount > 0) _values.RemoveAll(v => !v.Selected && v.Count < MinCount);
+        if (SortByCount) _values.Sort((a, b) => b.Count.CompareTo(a.Count));
+        if (MaxValues > 0 && _values.Count > MaxValues) {
+            var keep = _values.OrderByDescending(v => v.Selected).ThenByDescending(v => v.Count).Take(MaxValues).ToHashSet();
+            _values.RemoveAll(v => !keep.Contains(v));
+        }
+    }
     List<FacetValue> _values;
     public Guid PropertyId { get; set; }
     string? _displayName = null;
@@ -46,7 +68,6 @@ public class Facets {
         return false;
     }
     public void AddValue(FacetValue value) {
-        IsRangeFacet = value.Value2 != null;
         _values.Add(value);
     }
     static public void SetSelected(Dictionary<Guid, Facets> facets, Dictionary<Guid, Facets> selected) {
@@ -62,64 +83,81 @@ public class Facets {
         foreach (var facet in _values) {
             facet.Selected = false;
         }
-        List<FacetValue> notFound = new();
         if (selected == null) return;
         foreach (var s in selected) {
-            bool found = false;
-            foreach (var facet in _values) {
-                if (isSame(this.ValueType, facet, s)) {
-                    facet.Selected = true;
-                    found = true;
-                    break;
-                }
+            var match = _values.FirstOrDefault(f => isSame(ValueType, f, s));
+            if (match != null) {
+                match.Selected = true;
+            } else {
+                // a selection outside the default values (typically a custom range) becomes its own
+                // selected value, so it is still counted and filtered; it must never replace the defaults
+                s.Selected = true;
+                _values.Add(s);
             }
-            if (!found) notFound.Add(s);
-        }
-        if (notFound.Count > 0) {
-            _values = notFound;
         }
     }
     static bool isSame(PropertyType propertyType, FacetValue v1, FacetValue v2) {
-        // should be improved later on using propertyType
-        if (v1.Value == null && v2.Value == null) return true;
-        if (v1.Value == null && v2.Value != null) return false;
-        if (v1.Value != null && v2.Value == null) return false;
-        if (v1.Value?.ToString()?.ToLower() == v2.Value?.ToString()?.ToLower()) {
-            if (v1.Value2 == null && v2.Value2 == null) return true;
-            if (v1.Value2 == null && v2.Value2 != null) return false;
-            if (v1.Value2 != null && v2.Value2 == null) return false;
-            if (v1.Value2?.ToString()?.ToLower() == v2.Value2?.ToString()?.ToLower()) return true;
+        return Equals(normalize(propertyType, v1.Value), normalize(propertyType, v2.Value))
+            && Equals(normalize(propertyType, v1.Value2), normalize(propertyType, v2.Value2));
+    }
+    // selections usually arrive as strings (the typed query API serializes to a query string),
+    // so both sides must be coerced to the property's value type before comparing:
+    static object? normalize(PropertyType t, object? v) {
+        if (v == null) return null;
+        try {
+            return t switch {
+                PropertyType.Boolean => BooleanPropertyModel.ForceValueType(v, out _),
+                PropertyType.Integer => IntegerPropertyModel.ForceValueType(v, out _),
+                PropertyType.Long => LongPropertyModel.ForceValueType(v, out _),
+                PropertyType.Double => DoublePropertyModel.ForceValueType(v, out _),
+                PropertyType.Float => FloatPropertyModel.ForceValueType(v, out _),
+                PropertyType.Decimal => DecimalPropertyModel.ForceValueType(v, out _),
+                PropertyType.DateTime => DateTimePropertyModel.ForceValueType(v, out _),
+                PropertyType.DateTimeOffset => DateTimeOffsetPropertyModel.ForceValueType(v, out _),
+                PropertyType.TimeSpan => TimeSpanPropertyModel.ForceValueType(v, out _),
+                PropertyType.Guid => GuidPropertyModel.ForceValueType(v, out _),
+                PropertyType.Reference => ReferencePropertyModel.ForceValueType(v, out _),
+                PropertyType.String => StringPropertyModel.ForceValueType(v, out _),
+                PropertyType.StringArray => StringPropertyModel.ForceValueType(v, out _), // facet values of a string array are single strings
+                _ => v,
+            };
+        } catch {
+            return v; // unparsable input: fall back to comparing the raw value
         }
-        return false;
     }
     override public string ToString() { return DisplayName; }
 
     public void Sort() {
-        if (IsRangeFacet == false) {
-            _values.Sort((a, b) => {
-                if (a.Value is IComparable c1 && b.Value is IComparable c2) {
-                    return c1.CompareTo(c2);
-                }
-                return 0;
-            });
-        }
+        if (IsRangeFacet == true) return; // range values keep their given/generated order
+        // only sort when every non-null value shares one comparable type: mixed types would
+        // give List.Sort an inconsistent comparison (nulls, e.g. the missing-value bucket, sort last)
+        var type = _values.FirstOrDefault(v => v.Value != null)?.Value?.GetType();
+        if (type == null || !typeof(IComparable).IsAssignableFrom(type)) return;
+        if (_values.Any(v => v.Value != null && v.Value.GetType() != type)) return;
+        _values.Sort((a, b) => {
+            if (a.Value == null) return b.Value == null ? 0 : 1;
+            if (b.Value == null) return -1;
+            return ((IComparable)a.Value).CompareTo(b.Value);
+        });
     }
 }
 public class FacetValue {
-    public FacetValue(object value) {
+    public FacetValue(object? value) {
         Value = value;
     }
-    public FacetValue(object from, object? to, string? displayName) {
+    public FacetValue(object? from, object? to, string? displayName) {
         Value = from;
         Value2 = to;
         _displayName = displayName;
     }
     internal string? _displayName;
     public string DisplayName {
-        get => _displayName == null ? this.ToString() : _displayName;
+        get => _displayName ?? (Value == null ? "(none)" : this.ToString());
         set => _displayName = value;
     }
-    public object Value { get; set; }
+    public string? ExplicitDisplayName => _displayName; // null unless a display name was given, unlike DisplayName which falls back to a generated one
+    public FacetValue Clone() => new(Value, Value2, _displayName) { FromInclusive = FromInclusive, ToInclusive = ToInclusive, Selected = Selected, Count = Count };
+    public object? Value { get; set; } // null marks the missing-value bucket (nodes without a value for the property)
     public object? Value2 { get; set; } // used for ranges
 
     public bool FromInclusive { get; set; } = true;

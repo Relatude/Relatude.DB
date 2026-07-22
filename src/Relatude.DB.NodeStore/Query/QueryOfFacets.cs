@@ -46,9 +46,13 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Expression<Func<T, object>> expression) => AddRangeFacet(getPropertyId(expression), 1, 0);
-    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(string propertyName) => AddRangeFacet(propertyName, 1, 0);
-    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Guid propertyId) => AddRangeFacet(propertyId, 1, 0);
+    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Expression<Func<T, object>> expression) => AddSingleRangeFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(string propertyName) => AddSingleRangeFacet(getPropertyId<T>(propertyName));
+    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Guid propertyId) {
+        AddRangeFacet(propertyId);
+        _given[propertyId].RangeCount = 1; // one auto-generated range spanning min..max
+        return this;
+    }
 
     public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object>> expression, object from, object to) => AddRangeFacet(getPropertyId(expression), from, to);
     public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object>> expression) => AddRangeFacet(getPropertyId(expression));
@@ -98,6 +102,31 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
+    public QueryOfFacets<T, TInclude> SetFacetMissingValue(Expression<Func<T, object>> expression) => SetFacetMissingValue(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> SetFacetMissingValue(string propertyName) => SetFacetMissingValue(getPropertyId<T>(propertyName));
+    public QueryOfFacets<T, TInclude> SetFacetMissingValue<TChild>(string propertyName) where TChild : T => SetFacetMissingValue(getPropertyId<TChild>(propertyName));
+    public QueryOfFacets<T, TInclude> SetFacetMissingValue(Guid propertyId) { // selects the missing-value bucket (nodes without a value)
+        setFacetValue(propertyId, false, new FacetValue(null));
+        return this;
+    }
+
+    public QueryOfFacets<T, TInclude> SetFacetOptions(Expression<Func<T, object>> expression, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0)
+        => SetFacetOptions(getPropertyId(expression), maxValues, minCount, includeMissing, sortByCount, rangeCount);
+    public QueryOfFacets<T, TInclude> SetFacetOptions(string propertyName, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0)
+        => SetFacetOptions(getPropertyId<T>(propertyName), maxValues, minCount, includeMissing, sortByCount, rangeCount);
+    public QueryOfFacets<T, TInclude> SetFacetOptions<TChild>(string propertyName, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0) where TChild : T
+        => SetFacetOptions(getPropertyId<TChild>(propertyName), maxValues, minCount, includeMissing, sortByCount, rangeCount);
+    public QueryOfFacets<T, TInclude> SetFacetOptions(Guid propertyId, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0) {
+        AddFacet(propertyId);
+        var facets = _given[propertyId];
+        facets.MaxValues = maxValues;
+        facets.MinCount = minCount;
+        facets.IncludeMissing = includeMissing;
+        facets.SortByCount = sortByCount;
+        if (rangeCount > 0) facets.RangeCount = rangeCount;
+        return this;
+    }
+
     public QueryOfFacets<T, TInclude> Page(int pageIndex, int pageSize) {
         if (pageIndex < 0) throw new ArgumentOutOfRangeException(nameof(pageIndex), "Page index must be greater than or equal to 0.");
         if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize), "Page size must be greater than 0.");
@@ -123,18 +152,30 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
             foreach (var facetValue in facet.Values) {
                 if (facetValue.Value2 == null) {
                     sb.Append("." + nameof(this.AddValueFacet) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value));
+                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value!));
                 } else {
                     sb.Append("." + nameof(this.AddRangeFacet) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value));
+                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value!));
                     sb.Append(", ");
                     sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value2));
                 }
                 sb.Append(')');
             }
+            // the typed API only travels as a query string, so options must be emitted too:
+            var defaults = new Facets(dm.Properties[facet.PropertyId]);
+            if (facet.MaxValues != 0 || facet.MinCount != 0 || facet.IncludeMissing || facet.SortByCount || facet.RangeCount != defaults.RangeCount) {
+                sb.Append("." + nameof(this.SetFacetOptions) + "(" + pn(facet.PropertyId) + ", ");
+                sb.Append(facet.MaxValues + ", " + facet.MinCount + ", " + (facet.IncludeMissing ? "true" : "false") + ", " + (facet.SortByCount ? "true" : "false"));
+                if (facet.RangeCount != defaults.RangeCount) sb.Append(", " + facet.RangeCount);
+                sb.Append(')');
+            }
         }
         foreach (var facet in _set.Values) {
             foreach (var facetValue in facet.Values) {
+                if (facetValue.Value == null) {
+                    sb.Append("." + nameof(this.SetFacetMissingValue) + "(" + pn(facet.PropertyId) + ")");
+                    continue;
+                }
                 if (facetValue.Value2 == null) {
                     sb.Append("." + nameof(this.SetFacetValue) + "(" + pn(facet.PropertyId) + ", ");
                     sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value));
@@ -161,14 +202,13 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         var dm = _query.Store.Datastore.Datamodel;
         return "\"" + propertyId + "|" + dm.Properties[propertyId].CodeName + "\"";
     }
-    static string valueToString(object v) {
-        if (v is int i) {
-            return i.ToString();
-        } else if (v is double d) {
-            return d.ToString(CultureInfo.InvariantCulture);
-        } else {
-            return (v + "").ToStringLiteral();
-        }
+    static string valueToString(object? v) {
+        if (v is int i) return i.ToString();
+        if (v is double d) return d.ToString(CultureInfo.InvariantCulture);
+        if (v is DateTime dt) return dt.ToString("O").ToStringLiteral(); // round-trip format; default ToString is culture dependent and cannot be parsed back reliably
+        if (v is DateTimeOffset dto) return dto.ToString("O").ToStringLiteral();
+        if (v is IFormattable f) return f.ToString(null, CultureInfo.InvariantCulture).ToStringLiteral();
+        return (v + "").ToStringLiteral();
     }
     public async Task<ResultSetFacets<T>> ExecuteAsync() => await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters).ContinueWith(t => _execute(t.Result));
     public ResultSetFacets<T> Execute(string query) => _execute(_query.Store.Datastore.Query(query, _query._q._parameters));

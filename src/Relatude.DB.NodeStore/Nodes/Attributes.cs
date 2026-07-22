@@ -201,6 +201,7 @@ public class EmbeddedMapPropertyAttribute : EmbeddedPropertyAttribute {
 public class ReferencePropertyAttribute : PropertyAttribute {
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
     public string[]? TypeIds { get; set; }
+    public bool Indexed { get; set; } // required for filtering and faceting on the reference
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {

@@ -8,8 +8,19 @@ public static class RangeGenerators {
     public static RangeGenerator<byte> Bytes = new();
     public static RangeGenerator<DateTime> DateTimes = new();
     public static RangeGenerator<TimeSpan> TimeSpans = new();
+    public static RangeGenerator<T>? TryGet<T>() where T : notnull { // null for types that cannot be range-bucketed
+        if (typeof(T) == typeof(decimal)) return (RangeGenerator<T>)(object)Decimals;
+        if (typeof(T) == typeof(float)) return (RangeGenerator<T>)(object)Floats;
+        if (typeof(T) == typeof(int)) return (RangeGenerator<T>)(object)Ints;
+        if (typeof(T) == typeof(long)) return (RangeGenerator<T>)(object)Longs;
+        if (typeof(T) == typeof(double)) return (RangeGenerator<T>)(object)Doubles;
+        if (typeof(T) == typeof(byte)) return (RangeGenerator<T>)(object)Bytes;
+        if (typeof(T) == typeof(DateTime)) return (RangeGenerator<T>)(object)DateTimes;
+        if (typeof(T) == typeof(TimeSpan)) return (RangeGenerator<T>)(object)TimeSpans;
+        return null;
+    }
 }
-public class RangeGenerator<T> where T : IComparable {
+public class RangeGenerator<T> where T : notnull { // only the types listed in RangeGenerators are supported (convertToT/convertToDecimal)
     T convertToT(decimal n) {
         // byte,  long, int, float, double, decimal
         if (typeof(T) == typeof(byte)) {

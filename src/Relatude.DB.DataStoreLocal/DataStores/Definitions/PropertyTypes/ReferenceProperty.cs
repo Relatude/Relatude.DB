@@ -65,7 +65,24 @@ internal class ReferenceProperty : ValueProperty<Guid> {
         }
         throw new ArgumentException($"Property '{CodeName}' expects a reference to a node of type '{string.Join(", ", _nodeTypes.Select(t => Definition.NodeTypes[t].CodeName))}', but the provided value is of type '{Definition.NodeTypes[suggestedTypeId].CodeName}'.");
     }
-    public static object GetValue(byte[] bytes) => new Guid(bytes);
+    public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
+        var facets = base.GetDefaultFacets(given, ctx); // buckets are the referenced node guids
+        foreach (var v in facets.Values) {
+            if (v.ExplicitDisplayName != null || v.Value is not Guid guid) continue;
+            v.DisplayName = displayNameOfNode(guid);
+        }
+        return facets;
+    }
+    string displayNameOfNode(Guid guid) {
+        if (guid == Guid.Empty) return "(none)";
+        var db = Definition.Store;
+        if (db._guids.TryGetId(guid, out var id) && db._nodes.TryGet(id, out var node, out _)) {
+            var sb = new System.Text.StringBuilder();
+            Definition.Datamodel.NodeTypes[node.NodeType].BuildDisplayName(node, sb);
+            if (sb.Length > 0) return sb.ToString();
+        }
+        return guid.ToString(); // referenced node gone (stale index value): fall back to the raw guid
+    }
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = (Guid)value1!;
         var v2 = (Guid)value2!;

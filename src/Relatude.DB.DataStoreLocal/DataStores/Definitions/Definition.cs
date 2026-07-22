@@ -194,8 +194,16 @@ internal sealed class Definition {
         if (_facetPropCache.TryGet(nodeIds.StateId, out var result)) return result;
         // look at every relevant property:
         var relevantNodeTypes = new HashSet<Guid>();
-        foreach (var id in nodeIds.Enumerate()) { // timeconsuming for large dataset, but no easy way around this...
-            relevantNodeTypes.Add(_nodeTypeIndex.GetType(id));
+        if (nodeIds.Count > 2000) {
+            // for large sets it is cheaper to probe each node type's (cached) id set than to
+            // resolve the type of every single node in the set:
+            foreach (var typeId in Datamodel.NodeTypes.Keys) {
+                if (Sets.CountIntersection(GetAllIdsForTypeNoAccessControl(typeId, false), nodeIds) > 0) relevantNodeTypes.Add(typeId);
+            }
+        } else {
+            foreach (var id in nodeIds.Enumerate()) {
+                relevantNodeTypes.Add(_nodeTypeIndex.GetType(id));
+            }
         }
         var allPossibleProps = new HashSet<Guid>();
         // next part could be cached..... but should not be very time consuming

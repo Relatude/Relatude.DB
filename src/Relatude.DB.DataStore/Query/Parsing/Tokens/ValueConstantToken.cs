@@ -75,6 +75,11 @@ public class ValueConstantToken : TokenBase {
         return values;
     }
     public string GetStringValue() => cast<string>();
+    public string GetRawStringValue() { // token text regardless of string/number form, for values that are typed later (e.g. facet values)
+        if (_value == null) throw new Exception("Stored value is null. ");
+        if (_value is string s) return s;
+        return Convert.ToString(_value, CultureInfo.InvariantCulture) ?? "";
+    }
     public double? GetDoubleOrNullValue() => _value == null ? null : cast<double>();
     public float? GetFloatOrNullValue() => _value == null ? null : cast<float>();
     public bool? GetBoolOrNullValue() => _value == null ? null : cast<bool>();

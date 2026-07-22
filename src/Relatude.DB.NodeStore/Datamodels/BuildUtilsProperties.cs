@@ -322,7 +322,7 @@ internal static class BuildUtilsProperties {
             p.NodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;
-
+        p.Indexed = a.Indexed;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {

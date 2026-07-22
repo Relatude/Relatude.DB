@@ -43,16 +43,34 @@ namespace Relatude.DB.DataStores.Definitions {
             return GetValueIndex(ctx).ContainsValue((T)value);
         }
         public override bool CanBeFacet() => Indexed;
+        static readonly RangeGenerator<T>? _rangeGenerator = RangeGenerators.TryGet<T>();
+        const int _autoRangeMinUniqueValues = 25; // scalar facets with more distinct values than this are bucketed into ranges unless value facets were explicitly requested
+        T coerce(object v) => PropertyModel.ForceValueAnyType<T>(v, Model.PropertyType, out _);
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             var index = GetValueIndex(ctx);
-            List<T> selectedValues = new();
-            foreach (var facetValue in facets.Values) {
-                if (!facetValue.Selected) continue;
-                var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
-                selectedValues.Add(v);
+            List<T> values = new();
+            List<IdSet> parts = new();
+            foreach (var fv in facets.Values) {
+                if (!fv.Selected) continue;
+                if (fv.Value == null) { // the missing-value bucket
+                    parts.Add(whereMissing(index, nodeIds));
+                } else if (fv.Value2 == null) {
+                    values.Add(coerce(fv.Value));
+                } else { // range bucket
+                    var s = index.Filter(nodeIds, fv.FromInclusive ? IndexOperator.GreaterOrEqual : IndexOperator.Greater, coerce(fv.Value));
+                    parts.Add(index.Filter(s, fv.ToInclusive ? IndexOperator.SmallerOrEqual : IndexOperator.Smaller, coerce(fv.Value2)));
+                }
             }
-            if (selectedValues.Count > 0) nodeIds = index.FilterInValues(nodeIds, selectedValues);
-            return nodeIds;
+            if (values.Count > 0) parts.Add(index.FilterInValues(nodeIds, values));
+            if (parts.Count == 0) return nodeIds;
+            var result = parts[0];
+            for (var i = 1; i < parts.Count; i++) result = Definition.Sets.Union(result, parts[i]);
+            return result;
+        }
+        IdSet whereMissing(IValueIndex<T> index, IdSet nodeIds) {
+            if (index.IdCount == 0) return nodeIds;
+            var having = index.FilterRanges(nodeIds, [new Tuple<T, T>(index.MinValue()!, index.MaxValue()!)]);
+            return Definition.Sets.Difference(nodeIds, having);
         }
 
         public IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx) {
@@ -63,21 +81,56 @@ namespace Relatude.DB.DataStores.Definitions {
         public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
             var index = GetValueIndex(ctx);
             var facets = new Facets(Model);
-            if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
-            facets.IsRangeFacet = false;
-            if (given != null && given.HasValues()) {
-                foreach (var f in given.Values) facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
+            facets.CopyOptionsFrom(given);
+            if (given != null && given.HasValues()) { // caller supplied the buckets (custom values or ranges)
+                foreach (var f in given.Values) facets.AddValue(f.Clone());
+                facets.IsRangeFacet = given.Values.Any(f => f.Value2 != null);
+            } else if (useRangeBuckets(given, index)) {
+                addRangeBuckets(facets, index);
             } else {
-                var possibleValues = index.UniqueValues;
-                foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
+                foreach (var value in index.UniqueValues) facets.AddValue(new FacetValue(value));
+                facets.IsRangeFacet = false;
             }
+            if (facets.IncludeMissing) facets.AddValue(new FacetValue(null));
             return facets;
+        }
+        bool useRangeBuckets(Facets? given, IValueIndex<T> index) {
+            if (_rangeGenerator == null || index.ValueCount < 2) return false;
+            if (given?.IsRangeFacet != null) return given.IsRangeFacet.Value; // AddRangeFacet/AddValueFacet made the choice explicit
+            if (Model is IScalarProperty sp && sp.FacetRangeCount > 0) return true;
+            return index.ValueCount > _autoRangeMinUniqueValues;
+        }
+        void addRangeBuckets(Facets facets, IValueIndex<T> index) {
+            var min = index.MinValue()!;
+            var max = index.MaxValue()!;
+            var ranges = _rangeGenerator!.GetRanges(min, max, facets.RangeCount, facets.RangePowerBase, 10);
+            for (var i = 0; i < ranges.Count; i++) {
+                var last = i == ranges.Count - 1;
+                // half-open buckets built from the generated boundaries, so continuous types
+                // (double, DateTime, ...) are fully covered with no gaps between buckets;
+                // the first boundary is forced down to the real min since the generator rounds
+                // boundaries to whole numbers (which could round the lowest values out):
+                var from = i == 0 ? min : ranges[i].Item1;
+                var to = last ? ranges[i].Item2 : ranges[i + 1].Item1;
+                facets.AddValue(new FacetValue(from, to, null) { ToInclusive = last });
+            }
+            facets.IsRangeFacet = true;
+            try {
+                facets.MinValue = Convert.ToDouble(min);
+                facets.MaxValue = Convert.ToDouble(max);
+            } catch { } // not double-representable (DateTime/TimeSpan)
         }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             var index = GetValueIndex(ctx);
-            foreach (var facetValue in facets.Values) {
-                var v = PropertyModel.ForceValueAnyType<T>(facetValue.Value, Model.PropertyType, out _);
-                facetValue.Count = index.CountEqual(nodeIds, v);
+            foreach (var fv in facets.Values) {
+                if (fv.Value == null) {
+                    var having = index.IdCount == 0 ? 0 : index.CountInRangeEqual(nodeIds, index.MinValue()!, index.MaxValue()!, true, true);
+                    fv.Count = nodeIds.Count - having;
+                } else if (fv.Value2 == null) {
+                    fv.Count = index.CountEqual(nodeIds, coerce(fv.Value));
+                } else {
+                    fv.Count = index.CountInRangeEqual(nodeIds, coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
+                }
             }
         }
         public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {

@@ -34,6 +34,7 @@ namespace Relatude.DB.Query.Data {
                 var facets = result[prop.Id];
                 var set = specialSetsForSelectedFacets.TryGetValue(prop.Id, out var s) ? s : innerSet;
                 prop.CountFacets(set, facets, ctx);
+                facets.ApplyOptions(); // MinCount/MaxValues/SortByCount need the counts, so this must run after counting
             }
             filteredSource = new NodeCollectionData(_db, _ctx, _metrics, innerSet, this._nodeType, _includeBranches);
             if (pageSize.HasValue) {

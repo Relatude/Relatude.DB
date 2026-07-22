@@ -31,10 +31,11 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         var index = GetIndex(ctx);
         if (index == null) throw new NullReferenceException("Index is null. ");
         var facets = new Facets(Model);
-        if (given?.DisplayName != null) facets.DisplayName = given.DisplayName;
-        facets.IsRangeFacet = false;
+        facets.CopyOptionsFrom(given);
+        facets.IsRangeFacet = false; // ranges and the missing-value bucket are not supported for string arrays
+        facets.IncludeMissing = false;
         if (given != null && given.HasValues()) {
-            foreach (var f in given.Values) facets.AddValue(new FacetValue(f.Value, f.Value2, f.DisplayName));
+            foreach (var f in given.Values) facets.AddValue(f.Clone());
         } else {
             var possibleValues = index.GetUniqueValues();
             foreach (var value in possibleValues) facets.AddValue(new FacetValue(value));
@@ -44,6 +45,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
     public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
         var index = GetIndex(ctx);
         foreach (var facetValue in facets.Values) {
+            if (facetValue.Value == null) { facetValue.Count = 0; continue; } // missing-value bucket not supported for string arrays
             var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
             facetValue.Count = index.CountEqual(nodeIds, v);
         }
@@ -52,8 +54,8 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         var index = GetIndex(ctx);
         List<string> selectedValues = new();
         foreach (var facetValue in facets.Values) {
-            var v = StringPropertyModel.ForceValueType(facetValue.Value, out _);
-            if (facetValue.Selected) selectedValues.Add(v);
+            if (!facetValue.Selected || facetValue.Value == null) continue;
+            selectedValues.Add(StringPropertyModel.ForceValueType(facetValue.Value, out _));
         }
         if (selectedValues.Count > 0) nodeIds = index.FilterInValues(nodeIds, selectedValues);
         return nodeIds;

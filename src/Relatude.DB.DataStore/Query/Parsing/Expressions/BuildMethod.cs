@@ -155,7 +155,7 @@ sealed class AddValueFacetMethodDef : MethodDef {
         if (e.Arguments[0] is not ValueConstantToken arg) throw new Exception("Only string arguments allowed in facet expression.");
         if (e.Arguments.Count == 1) { fc.AddValueFacet(arg.GetStringValue()); return fc; }
         if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression.");
-        fc.AddValueFacet(arg.GetStringValue(), arg2.GetStringValue());
+        fc.AddValueFacet(arg.GetStringValue(), arg2.GetRawStringValue());
         return fc;
     }
 }
@@ -171,7 +171,7 @@ sealed class AddRangeFacetMethodDef : MethodDef {
         if (e.Arguments.Count == 1) { fc.AddRangeFacet(arg.GetStringValue()); return fc; }
         if (e.Arguments[1] is not ValueConstantToken arg2) throw new Exception("Only string arguments allowed in facet expression.");
         if (e.Arguments[2] is not ValueConstantToken arg3) throw new Exception("Only string arguments allowed in facet expression.");
-        fc.AddRangeFacet(arg.GetStringValue(), arg2.GetStringValue(), arg3.GetStringValue());
+        fc.AddRangeFacet(arg.GetStringValue(), arg2.GetRawStringValue(), arg3.GetRawStringValue());
         return fc;
     }
 }
@@ -182,7 +182,7 @@ sealed class SetFacetValueMethodDef : MethodDef {
     public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant)];
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
         if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
-        fc.SetFacetValue(((ValueConstantToken)e.Arguments[0]).GetStringValue(), ((ValueConstantToken)e.Arguments[1]).GetStringValue());
+        fc.SetFacetValue(((ValueConstantToken)e.Arguments[0]).GetStringValue(), ((ValueConstantToken)e.Arguments[1]).GetRawStringValue());
         return fc;
     }
 }
@@ -193,7 +193,33 @@ sealed class SetFacetRangeValueMethodDef : MethodDef {
     public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant)];
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
         if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
-        fc.SetFacetRangeValue(((ValueConstantToken)e.Arguments[0]).GetStringValue(), ((ValueConstantToken)e.Arguments[1]).GetStringValue(), ((ValueConstantToken)e.Arguments[2]).GetStringValue());
+        fc.SetFacetRangeValue(((ValueConstantToken)e.Arguments[0]).GetStringValue(), ((ValueConstantToken)e.Arguments[1]).GetRawStringValue(), ((ValueConstantToken)e.Arguments[2]).GetRawStringValue());
+        return fc;
+    }
+}
+
+sealed class SetFacetMissingValueMethodDef : MethodDef {
+    public override string[] Names => ["setfacetmissingvalue"];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        fc.SetFacetMissingValue(((ValueConstantToken)e.Arguments[0]).GetStringValue());
+        return fc;
+    }
+}
+
+sealed class SetFacetOptionsMethodDef : MethodDef {
+    // setfacetoptions(property, maxValues, minCount, includeMissing, sortByCount[, rangeCount])
+    public override string[] Names => ["setfacetoptions"];
+    public override int MinArgs => 5;
+    public override int MaxArgs => 6;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        string arg(int i) => ((ValueConstantToken)e.Arguments[i]).GetRawStringValue();
+        var rangeCount = e.Arguments.Count > 5 ? int.Parse(arg(5)) : 0;
+        fc.SetFacetOptions(arg(0), int.Parse(arg(1)), int.Parse(arg(2)), bool.Parse(arg(3)), bool.Parse(arg(4)), rangeCount);
         return fc;
     }
 }
@@ -388,6 +414,7 @@ internal class BuildMethod {
         new SelectMethodDef(), new SelectIdMethodDef(), new WhereMethodDef(), new WhereTypesMethodDef(),
         new OrderByMethodDef(), new FacetsMethodDef(), new AddFacetMethodDef(), new AddValueFacetMethodDef(),
         new AddRangeFacetMethodDef(), new SetFacetValueMethodDef(), new SetFacetRangeValueMethodDef(),
+        new SetFacetMissingValueMethodDef(), new SetFacetOptionsMethodDef(),
         new SearchMethodDef(), new PageMethodDef(), new TakeMethodDef(), new SkipMethodDef(),
         new CountMethodDef(), new SumMethodDef(), new RelationMethodDef(), new WhereInMethodDef(),
         new WhereInIdsMethodDef(), new RelatesAnyMethodDef(), new RelatesMethodDef(), new RelatesNotMethodDef(),

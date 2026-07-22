@@ -75,13 +75,31 @@ public class FacetMethod : IExpression {
     }
     public void SetFacetRangeValue(Guid propertyId, object from, object to) {
         var fv = new FacetValue(from, to, null);
-        setFacetValue(propertyId, false, fv);
+        setFacetValue(propertyId, true, fv);
     }
     public void SetFacetRangeValue(string propertyIdString, object from, object to) {
         SetFacetRangeValue(_dm.GetPropertyGuid(propertyIdString), from, to);
     }
+    public void SetFacetMissingValue(Guid propertyId) { // selects the missing-value bucket (nodes without a value)
+        setFacetValue(propertyId, false, new FacetValue(null));
+    }
+    public void SetFacetMissingValue(string propertyIdString) {
+        SetFacetMissingValue(_dm.GetPropertyGuid(propertyIdString));
+    }
+    public void SetFacetOptions(Guid propertyId, int maxValues, int minCount, bool includeMissing, bool sortByCount, int rangeCount) {
+        AddFacet(propertyId);
+        var facets = _given[propertyId];
+        facets.MaxValues = maxValues;
+        facets.MinCount = minCount;
+        facets.IncludeMissing = includeMissing;
+        facets.SortByCount = sortByCount;
+        if (rangeCount > 0) facets.RangeCount = rangeCount;
+    }
+    public void SetFacetOptions(string propertyIdString, int maxValues, int minCount, bool includeMissing, bool sortByCount, int rangeCount) {
+        SetFacetOptions(_dm.GetPropertyGuid(propertyIdString), maxValues, minCount, includeMissing, sortByCount, rangeCount);
+    }
     int _pageIndex = 0;
-    int? _pageSize = 0;
+    int? _pageSize = null; // null = no paging; 0 would page the result down to nothing
     public void SetPaging(int pageIndex, int pageSize) {
         _pageIndex = pageIndex;
         _pageSize = pageSize;
@@ -89,8 +107,9 @@ public class FacetMethod : IExpression {
     public object Evaluate(IVariables vars) {
         var set = _input.Evaluate(vars);
         if (set is not IFacetSource facetSource) throw new Exception("Collection does not implement " + nameof(IFacetSource));
+        // selection marking happens inside EvaluateFacetsAndFilter (before counting); re-applying it
+        // here would re-run matching on the counted result and must not be done
         var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, out var newSource, _pageIndex, _pageSize, vars.Context);
-        Facets.SetSelected(facets, _selected);
         return new FacetQueryResultData(facets, facetSource.TotalCount, newSource, _dm);
     }
     override public string ToString() => _input + ".Facets(...)";
