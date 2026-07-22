@@ -1,22 +1,46 @@
-﻿
+
 using System.Collections;
 using System.Collections.Frozen;
-using System.ComponentModel;
 
 namespace Relatude.DB.DataStores.Sets;
 /// <summary>
 /// Immutable set of ids.
 /// StateId is used to identify the state of the set.
 /// If StateId is long.MaxValue, the set or resulting sets are not cached.
+/// Large dense sets are held as a <see cref="DenseBitSet"/> (ascending enumeration, O(1) lookup,
+/// word-parallel intersection counts); everything else keeps the given order in an int array.
+/// NB: passing a DenseBitSet to the constructor transfers ownership of it - callers holding on
+/// to a live bit set (e.g. MutableSet) must pass a clone.
 /// </summary>
 public class IdSet {
     const int arrayHashLimit = 200;
-    ICollection<int> _ids; // keeps original (possibly sorted) order, never replaced as order matters for cached paged/ordered results
-    ISet<int>? _fastSet; // lookup accelerator only, created on demand for large sets
+    readonly ICollection<int> _ids;
+    ISet<int>? _fastSet; // lookup accelerator for the int[] representation, created on demand
     int[]? _asArray;
     public IdSet(ICollection<int> uniqueListOfIds, long stateId) {
         StateId = stateId;
-        var arr = new int[uniqueListOfIds.Count]; // always starts as array, as it may never use the has method that convert it to a fastset
+        if (uniqueListOfIds is DenseBitSet bits) { // ownership transferred, see class notes
+            _ids = bits;
+            return;
+        }
+        if (uniqueListOfIds is MutableSet ms && ms.TryGetBits(out var liveBits)) {
+            _ids = liveBits.Clone(); // snapshot: one word-array copy instead of materializing ids
+            return;
+        }
+        // only collections without meaningful order may switch to the (ascending) bit set
+        // representation; arrays, lists and ordered sets keep their given order:
+        if (uniqueListOfIds is HashSet<int> or MutableSet && uniqueListOfIds.Count > arrayHashLimit) {
+            int min = int.MaxValue, max = int.MinValue;
+            foreach (var id in uniqueListOfIds) {
+                if (id < min) min = id;
+                if (id > max) max = id;
+            }
+            if (DenseBitSet.WorthIt(uniqueListOfIds.Count, min, max)) {
+                _ids = DenseBitSet.From(uniqueListOfIds, min, max);
+                return;
+            }
+        }
+        var arr = new int[uniqueListOfIds.Count];
         uniqueListOfIds.CopyTo(arr, 0);
         _ids = arr;
     }
@@ -31,7 +55,9 @@ public class IdSet {
     public long StateId { get; }
     public int Count => _ids.Count;
     public IEnumerable<int> Enumerate() => _ids;
+    internal DenseBitSet? Bits => _ids as DenseBitSet; // enables word-parallel set operations in SetRegister
     public bool Has(int id) { // Using "Has" name instead of "Contains" to avoid confusion with the "Contains" method of Enumerable or LINQ
+        if (_ids is DenseBitSet bits) return bits.Contains(id);
         ensureFastSetIfBetter();
         return _fastSet != null ? _fastSet.Contains(id) : _ids.Contains(id);
     }
@@ -53,19 +79,18 @@ public class IdSet {
     void ensureFastSetIfBetter() {
         // never replaces _ids, only adds a lookup accelerator, so enumeration order is preserved
         if (_fastSet == null && _ids.Count > arrayHashLimit) {
-            _fastSet = FastSet.Create(_ids);
+            _fastSet = _ids.ToFrozenSet();
         }
     }
     static internal int IntersectionCount(IdSet set1, IdSet set2) {
         if (set1.Count == 0 || set2.Count == 0) return 0;
+        if (set1.Bits is { } b1 && set2.Bits is { } b2) return DenseBitSet.AndCount(b1, b2);
         var (small, big) = set1.Count < set2.Count ? (set1, set2) : (set2, set1);
-        big.ensureFastSetIfBetter();
-        ICollection<int> lookup = big._fastSet != null ? big._fastSet : big._ids;
         var count = 0;
-        foreach (var id in small._ids) if (lookup.Contains(id)) count++;
+        foreach (var id in small._ids) if (big.Has(id)) count++;
         return count;
     }
-    public int MemSizeEstimate => 3 * sizeof(int) * _ids.Count + 30;
+    public int MemSizeEstimate => _ids is DenseBitSet bits ? bits.MemSizeEstimate : 3 * sizeof(int) * _ids.Count + 30;
     public int[] ToArray() {
         if (_asArray == null) {
             if (_ids is int[] arr) return arr;

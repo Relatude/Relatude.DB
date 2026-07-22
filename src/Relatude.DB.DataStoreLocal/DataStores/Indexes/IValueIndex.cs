@@ -14,6 +14,7 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     ICollection<int> GetIds(T value);
     T GetValue(int nodeId);
     bool TryGetValue(int nodeId, out T value);
+    bool HasFastPointLookup { get; } // true when TryGetValue is a memory read rather than a tree/disk lookup
     IEnumerable<int> GreaterThan(T value, bool inclusive);
     int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive);
     IEnumerable<int> LessThan(T value, bool inclusive);

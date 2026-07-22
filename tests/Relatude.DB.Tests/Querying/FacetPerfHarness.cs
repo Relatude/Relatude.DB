@@ -62,7 +62,7 @@ public class FacetPerfHarness {
         var settings = new SettingsLocal {
             NodeCacheSizeGb = 1,
             SetCacheSizeGb = 1,
-            UsePersistedValueIndexesByDefault = true, // like Website.Simple: value facets hit the KV engine
+            UsePersistedValueIndexesByDefault = false, // like Website.Simple: memory value indexes (bit set backed)
             PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
             UsePersistedTextIndexesByDefault = false, // memory word index keeps the harness self-contained
         };
@@ -86,9 +86,58 @@ public class FacetPerfHarness {
             foreach (var term in narrow) narrowTotal += measure(store, $"search '{term}' (cold, realistic)", term);
             log($"  avg cold realistic (two-word) search-facet query: {narrowTotal / narrow.Length:0.0} ms");
             measureWithSelection(store, "search 'leather' + Category=Outdoor (cold-ish)", "leather");
+            breakdown(store, "");
+            breakdown(store, "waterproof");
+            pagingChecks(store);
         } finally {
             store.Dispose();
         }
+    }
+
+    void pagingChecks(NodeStore store) {
+        double t(string label, Func<object> run, int reps = 3) { // best of N (warm)
+            var best = double.MaxValue;
+            for (var i = 0; i < reps; i++) {
+                var sw = Stopwatch.StartNew();
+                run();
+                best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+            }
+            log($"  paging: {label}: {best:0.0} ms");
+            return best;
+        }
+        t("unsorted page 0 (facet query, empty search)", () => store.Query<PerfProduct>().Facets().AddValueFacet("Category").Page(0, 20).Execute());
+        t("unsorted page 5", () => store.Query<PerfProduct>().Facets().AddValueFacet("Category").Page(5, 20).Execute());
+        t("unsorted page 500 (deep)", () => store.Query<PerfProduct>().Facets().AddValueFacet("Category").Page(500, 20).Execute());
+        t("unsorted page 25000 (deepest)", () => store.Query<PerfProduct>().Facets().AddValueFacet("Category").Page(25_000, 20).Execute());
+        t("plain query page 0 (no facets)", () => store.Query<PerfProduct>().Page(0, 20).Execute());
+        t("plain query page 500", () => store.Query<PerfProduct>().Page(500, 20).Execute());
+        t("sorted by Price page 0 (first, may build sort)", () => store.Query<PerfProduct>().OrderBy(p => p.Price).Page(0, 20).Execute(), 1);
+        t("sorted by Price page 0 (repeat)", () => store.Query<PerfProduct>().OrderBy(p => p.Price).Page(0, 20).Execute());
+        t("sorted by Price page 500 (repeat)", () => store.Query<PerfProduct>().OrderBy(p => p.Price).Page(500, 20).Execute());
+        t("search 'waterproof' page 3", () => store.Query<PerfProduct>().WhereSearch("waterproof").Facets().AddValueFacet("Category").Page(3, 20).Execute());
+        var info = store.Datastore.GetInfo();
+        log($"  set cache: count={info.SetCacheCount} hits={info.SetCacheHits} misses={info.SetCacheMisses} overflows={info.SetCacheOverflows} sizeMb={info.SetCacheSize / 1024 / 1024}");
+        log($"  aggregate cache: hits={info.AggregateCacheHits} misses={info.AggregateCacheMisses}");
+    }
+
+    void breakdown(NodeStore store, string term) {
+        var label = term.Length == 0 ? "empty" : "'" + term + "'";
+        double t(Func<object> run) { // warm: best of 3
+            var best = double.MaxValue;
+            for (var i = 0; i < 3; i++) {
+                var sw = Stopwatch.StartNew();
+                run();
+                best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+            }
+            return best;
+        }
+        Relatude.DB.Query.IQueryOfNodes<PerfProduct, PerfProduct> q() { var x = store.Query<PerfProduct>(); return term.Length > 0 ? x.WhereSearch(term) : x; }
+        log($"  breakdown {label}: search+count only: {t(() => q().Count()):0.0} ms");
+        log($"  breakdown {label}: +Category: {t(() => q().Facets().AddValueFacet("Category").Page(0, 20).Execute()):0.0} ms");
+        log($"  breakdown {label}: +Brand: {t(() => q().Facets().AddValueFacet("Brand").Page(0, 20).Execute()):0.0} ms");
+        log($"  breakdown {label}: +InStock: {t(() => q().Facets().AddValueFacet("InStock").Page(0, 20).Execute()):0.0} ms");
+        log($"  breakdown {label}: +Tags: {t(() => q().Facets().AddValueFacet("Tags").Page(0, 20).Execute()):0.0} ms");
+        log($"  breakdown {label}: +Price ranges: {t(() => q().Facets().AddRangeFacet("Price").Page(0, 20).Execute()):0.0} ms");
     }
 
     double measure(NodeStore store, string label, string term) {

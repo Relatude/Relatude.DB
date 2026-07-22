@@ -65,6 +65,20 @@ public class SetRegister(long maxSize) {
 #endif
         return set;
     }
+    // memoization helpers for counts that are cheap to compute but repeated per query
+    // (e.g. facet counts during page navigation over the same result set):
+    public int CountCached(SetOperation op, long stateIdA, long stateIdB, object[]? values, Func<int> compute)
+        => countOrLookup(new SetCacheKey(op, [stateIdA, stateIdB], values), compute);
+    public bool TryGetCachedCount(SetOperation op, long stateIdA, long stateIdB, object[]? values, out int count) {
+        var key = new SetCacheKey(op, [stateIdA, stateIdB], values);
+        if (key.NotCachable || _disabled) { count = 0; return false; }
+        return _aggregateCache.TryGet(key, out count);
+    }
+    public void SetCachedCount(SetOperation op, long stateIdA, long stateIdB, object[]? values, int count) {
+        var key = new SetCacheKey(op, [stateIdA, stateIdB], values);
+        if (key.NotCachable || _disabled) return;
+        _aggregateCache.Set(key, count, 1);
+    }
     private int countOrLookup(SetCacheKey key, Func<int> count) {
         if (key.NotCachable || _disabled) return count();
         if (_aggregateCache.TryGet(key, out int cnt)) return cnt;
@@ -120,6 +134,7 @@ public class SetRegister(long maxSize) {
         if (a.Count == 1 && b.Has(a.First())) return a;
         var key = new SetCacheKey(SetOperation.Intersection, [a.StateId, b.StateId], null);
         return createOrLookup(key, () => {
+            if (a.Bits is { } ba && b.Bits is { } bb) return DenseBitSet.And(ba, bb); // word-parallel
             var (small, big) = a.Count < b.Count ? (a, b) : (b, a);
             var result = new List<int>();
             foreach (var id in small.Enumerate()) if (big.Has(id)) result.Add(id);
@@ -143,6 +158,11 @@ public class SetRegister(long maxSize) {
         for (var i = 0; i < sets.Count; i++) stateIds[i] = sets[i].StateId;
         var key = new SetCacheKey(SetOperation.Union, stateIds, null);
         return createOrLookup(key, () => {
+            if (sets.All(s => s.Bits != null)) { // word-parallel
+                var bits = DenseBitSet.Or(sets[0].Bits!, sets[1].Bits!);
+                for (var i = 2; i < sets.Count; i++) bits = DenseBitSet.Or(bits, sets[i].Bits!);
+                return bits;
+            }
             var ids = new HashSet<int>();
             foreach (var set in sets) {
                 foreach (var id in set.Enumerate()) ids.Add(id);
@@ -163,6 +183,7 @@ public class SetRegister(long maxSize) {
         if (b.Count == 0) return a;
         var key = new SetCacheKey(SetOperation.Union, [a.StateId, b.StateId], null);
         return createOrLookup(key, () => {
+            if (a.Bits is { } ba && b.Bits is { } bb) return DenseBitSet.Or(ba, bb); // word-parallel
             var ids = new HashSet<int>(a.Enumerate());
             foreach (var id in b.Enumerate()) ids.Add(id);
             return ids;
@@ -180,6 +201,8 @@ public class SetRegister(long maxSize) {
         if (b.Count == 0) return a;
         var key = new SetCacheKey(SetOperation.Difference, [a.StateId, b.StateId], null);
         return createOrLookup(key, () => {
+            // safe only when a is itself a bit set: a's enumeration order is then already ascending
+            if (a.Bits is { } ba && b.Bits is { } bb) return DenseBitSet.AndNot(ba, bb); // word-parallel
             var result = new List<int>();
             foreach (var v in a.Enumerate()) if (!b.Has(v)) result.Add(v);
             return result;

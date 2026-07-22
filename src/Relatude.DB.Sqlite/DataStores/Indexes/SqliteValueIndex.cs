@@ -155,6 +155,7 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         cmd.Parameters.AddWithValue("@id", nodeId);
         return _store.CastFromDb<T>(cmd.ExecuteScalar());
     }
+    public bool HasFastPointLookup => false;
     public bool TryGetValue(int nodeId, out T value) {
         using var cmd = _store.CreateCommand("SELECT value FROM " + _tableName + " WHERE id = @id");
         cmd.Parameters.AddWithValue("@id", nodeId);

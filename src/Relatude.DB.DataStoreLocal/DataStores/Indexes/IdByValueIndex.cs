@@ -151,17 +151,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         ensureSortedValues();
         var count = 0;
         foreach (var value in rangeSearch(_sortedValues!, from, to, fromInclusive, toInclusive)) {
-            if (TryGetValueIdSet(value, out var set)) {
-                //count += _sets.CountIntersection(set, ids); // no need to cache in set reg. as call is cached further up in call chain
-                count += IdSet.IntersectionCount(ids, set); 
-            } else {
-                throw new Exception("integrity problems with index. ");
-            }
-            //if (TryGetValue(value, out var set)) {
-            //    count += set.Where(ids.Has).Count();
-            //} else {
-            //    throw new Exception("Integrity problems with index. ");
-            //}
+            count += CountIntersection(value, ids);
         }
         return count;
     }
@@ -181,6 +171,12 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     }
     public int CountEqual(T value) {
         if (TryGetValue(value, out var set)) return set.Count;
+        return 0;
+    }
+    // |{ids with value} ∩ other| without materializing anything
+    public int CountIntersection(T value, IdSet other) {
+        if (_idByValue.TryGetValue(value, out var id)) return other.Has(id) ? 1 : 0;
+        if (_idsByValue.TryGetValue(value, out var idList)) return idList.CountIntersection(other);
         return 0;
     }
     public int CountLessThan(T to, bool inclusive) {

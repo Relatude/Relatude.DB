@@ -38,7 +38,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     (List<(int id, T from, T to)> list, long fromStateId, long toStateId)? _last;
     readonly SetRegister _sets;
     readonly IdByValue<T> _idByValue;
-    readonly Dictionary<int, T> _valueById = [];
+    readonly ValueByIdMap<T> _valueById = new(); // id -> value, dense-array backed when large (fast one-pass facet counting)
     readonly StateIdValueTracker<T> _stateId;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
@@ -189,6 +189,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public T GetValue(int nodeId) => _valueById[nodeId];
     public bool TryGetValue(int nodeId, out T value) => _valueById.TryGetValue(nodeId, out value!);
+    public bool HasFastPointLookup => true;
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
@@ -239,18 +240,19 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     int countEqual(T v) => _idByValue.CountEqual(v);
     public IdSet ReOrder(IdSet unsorted, bool descending) => _sets.OrderBy(this, unsorted, descending);
+    // computed directly against the in-memory value sets (word-parallel when both sides are bit
+    // sets), with memoization on top so repeated queries over the same set (page navigation) are free:
     public int CountEqual(IdSet nodeIds, T v) {
-        return _sets.CountEqual(this, nodeIds, v);
-        //// optimize later, count in index directly
-        //var matches = Register.WhereEqual(this, v);
-        //return Register.Intersection(nodeIds, matches).Count;
+        return _sets.CountCached(SetOperation.CountEqual, StateId, nodeIds.StateId, GetCacheKey(v, QueryType.Equal),
+            () => _idByValue.CountIntersection(v, nodeIds));
     }
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) {
-        return _sets.CountInRange(this, nodeIds, from, to, fromInclusive, toInclusive);
-        //// optimize later, count in index directly
-        //var matches = Register.WhereValueInRange(this, from, to, true, true);
-        //return Register.Intersection(nodeIds, matches).Count;
+        return _sets.CountCached(SetOperation.CountInRange, StateId, nodeIds.StateId, rangeKey(from, to, fromInclusive, toInclusive),
+            () => _idByValue.InSetRangeCount(nodeIds, from, to, fromInclusive, toInclusive));
     }
+    internal object[] rangeKey(T from, T to, bool fromInclusive, bool toInclusive) =>
+        [.. GetCacheKey(from, fromInclusive ? QueryType.GreaterOrEqual : QueryType.Greater),
+         .. GetCacheKey(to, toInclusive ? QueryType.LessOrEqual : QueryType.Less), fromInclusive, toInclusive];
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) => _sets.FilterInValues(this, nodeIds, selectedValues);
     public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) => _sets.FilterRanges(this, nodeIds, selectedRanges);

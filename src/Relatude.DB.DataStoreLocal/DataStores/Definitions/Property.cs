@@ -122,43 +122,56 @@ namespace Relatude.DB.DataStores.Definitions {
         }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             var index = GetValueIndex(ctx);
-            if (countFacetsInOnePassOverSet(index, nodeIds, facets)) return;
+            // equality buckets count against the per-value id sets (word-parallel when both sides
+            // are bit sets, so fast at any scale); range buckets and the missing bucket count in
+            // one pass over the set with per-id value lookups - unless lookups are tree/disk bound
+            // (persisted index) and the set is large, where per-bucket range counts win:
+            var onePass = (index.HasFastPointLookup || (long)nodeIds.Count * 16 < index.IdCount)
+                && countRangesAndMissingInOnePass(index, nodeIds, facets);
             foreach (var fv in facets.Values) {
-                if (fv.Value == null) {
-                    var having = index.IdCount == 0 ? 0 : index.CountInRangeEqual(nodeIds, index.MinValue()!, index.MaxValue()!, true, true);
-                    fv.Count = nodeIds.Count - having;
-                } else if (fv.Value2 == null) {
+                if (fv.Value != null && fv.Value2 == null) {
                     fv.Count = index.CountEqual(nodeIds, coerce(fv.Value));
-                } else {
-                    fv.Count = index.CountInRangeEqual(nodeIds, coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
+                } else if (!onePass) {
+                    if (fv.Value == null) {
+                        var having = index.IdCount == 0 ? 0 : index.CountInRangeEqual(nodeIds, index.MinValue()!, index.MaxValue()!, true, true);
+                        fv.Count = nodeIds.Count - having;
+                    } else {
+                        fv.Count = index.CountInRangeEqual(nodeIds, coerce(fv.Value), coerce(fv.Value2!), fv.FromInclusive, fv.ToInclusive);
+                    }
                 }
             }
         }
-        // When the set is much smaller than the index, one pass over the set with per-id value
-        // lookups beats the per-bucket path above: the buckets' id sets are cached per index
-        // state, but any write invalidates them, and rebuilding costs a scan of every indexed id
-        // per facet. Small sets also probe faster than they'd intersect. For larger sets the
-        // cached per-bucket intersections win, so the cutoff is deliberately conservative:
-        bool countFacetsInOnePassOverSet(IValueIndex<T> index, IdSet nodeIds, Facets facets) {
-            if (!facets.HasValues() || (long)nodeIds.Count * 16 > index.IdCount) return false;
-            Dictionary<T, FacetValue>? byValue = null;
+        bool countRangesAndMissingInOnePass(IValueIndex<T> index, IdSet nodeIds, Facets facets) {
             List<(T from, T to, FacetValue fv)>? ranges = null;
             FacetValue? missing = null;
             foreach (var fv in facets.Values) {
-                fv.Count = 0;
-                if (fv.Value == null) missing = fv;
-                else if (fv.Value2 == null) {
-                    byValue ??= new();
-                    if (!byValue.TryAdd(coerce(fv.Value), fv)) return false; // duplicate buckets: let the per-bucket path count them
-                } else (ranges ??= []).Add((coerce(fv.Value), coerce(fv.Value2), fv));
+                if (fv.Value == null) { missing = fv; fv.Count = 0; }
+                else if (fv.Value2 != null) { (ranges ??= []).Add((coerce(fv.Value), coerce(fv.Value2), fv)); fv.Count = 0; }
             }
+            if (ranges == null && missing == null) return true; // nothing that needs the pass
+            var sets = Definition.Sets;
+            // repeated queries over the same set (typically page navigation) are served from the
+            // count cache; the keys match CountInRangeEqual's so both paths share entries:
+            var allCached = true;
+            if (missing != null && allCached) {
+                if (sets.TryGetCachedCount(SetOperation.CountMissing, index.StateId, nodeIds.StateId, null, out var cached)) missing.Count = cached;
+                else allCached = false;
+            }
+            if (ranges != null && allCached) {
+                foreach (var r in ranges) {
+                    if (sets.TryGetCachedCount(SetOperation.CountInRange, index.StateId, nodeIds.StateId, rangeKey(index, r.from, r.to, r.fv), out var cached)) r.fv.Count = cached;
+                    else { allCached = false; break; }
+                }
+            }
+            if (allCached) return true;
+            if (missing != null) missing.Count = 0; // reset any partial cache assignments before the pass
+            if (ranges != null) foreach (var r in ranges) r.fv.Count = 0;
             var comparer = ValueIndex<T>.comparer;
             foreach (var id in nodeIds.Enumerate()) {
                 if (!index.TryGetValue(id, out var v)) {
                     if (missing != null) missing.Count++;
                     continue;
                 }
-                if (byValue != null && byValue.TryGetValue(v, out var fv)) fv.Count++;
                 if (ranges != null) {
                     foreach (var r in ranges) {
                         if (r.fv.FromInclusive ? comparer.Compare(v, r.from) < 0 : comparer.Compare(v, r.from) <= 0) continue;
@@ -166,8 +179,13 @@ namespace Relatude.DB.DataStores.Definitions {
                     }
                 }
             }
+            if (missing != null) sets.SetCachedCount(SetOperation.CountMissing, index.StateId, nodeIds.StateId, null, missing.Count);
+            if (ranges != null) foreach (var r in ranges) sets.SetCachedCount(SetOperation.CountInRange, index.StateId, nodeIds.StateId, rangeKey(index, r.from, r.to, r.fv), r.fv.Count);
             return true;
         }
+        static object[] rangeKey(IValueIndex<T> index, T from, T to, FacetValue fv) =>
+            [.. index.GetCacheKey(from, fv.FromInclusive ? QueryType.GreaterOrEqual : QueryType.Greater),
+             .. index.GetCacheKey(to, fv.ToInclusive ? QueryType.LessOrEqual : QueryType.Less), fv.FromInclusive, fv.ToInclusive];
         public IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx) {
             List<T> typedValues = new();
             foreach (var value in values) {

@@ -14,4 +14,7 @@
 		<ProjectReference Include="..\Relatude.DB.KvStore\Relatude.DB.KvStore.csproj" />
 	</ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Relatude.DB.Tests" />
+  </ItemGroup>
 </Project>

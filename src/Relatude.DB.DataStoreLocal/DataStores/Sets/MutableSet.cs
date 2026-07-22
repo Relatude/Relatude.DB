@@ -3,9 +3,10 @@ namespace Relatude.DB.DataStores.Sets;
 internal class MutableSet(int item1, int item2) : ICollection<int> {
     IdSet? _lastSet;
     readonly StateIdTracker _state = new();
-    ICollection<int> _items = new int[] { item1, item2 }; // array, list, hashSet - depending on size
+    ICollection<int> _items = new int[] { item1, item2 }; // array, list, hashSet, bitSet - depending on size
     readonly static int limArr = 10; // upper threshold for using array data structure
     readonly static int limList = 1000; // upper threshold for using list data structure ( when doing lookups ), after which it uses HashSet
+    readonly static int limHash = 10_000; // threshold for switching to a bit set (if dense enough), enabling word-parallel set operations
     public void Add(int item) {
         _lastSet = null;
         _state.RegisterAddition(item);
@@ -25,10 +26,40 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
             }
         } else if (_items is HashSet<int> hashSet) {
             hashSet.Add(item);
+            if (hashSet.Count >= limHash) {
+                int min = int.MaxValue, max = int.MinValue;
+                foreach (var id in hashSet) {
+                    if (id < min) min = id;
+                    if (id > max) max = id;
+                }
+                if (DenseBitSet.WorthIt(hashSet.Count, min, max)) _items = DenseBitSet.From(hashSet, min, max);
+            }
+        } else if (_items is DenseBitSet bits) {
+            bits.Add(item);
+        }
+    }
+    internal bool TryGetBits(out DenseBitSet bits) {
+        if (_items is DenseBitSet b) { bits = b; return true; }
+        bits = null!;
+        return false;
+    }
+    // |this ∩ ids| without materializing anything; word-parallel when both sides are bit sets
+    public int CountIntersection(IdSet ids) {
+        if (Count == 0 || ids.Count == 0) return 0;
+        if (_items is DenseBitSet bits && ids.Bits is { } other) return DenseBitSet.AndCount(bits, other);
+        if (Count < ids.Count) {
+            var count = 0;
+            foreach (var id in _items) if (ids.Has(id)) count++;
+            return count;
+        } else {
+            var count = 0;
+            foreach (var id in ids.Enumerate()) if (Contains(id)) count++;
+            return count;
         }
     }
     public bool Contains(int item) {
         if (_items is HashSet<int> hashSet) return hashSet.Contains(item);
+        if (_items is DenseBitSet bits) return bits.Contains(item);
         if (_items is int[] arr) {
             for (int i = 0; i < arr.Length; i++) if (arr[i] == item) return true;
             return false;
@@ -55,6 +86,8 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
             list.RemoveAt(index);
         } else if (_items is HashSet<int> hashSet) {
             if (!hashSet.Remove(item)) throw new Exception(item + " not found. ");
+        } else if (_items is DenseBitSet bits) {
+            if (!bits.Remove(item)) throw new Exception(item + " not found. ");
         }
         return true;
     }

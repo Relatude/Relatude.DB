@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Utils;
+using NodeStore = Relatude.DB.Nodes.NodeStore; // disambiguate from the internal DataStores.Stores.NodeStore (visible via InternalsVisibleTo)
 
 namespace Tests {
     [TestClass]
