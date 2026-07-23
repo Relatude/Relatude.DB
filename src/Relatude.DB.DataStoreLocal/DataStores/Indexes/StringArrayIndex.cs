@@ -5,7 +5,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 
-public class StringArrayIndex : IIndex {
+public class StringArrayIndex : IStringArrayIndex {
     readonly IdByValue<string> _nodeIdByValue;
     readonly Dictionary<int, string[]> _valueByNodeId;
     readonly SetRegister _sets;

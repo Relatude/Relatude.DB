@@ -285,11 +285,16 @@ public sealed class LuceneShop : IDisposable {
         var ddq = new DrillDownQuery(_config, baseQuery);
         foreach (var sel in selections ?? []) {
             foreach (var v in sel.Values ?? []) ddq.Add(sel.Property, v);
-            foreach (var r in sel.Ranges ?? []) {
-                var from = double.Parse(r.From, CultureInfo.InvariantCulture);
-                var to = double.Parse(r.To, CultureInfo.InvariantCulture);
-                // filter on the same docvalues the range counting reads, so filter and count always agree
-                ddq.Add("Price", new ConstantScoreQuery(FieldCacheRangeFilter.NewDoubleRange("price_dv", from, to, true, false)));
+            if (sel.Ranges is { Count: > 0 }) {
+                // a dimension may only get ONE query drill-down, so OR the selected ranges together
+                var ranges = new BooleanQuery();
+                foreach (var r in sel.Ranges) {
+                    var from = double.Parse(r.From, CultureInfo.InvariantCulture);
+                    var to = double.Parse(r.To, CultureInfo.InvariantCulture);
+                    // filter on the same docvalues the range counting reads, so filter and count always agree
+                    ranges.Add(new ConstantScoreQuery(FieldCacheRangeFilter.NewDoubleRange("price_dv", from, to, true, false)), Occur.SHOULD);
+                }
+                ddq.Add("Price", ranges);
             }
         }
         return ddq;

@@ -102,6 +102,15 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
         }
         return index;
     }
+    protected override IStringArrayIndex CreateStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
+        var tableName = "A" + id.Replace("-", "_");
+        justCreated = !doesTableExist(tableName);
+        _idxs.Add(id, new idxInfo(id, type, tableName));
+        // one JSON-encoded TEXT value per node; queries run on the index's in-memory mirror,
+        // so no value index is needed (see SqliteStringArrayIndex)
+        if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
+        return new SqliteStringArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
+    }
     string getSqlType(PropertyType type) {
         return type switch {
             PropertyType.Boolean => "INTEGER",
@@ -170,13 +179,13 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
             using var reader = cmd.ExecuteReader();
             while (reader.Read()) allTables.Add(reader.GetString(0));
         }
-        // value tables are "P...", word tables "W...". Skip open tables and anything derived from
+        // value tables are "P...", word tables "W...", string-array tables "A...". Skip open tables and anything derived from
         // them ("<openTable>_..." covers the fts5 shadow tables of an open word index). Shorter
         // names first so an unopened fts5 virtual table drops before its shadow tables; the
         // shadows then vanish with it, and a direct drop of a still-present shadow table (which
         // sqlite refuses) is just skipped by the catch.
         var doomed = allTables
-            .Where(t => t.StartsWith("P") || t.StartsWith("W"))
+            .Where(t => t.StartsWith("P") || t.StartsWith("W") || t.StartsWith("A"))
             .Where(t => t != _settingsTableName && !openTables.Contains(t) && !openTables.Any(o => t.StartsWith(o + "_")))
             .OrderBy(t => t.Length)
             .ToList();
@@ -246,6 +255,9 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
                     cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
                     cmd.ExecuteNonQuery();
                 }
+            } else if (i.Table.StartsWith("A")) { // string array index
+                cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value TEXT)";
+                cmd.ExecuteNonQuery();
             }
         }
         cmd.CommandText = "VACUUM";

@@ -18,8 +18,8 @@ internal static class IndexFactory {
             + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
     }
 
-    public static Dictionary<string, StringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
-        Dictionary<string, StringArrayIndex> indexes = new();
+    public static Dictionary<string, IStringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
+        Dictionary<string, IStringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
             foreach (var culture in store._nativeModelStore.Cultures) {
                 var index = createStringArrayIndex(store, culture.CultureCode, property, subKey);
@@ -31,14 +31,25 @@ internal static class IndexFactory {
         }
         return indexes;
     }
-    static StringArrayIndex createStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
+    static IStringArrayIndex createStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
         var settings = store.Settings;
         var sets = store._definition.Sets;
         var uniqueKey = getUniqueKey(property, cultureCode, subKey);
-        StringArrayIndex index;
+        var useProvider = property.Model.IndexType switch {
+            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
+            IndexStorageType.Memory => false,
+            IndexStorageType.Persisted => true,
+            _ => throw new NotSupportedException("IndexType not supported. "),
+        };
+        IStringArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
-        index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+        if (useProvider && store.PersistedIndexStore != null) {
+            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " String Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = store.PersistedIndexStore.StringArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        } else {
+            var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+        }
         return index;
     }
 

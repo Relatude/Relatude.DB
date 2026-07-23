@@ -98,6 +98,14 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
         return optimized;
     }
 
+    public IStringArrayIndex StringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type) {
+        // No add/remove optimization wrapper exists for string-array indexes (the memory variant is
+        // not wrapped either), so writes go straight through and there is no queue to manage here.
+        var index = CreateStringArrayIndex(sets, id, friendlyName, type, out var justCreated);
+        registerFlaggable(id, index, justCreated);
+        return index;
+    }
+
     void registerFlaggable(string id, IIndex index, bool justCreated) {
         _flaggableIndexes[id] = index;
         if (justCreated) _justCreated.Add(id);
@@ -214,6 +222,10 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     /// throw <see cref="InvalidOperationException"/>. Set <paramref name="justCreated"/> as in
     /// <see cref="CreateValueIndex{T}"/>.</summary>
     protected abstract IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated);
+
+    /// <summary>Create (or open) the backend string-array index for <paramref name="id"/>. Set
+    /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
+    protected abstract IStringArrayIndex CreateStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
 
     /// <summary>Begin the backend's single write transaction. The base has already verified none is active.</summary>
     protected abstract void BeginTransactionCore();

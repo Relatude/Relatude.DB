@@ -1,3 +1,5 @@
+using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
+
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
@@ -176,10 +178,9 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
 
         private readonly Dictionary<int, T> _byId = new();
-        private readonly Dictionary<T, List<int>> _byValue = new();
-        private readonly IComparer<T> _comparer = typeof(T) == typeof(string)
-            ? (IComparer<T>)(object)StringComparer.Ordinal
-            : Comparer<T>.Default;
+        private readonly Dictionary<T, List<int>> _byValue = new(ValueComparers.GetEqualityComparer<T>());
+        private readonly IComparer<T> _comparer = ValueComparers.GetComparer<T>();
+        private readonly IEqualityComparer<T> _equality = ValueComparers.GetEqualityComparer<T>();
 
         public int Count
         {
@@ -210,7 +211,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             try
             {
                 bool hadOld = _byId.TryGetValue(id, out T? old);
-                if (hadOld && EqualityComparer<T>.Default.Equals(old, value))
+                if (hadOld && _equality.Equals(old, value))
                     return;
                 ApplyAdd(id, value);
                 engine.UndoLog!.Add(hadOld

@@ -30,8 +30,8 @@ public sealed class DenseBitSet : ICollection<int> {
     /// <summary>True when a bit set is worth it for a set of this shape: large enough to matter and
     /// dense enough that the window costs at most about twice an int array (it is then still much
     /// faster, and usually far smaller).</summary>
-    public static bool WorthIt(int count, int minId, int maxId) =>
-        count > 256 && minId >= 0 && (long)maxId - minId < (long)count * 64;
+    //public static bool WorthIt(int count, int minId, int maxId) => false;
+    public static bool WorthIt(int count, int minId, int maxId) => count > 256 && minId >= 0 && (long)maxId - minId < (long)count * 64;
 
     public static DenseBitSet From(IEnumerable<int> ids, int minId, int maxId) {
         var set = new DenseBitSet(minId, maxId);

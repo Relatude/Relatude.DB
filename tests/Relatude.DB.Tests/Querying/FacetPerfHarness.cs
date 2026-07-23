@@ -55,7 +55,7 @@ public class FacetPerfHarness {
 
     [TestMethod]
     public void MeasureFacetQueries() {
-        if (Environment.GetEnvironmentVariable("FACET_PERF") != "1") { Assert.Inconclusive("Set FACET_PERF=1 to run."); return; }
+        
         var dm = new Datamodel();
         dm.Add<PerfProduct>();
         dm.Add<PerfBrand>();

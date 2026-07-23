@@ -37,6 +37,11 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
         throw new InvalidOperationException("The native KV index store has no built-in word index; a word index factory is required.");
     }
+    protected override IStringArrayIndex CreateStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
+        var index = new NativeKvStringArrayIndex(id, this, _fileStorage, sets, friendlyName);
+        justCreated = index.PersistedTimestamp == 0;
+        return index;
+    }
     protected override void BeginTransactionCore() => _fileStorage.BeginTransaction();
     protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, true);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();

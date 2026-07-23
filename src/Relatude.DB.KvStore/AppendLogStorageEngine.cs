@@ -399,8 +399,9 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
         private readonly IKeyCodec<T> _codec = KeyCodec.Get<T>();
         private readonly Dictionary<int, T> _byId = new();
         private readonly SortedSet<(T Value, int Id)> _sorted;
-        private readonly Dictionary<T, int> _valueRefs = new();
+        private readonly Dictionary<T, int> _valueRefs = new(ValueComparers.GetEqualityComparer<T>());
         private readonly IComparer<T> _valueComparer;
+        private readonly IEqualityComparer<T> _valueEquality = ValueComparers.GetEqualityComparer<T>();
 
         // true when this index is synchronized with the engine timestamp: set for an index whose
         // definition was replayed from the log and after every commit/SetTimestamp on the engine;
@@ -428,9 +429,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
             _engine = engine;
             _name = name;
             _hasEngineTimestamp = hasEngineTimestamp;
-            _valueComparer = typeof(T) == typeof(string)
-                ? (IComparer<T>)(object)StringComparer.Ordinal
-                : Comparer<T>.Default;
+            _valueComparer = ValueComparers.GetComparer<T>();
             _sorted = new SortedSet<(T, int)>(Comparer<(T, int)>.Create((a, b) =>
             {
                 int c = _valueComparer.Compare(a.Item1, b.Item1);
@@ -484,7 +483,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
             try
             {
                 bool hadOld = _byId.TryGetValue(id, out T? old);
-                if (hadOld && EqualityComparer<T>.Default.Equals(old, value))
+                if (hadOld && _valueEquality.Equals(old, value))
                     return;
                 ApplyAdd(id, value);
                 _engine.LogOperation(_name, KeyCodec.GetTypeId<T>(), OpAdd, id, value, _codec);

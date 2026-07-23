@@ -8,8 +8,8 @@ using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
 internal class StringArrayProperty : Property, IPropertyContainsValue {
-    IndexUtil<StringArrayIndex> _indexUtil = new();
-    public StringArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
+    IndexUtil<IStringArrayIndex> _indexUtil = new();
+    public IStringArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {

@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Website.Sqlite": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "search.html",
+      "applicationUrl": "http://localhost:5054",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

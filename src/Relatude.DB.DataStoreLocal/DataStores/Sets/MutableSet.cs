@@ -1,5 +1,8 @@
-﻿using System.Collections;
+﻿using Relatude.DB.Common;
+using System.Collections;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores.Sets;
+
 internal class MutableSet(int item1, int item2) : ICollection<int> {
     IdSet? _lastSet;
     readonly StateIdTracker _state = new();
@@ -7,10 +10,13 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
     readonly static int limArr = 10; // upper threshold for using array data structure
     readonly static int limList = 1000; // upper threshold for using list data structure ( when doing lookups ), after which it uses HashSet
     readonly static int limHash = 10_000; // threshold for switching to a bit set (if dense enough), enabling word-parallel set operations
+    bool? _isDenseBitWorthId = null;
     public void Add(int item) {
         _lastSet = null;
         _state.RegisterAddition(item);
-        if (_items is int[] arr) {
+        if (_items is DenseBitSet bits) {
+            bits.Add(item);
+        } else if (_items is int[] arr) {
             if (arr.Length >= limArr) {
                 _items = new List<int>(arr) { item };
             } else {
@@ -26,16 +32,15 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
             }
         } else if (_items is HashSet<int> hashSet) {
             hashSet.Add(item);
-            if (hashSet.Count >= limHash) {
+            if (hashSet.Count >= limHash && _isDenseBitWorthId == null) {
                 int min = int.MaxValue, max = int.MinValue;
                 foreach (var id in hashSet) {
                     if (id < min) min = id;
                     if (id > max) max = id;
                 }
-                if (DenseBitSet.WorthIt(hashSet.Count, min, max)) _items = DenseBitSet.From(hashSet, min, max);
+                _isDenseBitWorthId = DenseBitSet.WorthIt(hashSet.Count, min, max);
+                if (_isDenseBitWorthId.Value) _items = DenseBitSet.From(hashSet, min, max);
             }
-        } else if (_items is DenseBitSet bits) {
-            bits.Add(item);
         }
     }
     internal bool TryGetBits(out DenseBitSet bits) {

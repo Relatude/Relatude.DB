@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQLite — Facet search example</title>
+<style>
+  :root { color-scheme: light; font-family: "Segoe UI", system-ui, sans-serif; }
+  body { margin: 0; background: #f4f5f7; color: #1c1e21; }
+  header { background: #fff; border-bottom: 1px solid #e2e4e8; padding: 18px 24px; }
+  header h1 { margin: 0 0 10px; font-size: 20px; }
+  header p { margin: 0 0 12px; color: #5a6070; font-size: 13px; }
+  #q { width: min(520px, 100%); padding: 10px 14px; font-size: 15px; border: 1px solid #c8ccd4; border-radius: 8px; }
+  #q:focus { outline: 2px solid #0b7285; border-color: transparent; }
+  main { display: grid; grid-template-columns: 260px 1fr; gap: 24px; padding: 24px; max-width: 1200px; }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+  aside .facet { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  aside h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #5a6070; }
+  aside label { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 3px 0; cursor: pointer; }
+  aside label .count { margin-left: auto; color: #8a90a0; font-size: 12px; }
+  aside label.zero { color: #b0b4c0; }
+  #summary { font-size: 14px; color: #5a6070; margin-bottom: 12px; }
+  .item { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .item h4 { margin: 0 0 4px; font-size: 15px; }
+  .item p { margin: 0 0 8px; font-size: 13px; color: #5a6070; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  .meta span { background: #eef0f4; border-radius: 6px; padding: 2px 8px; }
+  .meta .price { background: #e3ecff; color: #2c4fb0; font-weight: 600; }
+  .meta .out { background: #ffe9e6; color: #b03a2c; }
+  .meta .in { background: #e4f5e9; color: #22733c; }
+  #pager { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+  #pager button { padding: 6px 14px; border: 1px solid #c8ccd4; background: #fff; border-radius: 7px; cursor: pointer; }
+  #pager button:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Facet search example <small style="color:#0b7285">(SQLite)</small></h1>
+  <p>Facets are computed from the free text search result, so counts, brands and price buckets adapt as you type.
+     Try “waterproof”, “leather chair”, “wireless”, “bamboo”…</p>
+  <input id="q" type="search" placeholder="Search 10 million products…" autofocus>
+</header>
+<main>
+  <aside id="facets"></aside>
+  <section>
+    <div id="summary"></div>
+    <div id="results"></div>
+    <div id="pager">
+      <button id="prev">&#8592; Prev</button>
+      <span id="pageinfo"></span>
+      <button id="next">Next &#8594;</button>
+    </div>
+  </section>
+</main>
+<script>
+const state = { q: "", page: 0, selections: new Map() }; // selections: property -> Map(key -> {value,value2})
+const keyOf = v => v.value + " " + (v.value2 ?? "");
+
+async function search() {
+  const selections = [...state.selections.entries()].map(([property, values]) => ({
+    property,
+    values: [...values.values()].filter(v => v.value2 == null).map(v => v.value),
+    ranges: [...values.values()].filter(v => v.value2 != null).map(v => ({ from: v.value, to: v.value2 })),
+  }));
+  const res = await fetch("/shop/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: state.q, page: state.page, selections }),
+  });
+  render(await res.json());
+}
+
+function render(data) {
+  document.getElementById("summary").textContent =
+    `${data.total} products` +
+    (data.total !== data.sourceCount ? ` (filtered from ${data.sourceCount} search hits)` : "") +
+    ` — ${data.durationMs.toFixed(1)} ms`;
+
+  document.getElementById("results").innerHTML = data.items.map(p => `
+    <div class="item">
+      <h4>${esc(p.name)}</h4>
+      <p>${esc(p.description)}</p>
+      <div class="meta">
+        <span class="price">${p.price.toFixed(2)}</span>
+        <span>${esc(p.category)}</span>
+        <span>${esc(p.brand)}</span>
+        <span class="${p.inStock ? "in" : "out"}">${p.inStock ? "In stock" : "Out of stock"}</span>
+        ${p.tags.map(t => `<span>#${esc(t)}</span>`).join("")}
+      </div>
+    </div>`).join("") || "<p>No products matched.</p>";
+
+  document.getElementById("facets").innerHTML = data.facets.map(f => `
+    <div class="facet">
+      <h3>${esc(f.displayName)}</h3>
+      ${f.values.map(v => `
+        <label class="${v.count === 0 && !v.selected ? "zero" : ""}">
+          <input type="checkbox" ${v.selected ? "checked" : ""}
+            data-property="${esc(f.property)}" data-value="${esc(v.value ?? "")}" data-value2="${esc(v.value2 ?? "")}">
+          ${esc(v.display)} <span class="count">${v.count}</span>
+        </label>`).join("")}
+    </div>`).join("");
+
+  document.querySelectorAll("#facets input[type=checkbox]").forEach(cb =>
+    cb.addEventListener("change", () => toggle(cb.dataset.property, cb.dataset.value, cb.dataset.value2 || null)));
+
+  const lastPage = Math.max(0, Math.ceil(data.total / data.pageSize) - 1);
+  document.getElementById("pageinfo").textContent = `Page ${data.page + 1} of ${lastPage + 1}`;
+  document.getElementById("prev").disabled = data.page <= 0;
+  document.getElementById("next").disabled = data.page >= lastPage;
+}
+
+function toggle(property, value, value2) {
+  const sel = state.selections.get(property) ?? new Map();
+  const key = keyOf({ value, value2 });
+  if (sel.has(key)) sel.delete(key); else sel.set(key, { value, value2 });
+  if (sel.size === 0) state.selections.delete(property); else state.selections.set(property, sel);
+  state.page = 0;
+  search();
+}
+
+const esc = s => (s + "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let debounce;
+document.getElementById("q").addEventListener("input", e => {
+  clearTimeout(debounce);
+  debounce = setTimeout(() => {
+    state.q = e.target.value.trim();
+    state.page = 0;
+    state.selections.clear(); // a new search gives new facets; old selections may no longer apply
+    search();
+  }, 250);
+});
+document.getElementById("prev").addEventListener("click", () => { state.page--; search(); });
+document.getElementById("next").addEventListener("click", () => { state.page++; search(); });
+search();
+</script>
+</body>
+</html>

@@ -375,3 +375,5 @@ nuget.exe
 # JetBrains IDE
 .idea
 /examples/Website.Lucene/lucene.index
+/examples/Website.Simple/relatude.db2
+/examples/Website.Sqlite/shop.sqlite*

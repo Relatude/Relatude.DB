@@ -67,9 +67,10 @@ internal static class KeyCodec
         if (t == typeof(Guid)) return (new GuidCodec(), 15);
         if (t == typeof(string)) return (new StringCodec(), 16);
         if (t == typeof(DateTimeOffset)) return (new DateTimeOffsetCodec(), 17);
+        if (t == typeof(byte[])) return (new ByteArrayCodec(), 18);
         throw new NotSupportedException(
             $"Type '{t}' is not supported as an index value. Supported: integral types, bool, char, " +
-            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string.");
+            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[].");
     }
 
     /// <summary>Encodes a signed 32-bit id so unsigned byte order equals signed numeric order.</summary>
@@ -305,6 +306,46 @@ internal static class KeyCodec
     }
 
     /// <summary>
+    /// Raw bytes with 0x00 escaped as (0x00, 0xFF) and terminated by (0x00, 0x00) — the same
+    /// scheme as <see cref="StringCodec"/> applied to arbitrary bytes: order-preserving (byte-wise
+    /// order of the encodings equals byte-wise order of the raw arrays) and prefix-free.
+    /// </summary>
+    private sealed class ByteArrayCodec : IKeyCodec<byte[]>
+    {
+        public int FixedSize => -1;
+        public int GetMaxSize(byte[] value) => value.Length * 2 + 2;
+
+        public int Encode(Span<byte> dst, byte[] value)
+        {
+            int w = 0;
+            foreach (byte b in value)
+            {
+                dst[w++] = b;
+                if (b == 0) dst[w++] = 0xFF;
+            }
+            dst[w++] = 0;
+            dst[w++] = 0;
+            return w;
+        }
+
+        public byte[] Decode(ReadOnlySpan<byte> src)
+        {
+            src = src[..^2]; // strip terminator
+            if (src.IndexOf((byte)0) < 0) return src.ToArray();
+
+            var buf = new byte[src.Length];
+            int w = 0;
+            for (int r = 0; r < src.Length; r++)
+            {
+                byte b = src[r];
+                buf[w++] = b;
+                if (b == 0) r++; // skip 0xFF escape marker
+            }
+            return buf.AsSpan(..w).ToArray();
+        }
+    }
+
+    /// <summary>
     /// UTF-8 with 0x00 escaped as (0x00, 0xFF) and terminated by (0x00, 0x00).
     /// This is order-preserving (byte-wise order equals ordinal UTF-8 order) and
     /// prefix-free: the two-byte terminator sequence cannot occur inside a body,
@@ -354,6 +395,41 @@ internal static class KeyCodec
             string result = Encoding.UTF8.GetString(buf[..w]);
             GC.KeepAlive(rented);
             return result;
+        }
+    }
+}
+
+/// <summary>
+/// Value comparers for the dictionary/sorted-set based engines, matching the byte-wise ordering
+/// the B+Tree gets for free from the codec encodings: ordinal for strings, content (not reference)
+/// order and equality for byte arrays, <c>Default</c> for everything else.
+/// </summary>
+internal static class ValueComparers
+{
+    public static IComparer<T> GetComparer<T>() where T : notnull
+    {
+        if (typeof(T) == typeof(string)) return (IComparer<T>)(object)StringComparer.Ordinal;
+        if (typeof(T) == typeof(byte[])) return (IComparer<T>)(object)ByteArrayComparer.Instance;
+        return Comparer<T>.Default;
+    }
+
+    public static IEqualityComparer<T> GetEqualityComparer<T>() where T : notnull
+    {
+        if (typeof(T) == typeof(byte[])) return (IEqualityComparer<T>)(object)ByteArrayComparer.Instance;
+        return EqualityComparer<T>.Default;
+    }
+
+    private sealed class ByteArrayComparer : IComparer<byte[]>, IEqualityComparer<byte[]>
+    {
+        public static readonly ByteArrayComparer Instance = new();
+        public int Compare(byte[]? x, byte[]? y) => x.AsSpan().SequenceCompareTo(y.AsSpan());
+        public bool Equals(byte[]? x, byte[]? y)
+            => ReferenceEquals(x, y) || (x is not null && y is not null && x.AsSpan().SequenceEqual(y));
+        public int GetHashCode(byte[] obj)
+        {
+            var hash = new HashCode();
+            hash.AddBytes(obj);
+            return hash.ToHashCode();
         }
     }
 }
