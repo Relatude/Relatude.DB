@@ -83,6 +83,38 @@ public class IdSet {
         }
     }
     /// <summary>
+    /// Splits the set into up to maxParts independently enumerable slices that together cover
+    /// every id exactly once, for parallel scans. Slices follow the backing representation
+    /// (bit set word ranges or array segments); their combined order is NOT Enumerate()'s order,
+    /// so only use this for order-independent work like counting.
+    /// </summary>
+    internal IEnumerable<int>[] Partition(int maxParts) {
+        if (maxParts <= 1 || Count == 0) return [Enumerate()];
+        if (_ids is DenseBitSet bits) {
+            var words = bits.WordCount;
+            var parts = Math.Min(maxParts, words);
+            var result = new IEnumerable<int>[parts];
+            var from = 0;
+            for (var i = 0; i < parts; i++) {
+                var to = (int)((long)words * (i + 1) / parts);
+                result[i] = bits.EnumerateWordRange(from, to);
+                from = to;
+            }
+            return result;
+        } else {
+            var arr = ToArray();
+            var parts = Math.Min(maxParts, arr.Length);
+            var result = new IEnumerable<int>[parts];
+            var from = 0;
+            for (var i = 0; i < parts; i++) {
+                var to = (int)((long)arr.Length * (i + 1) / parts);
+                result[i] = new ArraySegment<int>(arr, from, to - from);
+                from = to;
+            }
+            return result;
+        }
+    }
+    /// <summary>
     /// Collects an enumeration of DISTINCT ids into the best set representation in one pass:
     /// a <see cref="DenseBitSet"/> when large and dense enough, otherwise a plain list.
     /// This replaces the old "new HashSet&lt;int&gt;(ids)" pattern in the set builders, which paid

@@ -15,6 +15,12 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     // commit and discard it on rollback (see PersistedIndexStoreBase)
     internal AddRemoveOptimization Queue => _o;
 
+    // flushes the queued remove once and returns the raw inner index for tight per-id read loops:
+    // every wrapper call re-checks the queue under a lock, which a loop over millions of ids must
+    // not pay (and must not contend on when the loop is parallelized). Safe for the duration of a
+    // query: writers are blocked by the store's read lock, so the queue stays empty once flushed.
+    internal IValueIndex<T> DequeueAndGetInner() { _o.Dequeue(); return _i; }
+
     public string UniqueKey => _i.UniqueKey;
 
     public void Add(int id, object value) => _o.Add(id, value);

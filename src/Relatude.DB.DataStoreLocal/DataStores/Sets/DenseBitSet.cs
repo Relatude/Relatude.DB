@@ -87,6 +87,19 @@ public sealed class DenseBitSet : ICollection<int> {
         }
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    internal int WordCount => _words.Length;
+    /// <summary>The ids whose bits lie in words [wordFrom, wordToExclusive) - lets large scans be
+    /// split into independent slices for parallel counting.</summary>
+    internal IEnumerable<int> EnumerateWordRange(int wordFrom, int wordToExclusive) {
+        for (var w = wordFrom; w < wordToExclusive; w++) {
+            var word = _words[w];
+            while (word != 0) {
+                var bit = BitOperations.TrailingZeroCount(word);
+                yield return _base + (w << 6) + bit;
+                word &= word - 1; // clear lowest set bit
+            }
+        }
+    }
     public void CopyTo(int[] array, int arrayIndex) {
         foreach (var id in this) array[arrayIndex++] = id;
     }

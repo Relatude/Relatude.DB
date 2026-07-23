@@ -122,6 +122,10 @@ namespace Relatude.DB.DataStores.Definitions {
         }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
             var index = GetValueIndex(ctx);
+            // the optimized wrapper re-checks its write-behind queue under a lock on EVERY call;
+            // flush it once here and use the raw index, so the per-id counting loops below stay
+            // lock free (they run millions of TryGetValue calls, possibly on several threads)
+            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
             // equality buckets count against the per-value id sets (word-parallel when both sides
             // are bit sets, so fast at any scale); range buckets and the missing bucket count in
             // one pass over the set with per-id value lookups - unless lookups are tree/disk bound
@@ -167,42 +171,78 @@ namespace Relatude.DB.DataStores.Definitions {
             if (missing != null) missing.Count = 0; // reset any partial cache assignments before the pass
             if (ranges != null) foreach (var r in ranges) r.fv.Count = 0;
             var comparer = ValueIndex<T>.comparer;
-            if (ranges != null && areContiguousAscending(ranges, comparer)) {
-                // the auto-generated buckets are contiguous ascending half-open ranges, so every
-                // value belongs to at most one bucket, found by a binary search over the shared
-                // boundaries - much cheaper than testing each range per id (big sets against ten
-                // price buckets spend most of their pass in these comparisons)
-                var froms = new T[ranges.Count];
+            // the auto-generated buckets are contiguous ascending half-open ranges, so every
+            // value belongs to at most one bucket, found by a binary search over the shared
+            // boundaries - much cheaper than testing each range per id:
+            var contiguous = ranges != null && areContiguousAscending(ranges, comparer);
+            T[]? froms = null;
+            if (contiguous) {
+                froms = new T[ranges!.Count];
                 for (var i = 0; i < ranges.Count; i++) froms[i] = ranges[i].from;
-                var last = ranges[^1];
-                foreach (var id in nodeIds.Enumerate()) {
+            }
+            // the pass is embarrassingly parallel: big sets are split into slices counted with
+            // local counters on all cores, then merged. Everything a slice reads is immutable
+            // snapshot state (writers are blocked by the store's read lock for the whole query)
+            const int minIdsPerSlice = 131_072; // below this the parallel overhead outweighs the scan
+            var slices = nodeIds.Partition((int)Math.Min(Environment.ProcessorCount, (long)nodeIds.Count / minIdsPerSlice));
+            int[] rangeCounts;
+            int missingCount;
+            if (slices.Length == 1) {
+                (rangeCounts, missingCount) = countSlice(slices[0], index, ranges, froms, comparer, missing != null);
+            } else {
+                rangeCounts = new int[ranges?.Count ?? 0];
+                missingCount = 0;
+                var mergeLock = new object();
+                Parallel.ForEach(slices, slice => {
+                    var (rc, mc) = countSlice(slice, index, ranges, froms, comparer, missing != null);
+                    lock (mergeLock) {
+                        for (var i = 0; i < rangeCounts.Length; i++) rangeCounts[i] += rc[i];
+                        missingCount += mc;
+                    }
+                });
+            }
+            if (missing != null) missing.Count = missingCount;
+            if (ranges != null) for (var i = 0; i < ranges.Count; i++) ranges[i].fv.Count = rangeCounts[i];
+            if (missing != null) sets.SetCachedCount(SetOperation.CountMissing, index.StateId, nodeIds.StateId, null, missing.Count);
+            if (ranges != null) foreach (var r in ranges) sets.SetCachedCount(SetOperation.CountInRange, index.StateId, nodeIds.StateId, rangeKey(index, r.from, r.to, r.fv), r.fv.Count);
+            return true;
+        }
+        // counts one slice of the set into local counters (parallel-safe: reads only immutable
+        // snapshot state, writes only its own arrays). froms != null selects the binary-search
+        // path for contiguous ascending buckets; otherwise every range is tested per id.
+        static (int[] rangeCounts, int missingCount) countSlice(IEnumerable<int> ids, IValueIndex<T> index,
+            List<(T from, T to, FacetValue fv)>? ranges, T[]? froms, IComparer<T> comparer, bool countMissing) {
+            var counts = new int[ranges?.Count ?? 0];
+            var missing = 0;
+            if (froms != null) {
+                var last = ranges![^1];
+                foreach (var id in ids) {
                     if (!index.TryGetValue(id, out var v)) {
-                        if (missing != null) missing.Count++;
+                        if (countMissing) missing++;
                         continue;
                     }
                     if (comparer.Compare(v, froms[0]) < 0) continue; // below the first bucket
                     if (last.fv.ToInclusive ? comparer.Compare(v, last.to) > 0 : comparer.Compare(v, last.to) >= 0) continue; // beyond the last bucket
                     var idx = Array.BinarySearch(froms, v, comparer);
                     if (idx < 0) idx = ~idx - 1; // not an exact boundary: the bucket starting just before v
-                    ranges[idx].fv.Count++;
+                    counts[idx]++;
                 }
             } else {
-                foreach (var id in nodeIds.Enumerate()) {
+                foreach (var id in ids) {
                     if (!index.TryGetValue(id, out var v)) {
-                        if (missing != null) missing.Count++;
+                        if (countMissing) missing++;
                         continue;
                     }
                     if (ranges != null) {
-                        foreach (var r in ranges) {
+                        for (var i = 0; i < ranges.Count; i++) {
+                            var r = ranges[i];
                             if (r.fv.FromInclusive ? comparer.Compare(v, r.from) < 0 : comparer.Compare(v, r.from) <= 0) continue;
-                            if (r.fv.ToInclusive ? comparer.Compare(v, r.to) <= 0 : comparer.Compare(v, r.to) < 0) r.fv.Count++;
+                            if (r.fv.ToInclusive ? comparer.Compare(v, r.to) <= 0 : comparer.Compare(v, r.to) < 0) counts[i]++;
                         }
                     }
                 }
             }
-            if (missing != null) sets.SetCachedCount(SetOperation.CountMissing, index.StateId, nodeIds.StateId, null, missing.Count);
-            if (ranges != null) foreach (var r in ranges) sets.SetCachedCount(SetOperation.CountInRange, index.StateId, nodeIds.StateId, rangeKey(index, r.from, r.to, r.fv), r.fv.Count);
-            return true;
+            return (counts, missing);
         }
         // true when the buckets form one ascending chain of non-empty half-open ranges (each
         // interior bucket's exclusive end is the next bucket's inclusive start) - the shape
