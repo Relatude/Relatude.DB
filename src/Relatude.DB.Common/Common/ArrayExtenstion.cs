@@ -44,6 +44,13 @@ public static class ArrayExtenstion {
     /// <param name="array">The byte array for which to compute the checksum. Cannot be null.</param>
     /// <param name="prev">A reference to a 32-bit unsigned integer that holds the previous checksum value. This value is updated with the
     /// new checksum result.</param>
+    public static void EvaluateChecksum(this ReadOnlySpan<byte> array, ref uint prev) {
+        unchecked {
+            uint checksum = 0;
+            for (int i = 0; i < array.Length; i++) checksum += array[i];
+            prev = checksum ^ prev;
+        }
+    }
     public static unsafe void EvaluateChecksum(this byte[] array, ref uint prev) {
         unchecked {
             uint checksum = 0;

@@ -47,6 +47,22 @@ public class StoreStreamBufferedRead : IReadStream {
 
     }
 
+    public int ReadInto(Span<byte> dest) {
+        int total = 0;
+        while (total < dest.Length) {
+            if (_bufferOffset >= _bufferLength) {
+                if (!fillBuffer()) break;
+            }
+            int n = Math.Min(dest.Length - total, _bufferLength - _bufferOffset);
+            _buffer.AsSpan(_bufferOffset, n).CopyTo(dest[total..]);
+            _bufferOffset += n;
+            total += n;
+        }
+        _checkSum.EvaluateChecksumIfRecording(dest[..total]);
+        _bytesRead += total;
+        return total;
+    }
+
     public async Task<int> ReadAsync(byte[] buffer, int count) {
         if (buffer == null) throw new ArgumentNullException(nameof(buffer));
         if (count < 0 || count > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count));
@@ -69,24 +85,9 @@ public class StoreStreamBufferedRead : IReadStream {
 
     private bool fillBuffer() {
         if (!_innerStream.More()) return false;
-
-        // Fast path: read straight into our reusable buffer, no per-fill allocation.
-        if (_innerStream is StoreStreamDiscRead disc) {
-            int read = disc.ReadInto(_buffer, _buffer.Length);
-            if (read <= 0) return false;
-            _bufferLength = read;
-            _bufferOffset = 0;
-            return true;
-        }
-
-        // Fallback for stream types without a read-into-buffer method (memory, azure, ...):
-        // IReadStream.Read returns a new array, so we copy it into our buffer here.
-        byte[] rawData = _innerStream.Read(_buffer.Length);
-
-        if (rawData == null || rawData.Length == 0) return false;
-
-        Buffer.BlockCopy(rawData, 0, _buffer, 0, rawData.Length);
-        _bufferLength = rawData.Length;
+        int read = _innerStream.ReadInto(_buffer);
+        if (read <= 0) return false;
+        _bufferLength = read;
         _bufferOffset = 0;
         return true;
     }

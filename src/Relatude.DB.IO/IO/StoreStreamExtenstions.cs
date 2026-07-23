@@ -9,8 +9,11 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(-v));
     }
     public static int ReadVerifiedInt(this IReadStream s) {
-        var v1 = BitConverter.ToInt32(s.Read(4), 0);
-        var v2 = BitConverter.ToInt32(s.Read(4), 0);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b[..4]);
+        s.ReadInto(b[4..]);
+        var v1 = BitConverter.ToInt32(b[..4]);
+        var v2 = BitConverter.ToInt32(b[4..]);
         if (v1 != -v2) throw new Exception("Verification failed. Invalid binary data. ");
         return v1;
     }
@@ -19,8 +22,11 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(-v));
     }
     public static uint ReadVerifiedUInt(this IReadStream s) {
-        var v1 = BitConverter.ToUInt32(s.Read(4), 0);
-        var v2 = BitConverter.ToUInt32(s.Read(4), 0);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b[..4]);
+        s.ReadInto(b[4..]);
+        var v1 = BitConverter.ToUInt32(b[..4]);
+        var v2 = BitConverter.ToUInt32(b[4..]);
         if (v1 != -v2) throw new Exception("Verification failed. Invalid binary data. ");
         return v1;
     }
@@ -67,8 +73,11 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(-v));
     }
     public static long ReadVerifiedLong(this IReadStream s) {
-        var v1 = BitConverter.ToInt64(s.Read(8), 0);
-        var v2 = BitConverter.ToInt64(s.Read(8), 0);
+        Span<byte> b = stackalloc byte[16];
+        s.ReadInto(b[..8]);
+        s.ReadInto(b[8..]);
+        var v1 = BitConverter.ToInt64(b[..8]);
+        var v2 = BitConverter.ToInt64(b[8..]);
         if (v1 != -v2) throw new Exception("Verification failed. Invalid binary data. ");
         return v1;
     }
@@ -78,35 +87,45 @@ public static class StoreStreamExtenstions {
         s.Append(new byte[1] { (byte)(v ? 1 : 0) });
     }
     public static bool ReadBool(this IReadStream s) {
-        return s.Read(1)[0] == 1;
+        Span<byte> b = stackalloc byte[1];
+        s.ReadInto(b);
+        return b[0] == 1;
     }
 
     public static void WriteOneByte(this IAppendStream s, byte v) {
         s.Append(new byte[1] { v });
     }
     public static byte ReadOneByte(this IReadStream s) {
-        return s.Read(1)[0];
+        Span<byte> b = stackalloc byte[1];
+        s.ReadInto(b);
+        return b[0];
     }
 
     public static void WriteUInt(this IAppendStream s, uint v) {
         s.Append(BitConverter.GetBytes(v));
     }
     public static uint ReadUInt(this IReadStream s) {
-        return BitConverter.ToUInt32(s.Read(4), 0);
+        Span<byte> b = stackalloc byte[4];
+        s.ReadInto(b);
+        return BitConverter.ToUInt32(b);
     }
 
     public static void WriteInt(this IAppendStream s, int v) {
         s.Append(BitConverter.GetBytes(v));
     }
     public static int ReadInt(this IReadStream s) {
-        return BitConverter.ToInt32(s.Read(4), 0);
+        Span<byte> b = stackalloc byte[4];
+        s.ReadInto(b);
+        return BitConverter.ToInt32(b);
     }
 
     public static void WriteLong(this IAppendStream s, long v) {
         s.Append(BitConverter.GetBytes(v));
     }
     public static long ReadLong(this IReadStream s) {
-        return BitConverter.ToInt64(s.Read(8), 0);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b);
+        return BitConverter.ToInt64(b);
     }
 
     public static byte[] GetByteArray(this IAppendStream s, ref long position) {
@@ -177,7 +196,9 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(v));
     }
     public static double ReadDouble(this IReadStream s) {
-        return BitConverter.ToDouble(s.Read(8), 0);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b);
+        return BitConverter.ToDouble(b);
     }
 
     unsafe public static void WriteDecimal(this IAppendStream s, decimal v) {
@@ -194,21 +215,27 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(v));
     }
     public static float ReadFloat(this IReadStream s) {
-        return BitConverter.ToSingle(s.Read(4), 0);
+        Span<byte> b = stackalloc byte[4];
+        s.ReadInto(b);
+        return BitConverter.ToSingle(b);
     }
 
     public static void WriteULong(this IAppendStream s, ulong v) {
         s.Append(BitConverter.GetBytes(v));
     }
     public static ulong ReadULong(this IReadStream s) {
-        return BitConverter.ToUInt64(s.Read(8), 0);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b);
+        return BitConverter.ToUInt64(b);
     }
 
     public static void WriteChar(this IAppendStream s, char v) {
         s.Append(BitConverter.GetBytes(v));
     }
     public static char ReadChar(this IReadStream s) {
-        return BitConverter.ToChar(s.Read(2), 0);
+        Span<byte> b = stackalloc byte[2];
+        s.ReadInto(b);
+        return BitConverter.ToChar(b);
     }
     public static string ReadUTF8StringNoLengthPrefix(this IReadStream s, int length) { // no length prefix
         return Encoding.UTF8.GetString(s.Read(length));
@@ -231,7 +258,9 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(v.Ticks));
     }
     public static DateTime ReadDateTimeUtc(this IReadStream s) {
-        return new DateTime(BitConverter.ToInt64(s.Read(8), 0), DateTimeKind.Utc);
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b);
+        return new DateTime(BitConverter.ToInt64(b), DateTimeKind.Utc);
     }
 
     public static void WriteDateTimeOffset(this IAppendStream s, DateTimeOffset v) {
@@ -255,7 +284,9 @@ public static class StoreStreamExtenstions {
         s.Append(BitConverter.GetBytes(v.Ticks));
     }
     public static TimeSpan ReadTimeSpan(this IReadStream s) {
-        return new TimeSpan(BitConverter.ToInt64(s.Read(8), 0));
+        Span<byte> b = stackalloc byte[8];
+        s.ReadInto(b);
+        return new TimeSpan(BitConverter.ToInt64(b));
     }
 
     public static DateTime? ReadDateTimeNullable(this IReadStream s) {
@@ -278,7 +309,9 @@ public static class StoreStreamExtenstions {
         s.Append(v.ToByteArray());
     }
     public static Guid ReadGuid(this IReadStream s) {
-        return new Guid(s.Read(16));
+        Span<byte> b = stackalloc byte[16];
+        s.ReadInto(b);
+        return new Guid(b);
     }
 
     public static void WriteByteArray(this IAppendStream s, byte[] v) {

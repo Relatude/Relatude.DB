@@ -6,6 +6,13 @@ public interface IReadStream : IStream {
     bool More();
     Task<int> ReadAsync(byte[] buffer, int count);
     byte[] Read(int length);
+    // Reads up to buffer.Length bytes into the span, returning the count read. Allocation-free
+    // for the disc/buffered streams; the default falls back to Read for other implementations.
+    int ReadInto(Span<byte> buffer) {
+        var b = Read(buffer.Length);
+        b.AsSpan().CopyTo(buffer);
+        return b.Length;
+    }
     void Skip(long length);
     long Position { get; set; }
     void RecordChecksum();

@@ -54,19 +54,17 @@ public class StoreStreamDiscRead : IReadStream {
         _bytesRead += length;
         return block;
     }
-    // Reads up to 'count' bytes into the start of the caller's buffer without allocating a new array.
-    // Returns the number actually read (may be less than requested near end of file). Used by
-    // StoreStreamBufferedRead to refill its buffer without a per-fill allocation.
-    public int ReadInto(byte[] buffer, int count) {
-        count = (int)Math.Min(count, Length - Position);
+    public int ReadInto(Span<byte> buffer) {
+        var count = (int)Math.Min(buffer.Length, Length - Position);
         if (count <= 0) return 0;
+        var dest = buffer[..count];
         var total = 0;
         while (total < count) {
-            var read = _stream.Read(buffer, total, count - total);
+            var read = _stream.Read(dest[total..]);
             if (read <= 0) break; // unexpected short read; caller refills again
             total += read;
         }
-        _checkSum.EvaluateChecksumIfRecording(buffer, total);
+        _checkSum.EvaluateChecksumIfRecording(dest[..total]);
         _bytesRead += total;
         return total;
     }
