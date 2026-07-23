@@ -27,7 +27,13 @@ public class StoreStreamDiscRead : IReadStream {
         Exception? lastException = null;
         for (int i = 1; i <= numberOfRetries; ++i) {
             try {
-                return new(filePath, FileMode.Open, FileAccess.Read);
+                // SequentialScan hints the OS cache manager to read ahead and evict already-read pages,
+                // which speeds up the forward-only bulk reads this stream is used for (state file, log replay,
+                // index files). It never affects correctness if the position is moved; it would only reduce
+                // read-ahead value for backward/random seeks - which do not occur on this path: random-access
+                // node reads use the append stream's Get(), and the seekable AsStream() path unwraps to a plain
+                // FileStream (see ReadStreamWrapper.Wrap).
+                return new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
             } catch (FileNotFoundException) {
                 throw; // No need to retry if the file is not found
             } catch (IOException) {
@@ -47,6 +53,22 @@ public class StoreStreamDiscRead : IReadStream {
         _checkSum.EvaluateChecksumIfRecording(block);
         _bytesRead += length;
         return block;
+    }
+    // Reads up to 'count' bytes into the start of the caller's buffer without allocating a new array.
+    // Returns the number actually read (may be less than requested near end of file). Used by
+    // StoreStreamBufferedRead to refill its buffer without a per-fill allocation.
+    public int ReadInto(byte[] buffer, int count) {
+        count = (int)Math.Min(count, Length - Position);
+        if (count <= 0) return 0;
+        var total = 0;
+        while (total < count) {
+            var read = _stream.Read(buffer, total, count - total);
+            if (read <= 0) break; // unexpected short read; caller refills again
+            total += read;
+        }
+        _checkSum.EvaluateChecksumIfRecording(buffer, total);
+        _bytesRead += total;
+        return total;
     }
     public long Length => _stream.Length;
     public bool More() {

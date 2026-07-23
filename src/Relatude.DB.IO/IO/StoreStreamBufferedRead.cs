@@ -11,6 +11,7 @@ public class StoreStreamBufferedRead : IReadStream {
         _innerStream = readStream ?? throw new ArgumentNullException(nameof(readStream));
         _buffer = new byte[maxBufferSize];
     }
+    public IReadStream InnerStream => _innerStream;
     public bool More() {
         // If we have data in the buffer, we definitely have more
         if (_bufferOffset < _bufferLength) return true;
@@ -69,8 +70,17 @@ public class StoreStreamBufferedRead : IReadStream {
     private bool fillBuffer() {
         if (!_innerStream.More()) return false;
 
-        // Note: Since IReadStream.Read returns an array rather than taking a buffer,
-        // we have to handle the allocation/copying here.
+        // Fast path: read straight into our reusable buffer, no per-fill allocation.
+        if (_innerStream is StoreStreamDiscRead disc) {
+            int read = disc.ReadInto(_buffer, _buffer.Length);
+            if (read <= 0) return false;
+            _bufferLength = read;
+            _bufferOffset = 0;
+            return true;
+        }
+
+        // Fallback for stream types without a read-into-buffer method (memory, azure, ...):
+        // IReadStream.Read returns a new array, so we copy it into our buffer here.
         byte[] rawData = _innerStream.Read(_buffer.Length);
 
         if (rawData == null || rawData.Length == 0) return false;

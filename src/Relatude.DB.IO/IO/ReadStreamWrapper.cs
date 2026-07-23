@@ -4,10 +4,15 @@ public class ReadStreamWrapper : System.IO.Stream {
     private readonly IReadStream _stream;
     public IReadStream InnerStream => _stream;
     public static Stream Wrap(IReadStream stream) {
-        if (stream is StoreStreamDiscRead storeStream) {
-            // optimization, switch to direct file stream to avoid double buffering
-            var filePath = storeStream.InnerFilePath;
-            stream.Dispose();
+        // If this is a disc stream - possibly behind the buffering wrapper - switch to a direct
+        // FileStream. This avoids double buffering and gives random-access consumers (e.g. media
+        // range requests / image decoding) an efficient, plainly seekable stream without the
+        // SequentialScan hint that the bulk-read path uses.
+        var disc = stream as StoreStreamDiscRead
+                   ?? (stream as StoreStreamBufferedRead)?.InnerStream as StoreStreamDiscRead;
+        if (disc != null) {
+            var filePath = disc.InnerFilePath;
+            stream.Dispose(); // disposing the buffered wrapper also disposes the inner disc stream
             return File.OpenRead(filePath);
         } else {
             return new ReadStreamWrapper(stream);
