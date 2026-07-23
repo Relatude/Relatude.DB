@@ -12,7 +12,9 @@ namespace Relatude.DB.DataStores.Indexes;
 /// </summary>
 public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStringArrayIndex {
     IdByValue<string> _nodeIdByValue;
-    Dictionary<int, string[]> _valueByNodeId;
+    // node arrays are normalized into a reference counted intern table (see StringArrayInternTable):
+    // typically a handful of value combinations are shared by millions of nodes
+    StringArrayInternTable _arrays;
     readonly SetRegister _sets;
     readonly object _loadLock = new();
     bool _loaded;
@@ -21,7 +23,7 @@ public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStrin
         : base(store, justCreated) {
         _sets = sets;
         _nodeIdByValue = new(sets);
-        _valueByNodeId = [];
+        _arrays = new();
         UniqueKey = uniqueKey;
         FriendlyName = friendlyName;
     }
@@ -38,13 +40,13 @@ public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStrin
         }
     }
     void addToMemory(int nodeId, string[] value) {
-        _valueByNodeId.Add(nodeId, value);
+        _arrays.Add(nodeId, value);
         // dedup: the same string may occur several times in one node's array,
         // but the node must only be indexed once per unique value (and deindexed symmetrically)
         foreach (var str in value.Distinct()) _nodeIdByValue.Index(str, nodeId);
     }
     void removeFromMemory(int nodeId, string[] value) {
-        _valueByNodeId.Remove(nodeId);
+        _arrays.Remove(nodeId);
         foreach (var str in value.Distinct()) _nodeIdByValue.DeIndex(str, nodeId);
     }
 
@@ -91,7 +93,7 @@ public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStrin
             case IndexOperator.Smaller:
             case IndexOperator.GreaterOrEqual:
             case IndexOperator.SmallerOrEqual:
-                return _valueByNodeId.Count;
+                return _arrays.Count;
             default: break;
         }
         throw new NotSupportedException(GetType().Name + " types does not support the " + op.ToString().ToUpper() + " operator. ");
@@ -114,7 +116,7 @@ public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStrin
     public void ClearCache() {
         lock (_loadLock) {
             _nodeIdByValue = new(_sets);
-            _valueByNodeId = [];
+            _arrays = new();
             _loaded = false;
         }
     }

@@ -7,13 +7,14 @@ namespace Relatude.DB.DataStores.Indexes;
 
 public class StringArrayIndex : IStringArrayIndex {
     readonly IdByValue<string> _nodeIdByValue;
-    readonly Dictionary<int, string[]> _valueByNodeId;
+    // node arrays are normalized into a reference counted intern table (see StringArrayInternTable):
+    // typically a handful of value combinations are shared by millions of nodes
+    readonly StringArrayInternTable _arrays = new();
     readonly SetRegister _sets;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     internal StringArrayIndex(Definition def, string uniqueKey, string freindlyName, IIOProvider io, FileKeyUtility fileKey, Guid propertyId) {
         _nodeIdByValue = new(def.Sets);
-        _valueByNodeId = new();
         UniqueKey = uniqueKey;
         FriendlyName = freindlyName;
         _io = io;
@@ -35,14 +36,14 @@ public class StringArrayIndex : IStringArrayIndex {
     }
     public void Add(int nodeId, object value) {
         var v = (string[])value;
-        _valueByNodeId.Add(nodeId, v);
+        _arrays.Add(nodeId, v);
         // dedup: the same string may occur several times in one node's array,
         // but the node must only be indexed once per unique value (and deindexed symmetrically)
         foreach (var str in v.Distinct()) _nodeIdByValue.Index(str, nodeId);
     }
     public void Remove(int nodeId, object value) {
         var v = (string[])value;
-        _valueByNodeId.Remove(nodeId);
+        _arrays.Remove(nodeId);
         foreach (var str in v.Distinct()) _nodeIdByValue.DeIndex(str, nodeId);
     }
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
@@ -60,7 +61,7 @@ public class StringArrayIndex : IStringArrayIndex {
             case IndexOperator.Smaller:
             case IndexOperator.GreaterOrEqual:
             case IndexOperator.SmallerOrEqual:
-                return _valueByNodeId.Count;
+                return _arrays.Count;
             default: break;
         }
         throw new NotSupportedException(GetType().Name + " types does not support the " + op.ToString().ToUpper() + " operator. ");
@@ -110,10 +111,12 @@ public class StringArrayIndex : IStringArrayIndex {
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
-        stream.WriteVerifiedInt(_valueByNodeId.Count);
-        foreach (var kv in _valueByNodeId) {
-            stream.WriteUInt((uint)kv.Key);
-            stream.WriteStringArray(kv.Value);
+        // same on-disk format as before normalization (one nodeId + array per node), so existing
+        // index files stay readable and no migration is needed; ReadState re-interns on load
+        stream.WriteVerifiedInt(_arrays.Count);
+        foreach (var (nodeId, array) in _arrays.All) {
+            stream.WriteUInt((uint)nodeId);
+            stream.WriteStringArray(array);
         }
         stream.WriteVerifiedLong(logTimestamp);
         stream.WriteGuid(walFileId);

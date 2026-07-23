@@ -48,12 +48,17 @@ public class FacetTests {
 
     static readonly string[] _categories = ["Toys", "Games", "Tools", "Food"];
 
-    static NodeStore OpenProductStore(out List<Product> all, out List<Brand> brands) {
+    static NodeStore OpenProductStore(out List<Product> all, out List<Brand> brands, bool persistedIndexes = false) {
         var dm = new Datamodel();
         dm.Add<Product>();
         dm.Add<Book>();
         dm.Add<Brand>();
-        var store = new NodeStore(DataStoreLocal.Open(dm));
+        var store = persistedIndexes
+            ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
+                UsePersistedValueIndexesByDefault = true,
+                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+            }, null, null, null, null, null, () => new Relatude.DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null, null)))
+            : new NodeStore(DataStoreLocal.Open(dm));
         brands = [
             new Brand { Id = Guid.NewGuid(), Name = "Acme" },
             new Brand { Id = Guid.NewGuid(), Name = "Globex" },
@@ -561,6 +566,59 @@ public class FacetTests {
             Assert.AreEqual(g.Count(), tagFacet.Values.First(v => Equals(v.Value, g.Key)).Count, "Wrong count for tag " + g.Key);
         }
         Assert.AreEqual(1, tagFacet.Values.First(v => Equals(v.Value, "yellow")).Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void StringArrayIndex_InternedArrays_SurviveUpdateChurnAndDeletes() {
+        // the string array index normalizes node arrays into a reference counted intern table;
+        // this cycles nodes through shared/unique/empty combinations so interned arrays are
+        // repeatedly created, released to zero, and their slots reused - counts and selections
+        // must stay exactly in sync with a plain LINQ ground truth throughout
+        var store = OpenProductStore(out _, out _);
+        churnTagsAndVerify(store);
+    }
+
+    [TestMethod]
+    public void StringArrayIndex_InternedArrays_PersistedBackend_SurviveUpdateChurnAndDeletes() {
+        // same churn against the persisted (native KV) string array index, whose in-memory mirror
+        // uses the same intern table
+        var store = OpenProductStore(out _, out _, persistedIndexes: true);
+        churnTagsAndVerify(store);
+    }
+
+    static void churnTagsAndVerify(NodeStore store) {
+        var stored = store.Query<Product>().ToList();
+        var victims = stored.Take(20).ToList();
+        string[][] combos = [["x1"], ["x1", "y2"], [], ["y2", "x1"], ["z3"], ["x1", "y2"]];
+        foreach (var combo in combos) {
+            foreach (var p in victims) {
+                store.UpdateProperty<Product, string[]>(p.Id, x => x.Tags, combo);
+                p.Tags = combo;
+            }
+        }
+        // stagger: leave every victim on a different combination, some sharing, some empty
+        for (var i = 0; i < victims.Count; i++) {
+            var combo = combos[i % combos.Length];
+            store.UpdateProperty<Product, string[]>(victims[i].Id, x => x.Tags, combo);
+            victims[i].Tags = combo;
+        }
+        store.Delete(victims[0].Id);
+        store.Delete(victims[7].Id);
+        var remaining = stored.Where(p => p.Id != victims[0].Id && p.Id != victims[7].Id).ToList();
+
+        var res = store.Query<Product>().Facets().AddValueFacet("Tags").Execute();
+        var tagFacet = FacetOf(res, "Tags");
+        Assert.AreEqual(remaining.Count, res.SourceCount);
+        foreach (var g in remaining.SelectMany(p => p.Tags.Distinct()).GroupBy(t => t)) {
+            Assert.AreEqual(g.Count(), tagFacet.Values.First(v => Equals(v.Value, g.Key)).Count, "Wrong count for tag " + g.Key);
+        }
+        foreach (var fv in tagFacet.Values.Where(v => v.Value != null)) { // no stale buckets with wrong counts either
+            Assert.AreEqual(remaining.Count(p => p.Tags.Contains((string)fv.Value!)), fv.Count, "Stale count for tag " + fv.Value);
+        }
+        // selection exercises FilterInValues over the same index state:
+        var sel = store.Query<Product>().Facets().AddValueFacet("Tags").SetFacetValue("Tags", "x1").Execute();
+        Assert.AreEqual(remaining.Count(p => p.Tags.Contains("x1")), sel.Count());
         store.Dispose();
     }
 

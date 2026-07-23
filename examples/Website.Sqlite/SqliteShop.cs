@@ -272,7 +272,8 @@ public sealed class SqliteShop : IDisposable {
             }
             tasks.Add(() => items.AddRange(fetchItems(f, fts, page, pageSize)));
             if (!noSelections && fts != null) tasks.Add(() => ftsHits = countFts(fts));
-            Parallel.ForEach(tasks, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, t => t());
+            //Parallel.ForEach(tasks, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, t => t());
+            Parallel.ForEach(tasks, new ParallelOptions { MaxDegreeOfParallelism = 1}, t => t());
         }
 
         var total = full.Total;
