@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.IO;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie;
+using Relatude.DB.DataStores.Sets;
 using System.Linq.Expressions;
 namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 // not threadsafe
@@ -67,9 +68,26 @@ public class CharArrayTrie : IDisposable {
     public int SearchCount(TermSet query, bool orSearch, int maxWordsEval) {
         return SearchIdsUnsorted(query, orSearch,maxWordsEval).Count; // TODO: optimize this to not return all ids, also if only one search term not need for hashset...
     }
-    public HashSet<int> SearchIdsUnsorted(TermSet expressions, bool orSearch, int maxWordsEval) {
+    public ICollection<int> SearchIdsUnsorted(TermSet expressions, bool orSearch, int maxWordsEval) {
         // Be careful with changes as some logic doubles with Search() method...
         if (expressions.Terms.Length == 0) return [];
+        // fast path: a single plain term needs no set combining and matches at most one word,
+        // whose hit list already holds distinct node ids - collect them straight into the best
+        // set representation (bit set when large). The general path below pays a hash insert
+        // per id, which dominated the cold cost of one-word searches with many hits.
+        if (expressions.Terms.Length == 1 && expressions.Terms[0] is { Prefix: false, Infix: false, Fuzzy: false }) {
+            var singleWord = expressions.Terms[0].Word;
+            if (singleWord.Length > MaxWordLength) singleWord = singleWord[..MaxWordLength];
+            if (singleWord.Length < MinWordLength) return []; // same gate as below: words this short are never indexed
+            foreach (var hits in _trie.SearchExact(singleWord.ToCharArray())) {
+                if (hits == null) throw new NullReferenceException();
+                return IdSet.CollectUnique(nodeIds(hits));
+            }
+            return [];
+            static IEnumerable<int> nodeIds(HitCounts hits) {
+                foreach (var wordHit in hits.Values) yield return wordHit.NodeId;
+            }
+        }
         List<HashSet<int>> results = [];
         foreach (var expression in expressions.Terms) {
             var ids = new HashSet<int>();

@@ -82,6 +82,26 @@ public class IdSet {
             _fastSet = _ids.ToFrozenSet();
         }
     }
+    /// <summary>
+    /// Collects an enumeration of DISTINCT ids into the best set representation in one pass:
+    /// a <see cref="DenseBitSet"/> when large and dense enough, otherwise a plain list.
+    /// This replaces the old "new HashSet&lt;int&gt;(ids)" pattern in the set builders, which paid
+    /// a hash insert and ~8x the memory per id only to be converted to a bit set right after -
+    /// that materialization dominated the cold cost of large range and text queries.
+    /// NB: the input must not contain duplicates (a list would keep them and corrupt Count);
+    /// all callers enumerate index structures that hold each id at most once.
+    /// </summary>
+    static internal ICollection<int> CollectUnique(IEnumerable<int> uniqueIds) {
+        var list = new List<int>();
+        int min = int.MaxValue, max = int.MinValue;
+        foreach (var id in uniqueIds) {
+            if (id < min) min = id;
+            if (id > max) max = id;
+            list.Add(id);
+        }
+        if (DenseBitSet.WorthIt(list.Count, min, max)) return DenseBitSet.From(list, min, max);
+        return list;
+    }
     static internal int IntersectionCount(IdSet set1, IdSet set2) {
         if (set1.Count == 0 || set2.Count == 0) return 0;
         if (set1.Bits is { } b1 && set2.Bits is { } b2) return DenseBitSet.AndCount(b1, b2);

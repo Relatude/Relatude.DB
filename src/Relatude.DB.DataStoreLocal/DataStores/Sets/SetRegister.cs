@@ -297,19 +297,17 @@ public class SetRegister(long maxSize) {
         var i = 1;
         foreach (var typeSet in allTypeSets) stateIds[i++] = typeSet.StateId;
         var key = new SetCacheKey(SetOperation.WhereTypes, stateIds, null);
-        return createOrLookup(key, () => {
-            var result = new HashSet<int>();
+        return createOrLookup(key, () => IdSet.CollectUnique(whereTypes(set, allTypeSets)));
+        static IEnumerable<int> whereTypes(IdSet set, IdSet[] allTypeSets) {
             foreach (var id in set.Enumerate()) {
                 foreach (var typeSet in allTypeSets) {
                     if (typeSet.Has(id)) {
-                        result.Add(id);
+                        yield return id;
                         break;
                     }
                 }
             }
-            return result;
-        });
-
+        }
     }
     internal IdSet WhereHasRelation(IdSet set, bool[] directions, Relation[] relations, int to, RelQuestion method) {
         var stateIds = new long[relations.Length + 1];
@@ -322,7 +320,7 @@ public class SetRegister(long maxSize) {
         var key = new SetCacheKey(SetOperation.WhereHasRelation, stateIds, valueKeys);
         return createOrLookup(key, () => {
             if (method != RelQuestion.Relates) throw new NotSupportedException();
-            HashSet<int> result = new();
+            var result = new List<int>(); // each set id is tested once, so the list is distinct
             foreach (var id in set.Enumerate()) {
                 if (containsRelation(0, id, directions, relations, to)) result.Add(id);
             }
@@ -348,7 +346,7 @@ public class SetRegister(long maxSize) {
         var key = new SetCacheKey(SetOperation.WhereNotEqualId, [a.StateId], [id]);
         return createOrLookup(key, () => {
             if (a.Count == 0) return EmptySet.Instance;
-            var newSet = new HashSet<int>(a.Count);
+            var newSet = new List<int>(a.Count); // a is a set, so removing one id keeps it distinct
             foreach (var v in a.Enumerate()) if (v != id) newSet.Add(v);
             return newSet;
         });
@@ -360,47 +358,41 @@ public class SetRegister(long maxSize) {
     internal IdSet WhereIn<T>(IValueIndex<T> index, IEnumerable<T> values) where T : notnull {
         var valueKeys = values.SelectMany(value => index.GetCacheKey(value, QueryType.Equal)).ToArray();
         var key = new SetCacheKey(SetOperation.WhereIn, [index.StateId], valueKeys);
-        return createOrLookup(key, () => {
-            var ids = values.SelectMany(value => index.GetIds(value)).ToHashSet();
-            return ids;
-        }
-        );
+        // Distinct() because the caller may pass the same value twice; per-value id sets are
+        // disjoint (one value per id in a value index), so the combined ids are then unique
+        return createOrLookup(key, () => IdSet.CollectUnique(values.Distinct().SelectMany(index.GetIds)));
     }
     internal IdSet WhereNotEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereNotEqual, [index.StateId], index.GetCacheKey(value, QueryType.NotEqual));
         return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.Ids);
-            ids.ExceptWith(index.GetIds(value));
-            return ids;
+            var exclude = index.GetIds(value);
+            // membership test must be O(1): small backing collections may be list based, so copy
+            // those to a hash set once (cheap, they are small) instead of hashing ALL index ids
+            ICollection<int> excludeFast;
+            if (exclude is MutableSet ms && ms.TryGetBits(out var bits)) excludeFast = bits;
+            else if (exclude.Count > 16) excludeFast = new HashSet<int>(exclude);
+            else excludeFast = exclude;
+            return IdSet.CollectUnique(whereNot(index.Ids, excludeFast));
+            static IEnumerable<int> whereNot(IEnumerable<int> ids, ICollection<int> exclude) {
+                foreach (var id in ids) if (!exclude.Contains(id)) yield return id;
+            }
         });
     }
     internal IdSet WhereGreaterOrEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereGreaterOrEqual, [index.StateId], index.GetCacheKey(value, QueryType.GreaterOrEqual));
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.GreaterThan(value, true));
-            return ids;
-        });
+        return createOrLookup(key, () => IdSet.CollectUnique(index.GreaterThan(value, true)));
     }
     internal IdSet WhereGreater<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereGreater, [index.StateId], index.GetCacheKey(value, QueryType.Greater));
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.GreaterThan(value, false));
-            return ids;
-        });
+        return createOrLookup(key, () => IdSet.CollectUnique(index.GreaterThan(value, false)));
     }
     internal IdSet WhereLessOrEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereLessOrEqual, [index.StateId], index.GetCacheKey(value, QueryType.LessOrEqual));
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.LessThan(value, true));
-            return ids;
-        });
+        return createOrLookup(key, () => IdSet.CollectUnique(index.LessThan(value, true)));
     }
     internal IdSet WhereLess<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereLess, [index.StateId], index.GetCacheKey(value, QueryType.Less));
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.LessThan(value, false));
-            return ids;
-        });
+        return createOrLookup(key, () => IdSet.CollectUnique(index.LessThan(value, false)));
     }
 
     // all ids whose value is within the range (used by CountInRange, i.e. range facets)
@@ -411,10 +403,7 @@ public class SetRegister(long maxSize) {
             fromInclusive,
             toInclusive
                 ]);
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(index.RangeSearch(from, to, fromInclusive, toInclusive));
-            return ids;
-        });
+        return createOrLookup(key, () => IdSet.CollectUnique(index.RangeSearch(from, to, fromInclusive, toInclusive)));
     }
     internal IdSet WhereRangeOverlapsRange<T>(IValueIndex<T> indexFrom, IValueIndex<T> indexTo, T from, T to, bool fromInclusive, bool toInclusive) where T : notnull {
         var key = new SetCacheKey(SetOperation.WherePartOfRange, [indexFrom.StateId, indexTo.StateId], [
@@ -424,10 +413,8 @@ public class SetRegister(long maxSize) {
             .. indexTo.GetCacheKey(to, toInclusive ? QueryType.LessOrEqual : QueryType.Less),
             fromInclusive,
             toInclusive]);
-        return createOrLookup(key, () => {
-            var ids = new HashSet<int>(indexFrom.WhereRangeOverlapsRange(indexTo, from, to, fromInclusive, toInclusive));
-            return ids;
-        });
+        // each id holds exactly one (from, to) range, so the overlap enumeration is distinct
+        return createOrLookup(key, () => IdSet.CollectUnique(indexFrom.WhereRangeOverlapsRange(indexTo, from, to, fromInclusive, toInclusive)));
     }
 
     public IdSet OrderBy<T>(IValueIndex<T> index, IdSet unsorted, bool descending) where T : notnull {

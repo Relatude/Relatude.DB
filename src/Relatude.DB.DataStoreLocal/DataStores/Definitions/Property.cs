@@ -167,20 +167,57 @@ namespace Relatude.DB.DataStores.Definitions {
             if (missing != null) missing.Count = 0; // reset any partial cache assignments before the pass
             if (ranges != null) foreach (var r in ranges) r.fv.Count = 0;
             var comparer = ValueIndex<T>.comparer;
-            foreach (var id in nodeIds.Enumerate()) {
-                if (!index.TryGetValue(id, out var v)) {
-                    if (missing != null) missing.Count++;
-                    continue;
+            if (ranges != null && areContiguousAscending(ranges, comparer)) {
+                // the auto-generated buckets are contiguous ascending half-open ranges, so every
+                // value belongs to at most one bucket, found by a binary search over the shared
+                // boundaries - much cheaper than testing each range per id (big sets against ten
+                // price buckets spend most of their pass in these comparisons)
+                var froms = new T[ranges.Count];
+                for (var i = 0; i < ranges.Count; i++) froms[i] = ranges[i].from;
+                var last = ranges[^1];
+                foreach (var id in nodeIds.Enumerate()) {
+                    if (!index.TryGetValue(id, out var v)) {
+                        if (missing != null) missing.Count++;
+                        continue;
+                    }
+                    if (comparer.Compare(v, froms[0]) < 0) continue; // below the first bucket
+                    if (last.fv.ToInclusive ? comparer.Compare(v, last.to) > 0 : comparer.Compare(v, last.to) >= 0) continue; // beyond the last bucket
+                    var idx = Array.BinarySearch(froms, v, comparer);
+                    if (idx < 0) idx = ~idx - 1; // not an exact boundary: the bucket starting just before v
+                    ranges[idx].fv.Count++;
                 }
-                if (ranges != null) {
-                    foreach (var r in ranges) {
-                        if (r.fv.FromInclusive ? comparer.Compare(v, r.from) < 0 : comparer.Compare(v, r.from) <= 0) continue;
-                        if (r.fv.ToInclusive ? comparer.Compare(v, r.to) <= 0 : comparer.Compare(v, r.to) < 0) r.fv.Count++;
+            } else {
+                foreach (var id in nodeIds.Enumerate()) {
+                    if (!index.TryGetValue(id, out var v)) {
+                        if (missing != null) missing.Count++;
+                        continue;
+                    }
+                    if (ranges != null) {
+                        foreach (var r in ranges) {
+                            if (r.fv.FromInclusive ? comparer.Compare(v, r.from) < 0 : comparer.Compare(v, r.from) <= 0) continue;
+                            if (r.fv.ToInclusive ? comparer.Compare(v, r.to) <= 0 : comparer.Compare(v, r.to) < 0) r.fv.Count++;
+                        }
                     }
                 }
             }
             if (missing != null) sets.SetCachedCount(SetOperation.CountMissing, index.StateId, nodeIds.StateId, null, missing.Count);
             if (ranges != null) foreach (var r in ranges) sets.SetCachedCount(SetOperation.CountInRange, index.StateId, nodeIds.StateId, rangeKey(index, r.from, r.to, r.fv), r.fv.Count);
+            return true;
+        }
+        // true when the buckets form one ascending chain of non-empty half-open ranges (each
+        // interior bucket's exclusive end is the next bucket's inclusive start) - the shape
+        // addRangeBuckets generates. Only then can bucket membership be found by binary search;
+        // anything else (overlaps, gaps, inclusive interior ends) keeps the general per-range test.
+        static bool areContiguousAscending(List<(T from, T to, FacetValue fv)> ranges, IComparer<T> comparer) {
+            for (var i = 0; i < ranges.Count; i++) {
+                var r = ranges[i];
+                if (!r.fv.FromInclusive) return false;
+                if (comparer.Compare(r.from, r.to) >= 0) return false; // empty or reversed bucket
+                if (i < ranges.Count - 1) {
+                    if (r.fv.ToInclusive) return false; // boundary value must belong to exactly one bucket
+                    if (comparer.Compare(r.to, ranges[i + 1].from) != 0) return false;
+                }
+            }
             return true;
         }
         static object[] rangeKey(IValueIndex<T> index, T from, T to, FacetValue fv) =>
