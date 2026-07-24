@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 
@@ -6,10 +7,16 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheKeyBuilder<T>.IGapSource where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
+    const long _idsCacheMaxSize = 32 * 1024 * 1024;
     readonly ISortedIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly GapCacheKeyBuilder<T> _keyBuilder;
+    // per-value id sets read once from the tree, then served from memory in the best set
+    // representation. Invalidation is per value on writes (not per index state), so the cache
+    // survives unrelated writes that would evict every StateId keyed set in the SetRegister.
+    readonly Cache<T, ICollection<int>> _idsCache = new(_idsCacheMaxSize);
+    bool _idsCacheUsed; // stays false during state load, so loads skip the per-add eviction probe
     public NativeKvValueIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName)
         : base(store, engine.OpenOrCreateIndex<T>(uniqueKey).GetTimestamp() == 0) {
         UniqueKey = uniqueKey;
@@ -27,10 +34,12 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     public string UniqueKey { get; }
     public string FriendlyName { get; }
     void add(int id, T value) {
+        if (_idsCacheUsed) _idsCache.Clear_EvenIf0Size(value);
         _index.Set(id, value);
         _stateId.RegisterAddition(id, value);
     }
     void remove(int id, T value) {
+        if (_idsCacheUsed) _idsCache.Clear_EvenIf0Size(value);
         _index.Remove(id);
         _stateId.RegisterRemoval(id, value);
     }
@@ -42,6 +51,8 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (T)value);
     public void ClearCache() {
         _keyBuilder.Clear();
+        _idsCache.ClearAll_NotSize0();
+        _idsCacheUsed = false;
     }
     public void CompressMemory() {
 
@@ -111,7 +122,12 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         return ba.SequenceCompareTo(bb);
     }
     public ICollection<int> GetIds(T value) {
-        return _index.GetIds(value).ToList();
+        if (!UseValueIdsCache) return _index.GetIds(value).ToList();
+        if (_idsCache.TryGet(value, out var cached)) return cached;
+        var ids = IdSet.CollectUnique(_index.GetIds(value));
+        _idsCache.Set(value, ids, ids is DenseBitSet bits ? bits.MemSizeEstimate : ids.Count * sizeof(int) + 40);
+        _idsCacheUsed = true;
+        return ids;
     }
     public T GetValue(int nodeId) {
         return _index.GetValue(nodeId);

@@ -60,6 +60,11 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public T? MaxValue() { _o.Dequeue(); return _i.MaxValue(); }
     public T? MinValue() { _o.Dequeue(); return _i.MinValue(); }
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.RangeSearch(from, to, fromInclusive, toInclusive); }
+    public ICollection<int> CollectGreaterThan(T value, bool inclusive) { _o.Dequeue(); return _i.CollectGreaterThan(value, inclusive); }
+    public ICollection<int> CollectLessThan(T value, bool inclusive) { _o.Dequeue(); return _i.CollectLessThan(value, inclusive); }
+    public ICollection<int> CollectRangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.CollectRangeSearch(from, to, fromInclusive, toInclusive); }
+    public ICollection<int> CollectIn(IEnumerable<T> values) { _o.Dequeue(); return _i.CollectIn(values); }
+    public ICollection<int> CollectNotEqual(T value) { _o.Dequeue(); return _i.CollectNotEqual(value); }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { _o.Dequeue(); _i.WriteNewTimestampDueToRewriteHotswap(newTimestamp, walFileId); }
     public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }

@@ -30,6 +30,23 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive);
     IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive);
 
+    // batch set construction; defaults preserve the enumeration path for indexes without a faster route
+    ICollection<int> CollectGreaterThan(T value, bool inclusive) => IdSet.CollectUnique(GreaterThan(value, inclusive));
+    ICollection<int> CollectLessThan(T value, bool inclusive) => IdSet.CollectUnique(LessThan(value, inclusive));
+    ICollection<int> CollectRangeSearch(T from, T to, bool fromInclusive, bool toInclusive) => IdSet.CollectUnique(RangeSearch(from, to, fromInclusive, toInclusive));
+    ICollection<int> CollectIn(IEnumerable<T> values) => IdSet.CollectUnique(values.Distinct().SelectMany(GetIds));
+    ICollection<int> CollectNotEqual(T value) {
+        var exclude = GetIds(value);
+        ICollection<int> excludeFast;
+        if (exclude is MutableSet ms && ms.TryGetBits(out var bits)) excludeFast = bits;
+        else if (exclude.Count > 16) excludeFast = new HashSet<int>(exclude);
+        else excludeFast = exclude;
+        return IdSet.CollectUnique(whereNot(Ids, excludeFast));
+        static IEnumerable<int> whereNot(IEnumerable<int> ids, ICollection<int> exclude) {
+            foreach (var id in ids) if (!exclude.Contains(id)) yield return id;
+        }
+    }
+
     int CountEqual(IdSet nodeIds, T value);
     int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive);
     IdSet Filter(IdSet nodeIds, IndexOperator op, T v);

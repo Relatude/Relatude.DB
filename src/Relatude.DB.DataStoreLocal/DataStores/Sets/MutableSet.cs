@@ -48,6 +48,11 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
         bits = null!;
         return false;
     }
+    // adds all ids to target: word-parallel when bit set backed
+    internal void OrInto(DenseBitSet target) {
+        if (_items is DenseBitSet bits) target.OrWith(bits);
+        else foreach (var id in _items) target.Add(id);
+    }
     // |this ∩ ids| without materializing anything; word-parallel when both sides are bit sets
     public int CountIntersection(IdSet ids) {
         if (Count == 0 || ids.Count == 0) return 0;

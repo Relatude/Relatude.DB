@@ -147,6 +147,11 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
         return _idByValue.RangeSearch(from, to, fromInclusive, toInclusive);
     }
+    public ICollection<int> CollectGreaterThan(T value, bool inclusive) => _idByValue.CollectGreaterThan(value, inclusive);
+    public ICollection<int> CollectLessThan(T value, bool inclusive) => _idByValue.CollectLessThan(value, inclusive);
+    public ICollection<int> CollectRangeSearch(T from, T to, bool fromInclusive, bool toInclusive) => _idByValue.CollectRangeSearch(from, to, fromInclusive, toInclusive);
+    public ICollection<int> CollectIn(IEnumerable<T> values) => _idByValue.CollectValues(values.Distinct());
+    public ICollection<int> CollectNotEqual(T value) => _idByValue.CollectNotEqualValue(value);
     public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) {
         return _idByValue.InSetRangeCount(ids, from, to, fromInclusive, toInclusive);
     }

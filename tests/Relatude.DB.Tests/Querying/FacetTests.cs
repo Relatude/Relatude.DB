@@ -570,6 +570,32 @@ public class FacetTests {
     }
 
     [TestMethod]
+    public void UpdatesAndDeletes_PersistedBackend_AreReflectedInFacetCounts() {
+        // persisted (native KV) value indexes serve per-value id sets from an in-memory cache;
+        // updates and deletes must evict exactly the touched values so counts stay correct
+        var store = OpenProductStore(out _, out _, persistedIndexes: true);
+        var stored = store.Query<Product>().ToList();
+        void verify() {
+            var res = store.Query<Product>().Facets().AddValueFacet("Category").AddValueFacet("Active").Execute();
+            var catFacet = FacetOf(res, "Category");
+            foreach (var g in stored.GroupBy(p => p.Category))
+                Assert.AreEqual(g.Count(), catFacet.Values.First(v => Equals(v.Value, g.Key)).Count, "Wrong count for " + g.Key);
+            var activeFacet = FacetOf(res, "Active");
+            Assert.AreEqual(stored.Count(p => p.Active), activeFacet.Values.First(v => Equals(v.Value, true)).Count);
+        }
+        verify(); // populates the per-value cache
+        var toy = stored.First(p => p.Category == "Toys");
+        store.UpdateProperty<Product, string>(toy.Id, p => p.Category, "Food");
+        toy.Category = "Food";
+        verify();
+        var game = stored.First(p => p.Category == "Games");
+        store.Delete(game.Id);
+        stored.Remove(game);
+        verify();
+        store.Dispose();
+    }
+
+    [TestMethod]
     public void StringArrayIndex_InternedArrays_SurviveUpdateChurnAndDeletes() {
         // the string array index normalizes node arrays into a reference counted intern table;
         // this cycles nodes through shared/unique/empty combinations so interned arrays are

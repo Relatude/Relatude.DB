@@ -140,6 +140,27 @@ public sealed class DenseBitSet : ICollection<int> {
         }
         return new DenseBitSet(words, newBase, count);
     }
+    /// <summary>this |= other. Bits of other outside this window are added individually.</summary>
+    public void OrWith(DenseBitSet other) {
+        overlap(this, other, out var wt, out var wo, out var n);
+        for (var i = 0; i < n; i++) {
+            var before = _words[wt + i];
+            var merged = before | other._words[wo + i];
+            if (merged != before) {
+                Count += BitOperations.PopCount(merged) - BitOperations.PopCount(before);
+                _words[wt + i] = merged;
+            }
+        }
+        for (var w = 0; w < other._words.Length; w++) {
+            if (w >= wo && w < wo + n) continue;
+            var word = other._words[w];
+            while (word != 0) {
+                var bit = BitOperations.TrailingZeroCount(word);
+                Add(other._base + (w << 6) + bit);
+                word &= word - 1;
+            }
+        }
+    }
     /// <summary>a \ b (all of a except the ids also in b).</summary>
     public static DenseBitSet AndNot(DenseBitSet a, DenseBitSet b) {
         var words = (ulong[])a._words.Clone();

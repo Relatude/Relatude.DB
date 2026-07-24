@@ -18,7 +18,8 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     // binary search over the sorted values so they always agree
     static readonly IComparer<T> _comparer = ValueIndex<T>.comparer;
     int _idCount = 0;
-    // the values are split into to dictionaries to save memory. 
+    int _maxId = 0; // upper window bound for bit set results, never shrinks
+    // the values are split into to dictionaries to save memory.
     // for values with only one id, is stored in _idByValue
     // for values with multiple ids, is stored in _idsByValue
     readonly Dictionary<T, int> _idByValue = [];
@@ -35,6 +36,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         } else {
             _idByValue.Add(value, id);
         }
+        if (id > _maxId) _maxId = id;
         _idCount++;
         _sortedIds = null;
         _sortedValues = null;
@@ -224,6 +226,59 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
                 throw new Exception("Integrity problems with index. ");
             }
         }
+    }
+    // one-allocation set construction: counts first (set counts, no id enumeration), then fills
+    // either a bit set (word-parallel for bit backed value sets) or an exactly sized list.
+    // Replaces the id-at-a-time yield chains + CollectUnique's list-then-bitset double pass.
+    public ICollection<int> CollectGreaterThan(T from, bool inclusive) {
+        if (ValueCount == 0) return Array.Empty<int>();
+        ensureSortedValues();
+        return collect(greaterThan(_sortedValues!, from, inclusive));
+    }
+    public ICollection<int> CollectLessThan(T to, bool inclusive) {
+        if (ValueCount == 0) return Array.Empty<int>();
+        ensureSortedValues();
+        return collect(lessThan(_sortedValues!, to, inclusive));
+    }
+    public ICollection<int> CollectRangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
+        if (ValueCount == 0) return Array.Empty<int>();
+        ensureSortedValues();
+        return collect(rangeSearch(_sortedValues!, from, to, fromInclusive, toInclusive));
+    }
+    public ICollection<int> CollectValues(IEnumerable<T> distinctValues) {
+        if (ValueCount == 0) return Array.Empty<int>();
+        return collect(distinctValues);
+    }
+    public ICollection<int> CollectNotEqualValue(T value) {
+        if (ValueCount == 0) return Array.Empty<int>();
+        return collect(notEqual(value));
+        IEnumerable<T> notEqual(T v) {
+            var eq = EqualityComparer<T>.Default;
+            foreach (var k in _idByValue.Keys) if (!eq.Equals(k, v)) yield return k;
+            foreach (var k in _idsByValue.Keys) if (!eq.Equals(k, v)) yield return k;
+        }
+    }
+    ICollection<int> collect(IEnumerable<T> values) {
+        // one probe sweep resolving each value to its ids, then a fill from the resolved refs
+        // (a second dictionary sweep costs more than these two lists at high cardinality)
+        var singles = new List<int>();
+        var sets = new List<MutableSet>();
+        long total = 0;
+        foreach (var v in values) {
+            if (_idByValue.TryGetValue(v, out var id)) { singles.Add(id); total++; }
+            else if (_idsByValue.TryGetValue(v, out var s)) { sets.Add(s); total += s.Count; }
+        }
+        if (total == 0) return Array.Empty<int>();
+        if (DenseBitSet.WorthIt((int)total, 0, _maxId)) {
+            var bits = new DenseBitSet(0, _maxId);
+            foreach (var id in singles) bits.Add(id);
+            foreach (var set in sets) set.OrInto(bits);
+            return bits;
+        }
+        var result = new List<int>((int)total);
+        result.AddRange(singles);
+        foreach (var set in sets) result.AddRange(set);
+        return result;
     }
     static IEnumerable<T> greaterThan(List<T> sortedList, T from, bool inclusive) {
         int index = sortedList.BinarySearch(from, _comparer);

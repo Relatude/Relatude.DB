@@ -6,6 +6,7 @@ using Relatude.DB.Datamodels;
 namespace Relatude.DB.DataStores.Sets;
 
 public class SetRegister(long maxSize) {
+    internal static bool UseBatchCollect = true; // A/B toggle for the batch set construction paths
     bool _disabled = maxSize == 0;
     static int _aggregateCacheSize = 10000;
     private readonly SetCache _cache = new(maxSize);
@@ -360,11 +361,14 @@ public class SetRegister(long maxSize) {
         var key = new SetCacheKey(SetOperation.WhereIn, [index.StateId], valueKeys);
         // Distinct() because the caller may pass the same value twice; per-value id sets are
         // disjoint (one value per id in a value index), so the combined ids are then unique
-        return createOrLookup(key, () => IdSet.CollectUnique(values.Distinct().SelectMany(index.GetIds)));
+        return createOrLookup(key, () => UseBatchCollect
+            ? index.CollectIn(values)
+            : IdSet.CollectUnique(values.Distinct().SelectMany(index.GetIds)));
     }
     internal IdSet WhereNotEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereNotEqual, [index.StateId], index.GetCacheKey(value, QueryType.NotEqual));
         return createOrLookup(key, () => {
+            if (UseBatchCollect) return index.CollectNotEqual(value);
             var exclude = index.GetIds(value);
             // membership test must be O(1): small backing collections may be list based, so copy
             // those to a hash set once (cheap, they are small) instead of hashing ALL index ids
@@ -380,19 +384,19 @@ public class SetRegister(long maxSize) {
     }
     internal IdSet WhereGreaterOrEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereGreaterOrEqual, [index.StateId], index.GetCacheKey(value, QueryType.GreaterOrEqual));
-        return createOrLookup(key, () => IdSet.CollectUnique(index.GreaterThan(value, true)));
+        return createOrLookup(key, () => UseBatchCollect ? index.CollectGreaterThan(value, true) : IdSet.CollectUnique(index.GreaterThan(value, true)));
     }
     internal IdSet WhereGreater<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereGreater, [index.StateId], index.GetCacheKey(value, QueryType.Greater));
-        return createOrLookup(key, () => IdSet.CollectUnique(index.GreaterThan(value, false)));
+        return createOrLookup(key, () => UseBatchCollect ? index.CollectGreaterThan(value, false) : IdSet.CollectUnique(index.GreaterThan(value, false)));
     }
     internal IdSet WhereLessOrEqual<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereLessOrEqual, [index.StateId], index.GetCacheKey(value, QueryType.LessOrEqual));
-        return createOrLookup(key, () => IdSet.CollectUnique(index.LessThan(value, true)));
+        return createOrLookup(key, () => UseBatchCollect ? index.CollectLessThan(value, true) : IdSet.CollectUnique(index.LessThan(value, true)));
     }
     internal IdSet WhereLess<T>(IValueIndex<T> index, T value) where T : notnull {
         var key = new SetCacheKey(SetOperation.WhereLess, [index.StateId], index.GetCacheKey(value, QueryType.Less));
-        return createOrLookup(key, () => IdSet.CollectUnique(index.LessThan(value, false)));
+        return createOrLookup(key, () => UseBatchCollect ? index.CollectLessThan(value, false) : IdSet.CollectUnique(index.LessThan(value, false)));
     }
 
     // all ids whose value is within the range (used by CountInRange, i.e. range facets)
@@ -403,7 +407,9 @@ public class SetRegister(long maxSize) {
             fromInclusive,
             toInclusive
                 ]);
-        return createOrLookup(key, () => IdSet.CollectUnique(index.RangeSearch(from, to, fromInclusive, toInclusive)));
+        return createOrLookup(key, () => UseBatchCollect
+            ? index.CollectRangeSearch(from, to, fromInclusive, toInclusive)
+            : IdSet.CollectUnique(index.RangeSearch(from, to, fromInclusive, toInclusive)));
     }
     internal IdSet WhereRangeOverlapsRange<T>(IValueIndex<T> indexFrom, IValueIndex<T> indexTo, T from, T to, bool fromInclusive, bool toInclusive) where T : notnull {
         var key = new SetCacheKey(SetOperation.WherePartOfRange, [indexFrom.StateId, indexTo.StateId], [
