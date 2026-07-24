@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Website.Elastic": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "search.html",
+      "applicationUrl": "http://localhost:5055",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
