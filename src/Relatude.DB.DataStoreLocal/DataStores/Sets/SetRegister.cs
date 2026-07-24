@@ -106,10 +106,9 @@ public class SetRegister(long maxSize) {
         return this.Intersection(nodeIds, matches);
     }
     public IdSet FilterRanges<T>(IValueIndex<T> index, IdSet nodeIds, List<Tuple<T, T>> selectedRanges) where T : notnull {
-        // optimize later, intersect in index directly
-        IdSet? matches = null; // ranges are inclusive at both ends, matching NativeKvValueIndex.FilterRanges
+        IdSet? matches = null; // ranges are inclusive at both ends
         foreach (var range in selectedRanges) {
-            var rangeMatch = this.Intersection(this.WhereGreaterOrEqual(index, range.Item1), this.WhereLessOrEqual(index, range.Item2));
+            var rangeMatch = this.WhereValueInRange(index, range.Item1, range.Item2, true, true);
             matches = matches == null ? rangeMatch : this.Union(matches, rangeMatch);
         }
         if (matches == null) return IdSet.Empty;

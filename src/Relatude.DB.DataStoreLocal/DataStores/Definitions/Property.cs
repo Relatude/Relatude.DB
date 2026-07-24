@@ -56,9 +56,9 @@ namespace Relatude.DB.DataStores.Definitions {
                     parts.Add(whereMissing(index, nodeIds));
                 } else if (fv.Value2 == null) {
                     values.Add(coerce(fv.Value));
-                } else { // range bucket
-                    var s = index.Filter(nodeIds, fv.FromInclusive ? IndexOperator.GreaterOrEqual : IndexOperator.Greater, coerce(fv.Value));
-                    parts.Add(index.Filter(s, fv.ToInclusive ? IndexOperator.SmallerOrEqual : IndexOperator.Smaller, coerce(fv.Value2)));
+                } else { // range bucket: one bounded in-range collect, not (>=from) ∩ (<=to) half-range sets
+                    var inRange = Definition.Sets.WhereValueInRange(index, coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
+                    parts.Add(Definition.Sets.Intersection(nodeIds, inRange));
                 }
             }
             if (values.Count > 0) parts.Add(index.FilterInValues(nodeIds, values));

@@ -73,11 +73,7 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     }
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);
     public IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues) => _sets.FilterInValues(this, nodeIds, selectedValues);
-    public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) {
-        var matchSet = new HashSet<int>();
-        foreach (var range in selectedRanges) foreach (var id in RangeSearch(range.Item1, range.Item2, true, true)) matchSet.Add(id);
-        return IdSet.UncachableSet(nodeIds.Enumerate().Where(matchSet.Contains).ToList());
-    }
+    public IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges) => _sets.FilterRanges(this, nodeIds, selectedRanges);
     public IdSet FilterRangesObject(IdSet set, object from, object to) {
         return FilterRanges(set, [new Tuple<T, T>((T)from, (T)to)]);
     }

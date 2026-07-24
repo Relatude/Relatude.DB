@@ -48,9 +48,13 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
         bits = null!;
         return false;
     }
-    // adds all ids to target: word-parallel when bit set backed
+    // adds all ids to target: word-parallel when bit set backed, concrete-type loops otherwise
+    // (an ICollection<int> foreach would pay a boxed enumerator + interface calls per id)
     internal void OrInto(DenseBitSet target) {
         if (_items is DenseBitSet bits) target.OrWith(bits);
+        else if (_items is int[] arr) foreach (var id in arr) target.Add(id);
+        else if (_items is List<int> list) foreach (var id in list) target.Add(id);
+        else if (_items is HashSet<int> hashSet) foreach (var id in hashSet) target.Add(id);
         else foreach (var id in _items) target.Add(id);
     }
     // |this ∩ ids| without materializing anything; word-parallel when both sides are bit sets
