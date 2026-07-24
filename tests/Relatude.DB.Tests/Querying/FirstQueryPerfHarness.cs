@@ -61,7 +61,9 @@ public class FirstQueryPerfHarness {
             var wait = int.TryParse(Environment.GetEnvironmentVariable("FQ_WAIT"), out var w) ? w : 0;
             if (wait > 0) Thread.Sleep(wait); // simulates the user arriving a moment after startup (mirror warm-up done)
             seedIfEmpty(store);
-            log($"==== first query perf {DateTime.Now:HH:mm:ss} nodes={store.Query<FqProduct>().Count():n0} open={swOpen.Elapsed.TotalSeconds:0.0}s wait={wait}ms kvSize={kvSizeMb(dir):n0}MB ====");
+            var sidecar = Path.Combine(dir, "nativekv", "facetsets.bin");
+            var sidecarInfo = File.Exists(sidecar) ? (new FileInfo(sidecar).Length / 1024 / 1024) + "MB" : "none";
+            log($"==== first query perf {DateTime.Now:HH:mm:ss} nodes={store.Query<FqProduct>().Count():n0} open={swOpen.Elapsed.TotalSeconds:0.0}s wait={wait}ms kvSize={kvSizeMb(dir):n0}MB sidecar={sidecarInfo} ====");
 
             double t(string label, Func<long> run) {
                 var sw = Stopwatch.StartNew();
@@ -87,8 +89,19 @@ public class FirstQueryPerfHarness {
                 foreach (var f in res.Facets) foreach (var v in f.Values) s = s * 31 + v.Count;
                 return s;
             }
+            long filtered() { // value facets counted against the selection's filtered set: the per-value cache path
+                var res = store.Query<FqProduct>().Facets()
+                    .AddValueFacet("Category").AddValueFacet("Brand").AddValueFacet("InStock")
+                    .SetFacetValue("Category", "Furniture")
+                    .Page(0, 10).Execute();
+                long s = res.TotalCount;
+                foreach (var f in res.Facets) foreach (var v in f.Values) s = s * 31 + v.Count;
+                return s;
+            }
             t("landing 5 facets, FIRST (all caches cold)", landing);
             t("landing 5 facets, repeat (warm)", landing);
+            t("filtered Category=Furniture, FIRST", filtered);
+            t("filtered Category=Furniture, repeat (warm)", filtered);
             clearAll(storeData);
             t("landing 5 facets, after ClearCache", landing);
 

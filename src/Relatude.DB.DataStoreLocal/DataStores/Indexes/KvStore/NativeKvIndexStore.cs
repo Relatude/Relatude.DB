@@ -6,15 +6,18 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 public class NativeKvIndexStore : PersistedIndexStoreBase {
     readonly BPlusTreeStorageEngine _fileStorage;
     readonly ISortedIndex<string> _settings;
+    readonly string? _kvFolder;
+    readonly Dictionary<string, byte[]>? _pendingFacetSets; // sidecar sections awaiting their index, see FacetSetsFile
+    readonly Dictionary<string, IValueIdsCachePersistence> _cachePersistableIndexes = [];
     enum SettingKey : int {
         WalId = 1,
     }
     public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
         string? filePath;
         if (folderPath != null) {
-            var kvFolder = Path.Combine(folderPath, "nativekv");
-            if (!Directory.Exists(kvFolder)) Directory.CreateDirectory(kvFolder);
-            filePath = Path.Combine(kvFolder, "nativekv.db");
+            _kvFolder = Path.Combine(folderPath, "nativekv");
+            if (!Directory.Exists(_kvFolder)) Directory.CreateDirectory(_kvFolder);
+            filePath = Path.Combine(_kvFolder, "nativekv.db");
         } else {
             filePath = null;// memory only
         }
@@ -24,6 +27,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
+        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp());
     }
     // The native store's word indexes are always factory-supplied (Lucene). They use a near-real-time
     // reader and are rebuilt from the WAL when behind, so committing them on every data transaction
@@ -32,6 +36,10 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
         justCreated = index.PersistedTimestamp == 0;
+        _cachePersistableIndexes[id] = index;
+        if (_pendingFacetSets != null && _pendingFacetSets.Remove(id, out var section)) {
+            try { ((IValueIdsCachePersistence)index).LoadCachedSets(section); } catch { } // stale or corrupt section: stay cold
+        }
         return index;
     }
     protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
@@ -77,5 +85,10 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         // the base re-persists the WAL id and a timestamp of 0 immediately after this returns.
         _fileStorage.DeleteAll();
     }
-    protected override void DisposeCore() => _fileStorage.Dispose();
+    protected override void DisposeCore() {
+        if (_kvFolder != null) {
+            try { FacetSetsFile.Write(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _cachePersistableIndexes.Values); } catch { }
+        }
+        _fileStorage.Dispose();
+    }
 }

@@ -105,6 +105,26 @@ public sealed class DenseBitSet : ICollection<int> {
     }
     public int MemSizeEstimate => _words.Length * 8 + 40;
 
+    internal void WriteTo(BinaryWriter w) {
+        w.Write(_base);
+        w.Write(Count);
+        w.Write(_words.Length);
+        var bytes = new byte[_words.Length * 8];
+        Buffer.BlockCopy(_words, 0, bytes, 0, bytes.Length);
+        w.Write(bytes);
+    }
+    internal static DenseBitSet ReadFrom(BinaryReader r) {
+        var baseId = r.ReadInt32();
+        var count = r.ReadInt32();
+        var wordCount = r.ReadInt32();
+        if (wordCount < 0 || wordCount > 512 * 1024 * 1024 / 8) throw new InvalidDataException("Unreasonable bit set size.");
+        var words = new ulong[wordCount];
+        var bytes = r.ReadBytes(wordCount * 8);
+        if (bytes.Length != wordCount * 8) throw new EndOfStreamException();
+        Buffer.BlockCopy(bytes, 0, words, 0, bytes.Length);
+        return new DenseBitSet(words, baseId, count);
+    }
+
     /// <summary>|a ∩ b| by word-parallel AND + popcount over the overlapping window.</summary>
     public static int AndCount(DenseBitSet a, DenseBitSet b) {
         if (a.Count == 0 || b.Count == 0) return 0;

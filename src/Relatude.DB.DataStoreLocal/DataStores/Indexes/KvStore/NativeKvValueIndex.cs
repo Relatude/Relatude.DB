@@ -5,7 +5,7 @@ using Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
-internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheKeyBuilder<T>.IGapSource where T : notnull {
+internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheKeyBuilder<T>.IGapSource, IValueIdsCachePersistence where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
     const long _idsCacheMaxSize = 32 * 1024 * 1024;
     readonly ISortedIndex<T> _index;
@@ -125,6 +125,54 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         _idsCache.Set(value, ids, ids is DenseBitSet bits ? bits.MemSizeEstimate : ids.Count * sizeof(int) + 40);
         _idsCacheUsed = true;
         return ids;
+    }
+    // the cache content is persisted across clean shutdowns (see FacetSetsFile), so the first
+    // filtered facet query after a restart is served from memory instead of walking the tree
+    byte[]? IValueIdsCachePersistence.SaveCachedSets() {
+        var tag = FacetSetsFile.TypeTag<T>();
+        if (tag == 0) return null;
+        var entries = new List<KeyValuePair<T, ICollection<int>>>();
+        foreach (var kv in _idsCache.AllNotThreadSafe()) {
+            if (kv.Value is DenseBitSet || kv.Value is List<int>) entries.Add(kv);
+        }
+        if (entries.Count == 0) return null;
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write(tag);
+        w.Write(entries.Count);
+        foreach (var (value, set) in entries) {
+            FacetSetsFile.WriteValue(w, value);
+            if (set is DenseBitSet bits) { w.Write((byte)1); bits.WriteTo(w); } else {
+                var list = (List<int>)set;
+                w.Write((byte)0);
+                w.Write(list.Count);
+                foreach (var id in list) w.Write(id);
+            }
+        }
+        return ms.ToArray();
+    }
+    void IValueIdsCachePersistence.LoadCachedSets(byte[] section) {
+        using var r = new BinaryReader(new MemoryStream(section));
+        if (r.ReadByte() != FacetSetsFile.TypeTag<T>()) return;
+        var count = r.ReadInt32();
+        for (var i = 0; i < count; i++) {
+            var value = FacetSetsFile.ReadValue<T>(r);
+            ICollection<int> set;
+            int size;
+            if (r.ReadByte() == 1) {
+                var bits = DenseBitSet.ReadFrom(r);
+                set = bits;
+                size = bits.MemSizeEstimate;
+            } else {
+                var n = r.ReadInt32();
+                var list = new List<int>(n);
+                for (var j = 0; j < n; j++) list.Add(r.ReadInt32());
+                set = list;
+                size = n * sizeof(int) + 40;
+            }
+            _idsCache.Set(value, set, size);
+        }
+        _idsCacheUsed = true;
     }
     public T GetValue(int nodeId) {
         return _index.GetValue(nodeId);
