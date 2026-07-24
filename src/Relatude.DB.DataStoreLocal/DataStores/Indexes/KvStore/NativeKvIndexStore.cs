@@ -19,8 +19,8 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
             filePath = null;// memory only
         }
         var options = new BPlusTreeEngineOptions() {
-            PageCacheBytes = 64L * 1024 * 1024, // 64 MB
-            ValueCacheEntries = 1000,
+            //PageCacheBytes = 64L * 1024 * 1024 * 100, // 64 MB
+            ValueCacheEntries = 10000,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");

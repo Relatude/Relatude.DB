@@ -65,7 +65,7 @@ public class OneToOneIndex(SetRegister setRegister) : IRelationIndex {
             stream.WriteDateTimeUtc(d.DateTimeUtc);
         }
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(BufferReader stream) {
         var count = stream.ReadVerifiedInt();
         for (int i = 0; i < count; i++) {
             int source = (int)stream.ReadUInt();

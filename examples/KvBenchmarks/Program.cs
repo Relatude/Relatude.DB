@@ -9,7 +9,7 @@ using KvBenchmarks.Harness;
 //   dotnet run -c Release [-- options]
 //
 // Options:
-//   --n=100000                          entries per scenario
+//   --n=xxxxx                          entries per scenario
 //   --engines=native,sqlite,zonetree,faster
 //   --scenarios=int,long,string,guid,datetime
 //   --data=<dir>                        working directory for store files (default: %TEMP%)
@@ -18,17 +18,19 @@ using KvBenchmarks.Harness;
 
 var options = Options.Parse(args);
 
-if (options.ChildEngine is not null)
-{
+if (args.Length == 0) {
+    options.N = 100_000;
+    options.SkipVerify = true;
+    options.InProcess = true;
+}
+
+if (options.ChildEngine is not null) {
     // Child mode: run a single (engine, scenario) benchmark and emit the result as JSON.
     var scenario = Scenarios.Get(options.ChildScenario!);
     BenchResult res;
-    try
-    {
+    try {
         res = scenario.Bench(options.ChildEngine, options.N, options.ChildDir!);
-    }
-    catch (Exception ex)
-    {
+    } catch (Exception ex) {
         res = new BenchResult { Engine = options.ChildEngine, Scenario = options.ChildScenario!, N = options.N, Error = ex.ToString() };
     }
     Console.Error.WriteLine();
@@ -43,30 +45,24 @@ Console.WriteLine();
 string root = Path.Combine(options.DataDir, $"kvbench_{Environment.ProcessId}");
 Directory.CreateDirectory(root);
 
-try
-{
+try {
     // ---- 1. Correctness verification (candidates replayed against the native engine) ----
-    if (!options.SkipVerify)
-    {
+    if (!options.SkipVerify) {
         Console.WriteLine("Verifying engines against the native reference…");
         bool allOk = true;
-        foreach (string engine in options.Engines.Where(e => e != "native"))
-        {
-            foreach (string scenarioName in options.Scenarios)
-            {
+        foreach (string engine in options.Engines.Where(e => e != "native")) {
+            foreach (string scenarioName in options.Scenarios) {
                 var scenario = Scenarios.Get(scenarioName);
                 string dir = Path.Combine(root, "verify", engine, scenarioName);
                 string? err = scenario.Verify(engine, dir);
                 Console.WriteLine($"  {engine,-9} {scenarioName,-9} {(err is null ? "OK" : "MISMATCH")}");
-                if (err is not null)
-                {
+                if (err is not null) {
                     Console.WriteLine($"    {err}");
                     allOk = false;
                 }
             }
         }
-        if (!allOk)
-        {
+        if (!allOk) {
             Console.WriteLine("Verification failed — benchmark aborted; numbers from a wrong index are meaningless.");
             return 1;
         }
@@ -75,10 +71,8 @@ try
 
     // ---- 2. Benchmarks ----
     var results = new List<BenchResult>();
-    foreach (string scenarioName in options.Scenarios)
-    {
-        foreach (string engine in options.Engines)
-        {
+    foreach (string scenarioName in options.Scenarios) {
+        foreach (string engine in options.Engines) {
             Console.Error.Write($"[{scenarioName}] {engine}:");
             string dir = Path.Combine(root, "bench", scenarioName, engine);
             BenchResult res = options.InProcess
@@ -93,25 +87,20 @@ try
     // ---- 3. Report ----
     Console.WriteLine();
     Console.WriteLine($"Results — {options.N:N0} entries per scenario, batched transactions of {BenchRunner.BatchSize:N0} ops");
-    foreach (string scenarioName in options.Scenarios)
-    {
+    foreach (string scenarioName in options.Scenarios) {
         Console.WriteLine();
         PrintTable(scenarioName, results.Where(r => r.Scenario == scenarioName).ToList());
     }
     Console.WriteLine();
     PrintNotes();
     return results.Any(r => r.Error != null) ? 1 : 0;
-}
-finally
-{
+} finally {
     TryDelete(root);
 }
 
-static BenchResult RunChild(string engine, string scenarioName, Options options, string dir)
-{
+static BenchResult RunChild(string engine, string scenarioName, Options options, string dir) {
     string exe = Environment.ProcessPath!;
-    var psi = new ProcessStartInfo(exe)
-    {
+    var psi = new ProcessStartInfo(exe) {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
         UseShellExecute = false,
@@ -132,14 +121,11 @@ static BenchResult RunChild(string engine, string scenarioName, Options options,
     return JsonSerializer.Deserialize<BenchResult>(line["##RESULT## ".Length..])!;
 }
 
-static void PrintTable(string scenarioName, List<BenchResult> rows)
-{
+static void PrintTable(string scenarioName, List<BenchResult> rows) {
     string[] header = ["Engine", "Insert/s", "Read/s", "GetIds/s", "Range rows/s", "RangeCnt/s", "Update/s", "DurTx/s", "Remove/s", "Mem MB", "WSet MB", "Disk MB"];
     var table = new List<string[]> { header };
-    foreach (var r in rows)
-    {
-        if (r.Error is not null && r.Phases.Count == 0)
-        {
+    foreach (var r in rows) {
+        if (r.Error is not null && r.Phases.Count == 0) {
             table.Add([Engines.DisplayName(r.Engine), "FAILED", "", "", "", "", "", "", "", "", "", ""]);
             continue;
         }
@@ -157,11 +143,9 @@ static void PrintTable(string scenarioName, List<BenchResult> rows)
             widths[c] = Math.Max(widths[c], row[c].Length);
 
     Console.WriteLine($"— {scenarioName} —");
-    for (int i = 0; i < table.Count; i++)
-    {
+    for (int i = 0; i < table.Count; i++) {
         var sb = new StringBuilder("  ");
-        for (int c = 0; c < table[i].Length; c++)
-        {
+        for (int c = 0; c < table[i].Length; c++) {
             string cell = table[i][c];
             sb.Append(c == 0 ? cell.PadRight(widths[c]) : cell.PadLeft(widths[c]));
             if (c < table[i].Length - 1) sb.Append("  ");
@@ -173,8 +157,7 @@ static void PrintTable(string scenarioName, List<BenchResult> rows)
         Console.WriteLine($"  ! {Engines.DisplayName(r.Engine)}: {r.Error}");
 }
 
-static string Rate(PhaseResult? p)
-{
+static string Rate(PhaseResult? p) {
     if (p is null) return "-";
     double v = p.Rate;
     return v >= 10_000_000 ? $"{v / 1e6:0.0}M"
@@ -184,8 +167,7 @@ static string Rate(PhaseResult? p)
         : $"{v:0}";
 }
 
-static void PrintNotes()
-{
+static void PrintNotes() {
     Console.WriteLine("""
         Notes
           - All engines implement the same ISortedIndex<T> contract and were verified against the
@@ -207,14 +189,11 @@ static void PrintNotes()
         """);
 }
 
-static void TryDelete(string dir)
-{
-    try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
-    catch { /* still held by a child or AV scanner; the temp root is cleaned next run */ }
+static void TryDelete(string dir) {
+    try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* still held by a child or AV scanner; the temp root is cleaned next run */ }
 }
 
-sealed class Options
-{
+sealed class Options {
     public int N = 500_000;
     public string[] Engines = KvBenchmarks.Harness.Engines.All;
     public string[] Scenarios = ["int", "long", "string", "guid", "datetime"];
@@ -223,14 +202,11 @@ sealed class Options
     public bool InProcess;
     public string? ChildEngine, ChildScenario, ChildDir;
 
-    public static Options Parse(string[] args)
-    {
+    public static Options Parse(string[] args) {
         var o = new Options();
-        foreach (string a in args)
-        {
+        foreach (string a in args) {
             string[] kv = a.Split('=', 2);
-            switch (kv[0])
-            {
+            switch (kv[0]) {
                 case "--n": o.N = int.Parse(kv[1]); break;
                 case "--engines": o.Engines = kv[1] == "all" ? KvBenchmarks.Harness.Engines.All : kv[1].Split(','); break;
                 case "--scenarios": o.Scenarios = kv[1] == "all" ? ["int", "long", "string", "guid", "datetime"] : kv[1].Split(','); break;

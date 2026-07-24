@@ -29,6 +29,14 @@ public class StoreStreamMemoryRead : IReadStream {
         _checkSum.EvaluateChecksumIfRecording(block);
         return block;
     }
+    public int ReadInto(Span<byte> buffer) {
+        int len = (int)Math.Min(buffer.Length, Length - _position);
+        if (len <= 0) return 0;
+        _bytes.AsSpan((int)_position, len).CopyTo(buffer);
+        _position += len;
+        _checkSum.EvaluateChecksumIfRecording(buffer[..len]);
+        return len;
+    }
     public long Length => _bytes.Length;
     public void Skip(long length) => _position += length;
     public void RecordChecksum() => _checkSum.RecordChecksum();

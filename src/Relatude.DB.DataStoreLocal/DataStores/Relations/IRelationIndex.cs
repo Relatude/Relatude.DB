@@ -32,6 +32,6 @@ public interface IRelationIndex {
     int CountSource(int target);
     
     void SaveState(IAppendStream stream);
-    void ReadState(IReadStream stream);
+    void ReadState(BufferReader stream);
 
 }

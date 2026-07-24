@@ -150,7 +150,7 @@ public class NativeModelStore(DataStoreLocal store) {
             stream.WriteIntArray(culture.Collections);
         }
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(BufferReader stream) {
         _users.Clear();
         var noUsers = stream.ReadVerifiedInt();
         for (var i = 0; i < noUsers; i++) {

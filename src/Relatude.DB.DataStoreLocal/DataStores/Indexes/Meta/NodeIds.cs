@@ -530,7 +530,7 @@ internal class NodeTypesByIds {
             stream.WriteInt(kv.Value);
         }
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(BufferReader stream) {
         var version = stream.ReadInt();
         if (version != formatVersion) throw new Exception("Incompatible format version for NodeIds store: " + version);
         metaIdCounter = stream.ReadUInt();
@@ -545,7 +545,7 @@ internal class NodeTypesByIds {
             _metaById[shortId] = mt;
             _idByMeta[mt] = shortId;
         }
-        _metaIdsByNodeId.ReadFromStream(stream);
+        _metaIdsByNodeId.ReadFromStream(stream.AsReadStream());
         var countByTypeCount = stream.ReadInt();
         for (int i = 0; i < countByTypeCount; i++) {
             var typeId = stream.ReadGuid();

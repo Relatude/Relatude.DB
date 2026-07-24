@@ -115,7 +115,7 @@ namespace Relatude.DB.DataStores.Definitions {
             return true;
         }
         internal void SaveState(IAppendStream stream) => _index.SaveState(stream);
-        internal void ReadState(IReadStream stream) => _index.ReadState(stream);
+        internal void ReadState(BufferReader stream) => _index.ReadState(stream);
         internal int Count => _index.TotalCount;
         internal IEnumerable<RelData> Values => _index.Values;
 

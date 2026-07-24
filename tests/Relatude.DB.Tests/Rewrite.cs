@@ -16,6 +16,34 @@ public class Rewrite {
         }
     }
     [TestMethod]
+    public void StateFileRoundTrip() {
+        // Forces a state.bin write (nodes, guids, relations, ...) then reopens, so the state file
+        // is read back through BufferReader (the in-place parsing path).
+        var io = new IOProviderMemory();
+        var datamodel = Helper.GetDatamodel();
+        var storeData = DataStoreLocal.Open(datamodel, null, io);
+        var store = new NodeStore(storeData);
+
+        var articles = Helper.GenerateArticles(200);
+        var t = new Transaction(store);
+        t.Insert(articles);
+        store.Execute(t);
+        store.AddRelation(articles[1], a => a.Parent, articles[0]);
+        store.AddRelation(articles[2], a => a.Parent, articles[0]);
+
+        store.Maintenance(MaintenanceAction.SaveIndexStates); // writes state.bin
+        store.Dispose();
+
+        storeData = DataStoreLocal.Open(datamodel, null, io); // reads state.bin via BufferReader
+        store = new NodeStore(storeData);
+        testData(store, articles);
+        var parentNode = store.Query<Article>().Where(a => a.Id == articles[0].Id).Execute().First();
+        var children = store.Query<Article>().WhereRelates(a => a.Parent, parentNode.PId).Execute().ToList();
+        Assert.AreEqual(2, children.Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
     public void SimpleRewrite() {
         var io = new IOProviderMemory();
         var datamodel = Helper.GetDatamodel();

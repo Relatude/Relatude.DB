@@ -63,7 +63,7 @@ public class ManyManyIndex() : IRelationIndex {
             stream.WriteDateTimeUtc(d.DateTimeUtc);
         }
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(BufferReader stream) {
         var count = stream.ReadVerifiedInt();
         for (int i = 0; i < count; i++) {
             var source = (int)stream.ReadUInt();

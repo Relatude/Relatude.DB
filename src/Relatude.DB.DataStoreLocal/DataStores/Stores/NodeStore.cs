@@ -140,7 +140,7 @@ internal sealed class NodeStore {
             default: throw new NotImplementedException();
         }
     }
-    internal void ReadState(IReadStream stream, Action<string?, int?> progress) {
+    internal void ReadState(BufferReader stream, Action<string?, int?> progress) {
         stream.ValidateMarker(_marker);
         stream.RecordChecksum();
         var count = stream.ReadVerifiedInt();

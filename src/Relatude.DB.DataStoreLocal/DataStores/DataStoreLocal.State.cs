@@ -127,7 +127,17 @@ public sealed partial class DataStoreLocal : IDataStore {
                 LogInfo("Reading state file");
                 UpdateActivity(activityId, "Reading state file", 0);
                 setStartupProgressEstimate(50);
-                using var stream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0);
+                byte[] stateBytes;
+                using (var fileStream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0)) {
+                    stateBytes = new byte[fileStream.Length];
+                    var off = 0;
+                    while (off < stateBytes.Length) {
+                        var n = fileStream.ReadInto(stateBytes.AsSpan(off));
+                        if (n <= 0) break;
+                        off += n;
+                    }
+                }
+                var stream = new BufferReader(stateBytes);
                 LogInfo("   State file size: " + stream.Length.ToByteString());
                 var version = stream.ReadVerifiedInt();
                 if (version != _stateFileVersion) throw new Exception("   State file version mismatch. ");

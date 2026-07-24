@@ -366,7 +366,7 @@ public class AddressRegistry {
         stream.WriteChecksum();
         stream.WriteGuid(_marker);
     }
-    public void ReadState(IReadStream stream) {
+    public void ReadState(BufferReader stream) {
         stream.ValidateMarker(_marker);
         stream.RecordChecksum();
 

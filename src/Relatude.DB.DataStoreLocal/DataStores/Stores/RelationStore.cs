@@ -49,7 +49,7 @@ namespace Relatude.DB.DataStores.Stores {
             stream.WriteChecksum();
             stream.WriteGuid(_marker);
         }
-        internal void ReadState(IReadStream stream, Action<string?, int?> progress) {
+        internal void ReadState(BufferReader stream, Action<string?, int?> progress) {
             stream.ValidateMarker(_marker);
             stream.RecordChecksum();
             var noRelations = stream.ReadVerifiedInt();
