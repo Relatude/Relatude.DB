@@ -120,12 +120,22 @@ namespace Relatude.DB.DataStores.Definitions {
                 facets.MaxValue = Convert.ToDouble(max);
             } catch { } // not double-representable (DateTime/TimeSpan)
         }
-        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
+        public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) {
             var index = GetValueIndex(ctx);
             // the optimized wrapper re-checks its write-behind queue under a lock on EVERY call;
             // flush it once here and use the raw index, so the per-id counting loops below stay
             // lock free (they run millions of TryGetValue calls, possibly on several threads)
             if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            if (nodeIdsCoverIndex) {
+                // every id in the index is in nodeIds, so buckets are counted from the index's own
+                // maintained counts - no set materialization or intersection at all
+                foreach (var fv in facets.Values) {
+                    if (fv.Value == null) fv.Count = Math.Max(0, nodeIds.Count - index.IdCount);
+                    else if (fv.Value2 == null) fv.Count = index.CountEqual(coerce(fv.Value));
+                    else fv.Count = index.CountInRange(coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
+                }
+                return;
+            }
             // equality buckets count against the per-value id sets (word-parallel when both sides
             // are bit sets, so fast at any scale); range buckets and the missing bucket count in
             // one pass over the set with per-id value lookups - unless lookups are tree/disk bound
@@ -318,7 +328,12 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract void ValidateValue(object value, INodeData node);
         public abstract object ForceValueType(object value, out bool changed);
         public virtual bool CanBeFacet() => false;
-        public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) => throw new NotSupportedException();
+        public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) => throw new NotSupportedException();
+        // true when every id this property's index can contain is of the query type or one of its
+        // descendants (the property's declaring type lies within the query type's subtree), so a
+        // count over the whole index equals a count against the full type set
+        public bool IndexCoveredByQueryType(Guid queryTypeId) =>
+            Definition.Datamodel.NodeTypes.TryGetValue(Model.NodeType, out var declaring) && declaring.ThisAndAllInheritedTypes.ContainsKey(queryTypeId);
         public virtual IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) => throw new NotSupportedException();
         public virtual Facets GetDefaultFacets(Facets? given, QueryContext ctx) => throw new NotSupportedException();
 

@@ -49,6 +49,11 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
 
     int CountEqual(IdSet nodeIds, T value);
     int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive);
+
+    // whole-index counts (no node set to intersect): served from maintained counts - O(1)/O(log n)
+    // for the memory/tree indexes - so they never enumerate ids
+    int CountEqual(T value) => GetIds(value).Count;
+    int CountInRange(T from, T to, bool fromInclusive, bool toInclusive) => Math.Max(0, CountLessThan(to, toInclusive) - CountLessThan(from, !fromInclusive));
     IdSet Filter(IdSet nodeIds, IndexOperator op, T v);
     IdSet FilterInValues(IdSet nodeIds, IEnumerable<T> selectedValues);
     IdSet FilterRanges(IdSet nodeIds, List<Tuple<T, T>> selectedRanges);

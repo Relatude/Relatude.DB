@@ -31,6 +31,9 @@ public abstract class PersistedStringArrayIndexBase : PersistedIndexBase, IStrin
     public string UniqueKey { get; }
     public string FriendlyName { get; }
 
+    // also called in the background right after the store opens, so the first query
+    // does not pay the full backend read (see DataStoreLocal.warmIndexMirrorsInBackground)
+    internal void EnsureLoaded() => ensureLoaded();
     void ensureLoaded() {
         if (_loaded) return;
         lock (_loadLock) {

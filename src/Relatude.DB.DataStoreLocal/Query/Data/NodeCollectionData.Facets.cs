@@ -47,10 +47,24 @@ namespace Relatude.DB.Query.Data {
             } else {
                 foreach (var prop in selectedProps) specialSetsForSelectedFacets.Add(prop.Id, sidewaysSet(prop));
             }
+            // when the counting set is the pristine, unfiltered full type set, every id a property's
+            // index holds is in the set (for props declared within the query type), so buckets can be
+            // counted from the index's own maintained counts - O(log n) tree probes instead of
+            // materializing and intersecting id sets. This is what makes the first facet query on a
+            // large persisted store instant instead of walking the whole value tree per bucket:
+            var sourceIsFullTypeSet = false;
+            if (!ctx.ExcludeDecendants) {
+                var ctxSet = _def.GetAllIdsForType(_nodeType.Id, ctx);
+                if (ids.StateId == ctxSet.StateId) {
+                    // the context set is a subset of the unfiltered set, so equal counts means equal sets
+                    sourceIsFullTypeSet = ctxSet.Count == _def.GetAllIdsForTypeNoAccessControl(_nodeType.Id, true).Count;
+                }
+            }
             void countFacets(Property prop) {
                 var facets = result[prop.Id];
                 var set = specialSetsForSelectedFacets.TryGetValue(prop.Id, out var s) ? s : innerSet;
-                prop.CountFacets(set, facets, ctx);
+                var covered = sourceIsFullTypeSet && set.StateId == ids.StateId && prop.IndexCoveredByQueryType(_nodeType.Id);
+                prop.CountFacets(set, facets, ctx, covered);
                 facets.ApplyOptions(); // MinCount/MaxValues/SortByCount need the counts, so this must run after counting
             }
             if (parallel && relevantProps.Count > 1) Parallel.ForEach(relevantProps, countFacets);

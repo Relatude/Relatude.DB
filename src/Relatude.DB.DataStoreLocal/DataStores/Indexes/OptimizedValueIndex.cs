@@ -39,6 +39,8 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public void CompressMemory() { _o.Dequeue(); _i.CompressMemory(); }
     public bool ContainsValue(T value) { _o.Dequeue(); return _i.ContainsValue(value); }
     public int CountEqual(IdSet nodeIds, T value) { _o.Dequeue(); return _i.CountEqual(nodeIds, value); }
+    public int CountEqual(T value) { _o.Dequeue(); return _i.CountEqual(value); }
+    public int CountInRange(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.CountInRange(from, to, fromInclusive, toInclusive); }
     public int CountGreaterThan(T value, bool inclusive) { _o.Dequeue(); return _i.CountGreaterThan(value, inclusive); }
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.CountInRangeEqual(nodeIds, from, to, fromInclusive, toInclusive); }
     public int CountLessThan(T value, bool inclusive) { _o.Dequeue(); return _i.CountLessThan(value, inclusive); }

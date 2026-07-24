@@ -251,6 +251,8 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         return _sets.CountCached(SetOperation.CountEqual, StateId, nodeIds.StateId, GetCacheKey(v, QueryType.Equal),
             () => _idByValue.CountIntersection(v, nodeIds));
     }
+    public int CountEqual(T v) => _idByValue.CountEqual(v);
+    public int CountInRange(T from, T to, bool fromInclusive, bool toInclusive) => _idByValue.RangeCount(from, to, fromInclusive, toInclusive);
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) {
         return _sets.CountCached(SetOperation.CountInRange, StateId, nodeIds.StateId, rangeKey(from, to, fromInclusive, toInclusive),
             () => _idByValue.InSetRangeCount(nodeIds, from, to, fromInclusive, toInclusive));

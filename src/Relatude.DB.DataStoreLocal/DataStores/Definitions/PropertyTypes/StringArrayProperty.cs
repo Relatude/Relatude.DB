@@ -42,7 +42,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         }
         return facets;
     }
-    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx) {
+    public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) { // covered counting not needed: the index mirror counts in memory
         var index = GetIndex(ctx);
         foreach (var facetValue in facets.Values) {
             if (facetValue.Value == null) { facetValue.Count = 0; continue; } // missing-value bucket not supported for string arrays

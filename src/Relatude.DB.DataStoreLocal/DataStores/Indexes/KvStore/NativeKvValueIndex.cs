@@ -61,6 +61,8 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         return _index.ContainsValue(value);
     }
     public int CountEqual(IdSet nodeIds, T value) => _sets.CountEqual(this, nodeIds, value);
+    public int CountEqual(T value) => Math.Max(0, _index.CountIdsSmallerThan(value, true) - _index.CountIdsSmallerThan(value, false));
+    public int CountInRange(T from, T to, bool fromInclusive, bool toInclusive) => Math.Max(0, _index.CountIdsSmallerThan(to, toInclusive) - _index.CountIdsSmallerThan(from, !fromInclusive));
     public int CountGreaterThan(T value, bool inclusive) {
         return _index.CountIdsGreaterThan(value, inclusive);
     }

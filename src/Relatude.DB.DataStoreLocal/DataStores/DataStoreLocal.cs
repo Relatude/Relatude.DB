@@ -264,6 +264,23 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo("Database intialized");
         _state = DataStoreState.Closed; // ready to be opened
     }
+    // persisted string-array mirrors load lazily on first use; loading them right after open moves
+    // that read off the first user query. Queries arriving before it finishes simply block on the
+    // same load lock they would have taken anyway.
+    void warmIndexMirrorsInBackground() {
+        var mirrors = _definition.GetAllIndexes().OfType<PersistedStringArrayIndexBase>().ToArray();
+        if (mirrors.Length == 0) return;
+        Task.Run(() => {
+            foreach (var mirror in mirrors) {
+                try {
+                    if (_state != DataStoreState.Open) return;
+                    mirror.EnsureLoaded();
+                } catch (Exception e) {
+                    LogInfo("Background load of index mirror " + mirror.FriendlyName + " failed: " + e.Message);
+                }
+            }
+        });
+    }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
         var sw = Stopwatch.StartNew();
         _startedOpeningUtc = DateTime.UtcNow;
@@ -318,6 +335,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_state == DataStoreState.Open) {
             _fileConversionEngine.ClearTempFolder();
             _scheduler.Start();
+            warmIndexMirrorsInBackground();
         }
     }
     public void Close() {
