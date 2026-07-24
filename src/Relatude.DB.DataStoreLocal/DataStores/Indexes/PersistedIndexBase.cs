@@ -23,7 +23,6 @@ namespace Relatude.DB.DataStores.Indexes;
 /// specific interface it implements (<see cref="IValueIndex{T}"/> or <see cref="IWordIndex"/>).
 /// </summary>
 public abstract class PersistedIndexBase {
-    internal static bool UseValueIdsCache = true; // A/B toggle for the per-value id set cache in persisted value indexes
     readonly IPersistedIndexStore _store;
     bool _justCreated;
 

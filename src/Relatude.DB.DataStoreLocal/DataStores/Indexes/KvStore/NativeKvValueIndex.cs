@@ -122,7 +122,6 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         return ba.SequenceCompareTo(bb);
     }
     public ICollection<int> GetIds(T value) {
-        if (!UseValueIdsCache) return _index.GetIds(value).ToList();
         if (_idsCache.TryGet(value, out var cached)) return cached;
         var ids = IdSet.CollectUnique(_index.GetIds(value));
         _idsCache.Set(value, ids, ids is DenseBitSet bits ? bits.MemSizeEstimate : ids.Count * sizeof(int) + 40);
