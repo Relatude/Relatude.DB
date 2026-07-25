@@ -93,8 +93,6 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
         return _store.CastFromDb<int>(cmd.ExecuteScalar());
     }
-    public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
-    public int GetQueuedTaskCount() => 0;
     public void Dispose() { }
 
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);

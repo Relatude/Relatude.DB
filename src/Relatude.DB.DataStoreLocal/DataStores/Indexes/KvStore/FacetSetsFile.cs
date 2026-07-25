@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 /// <summary>
@@ -6,6 +8,7 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 /// </summary>
 internal interface IValueIdsCachePersistence {
     string UniqueKey { get; }
+    bool AreThereNewUnsavedCachedSets { get; }
     byte[]? SaveCachedSets();
     void LoadCachedSets(byte[] section);
 }
@@ -21,12 +24,20 @@ internal static class FacetSetsFile {
     const long _magic = 0x315445_53464244; // "RDBFSET1"
     public const string FileName = "facetsets.bin";
 
-    public static Dictionary<string, byte[]>? TryRead(string path, long engineTimestamp) {
+    public static Dictionary<string, byte[]>? TryRead(string path, long engineTimestamp, Action<string>? log, out long cachedTimestamp) {
+        cachedTimestamp = 0;
         try {
-            if (!File.Exists(path)) return null;
+            if (!File.Exists(path)) {
+                log?.Invoke($"Facet sets file '{path}' not found; will rebuild caches from value trees.");
+                return null;
+            }
             using var r = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 20));
             if (r.ReadInt64() != _magic) return null;
-            if (r.ReadInt64() != engineTimestamp) return null;
+            cachedTimestamp = r.ReadInt64();
+            if (cachedTimestamp != engineTimestamp) {
+                log?.Invoke($"Facet sets file '{path}' is stale (cached: {cachedTimestamp}, engine: {engineTimestamp}); will rebuild caches from value trees.");
+                return null;
+            }
             var sectionCount = r.ReadInt32();
             var sections = new Dictionary<string, byte[]>(sectionCount);
             for (var i = 0; i < sectionCount; i++) {
@@ -34,18 +45,23 @@ internal static class FacetSetsFile {
                 var length = r.ReadInt32();
                 sections[key] = r.ReadBytes(length);
             }
+            log?.Invoke($"Facet sets file '{path}' loaded successfully with {sectionCount} sections.");
             return sections;
-        } catch {
+        } catch(Exception err) {
+            log?.Invoke("Error reading facet sets file '" + path + "': " + err.Message + "; will rebuild caches from value trees.");
             return null; // unreadable or truncated: fall back to cold caches
         }
     }
 
-    public static void Write(string path, long engineTimestamp, IEnumerable<IValueIdsCachePersistence> indexes) {
+    public static void Write(string path, long engineTimestamp, IEnumerable<IValueIdsCachePersistence> indexes, Action<string>? log) {
         var sections = new List<(string key, byte[] data)>();
+        var sw = Stopwatch.StartNew();
         foreach (var index in indexes) {
             var data = index.SaveCachedSets();
             if (data != null) sections.Add((index.UniqueKey, data));
         }
+        sw.Stop();
+        log?.Invoke($"Facet sets file '{path}' prepared {sections.Count} sections in {sw.ElapsedMilliseconds} ms."); sw.Restart();
         var tmp = path + ".tmp";
         using (var w = new BinaryWriter(new BufferedStream(File.Create(tmp), 1 << 20))) {
             w.Write(_magic);
@@ -58,6 +74,8 @@ internal static class FacetSetsFile {
             }
         }
         File.Move(tmp, path, true);
+        sw.Stop();
+        log?.Invoke($"Facet sets file '{path}' written successfully in {sw.ElapsedMilliseconds} ms.");
     }
 
     // typed value (de)serialization for the cache keys; tag 0 = type not supported (not persisted)

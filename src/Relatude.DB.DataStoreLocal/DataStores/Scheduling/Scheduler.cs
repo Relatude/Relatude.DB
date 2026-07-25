@@ -400,6 +400,7 @@ internal class Scheduler {
             var sw = Stopwatch.StartNew();
             //_db.Maintenance(MaintenanceAction.PurgeCache | MaintenanceAction.CompressMemory | MaintenanceAction.GarbageCollect);
             _db.Maintenance(MaintenanceAction.PurgeCache);
+            _db.UpdatePersistedCaches();
             sw.Stop();
             long finalSize = _db._nodes.CacheSize + _db._definition.Sets.CacheSize;
             _db.LogInfo("Auto cache purge " + sw.ElapsedMilliseconds.To1000N() + "ms. "

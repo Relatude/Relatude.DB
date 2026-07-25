@@ -163,6 +163,7 @@ class MaintenanceAPI {
     copyFile = (storeId: string, fromIoId: string, fromFileName: string, toIoId: string, toIoFileName: string) => this.server.execute(this.controller, 'copy-file', { storeId, fromIoId, fromFileName, toIoId, toIoFileName });
     truncateLog = (storeId: string, deleteOld: boolean) => this.server.execute(this.controller, 'truncate-log', { storeId, deleteOld });
     saveIndexStates = (storeId: string, forceRefresh: boolean, nodeSegmentsOnly: boolean) => this.server.execute(this.controller, 'save-index-states', { storeId, forceRefresh, nodeSegmentsOnly });
+    updatePersistedCaches = (storeId: string) => this.server.execute(this.controller, 'update-persisted-caches', { storeId });
     resetSecondaryLogFile = (storeId: string) => this.server.execute(this.controller, 'reset-secondary-log-file', { storeId });
     resetStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'reset-state-and-indexes', { storeId });
     deleteStateAndIndexes = (storeId: string) => this.server.execute(this.controller, 'delete-state-and-indexes', { storeId });

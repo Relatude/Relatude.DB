@@ -15,6 +15,10 @@ export const DataStorage = (P: { info: DataStoreInfo, storestate: StoreStates })
         const deleteOld = window.confirm("Do you want to delete old log entries? (OK = Yes, Cancel = No)");
         app.api.maintenance.truncateLog(storeId, deleteOld);
     }
+    const updatePersistedCaches = () => {
+        if (!storeId) return;
+        app.api.maintenance.updatePersistedCaches(storeId);
+    }
     useEffect(() => {
         const checkSecLog = async () => {
             const settings = await app.api.settings.getSettings(storeId, false);
@@ -59,6 +63,7 @@ export const DataStorage = (P: { info: DataStoreInfo, storestate: StoreStates })
                 <Button variant="light" color="red" title={P.info.runningRewriteFile} onClick={() => app.api.maintenance.cancelRewriteIfAny(app.ui.selectedStoreId!)}>Cancel rewrite</Button>
                 :
                 <Button variant="light" disabled={P.storestate != "Open" || (P.info.logTruncatableActions == 0)} onClick={truncateLog}>Truncate</Button>}
+            <Button variant="light" disabled={P.storestate != "Open"} onClick={updatePersistedCaches}>Update persisted caches</Button>
         </Group>
     </>
     );

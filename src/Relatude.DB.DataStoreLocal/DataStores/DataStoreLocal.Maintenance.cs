@@ -135,6 +135,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         PersistedIndexStore?.ResetAll();
     }
+    public void UpdatePersistedCaches() {
+        _lock.EnterWriteLock();
+        try {
+            if (State == DataStoreState.Open)
+                PersistedIndexStore?.UpdatePersistedCaches();
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
     public void Maintenance(MaintenanceAction a) {
         if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) {
             var task = new RewriteTask() {
@@ -190,6 +199,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
         if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
+        if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) UpdatePersistedCaches();
     }
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);

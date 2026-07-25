@@ -48,9 +48,7 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     public void RegisterRemoveDuringStateLoad(int id, object value) => remove(id, (string)value);
     public void ClearCache() { }
     public void CompressMemory() { }
-    public Task<JobResult> DequeueTasks() => Task.FromResult(new JobResult(0, 0, string.Empty));
     public void Dispose() { }
-    public int GetQueuedTaskCount() => 0;
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {

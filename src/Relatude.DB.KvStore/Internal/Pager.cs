@@ -193,13 +193,11 @@ internal sealed class Pager : IPageSource, IDisposable
             _pendingFree.Add((newTxId, freedByTxn));
 
         WriteDirtyPages(dirtyPages);
-        if (deepDiskFlush)
-            _flushStream?.Flush(true); // data must be durable before the meta that references it
+        _flushStream?.Flush(deepDiskFlush); // data must be durable before the meta that references it
 
         _meta = new Meta(newTxId, timestamp, catalogRoot, freelistHead, _pageCount);
         WriteMetaSlot((int)(newTxId & 1), _meta);
-        if (deepDiskFlush)
-            _flushStream?.Flush(true);
+        _flushStream?.Flush(deepDiskFlush);
 
         // Populate the cache with the (hot) just-written pages — unless the batch is large
         // relative to the cache, where doing so would evict everything a reader has warm

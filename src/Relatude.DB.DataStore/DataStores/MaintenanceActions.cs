@@ -13,4 +13,5 @@ public enum MaintenanceAction {
     GarbageCollect = 512, // runs garbage collection
     ResetSecondaryLogFile = 1024, // resets secondary log file
     ResetStateAndIndexes = 2048, // resets 
+    UpdatePersistedCaches = 4096, // updates persisted caches
 }

@@ -23,7 +23,9 @@ public static class RelatudeDBRuntime {
         }
     }
     static public bool IsInitialized => _server != null;
-    static public bool IsReady => Server.DefaultContainer?.Store != null;
+    static public bool IsReady =>
+        Server.DefaultContainer?.Store != null
+        && Server.DefaultContainer?.Store.Datastore.State == Relatude.DB.Common.DataStoreState.Open;
 }
 
 public class RelatudeDBContext() {

@@ -184,7 +184,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         }
     }
 
-    public void CommitTransaction(long timestamp, bool durable)
+    public void CommitTransaction(long timestamp, bool deepDiskFlush)
     {
         lock (_writeLock)
         {
@@ -203,7 +203,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                 WriteCatalogEntry(txn, name, indexes[name]);
             _uncataloged.Clear();
 
-            _pager.Commit(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, durable);
+            _pager.Commit(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, deepDiskFlush);
             _committed = new EngineSnapshot(txn.TxId, timestamp, indexes);
             foreach (object open in _openIndexes.Values)
                 ((IIndexTimestamp)open).AdoptEngineTimestamp();

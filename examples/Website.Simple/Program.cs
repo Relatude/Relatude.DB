@@ -235,12 +235,13 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
     var query = db.Query<Product>();
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
     var facetQuery = query.Facets()
-        .AddValueFacet("Category")
-        .AddValueFacet("Brand")
-        .AddRangeFacet("Price") // no bounds given: buckets are generated from the values in the current result set
-        .AddValueFacet("InStock")
-        .AddValueFacet("Tags")
-        .SetFacetOptions("Tags", maxValues: 8, sortByCount: true)
+        .AddValueFacet(p => p.Category)
+        .AddValueFacet(p => p.Brand)
+        .AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
+        .SetFacetOptions(p => p.Price, rangeCount: 2) // sort by value for ranges
+        .AddValueFacet(p => p.InStock)
+        .AddValueFacet(p => p.Tags)
+        .SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
         .Page(req.Page, 10);
     foreach (var sel in req.Selections ?? []) {
         foreach (var v in sel.Values ?? []) facetQuery.SetFacetValue(sel.Property, v);

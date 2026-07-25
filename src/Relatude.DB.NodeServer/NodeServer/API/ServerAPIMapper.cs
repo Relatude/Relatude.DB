@@ -273,6 +273,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             db(storeId).MaintenanceAsync(options);
         });
         app.MapPost(path("save-index-states"), (HttpContext ctx, Guid storeId, bool forceRefresh, bool nodeSegmentsOnly) => db(storeId).Datastore.SaveIndexStates(forceRefresh, nodeSegmentsOnly));
+        app.MapPost(path("update-persisted-caches"), (HttpContext ctx, Guid storeId) => db(storeId).Datastore.MaintenanceAsync(MaintenanceAction.UpdatePersistedCaches));
         app.MapPost(path("reset-secondary-log-file"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetSecondaryLogFile));
         app.MapPost(path("reset-state-and-indexes"), (HttpContext ctx, Guid storeId) => db(storeId).MaintenanceAsync(MaintenanceAction.ResetStateAndIndexes));
         app.MapPost(path("delete-state-and-indexes"), (HttpContext ctx, Guid storeId) => container(storeId).DeleteAllStateAndIndexFiles());

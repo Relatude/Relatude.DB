@@ -7,6 +7,7 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheKeyBuilder<T>.IGapSource, IValueIdsCachePersistence where T : notnull {
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
+    static readonly byte _typeTag = FacetSetsFile.TypeTag<T>(); // 0 when T cannot be persisted to the facet sidecar
     const long _idsCacheMaxSize = 32 * 1024 * 1024;
     readonly ISortedIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
@@ -17,6 +18,9 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     // survives unrelated writes that would evict every StateId keyed set in the SetRegister.
     readonly Cache<T, ICollection<int>> _idsCache = new(_idsCacheMaxSize);
     bool _idsCacheUsed; // stays false during state load, so loads skip the per-add eviction probe
+    // set once a query warms the cache with a set not yet in the persisted sidecar; lets the store skip
+    // rewriting the sidecar when reads have added nothing since the last save (see UpdatePersistedCaches)
+    bool _hasUnsavedCachedSets;
     public NativeKvValueIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName)
         : base(store, engine.OpenOrCreateIndex<T>(uniqueKey).GetTimestamp() == 0) {
         UniqueKey = uniqueKey;
@@ -124,13 +128,16 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         var ids = IdSet.CollectUnique(_index.GetIds(value));
         _idsCache.Set(value, ids, ids is DenseBitSet bits ? bits.MemSizeEstimate : ids.Count * sizeof(int) + 40);
         _idsCacheUsed = true;
+        _hasUnsavedCachedSets = true;
         return ids;
     }
     // the cache content is persisted across clean shutdowns (see FacetSetsFile), so the first
     // filtered facet query after a restart is served from memory instead of walking the tree
     byte[]? IValueIdsCachePersistence.SaveCachedSets() {
-        var tag = FacetSetsFile.TypeTag<T>();
-        if (tag == 0) return null;
+        // clear before reading the cache so a set added concurrently during serialization re-marks
+        // dirty (caught by the next save) instead of being silently dropped
+        _hasUnsavedCachedSets = false;
+        if (_typeTag == 0) return null;
         var entries = new List<KeyValuePair<T, ICollection<int>>>();
         foreach (var kv in _idsCache.AllNotThreadSafe()) {
             if (kv.Value is DenseBitSet || kv.Value is List<int>) entries.Add(kv);
@@ -138,7 +145,7 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         if (entries.Count == 0) return null;
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
-        w.Write(tag);
+        w.Write(_typeTag);
         w.Write(entries.Count);
         foreach (var (value, set) in entries) {
             FacetSetsFile.WriteValue(w, value);
@@ -151,9 +158,12 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
         }
         return ms.ToArray();
     }
+    // only sets of a persistable type (_typeTag != 0) are ever written, so an index of any other type
+    // never reports dirty and so never forces a needless sidecar rewrite
+    bool IValueIdsCachePersistence.AreThereNewUnsavedCachedSets => _hasUnsavedCachedSets && _typeTag != 0;
     void IValueIdsCachePersistence.LoadCachedSets(byte[] section) {
         using var r = new BinaryReader(new MemoryStream(section));
-        if (r.ReadByte() != FacetSetsFile.TypeTag<T>()) return;
+        if (r.ReadByte() != _typeTag) return;
         var count = r.ReadInt32();
         for (var i = 0; i < count; i++) {
             var value = FacetSetsFile.ReadValue<T>(r);

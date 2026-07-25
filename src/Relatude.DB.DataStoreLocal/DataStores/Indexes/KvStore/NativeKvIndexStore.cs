@@ -9,11 +9,19 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     readonly string? _kvFolder;
     readonly Dictionary<string, byte[]>? _pendingFacetSets; // sidecar sections awaiting their index, see FacetSetsFile
     readonly Dictionary<string, IValueIdsCachePersistence> _cachePersistableIndexes = [];
+    bool _deepDiskFlush = false;
+    long _lastPersistedCacheTimestamp = 0;
     enum SettingKey : int {
         WalId = 1,
     }
-    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
+    readonly Action<string>? _log;
+    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory, Action<string>? log = null) : base(wordIndexFactory) {
         string? filePath;
+        if (log == null) {
+            log = (msg) => { 
+                Console.WriteLine("IndexStore: " + msg); };
+        }
+        _log = log;
         if (folderPath != null) {
             _kvFolder = Path.Combine(folderPath, "nativekv");
             if (!Directory.Exists(_kvFolder)) Directory.CreateDirectory(_kvFolder);
@@ -27,7 +35,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
-        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp());
+        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
     }
     // The native store's word indexes are always factory-supplied (Lucene). They use a near-real-time
     // reader and are rebuilt from the WAL when behind, so committing them on every data transaction
@@ -51,7 +59,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         return index;
     }
     protected override void BeginTransactionCore() => _fileStorage.BeginTransaction();
-    protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, true);
+    protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, _deepDiskFlush);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
     protected override Guid ReadWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s) && Guid.TryParse(s, out var walFileId)) return walFileId;
@@ -62,7 +70,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         _fileStorage.BeginTransaction();
         try {
             _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), true);
+            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), _deepDiskFlush);
         } catch {
             // roll back so the engine transaction is not left open, which would make every later
             // BeginTransaction fail and wedge the store
@@ -85,10 +93,22 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         // the base re-persists the WAL id and a timestamp of 0 immediately after this returns.
         _fileStorage.DeleteAll();
     }
-    protected override void DisposeCore() {
+    public override void UpdatePersistedCaches() {
         if (_kvFolder != null) {
-            try { FacetSetsFile.Write(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _cachePersistableIndexes.Values); } catch { }
+            var timestamp = GetTimestamp();
+            var isCacheOutOfDate = timestamp > _lastPersistedCacheTimestamp;
+            var anyCacheDirty = _cachePersistableIndexes.Values.Any(i => i.AreThereNewUnsavedCachedSets);
+            if (isCacheOutOfDate || anyCacheDirty) {
+                var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
+                try {
+                    FacetSetsFile.Write(filePath, timestamp, _cachePersistableIndexes.Values, _log);
+                    _lastPersistedCacheTimestamp = timestamp;
+                } catch { }
+            }
         }
+    }
+    protected override void DisposeCore() {
+        UpdatePersistedCaches();
         _fileStorage.Dispose();
     }
 }
