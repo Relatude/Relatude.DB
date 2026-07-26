@@ -1,9 +1,9 @@
 using Relatude.DB.DataStores;
 using Relatude.DB.Query;
-using Relatude.DB.Utils;
 using Relatude.DB.Nodes;
+using Relatude.Utils;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 [TestClass]
 public class RelationQueryTests {

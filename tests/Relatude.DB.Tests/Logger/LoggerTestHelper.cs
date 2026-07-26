@@ -1,7 +1,7 @@
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
 
-namespace Tests.Logger;
+namespace Relatude.Logger;
 // Shared helpers for the Relatude.DB.Logger test suite.
 internal static class H {
     // Monday 2026-06-01 10:00 UTC, fixed so interval math is deterministic

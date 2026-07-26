@@ -1,7 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Nodes;
 
-namespace Relatude.DB.Utils;
+namespace Relatude.Utils;
 
 [Node(TextIndex = BoolValue.True)]
 public class Article {

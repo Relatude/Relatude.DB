@@ -2,7 +2,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 
-namespace Tests.Logger;
+namespace Relatude.Logger;
 // All tests use the fixed data set from H.RecordRichHours:
 // hour A (10:00) has 4 records, hour B (11:00) has 2 records, see the helper for values.
 [TestClass]

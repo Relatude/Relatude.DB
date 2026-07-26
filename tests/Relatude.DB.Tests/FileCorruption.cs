@@ -3,10 +3,10 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
-using Relatude.DB.Utils;
+using Relatude.Utils;
 using NodeStore = Relatude.DB.Nodes.NodeStore; // disambiguate from the internal DataStores.Stores.NodeStore (visible via InternalsVisibleTo)
 
-namespace Tests {
+namespace Relatude {
     [TestClass]
     public class FileCorruption {
         [TestMethod]

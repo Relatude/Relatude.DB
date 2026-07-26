@@ -1,7 +1,7 @@
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 
-namespace Tests;
+namespace Relatude;
 
 [TestClass]
 public class DenseBitSetTests {

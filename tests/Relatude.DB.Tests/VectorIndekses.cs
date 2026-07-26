@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 
-namespace Tests {
+namespace Relatude {
     [TestClass]
     public class VectorIndexes {
 

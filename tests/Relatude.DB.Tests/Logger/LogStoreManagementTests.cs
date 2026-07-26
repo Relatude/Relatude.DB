@@ -2,7 +2,7 @@ using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 
-namespace Tests.Logger;
+namespace Relatude.Logger;
 [TestClass]
 public class LogStoreManagementTests {
     [TestMethod]

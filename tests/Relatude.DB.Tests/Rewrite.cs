@@ -1,11 +1,10 @@
 ﻿using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.Query;
-using Tests.Utils;
-using Relatude.DB.Utils;
 using Relatude.DB.Nodes;
+using Relatude.Utils;
 
-namespace Tests;
+namespace Relatude;
 [TestClass]
 public class Rewrite {
     void testData(NodeStore store, List<Article> orgArticles) {

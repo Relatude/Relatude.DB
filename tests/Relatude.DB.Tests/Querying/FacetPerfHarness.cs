@@ -5,7 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 #region perf datamodel (text indexed, unlike the functional facet test model)
 [Node(TextIndex = BoolValue.True)]
@@ -67,7 +67,7 @@ public class FacetPerfHarness {
             UsePersistedTextIndexesByDefault = false, // memory word index keeps the harness self-contained
         };
         Directory.CreateDirectory(_dir);
-        var storeData = DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(_dir), null, null, null, null, () => new NativeKvIndexStore(null, null));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(_dir), null, null, null, null, () => new NativeKvIndexStore(null, null));
         var store = new NodeStore(storeData);
         try {
             seedIfEmpty(store);
@@ -131,7 +131,7 @@ public class FacetPerfHarness {
             }
             return best;
         }
-        Relatude.DB.Query.IQueryOfNodes<PerfProduct, PerfProduct> q() { var x = store.Query<PerfProduct>(); return term.Length > 0 ? x.WhereSearch(term) : x; }
+        DB.Query.IQueryOfNodes<PerfProduct, PerfProduct> q() { var x = store.Query<PerfProduct>(); return term.Length > 0 ? x.WhereSearch(term) : x; }
         log($"  breakdown {label}: search+count only: {t(() => q().Count()):0.0} ms");
         log($"  breakdown {label}: +Category: {t(() => q().Facets().AddValueFacet("Category").Page(0, 20).Execute()):0.0} ms");
         log($"  breakdown {label}: +Brand: {t(() => q().Facets().AddValueFacet("Brand").Page(0, 20).Execute()):0.0} ms");

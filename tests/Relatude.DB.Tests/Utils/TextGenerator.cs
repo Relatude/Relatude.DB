@@ -4,8 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tests.Utils
-{
+namespace Relatude.Utils {
     public class TextGenerator
     {
         public int MaxWordsPerSentence = 30;

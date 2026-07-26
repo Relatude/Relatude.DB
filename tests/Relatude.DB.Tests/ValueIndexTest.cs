@@ -4,7 +4,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
-namespace Tests;
+namespace Relatude;
 [TestClass]
 public class ValueIndexTest {
 

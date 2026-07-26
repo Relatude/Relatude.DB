@@ -1,8 +1,8 @@
 using Relatude.DB.Query;
-using Relatude.DB.Utils;
-using static Tests.QueryTestHelpers;
+using Relatude.Utils;
+using static Relatude.Querying.QueryTestHelpers;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 [TestClass]
 public class WhereInAndIdTests {

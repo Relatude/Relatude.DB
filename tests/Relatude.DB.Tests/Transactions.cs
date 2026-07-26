@@ -2,10 +2,10 @@
 using Relatude.DB.Query;
 using System.Diagnostics;
 using System.Linq.Expressions;
-using Relatude.DB.Utils;
 using Relatude.DB.Nodes;
+using Relatude.Utils;
 
-namespace Tests;
+namespace Relatude;
 [TestClass]
 public class Transactions {
 

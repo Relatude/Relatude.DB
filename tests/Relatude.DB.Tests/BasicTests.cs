@@ -1,6 +1,6 @@
-using Relatude.DB.Utils;
+using Relatude.Utils;
 
-namespace Tests {
+namespace Relatude {
     [TestClass]
     public class BasicTests {
         [TestMethod]

@@ -1,9 +1,9 @@
-﻿using Tests.Utils;
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
-namespace Relatude.DB.Utils {
+
+namespace Relatude.Utils {
     public static class Helper {
         static TextGenerator _generator = new();
         public static Datamodel GetDatamodel() {

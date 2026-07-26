@@ -4,10 +4,10 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
-using Relatude.DB.Utils;
-using static Tests.QueryTestHelpers;
+using Relatude.Utils;
+using static Relatude.Querying.QueryTestHelpers;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 #region facet test datamodel
 [Node]
@@ -57,7 +57,7 @@ public class FacetTests {
             ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
                 UsePersistedValueIndexesByDefault = true,
                 PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            }, null, null, null, null, null, () => new Relatude.DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null, null)))
+            }, null, null, null, null, null, () => new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null, null)))
             : new NodeStore(DataStoreLocal.Open(dm));
         brands = [
             new Brand { Id = Guid.NewGuid(), Name = "Acme" },
@@ -93,7 +93,7 @@ public class FacetTests {
         return store;
     }
 
-    static Facets FacetOf<T>(Relatude.DB.Query.ResultSetFacets<T> res, string codeName)
+    static Facets FacetOf<T>(ResultSetFacets<T> res, string codeName)
         => res.Facets.First(f => f.CodeName == codeName);
 
     [TestMethod]

@@ -1,6 +1,6 @@
 using Relatude.DB.Common;
 
-namespace Tests;
+namespace Relatude;
 
 [TestClass]
 public class RangeGeneratorTests {

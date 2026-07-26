@@ -1,9 +1,9 @@
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
-using Relatude.DB.Utils;
 using Relatude.DB.DataStores.Indexes.KvStore;
+using Relatude.Utils;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 internal static class QueryTestHelpers {
 

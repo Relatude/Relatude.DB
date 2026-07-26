@@ -1,7 +1,7 @@
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
 
-namespace Tests.Logger;
+namespace Relatude.Logger;
 [TestClass]
 public class LogStoreRecordExtractTests {
     [TestMethod]

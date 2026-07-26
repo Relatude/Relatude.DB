@@ -1,9 +1,9 @@
 using Relatude.DB.Common;
 using Relatude.DB.Nodes;
 using Relatude.DB.Transactions;
-using Relatude.DB.Utils;
+using Relatude.Utils;
 
-namespace Tests {
+namespace Relatude {
     [TestClass]
     public class ChangeTypeAndChangeProp {
         [TestMethod]

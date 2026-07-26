@@ -4,7 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Tests;
+namespace Relatude;
 
 [Node]
 public class ScProduct {
@@ -31,7 +31,7 @@ public class FacetSetsSidecarTests {
             PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
             UsePersistedTextIndexesByDefault = false,
         };
-        return new NodeStore(DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null)));
+        return new NodeStore(DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null)));
     }
 
     // a facet query WITH a selection: counting the other facets runs against the filtered set,

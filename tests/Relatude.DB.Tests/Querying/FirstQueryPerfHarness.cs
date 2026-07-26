@@ -5,7 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Tests;
+namespace Relatude.Querying;
 
 #region shop-profile datamodel (mirrors Website.Simple's Product/Brand, no text index)
 [Node]
@@ -54,7 +54,7 @@ public class FirstQueryPerfHarness {
         };
         Directory.CreateDirectory(dir);
         var swOpen = Stopwatch.StartNew();
-        var storeData = DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null));
         var store = new NodeStore(storeData);
         swOpen.Stop();
         try {

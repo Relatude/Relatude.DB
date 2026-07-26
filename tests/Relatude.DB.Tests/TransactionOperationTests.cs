@@ -1,9 +1,9 @@
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
-using Relatude.DB.Utils;
+using Relatude.Utils;
 
-namespace Tests;
+namespace Relatude;
 
 [TestClass]
 public class TransactionOperationTests {

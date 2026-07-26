@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
-namespace Tests.Utils {
+namespace Relatude.Utils {
     public class WikipediaArticle {
         public string url { get; set; } = string.Empty;
         public string title { get; set; } = string.Empty;
