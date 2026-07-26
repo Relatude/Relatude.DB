@@ -15,7 +15,7 @@ namespace Relatude.DB.Common {
         }
         public static byte ReadOneByte(this Stream s) {
             byte[] b = new byte[1];
-            s.Read(b, 0, 1);
+            s.ReadExactly(b, 0, 1);
             return b[0];
         }
 
@@ -24,7 +24,7 @@ namespace Relatude.DB.Common {
         }
         public static uint ReadUInt(this Stream s) {
             byte[] b = new byte[4];
-            s.Read(b, 0, 4);
+            s.ReadExactly(b, 0, 4);
             return BitConverter.ToUInt32(b, 0);
         }
 
@@ -33,7 +33,7 @@ namespace Relatude.DB.Common {
         }
         public static int ReadInt(this Stream s) {
             byte[] b = new byte[4];
-            s.Read(b, 0, 4);
+            s.ReadExactly(b, 0, 4);
             return BitConverter.ToInt32(b, 0);
         }
         public static void WriteLong(this Stream s, long v) {
@@ -41,7 +41,7 @@ namespace Relatude.DB.Common {
         }
         public static long ReadLong(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             return BitConverter.ToInt64(b, 0);
         }
 
@@ -50,7 +50,7 @@ namespace Relatude.DB.Common {
         }
         public static DateTime ReadDateTime(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             return new DateTime(BitConverter.ToInt64(b, 0));
         }
         public static DateTime? ReadDateTimeOrNull(this Stream s) {
@@ -75,9 +75,9 @@ namespace Relatude.DB.Common {
         }
         public static DateTimeOffset ReadDateTimeOffset(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             var ticks = BitConverter.ToInt64(b, 0);
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             var offsetTicks = BitConverter.ToInt64(b, 0);
             return new DateTimeOffset(new DateTime(ticks), new TimeSpan(offsetTicks));
         }
@@ -87,7 +87,7 @@ namespace Relatude.DB.Common {
         }
         public static TimeSpan ReadTimeSpan(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             return new TimeSpan(BitConverter.ToInt64(b, 0));
         }
         public static TimeSpan? ReadTimeSpanOrNull(this Stream s) {
@@ -113,7 +113,7 @@ namespace Relatude.DB.Common {
         }
         unsafe public static decimal ReadDecimal(this Stream s) {
             var buffer = new byte[16];
-            s.Read(buffer, 0, 16);
+            s.ReadExactly(buffer, 0, 16);
             fixed (byte* p = buffer) return *(decimal*)p;
         }
 
@@ -122,15 +122,15 @@ namespace Relatude.DB.Common {
         }
         public static double ReadDouble(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             return BitConverter.ToDouble(b, 0);
         }
         public static void WriteFloat(this Stream s, float v) {
-            s.Write(BitConverter.GetBytes(v), 0, 2);
+            s.Write(BitConverter.GetBytes(v), 0, 4);
         }
         public static float ReadFloat(this Stream s) {
-            byte[] b = new byte[2];
-            s.Read(b, 0, 2);
+            byte[] b = new byte[4];
+            s.ReadExactly(b, 0, 4);
             return BitConverter.ToSingle(b, 0);
         }
 
@@ -139,7 +139,7 @@ namespace Relatude.DB.Common {
         }
         public static char ReadChar(this Stream s) {
             byte[] b = new byte[2];
-            s.Read(b, 0, 2);
+            s.ReadExactly(b, 0, 2);
             return BitConverter.ToChar(b, 0);
         }
 
@@ -148,7 +148,7 @@ namespace Relatude.DB.Common {
         }
         public static ulong ReadULong(this Stream s) {
             byte[] b = new byte[8];
-            s.Read(b, 0, 8);
+            s.ReadExactly(b, 0, 8);
             return BitConverter.ToUInt64(b, 0);
         }
 
@@ -160,7 +160,7 @@ namespace Relatude.DB.Common {
         public static string ReadString(this Stream s) {
             var length = s.ReadInt();
             var bs = new byte[length];
-            s.Read(bs, 0, length);
+            s.ReadExactly(bs, 0, length);
             return RelatudeDBGlobals.Encoding.GetString(bs);
         }
         public static void WriteStringOrNull(this Stream s, string? v) {
@@ -184,7 +184,7 @@ namespace Relatude.DB.Common {
         }
         public static Guid ReadGuid(this Stream s) {
             byte[] b = new byte[16];
-            s.Read(b, 0, 16);
+            s.ReadExactly(b, 0, 16);
             return new Guid(b);
         }
         public static void WriteVerifiedByteArray(this Stream s, byte[] v) {
@@ -199,7 +199,7 @@ namespace Relatude.DB.Common {
         public static byte[] ReadByteArray(this Stream s) {
             var length = s.ReadInt();
             var bs = new byte[length];
-            s.Read(bs, 0, length);
+            s.ReadExactly(bs, 0, length);
             return bs;
         }
         public static byte[] ReadVerifiedByteArray(this Stream s) {
@@ -207,7 +207,7 @@ namespace Relatude.DB.Common {
             var lengthCheck = s.ReadInt();
             if (length != lengthCheck) throw new InvalidDataException("Byte array length verification failed. ");
             var bs = new byte[length];
-            s.Read(bs, 0, length);
+            s.ReadExactly(bs, 0, length);
             return bs;
         }
         public static void WriteFloatArray(this Stream s, float[] v) {
@@ -221,7 +221,7 @@ namespace Relatude.DB.Common {
         public static float[] ReadFloatArray(this Stream s) {
             var length = s.ReadInt();
             var buffer = new byte[length * 4];
-            s.Read(buffer, 0, length * 4);
+            s.ReadExactly(buffer, 0, length * 4);
             var r = new float[length];
             for (var n = 0; n < length; n++) {
                 r[n] = BitConverter.ToSingle(buffer, n * 4);
@@ -270,7 +270,7 @@ namespace Relatude.DB.Common {
         public static char[] ReadCharArray(this Stream s) {
             var length = s.ReadInt();
             var buffer = new byte[length * 2];
-            s.Read(buffer, 0, length * 2);
+            s.ReadExactly(buffer, 0, length * 2);
             var r = new char[length];
             for (var n = 0; n < length; n++) {
                 r[n] = BitConverter.ToChar(buffer, n * 2);

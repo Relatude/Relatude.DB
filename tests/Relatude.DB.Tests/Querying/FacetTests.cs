@@ -808,6 +808,22 @@ public class FacetTests {
     }
 
     [TestMethod]
+    public void EvaluateForJson_IncludesFacetsAndFiltering() {
+        // the JSON path used to evaluate the base query WITHOUT the facet clauses
+        var store = OpenProductStore(out var all, out _);
+        var json = store.Query<Product>().Facets()
+            .AddValueFacet("Category")
+            .SetFacetValue("Category", "Toys")
+            .EvaluateForJson();
+        var res = json as ResultSetFacetsNotEnumerable<object?>;
+        Assert.IsNotNull(res, "The JSON path must return a facet result set");
+        var facet = res.Facets.First(f => f.CodeName == "Category");
+        Assert.IsTrue(facet.Values.First(v => Equals(v.Value, "Toys")).Selected, "Selections must survive the JSON path");
+        Assert.AreEqual(all.Count(p => p.Category == "Toys"), res.TotalCount, "Facet filtering must apply on the JSON path");
+        store.Dispose();
+    }
+
+    [TestMethod]
     public async Task ExecuteAsync_MatchesExecute() {
         var store = OpenProductStore(out var all, out _);
         var res = await store.Query<Product>().Facets()

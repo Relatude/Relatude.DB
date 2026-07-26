@@ -223,6 +223,21 @@ public class RelationFacetTests {
     }
 
     [TestMethod]
+    public void RelationFacet_JsonPath_ReturnsMappedBucketsAndFilters() {
+        var store = openStore(out var brands, out _, out var brandOf);
+        var json = store.Query<RelFacetProduct>().Facets()
+            .AddValueFacet("Brand")
+            .SetFacetValue("Brand", brands[0].Id)
+            .EvaluateForJson();
+        var res = json as ResultSetFacetsNotEnumerable<object?>;
+        Assert.IsNotNull(res, "The JSON path must return a facet result set");
+        var facet = res.Facets.First(f => f.CodeName == "Brand");
+        Assert.IsTrue(facet.Values.All(v => v.Value is RelFacetBrand), "Relation buckets must be mapped node objects on the JSON path too");
+        Assert.AreEqual(brandOf.Values.Count(b => b == brands[0].Id), res.TotalCount);
+        store.Dispose();
+    }
+
+    [TestMethod]
     public void RelationFacet_EmptyCases() {
         var store = openStore(out var brands, out _, out var brandOf);
         // a brand with no relations is not a bucket:
