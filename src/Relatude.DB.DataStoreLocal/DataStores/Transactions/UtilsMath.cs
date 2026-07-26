@@ -25,6 +25,10 @@ internal static class UtilsMath {
 			var existing = GuidArrayPropertyModel.ForceValueType(oldValue, out _);
 			var newValues = GuidArrayPropertyModel.ForceValueType(value, out _);
 			return existing.Concat(newValues).ToArray();
+		} else if (propDef.PropertyType == PropertyType.EnumArray) {
+			var existing = EnumArrayPropertyModel.ForceValueType(oldValue, out _);
+			var newValues = EnumArrayPropertyModel.ForceValueType(value, out _);
+			return existing.Concat(newValues).ToArray();
 		} else if (propDef.PropertyType == PropertyType.Long) {
 			return LongPropertyModel.ForceValueType(value, out _) + LongPropertyModel.ForceValueType(oldValue, out _);
 		} else if (propDef.PropertyType == PropertyType.DateTime) {

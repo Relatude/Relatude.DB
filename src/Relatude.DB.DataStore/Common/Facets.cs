@@ -108,7 +108,8 @@ public class Facets {
         try {
             return t switch {
                 PropertyType.Boolean => BooleanPropertyModel.ForceValueType(v, out _),
-                PropertyType.Integer => IntegerPropertyModel.ForceValueType(v, out _),
+                PropertyType.Integer => normalizeInt(v),
+                PropertyType.EnumArray => normalizeInt(v), // facet values of an enum array are single ints
                 PropertyType.Long => LongPropertyModel.ForceValueType(v, out _),
                 PropertyType.Double => DoublePropertyModel.ForceValueType(v, out _),
                 PropertyType.Float => FloatPropertyModel.ForceValueType(v, out _),
@@ -135,6 +136,14 @@ public class Facets {
         if (v is Guid g) return g;
         if (v is string s) return Guid.TryParse(s, out var parsed) ? parsed : v;
         return GuidPropertyModel.ForceValueType(v, out _);
+    }
+    // same rationale for int buckets: 0 is a legitimate value and unparsable input must not
+    // collapse to it (enum name strings stay raw here and are resolved by the property instead)
+    static object normalizeInt(object v) {
+        if (v is int i) return i;
+        if (v is Enum e) return Convert.ToInt32(e);
+        if (v is string s) return int.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : v;
+        return IntegerPropertyModel.ForceValueType(v, out _);
     }
     override public string ToString() { return DisplayName; }
 

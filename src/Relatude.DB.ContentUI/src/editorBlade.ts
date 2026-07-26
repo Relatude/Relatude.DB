@@ -146,6 +146,14 @@ export function editorBlade(target: EditorTarget): Blade {
                     read: () => textarea.value.split("\n").map(v => v.trim()).filter(v => v.length > 0),
                 };
             }
+            case "EnumArray": { // an array of ints on the wire; the server coerces numeric strings
+                const textarea = el("textarea", { class: "input", rows: "3", placeholder: "One value per line" });
+                if (Array.isArray(value)) textarea.value = value.join("\n");
+                return {
+                    element: textarea,
+                    read: () => textarea.value.split("\n").map(v => v.trim()).filter(v => v.length > 0),
+                };
+            }
             default: { // String, Guid, TimeSpan and anything string-like
                 const text = typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
                 const isLong = property.propertyType === "String" && (text.length > 80 || text.includes("\n"));

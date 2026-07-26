@@ -273,6 +273,17 @@ public static class ModelGen {
                     sb.AppendLine(")]");
                 }
                 break;
+            case PropertyType.EnumArray: {
+                    addBaseAttributes<EnumArrayPropertyAttribute>(p, dm, sb);
+                    var s = (EnumArrayPropertyModel)p;
+                    if (s.Indexed) sb.Append(", " + nameof(EnumArrayPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.UniqueValues) sb.Append(", " + nameof(EnumArrayPropertyAttribute.UniqueValues) + " = true");
+                    if (!string.IsNullOrEmpty(s.FullEnumTypeName)) sb.Append(", " + nameof(EnumArrayPropertyAttribute.FullEnumTypeName) + " = \"" + s.FullEnumTypeName + "\"");
+                    if (s.LegalValues != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValues) + " = new int[] {" + string.Join(", ", s.LegalValues.Select(v => v.ToString())) + "}");
+                    if (s.LegalValueNames != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValueNames) + " = new string[] {" + string.Join(", ", s.LegalValueNames.Select(n => "\"" + n + "\"")) + "}");
+                    sb.AppendLine(")]");
+                }
+                break;
             case PropertyType.ByteArray: {
                     addBaseAttributes<ByteArrayPropertyAttribute>(p, dm, sb);
                     var s = (ByteArrayPropertyModel)p;

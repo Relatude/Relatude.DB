@@ -46,6 +46,8 @@ internal static class BuildUtilsProperties {
             p = getStringArrayPropertyModel(cast<StringArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(Guid[])) {
             p = getGuidArrayPropertyModel(cast<GuidArrayPropertyAttribute>(a, m));
+        } else if (isEnumArray(valueType)) {
+            p = getEnumArrayPropertyModel(cast<EnumArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
         } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
@@ -102,6 +104,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(float)) attr = new FloatPropertyAttribute();
             else if (valueType == typeof(string[])) attr = new StringArrayPropertyAttribute();
             else if (valueType == typeof(Guid[])) attr = new GuidArrayPropertyAttribute();
+            else if (isEnumArray(valueType)) attr = new EnumArrayPropertyAttribute();
             else if (valueType == typeof(long)) attr = new LongPropertyAttribute();
             else if (valueType == typeof(decimal)) attr = new DecimalPropertyAttribute();
             else if (valueType == typeof(DateTime)) attr = new DateTimePropertyAttribute();
@@ -133,6 +136,7 @@ internal static class BuildUtilsProperties {
             || attr is DoublePropertyAttribute && valueType != typeof(double)
             || attr is StringArrayPropertyAttribute && valueType != typeof(string[])
             || attr is GuidArrayPropertyAttribute && valueType != typeof(Guid[])
+            || attr is EnumArrayPropertyAttribute && !isEnumArray(valueType)
             || attr is LongPropertyAttribute && valueType != typeof(long)
             || attr is DecimalPropertyAttribute && valueType != typeof(decimal)
             || attr is DateTimePropertyAttribute && valueType != typeof(DateTime)
@@ -160,8 +164,15 @@ internal static class BuildUtilsProperties {
             ipa.LegalValues = valueType.GetEnumValues().Cast<int>().ToArray();
             ipa.FullEnumTypeName = valueType.FullName;
         }
+        if (isEnumArray(valueType) && attr is EnumArrayPropertyAttribute eaa) {
+            var elementType = valueType.GetElementType()!;
+            eaa.FullEnumTypeName = elementType.FullName;
+            eaa.LegalValues = elementType.GetEnumValues().Cast<int>().ToArray(); // int-backed enums only, like the scalar path
+            eaa.LegalValueNames = elementType.GetEnumNames();
+        }
         return attr;
     }
+    static bool isEnumArray(Type valueType) => valueType.IsArray && valueType.GetElementType()!.IsEnum;
     static StringPropertyModel getStringPropertyModel(StringPropertyAttribute a) {
         var p = new StringPropertyModel();
         p.DefaultValue = a.DefaultValue;
@@ -372,6 +383,14 @@ internal static class BuildUtilsProperties {
     static GuidArrayPropertyModel getGuidArrayPropertyModel(GuidArrayPropertyAttribute a) {
         var p = new GuidArrayPropertyModel();
         p.Indexed = a.Indexed;
+        return p;
+    }
+    static EnumArrayPropertyModel getEnumArrayPropertyModel(EnumArrayPropertyAttribute a) {
+        var p = new EnumArrayPropertyModel();
+        p.Indexed = a.Indexed;
+        p.FullEnumTypeName = a.FullEnumTypeName;
+        p.LegalValues = a.LegalValues;
+        p.LegalValueNames = a.LegalValueNames;
         return p;
     }
     static RelationType getRelationClassType(Type relationType) {

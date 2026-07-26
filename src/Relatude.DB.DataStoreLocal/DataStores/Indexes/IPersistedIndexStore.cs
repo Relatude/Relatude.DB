@@ -10,6 +10,7 @@ public interface IPersistedIndexStore : IDisposable {
     IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch);
     IStringArrayIndex StringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
     IGuidArrayIndex GuidArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
+    IIntArrayIndex IntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
     void SetWalFileId(Guid walFileId);
     void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId);
     static void DeleteFilesInDefaultFolder(string databaseFolderPath, string? filePrefix) {

@@ -240,6 +240,21 @@ namespace Relatude.DB.Common {
             return v;
         }
 
+        public static void WriteIntArray(this Stream s, int[] v) {
+            s.WriteInt(v.Length);
+            var buffer = new byte[v.Length * 4];
+            Buffer.BlockCopy(v, 0, buffer, 0, buffer.Length);
+            s.Write(buffer, 0, buffer.Length);
+        }
+        public static int[] ReadIntArray(this Stream s) {
+            var length = s.ReadInt();
+            var buffer = new byte[length * 4];
+            s.ReadExactly(buffer, 0, length * 4);
+            var r = new int[length];
+            Buffer.BlockCopy(buffer, 0, r, 0, buffer.Length);
+            return r;
+        }
+
         public static void WriteGuidArray(this Stream s, Guid[] v) {
             s.WriteInt(v.Length);
             var buffer = new byte[v.Length * 16];

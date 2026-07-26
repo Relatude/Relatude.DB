@@ -176,6 +176,15 @@ public class GuidArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueCont
     public bool UniqueValues { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class EnumArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints {
+    public bool Indexed { get; set; }
+    public bool UniqueValues { get; set; }
+    // enum metadata, auto-populated from the property's element type (like IntegerPropertyAttribute for scalar enums):
+    public string? FullEnumTypeName { get; set; }
+    public int[]? LegalValues;
+    public string[]? LegalValueNames;
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class HtmlPropertyAttribute : StringPropertyAttribute {
     public HtmlPropertyAttribute() {
         StringType = StringValueType.HTML;

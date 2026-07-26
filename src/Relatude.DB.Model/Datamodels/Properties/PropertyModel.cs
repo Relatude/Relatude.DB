@@ -74,6 +74,12 @@ public abstract class PropertyModel {
                     return true;
                 }
                 break;
+            case PropertyType.EnumArray:
+                if (int.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueIntElement)) {
+                    value = valueIntElement;
+                    return true;
+                }
+                break;
             case PropertyType.Relation:
                 break;
             default:
@@ -122,6 +128,7 @@ public abstract class PropertyModel {
             case PropertyType.FloatArray: return (T)(object)FloatArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.GuidArray: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.References: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.EnumArray: return (T)(object)EnumArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
             case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:

@@ -204,6 +204,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     }
     static string valueToString(object? v) {
         if (v is int i) return i.ToString();
+        if (v is Enum e) return Convert.ToInt32(e).ToString(); // before IFormattable, which would emit the NAME and never match an int bucket (same rule as QueryStringBuilder.writeValue)
         if (v is double d) return d.ToString(CultureInfo.InvariantCulture);
         if (v is DateTime dt) return dt.ToString("O").ToStringLiteral(); // round-trip format; default ToString is culture dependent and cannot be parsed back reliably
         if (v is DateTimeOffset dto) return dto.ToString("O").ToStringLiteral();

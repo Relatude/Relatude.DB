@@ -55,6 +55,7 @@ export enum PropertyType {
     FloatArray = 14,
     DateTimeOffset = 15,
     GuidArray = 16,
+    EnumArray = 17,
     Embedded = 50,
     Reference = 75,
     References = 76,

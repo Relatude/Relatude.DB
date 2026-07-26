@@ -88,6 +88,41 @@ internal static class IndexFactory {
         return index;
     }
 
+    public static Dictionary<string, IIntArrayIndex> CreateIntArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
+        Dictionary<string, IIntArrayIndex> indexes = new();
+        if (property.Model.CultureSensitive) {
+            foreach (var culture in store._nativeModelStore.Cultures) {
+                var index = createIntArrayIndex(store, culture.CultureCode, property, subKey);
+                indexes[culture.CultureCode] = index;
+            }
+        } else {
+            var index = createIntArrayIndex(store, null, property, subKey);
+            indexes[string.Empty] = index;
+        }
+        return indexes;
+    }
+    static IIntArrayIndex createIntArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
+        var settings = store.Settings;
+        var sets = store._definition.Sets;
+        var uniqueKey = getUniqueKey(property, cultureCode, subKey);
+        var useProvider = property.Model.IndexType switch {
+            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
+            IndexStorageType.Memory => false,
+            IndexStorageType.Persisted => true,
+            _ => throw new NotSupportedException("IndexType not supported. "),
+        };
+        IIntArrayIndex index;
+        var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
+        if (useProvider && store.PersistedIndexStore != null) {
+            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Int Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = store.PersistedIndexStore.IntArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        } else {
+            var name = "Memory Int Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = new IntArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+        }
+        return index;
+    }
+
     public static Dictionary<string, IValueIndex<T>> CreateValueIndexes<T>(DataStoreLocal store, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
         Dictionary<string, IValueIndex<T>> indexes = new();
         var sets = store._definition.Sets;

@@ -122,6 +122,16 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
         if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
         return new SqliteGuidArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
     }
+    // int-array indexes (enum arrays) also share the "A" prefix and schema
+    protected override IIntArrayIndex CreateIntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
+        var tableName = "A" + id.Replace("-", "_");
+        justCreated = !doesTableExist(tableName);
+        _idxs.Add(id, new idxInfo(id, type, tableName));
+        // one JSON-encoded TEXT value per node; queries run on the index's in-memory mirror,
+        // so no value index is needed (see SqliteIntArrayIndex)
+        if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
+        return new SqliteIntArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
+    }
     string getSqlType(PropertyType type) {
         return type switch {
             PropertyType.Boolean => "INTEGER",

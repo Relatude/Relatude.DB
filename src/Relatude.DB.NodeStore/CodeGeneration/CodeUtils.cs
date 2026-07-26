@@ -21,6 +21,11 @@ internal static class CodeUtils {
                 throw new Exception("Enum " + p.CodeName + " is missing FullEnumTypeName.");
             return intP.FullEnumTypeName;
         }
+        if (p is EnumArrayPropertyModel enumArrayP) {
+            if (string.IsNullOrEmpty(enumArrayP.FullEnumTypeName))
+                throw new Exception("Enum array " + p.CodeName + " is missing FullEnumTypeName.");
+            return enumArrayP.FullEnumTypeName + "[]";
+        }
         return p.PropertyType switch {
             PropertyType.Boolean => "bool",
             PropertyType.Integer => "int",

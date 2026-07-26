@@ -301,6 +301,19 @@ internal static class MapperGen {
                     sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CreateEmptyWithPropertyPath) + "(filePropertyPath);");
                     sb.AppendLine("}");
                     sb.AppendLine("}");
+                } else if (p is EnumArrayPropertyModel enumArrayP) {
+                    // stored as a true int[]: convert element-wise so the object holds a real
+                    // enum-typed array (a covariance cast would leave the runtime type int[])
+                    sb.AppendLine("{");
+                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                    sb.AppendLine("var vi = (int[])v;");
+                    sb.AppendLine("var vt = new " + enumArrayP.FullEnumTypeName + "[vi.Length];");
+                    sb.AppendLine("for(var n = 0; n < vi.Length; n++) vt[n] = (" + enumArrayP.FullEnumTypeName + ")vi[n];");
+                    sb.AppendLine("obj." + p.CodeName + " = vt;");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
+                    sb.AppendLine("}");
+                    sb.AppendLine("}");
                 } else {
                     sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
                     sb.Append("(" + CodeUtils.GetTypeName(p, dm) + ")v");

@@ -114,6 +114,14 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
         return index;
     }
 
+    public IIntArrayIndex IntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type) {
+        // No add/remove optimization wrapper exists for array indexes (the memory variant is
+        // not wrapped either), so writes go straight through and there is no queue to manage here.
+        var index = CreateIntArrayIndex(sets, id, friendlyName, type, out var justCreated);
+        registerFlaggable(id, index, justCreated);
+        return index;
+    }
+
     void registerFlaggable(string id, IIndex index, bool justCreated) {
         _flaggableIndexes[id] = index;
         if (justCreated) _justCreated.Add(id);
@@ -238,6 +246,10 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     /// <summary>Create (or open) the backend guid-array index for <paramref name="id"/>. Set
     /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
     protected abstract IGuidArrayIndex CreateGuidArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
+
+    /// <summary>Create (or open) the backend int-array index for <paramref name="id"/>. Set
+    /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
+    protected abstract IIntArrayIndex CreateIntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
 
     /// <summary>Begin the backend's single write transaction. The base has already verified none is active.</summary>
     protected abstract void BeginTransactionCore();

@@ -72,6 +72,7 @@ namespace Relatude.DB.Serialization {
                 PropertyType.Float => stream.ReadFloat(),
                 PropertyType.Guid => stream.ReadGuid(),
                 PropertyType.GuidArray => stream.ReadGuidArray(),
+                PropertyType.EnumArray => stream.ReadIntArray(),
                 _ => throw new NotImplementedException(),
             };
         }

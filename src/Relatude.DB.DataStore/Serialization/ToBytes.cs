@@ -36,6 +36,7 @@ public static partial class ToBytes {
             case PropertyType.String: stream.WriteString((string)v); break;
             case PropertyType.StringArray: stream.WriteStringArray((string[])v); break;
             case PropertyType.GuidArray: stream.WriteGuidArray((Guid[])v); break;
+            case PropertyType.EnumArray: stream.WriteIntArray((int[])v); break;
             case PropertyType.DateTime: stream.WriteDateTime((DateTime)v); break;
             case PropertyType.TimeSpan: stream.WriteTimeSpan((TimeSpan)v); break;
             case PropertyType.Guid: stream.WriteGuid((Guid)v); break;

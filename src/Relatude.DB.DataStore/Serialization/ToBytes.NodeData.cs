@@ -83,6 +83,7 @@ public static partial class ToBytes {
             PropertyType.StringArray => StringArrayPropertyModel.GetBytes((string[])value),
             PropertyType.GuidArray => GuidArrayPropertyModel.GetBytes((Guid[])value),
             PropertyType.References => GuidArrayPropertyModel.GetBytes((Guid[])value),
+            PropertyType.EnumArray => EnumArrayPropertyModel.GetBytes((int[])value),
             PropertyType.File => FilePropertyModel.GetBytes((FileValue)value),
             PropertyType.Embedded => innerNodesPropertyModelGetBytes((IInnerNodeDataMap)value, datamodel),
             PropertyType.Reference => ((Guid)value).ToByteArray(),

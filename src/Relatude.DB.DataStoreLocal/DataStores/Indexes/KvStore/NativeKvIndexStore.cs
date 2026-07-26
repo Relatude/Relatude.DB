@@ -63,6 +63,11 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         justCreated = index.PersistedTimestamp == 0;
         return index;
     }
+    protected override IIntArrayIndex CreateIntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
+        var index = new NativeKvIntArrayIndex(id, this, _fileStorage, sets, friendlyName);
+        justCreated = index.PersistedTimestamp == 0;
+        return index;
+    }
     protected override void BeginTransactionCore() => _fileStorage.BeginTransaction();
     protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, _deepDiskFlush);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
