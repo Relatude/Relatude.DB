@@ -37,8 +37,13 @@ public class RelatedList {
         return _list.GetEnumerator();
     }
     public IdSet ToIdSet() {
-        if (_idSet == null) 
-            _idSet = new(_list, SetRegister.NewStateId());
-        return _idSet;
+        // parallel facet evaluation can race the memoization; publish a single winner so the
+        // set identity (StateId) stays stable for the aggregate count caches
+        var set = _idSet;
+        if (set == null) {
+            set = new(_list, SetRegister.NewStateId());
+            set = Interlocked.CompareExchange(ref _idSet, set, null) ?? set;
+        }
+        return set;
     }
 }

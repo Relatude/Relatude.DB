@@ -78,6 +78,8 @@ public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
         if (_rel.TryGetValue(id, out var related)) return setRegister.SingleValueIdSet(related);
         return IdSet.Empty;
     }
+    public IEnumerable<int> DistinctIds(bool fromTargetToSource) => _rel.Keys; // symmetric: all participants
+
     public int CountRelated(int id, bool fromTargetToSource) {
         if (_rel.ContainsKey(id)) return 1;
         return 0;

@@ -130,6 +130,31 @@ public class ReferencesTests {
         store.Insert(new RefProduct { Name = "emptyElem", Brands = new() { Ids = [Guid.Empty, brands[0].Id] } });
         var p = store.Query<RefProduct>().Where(x => x.Name == "emptyElem").First();
         CollectionAssert.AreEqual(new[] { Guid.Empty, brands[0].Id }, p.Brands.Ids);
+        // an unparsable facet selection must match nothing - in particular NOT the legitimate
+        // Guid.Empty bucket the node above just created:
+        var res = store.Query<RefProduct>().Facets()
+            .AddValueFacet("Brands")
+            .SetFacetValue("Brands", "not-a-guid")
+            .Execute();
+        Assert.AreEqual(0, res.Count());
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void ReferencesWrapper_DoesNotAliasStoreCache() {
+        var store = OpenRefStore(out var brands, out var stored);
+        // read side: mutating the wrapper's array in place must not write into the shared node cache
+        var p = stored.First(x => x.Brands.Ids.Length == 2);
+        var original = p.Brands.Ids.ToArray();
+        p.Brands.Ids[0] = Guid.NewGuid(); // in-place mutation, no update call
+        var reloaded = store.Query<RefProduct>().ToList().First(x => x.Id == p.Id);
+        CollectionAssert.AreEqual(original, reloaded.Brands.Ids, "In-place wrapper mutation must not corrupt the store cache");
+        // write side: mutating the caller's array after insert must not affect the stored value
+        var arr = new[] { brands[0].Id };
+        store.Insert(new RefProduct { Name = "alias", Brands = new() { Ids = arr } });
+        arr[0] = Guid.NewGuid();
+        var reloaded2 = store.Query<RefProduct>().ToList().First(x => x.Name == "alias");
+        CollectionAssert.AreEqual(new[] { brands[0].Id }, reloaded2.Brands.Ids, "The stored value must not alias the caller's array");
         store.Dispose();
     }
 

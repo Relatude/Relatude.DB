@@ -680,6 +680,18 @@ public class FacetTests {
     }
 
     [TestMethod]
+    public void GuidArrayFacet_UnparsableSelection_MatchesNothing() {
+        // an unparsable selection must filter to an empty result, not silently drop the filter
+        var store = OpenProductStore(out _, out _);
+        var res = store.Query<Product>().Facets()
+            .AddValueFacet("TagIds")
+            .SetFacetValue("TagIds", "not-a-guid")
+            .Execute();
+        Assert.AreEqual(0, res.Count());
+        store.Dispose();
+    }
+
+    [TestMethod]
     public void GuidArrayIndex_InternedArrays_SurviveUpdateChurnAndDeletes() {
         // same churn as the string array variant: interned Guid[] combinations are repeatedly
         // created, released to zero, and their slots reused - counts and selections must stay

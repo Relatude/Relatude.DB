@@ -94,7 +94,8 @@ internal static class MapperGen {
             } else if (p is ReferencePropertyModel) {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReference.Id) + ");");
             } else if (p is ReferencesPropertyModel) {
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReferences.Ids) + ");");
+                // clone: the stored value must never alias the wrapper's mutable array
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (" + typeof(Guid).FullName + "[])node." + p.CodeName + "." + nameof(IReferences.Ids) + ".Clone());");
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");

@@ -218,6 +218,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     ResultSetFacets<T> _execute(object? data) {
         if (data is not FacetQueryResultData facets)
             throw new NotSupportedException("Only results of type " + nameof(FacetQueryResultData) + " is supported. Type provided: " + data?.GetType().FullName);
+        FacetNodeValueMapper.MapNodeDataValues(facets, _query.Store); // relation facet values: node data -> typed node objects
         var values = toEnumerable<T>(facets.Result);
         return new(values, facets);
     }

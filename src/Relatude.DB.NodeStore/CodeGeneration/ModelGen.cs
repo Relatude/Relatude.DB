@@ -296,6 +296,7 @@ public static class ModelGen {
                     if (r.TextIndexRelatedContent) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedContent) + " = true");
                     if (r.TextIndexRelatedDisplayName) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedDisplayName) + " = true");
                     if (r.TextIndexRecursiveLevelLimit != 1) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRecursiveLevelLimit) + " = " + r.TextIndexRecursiveLevelLimit);
+                    if (r.Facet) sb.Append(", " + nameof(RelationPropertyAttribute.Facet) + " = true");
                     sb.AppendLine(")]");
                 }
                 break;

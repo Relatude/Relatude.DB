@@ -22,9 +22,12 @@ internal class GuidArrayProperty : Property, IPropertyContainsValue {
     public override void ValidateValue(object value, INodeData node) {
     }
     public bool ContainsValue(object value, QueryContext ctx) {
+        // the unique constraint passes the node's whole array; any element already indexed
+        // elsewhere is a violation
         var index = GetIndex(ctx);
-        var v = GuidPropertyModel.ForceValueType(value, out _);
-        return index.ContainsValue(v);
+        var values = GuidArrayPropertyModel.ForceValueType(value, out _);
+        foreach (var v in values) if (index.ContainsValue(v)) return true;
+        return false;
     }
     // facet values are single guids; unparsable input must yield no match rather than collapse to
     // Guid.Empty (a legitimate value), hence the explicit TryParse instead of ForceValueType
@@ -60,11 +63,15 @@ internal class GuidArrayProperty : Property, IPropertyContainsValue {
     public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
         var index = GetIndex(ctx);
         List<Guid> selectedValues = new();
+        var hasSelected = false;
         foreach (var facetValue in facets.Values) {
             if (!facetValue.Selected || facetValue.Value == null) continue;
+            hasSelected = true;
             if (tryCoerceToGuid(facetValue.Value, out var v)) selectedValues.Add(v);
         }
-        if (selectedValues.Count > 0) nodeIds = index.FilterInValues(nodeIds, selectedValues);
+        // any selection must filter, even when no value parsed: an unparsable selection matches
+        // nothing (empty list -> empty set) rather than silently dropping the filter
+        if (hasSelected) nodeIds = index.FilterInValues(nodeIds, selectedValues);
         return nodeIds;
     }
     public override bool AreValuesEqual(object v1, object v2) {

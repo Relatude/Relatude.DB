@@ -82,6 +82,7 @@ namespace Relatude.DB.DataStores.Definitions {
         public bool Contains(int source, int target) => _index.Contains(source, target);
         public bool Contains(int from, int to, bool fromTargetToSource) => fromTargetToSource ? _index.Contains(to, from) : _index.Contains(from, to);
         public IdSet GetRelated(int id, bool fromTargetToSource) => _index.Get(id, fromTargetToSource);
+        public IEnumerable<int> DistinctIds(bool fromTargetToSource) => _index.DistinctIds(fromTargetToSource);
         public void CompressMemory() => _index.CompressMemory();
         public int MaxCountTo { get; }
         public int MaxCountFrom { get; }

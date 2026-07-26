@@ -71,8 +71,9 @@ internal class ReferencesProperty : GuidArrayProperty {
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var facets = base.GetDefaultFacets(given, ctx); // buckets are the referenced node guids
         foreach (var v in facets.Values) {
-            if (v.ExplicitDisplayName != null || v.Value is not Guid guid) continue;
-            v.DisplayName = displayNameOfNode(guid);
+            if (v.ExplicitDisplayName != null) continue;
+            if (v.Value is Guid guid) v.DisplayName = displayNameOfNode(guid);
+            else if (v.Value is string s && Guid.TryParse(s, out var parsed)) v.DisplayName = displayNameOfNode(parsed); // given buckets may arrive as guid strings
         }
         return facets;
     }

@@ -34,6 +34,7 @@ public class RelationPropertyModel : PropertyModel {
     public bool FromTargetToSource { get; set; } // the type this property belongs to will represent the outbound side of the relation and point to the inbound side, if this proeprty is true
     public Guid NodeTypeOfRelated { get; set; } = Guid.Empty;
     public bool AutoAssigned { get; internal set; }
+    public bool Facet { get; set; } // opt-in: enables faceting on this relation property
 
     public override object GetDefaultValue() => throw new NotSupportedException();
     public override string GetDefaultValueAsCode() => throw new NotSupportedException();

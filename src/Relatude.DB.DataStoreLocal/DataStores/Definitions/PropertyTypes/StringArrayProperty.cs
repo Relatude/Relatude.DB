@@ -22,9 +22,12 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
     public override void ValidateValue(object value, INodeData node) {
     }
     public bool ContainsValue(object value, QueryContext ctx) {
+        // the unique constraint passes the node's whole array; any element already indexed
+        // elsewhere is a violation
         var index = GetIndex(ctx);
-        var v = StringPropertyModel.ForceValueType(value, out _);
-        return index.ContainsValue(v);
+        var values = StringArrayPropertyModel.ForceValueType(value, out _);
+        foreach (var v in values) if (index.ContainsValue(v)) return true;
+        return false;
     }
     public override bool CanBeFacet() => Indexed;
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {

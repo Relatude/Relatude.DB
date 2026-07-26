@@ -62,7 +62,9 @@ public class References<T> : IEnumerable<T>, IReferences<T> where T : notnull {
     }
     public void Initialize(NodeStore store, Guid[] guids, INodeDataExternal[]? nodeDatas) {
         _store = store;
-        _ids = guids;
+        // defensive copy: the array comes straight from the store's shared node data cache and must
+        // never be aliased by this mutable wrapper (Ids[i] = ... would otherwise write into the cache)
+        _ids = guids.Length == 0 ? Array.Empty<Guid>() : (Guid[])guids.Clone();
         this.nodeDatas = nodeDatas;
     }
     public bool IsSet() => _ids.Length > 0;

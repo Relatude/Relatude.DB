@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels.Properties;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -115,17 +116,25 @@ public class Facets {
                 PropertyType.DateTime => DateTimePropertyModel.ForceValueType(v, out _),
                 PropertyType.DateTimeOffset => DateTimeOffsetPropertyModel.ForceValueType(v, out _),
                 PropertyType.TimeSpan => TimeSpanPropertyModel.ForceValueType(v, out _),
-                PropertyType.Guid => GuidPropertyModel.ForceValueType(v, out _),
-                PropertyType.Reference => ReferencePropertyModel.ForceValueType(v, out _),
+                PropertyType.Guid => normalizeGuid(v),
+                PropertyType.Reference => normalizeGuid(v),
                 PropertyType.String => StringPropertyModel.ForceValueType(v, out _),
                 PropertyType.StringArray => StringPropertyModel.ForceValueType(v, out _), // facet values of a string array are single strings
-                PropertyType.GuidArray => GuidPropertyModel.ForceValueType(v, out _), // facet values of a guid array are single guids
-                PropertyType.References => GuidPropertyModel.ForceValueType(v, out _), // facet values of a references property are single guids
+                PropertyType.GuidArray => normalizeGuid(v), // facet values of a guid array are single guids
+                PropertyType.References => normalizeGuid(v), // facet values of a references property are single guids
+                PropertyType.Relation => v is INodeData nd ? nd.Id : normalizeGuid(v), // relation buckets hold node data, selections arrive as guids
                 _ => v,
             };
         } catch {
             return v; // unparsable input: fall back to comparing the raw value
         }
+    }
+    // Guid.Empty is a legitimate bucket value, so unparsable selection input must stay raw (and
+    // never match) instead of collapsing to Guid.Empty the way ForceValueType would:
+    static object normalizeGuid(object v) {
+        if (v is Guid g) return g;
+        if (v is string s) return Guid.TryParse(s, out var parsed) ? parsed : v;
+        return GuidPropertyModel.ForceValueType(v, out _);
     }
     override public string ToString() { return DisplayName; }
 

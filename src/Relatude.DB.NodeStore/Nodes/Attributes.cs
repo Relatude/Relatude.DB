@@ -223,6 +223,7 @@ public class RelationPropertyAttribute : PropertyAttribute {
     public bool TextIndexRelatedDisplayName { get; set; }
     public bool TextIndexRelatedContent { get; set; }
     public int TextIndexRecursiveLevelLimit { get; set; }
+    public bool Facet { get; set; } // opt-in: enables faceting on this relation property
 
 }
 [AttributeUsage(AttributeTargets.Property)]

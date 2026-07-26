@@ -251,7 +251,7 @@ namespace Relatude.DB.Common {
         public static Guid[] ReadGuidArray(this Stream s) {
             var length = s.ReadInt();
             var buffer = new byte[length * 16];
-            s.Read(buffer, 0, length * 16);
+            s.ReadExactly(buffer, 0, length * 16); // Read may return fewer bytes than requested
             var r = new Guid[length];
             for (var n = 0; n < length; n++) {
                 r[n] = new Guid(buffer.AsSpan(n * 16, 16));

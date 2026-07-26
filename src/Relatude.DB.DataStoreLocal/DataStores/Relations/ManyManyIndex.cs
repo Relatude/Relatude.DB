@@ -97,6 +97,8 @@ public class ManyManyIndex() : IRelationIndex {
         if (_rel.TryGetValue(id, out var related)) return related.ToIdSet();
         return IdSet.Empty;
     }
+    public IEnumerable<int> DistinctIds(bool fromTargetToSource) => _rel.Keys; // symmetric: all participants
+
     public int CountRelated(int id, bool fromTargetToSource) {
         if (_rel.TryGetValue(id, out var related)) return related.Count;
         return 0;

@@ -119,6 +119,8 @@ public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
         }
         return IdSet.Empty;
     }
+    public IEnumerable<int> DistinctIds(bool fromTargetToSource) => fromTargetToSource ? _sourceByTarget.Keys : _targetBySource.Keys;
+
     public int CountRelated(int id, bool fromTargetToSource) {
         if (fromTargetToSource) {
             if(_sourceByTarget.ContainsKey(id)) return 1;

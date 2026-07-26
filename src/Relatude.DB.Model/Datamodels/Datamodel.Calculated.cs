@@ -139,7 +139,8 @@ public partial class Datamodel {
                     if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
                         throw new Exception("Reference property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
                     }
-                    nodeTypes.Add(nodeType.Id);
+                    // the same model instance may be verified by more than one datamodel; never accumulate duplicates
+                    if (!nodeTypes.Contains(nodeType.Id)) nodeTypes.Add(nodeType.Id);
                 }
             }
             foreach (var typeId in nodeTypes) {

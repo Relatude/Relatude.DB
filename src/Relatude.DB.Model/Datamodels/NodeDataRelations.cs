@@ -74,7 +74,7 @@ public class Relations : IRelations {
     readonly Properties<NodeDataWithRelations?> _oneRelations = new(0);
     readonly Properties<NodeDataWithRelations?> _references = new(0);
     readonly Properties<NodeDataWithRelations[]> _manyReferences = new(0);
-    public bool ContainsRelation(Guid propertyId) => _oneRelations.ContainsKey(propertyId) || _manyRelations.ContainsKey(propertyId);
+    public bool ContainsRelation(Guid propertyId) => _oneRelations.ContainsKey(propertyId) || _manyRelations.ContainsKey(propertyId) || _references.ContainsKey(propertyId) || _manyReferences.ContainsKey(propertyId);
     public void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation) => _manyRelations.Add(propertyId, manyRelation);
     public void AddOneRelation(Guid propertyId, NodeDataWithRelations oneRelation) => _oneRelations.Add(propertyId, oneRelation);
     public void AddReference(Guid propertyId, NodeDataWithRelations reference) => _references.Add(propertyId, reference);

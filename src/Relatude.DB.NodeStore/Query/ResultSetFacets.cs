@@ -1,10 +1,33 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
+using Relatude.DB.Nodes;
 using Relatude.DB.Query.Data;
 using System.Collections.Generic;
 using System.Text;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Relatude.DB.Query;
+
+/// <summary>
+/// Relation facet buckets carry the related node's data as their value at the datastore layer;
+/// this converts them to typed node objects before the result is handed to the user. Idempotent,
+/// and leaves non-node values (scalar facets, unmatched selection buckets) untouched.
+/// </summary>
+internal static class FacetNodeValueMapper {
+    internal static void MapNodeDataValues(FacetQueryResultData result, NodeStore store) {
+        foreach (var facets in result.Facets.Values) {
+            foreach (var facetValue in facets.Values) {
+                if (facetValue.Value is not INodeDataExternal nodeData) continue;
+                try {
+                    facetValue.Value = store.Get(nodeData);
+                } catch {
+                    // no compiled mapper for the node type (e.g. json-only datamodel): keep the
+                    // node data value rather than failing the whole query
+                }
+            }
+        }
+    }
+}
 public class ResultSetFacets<T> : ResultSet<T> {
     internal protected FacetQueryResultData result;
     internal ResultSetFacets(IEnumerable<T> values, FacetQueryResultData result)

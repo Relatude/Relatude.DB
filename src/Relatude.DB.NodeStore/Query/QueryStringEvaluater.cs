@@ -18,6 +18,7 @@ internal sealed class QueryStringEvaluater {
         if (data is ICollectionData coll) {
             var values = toEnumerable<object?>(coll);
             if (data is FacetQueryResultData facet) {
+                FacetNodeValueMapper.MapNodeDataValues(facet, _store); // relation facet values: node data -> typed node objects
                 return new ResultSetFacetsNotEnumerable<object?>(values, facet);
             } else {
                 return new ResultSetNotEnumerable<object?>(values, coll.Count, coll.TotalCount, coll.PageIndexUsed, coll.PageSizeUsed, coll.DurationMs, false, 0);
@@ -34,6 +35,7 @@ internal sealed class QueryStringEvaluater {
         var data = (ICollectionData)(await toDataAsync())!;
         var enumerable = toEnumerable<T?>(data);
         if (data is FacetQueryResultData facet) {
+            FacetNodeValueMapper.MapNodeDataValues(facet, _store); // relation facet values: node data -> typed node objects
             return new ResultSetFacets<T?>(enumerable, facet);
         } else {
             return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs, data.DurationMs);
@@ -43,6 +45,7 @@ internal sealed class QueryStringEvaluater {
         var data = (ICollectionData)toData()!;
         var enumerable = toEnumerable<T>(data);
         if (data is FacetQueryResultData facet) {
+            FacetNodeValueMapper.MapNodeDataValues(facet, _store); // relation facet values: node data -> typed node objects
             return new ResultSetFacets<T?>(enumerable, facet);
         } else {
             return new ResultSet<T?>(enumerable, data.Count, data.TotalCount, data.PageIndexUsed, data.PageSizeUsed, data.DurationMs, data.DurationMs);

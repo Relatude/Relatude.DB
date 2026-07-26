@@ -412,6 +412,7 @@ internal static class BuildUtilsProperties {
         r.TextIndexRelatedContent = attr.TextIndexRelatedContent;
         r.TextIndexRelatedDisplayName = attr.TextIndexRelatedDisplayName;
         r.TextIndexRecursiveLevelLimit = attr.TextIndexRecursiveLevelLimit;
+        r.Facet = attr.Facet;
         Type? typeOfRelated = null;
         Type? relationType = null;
         if (m is PropertyInfo pi && pi.PropertyType.InheritsFromOrImplements<IRelationProperty>()) {

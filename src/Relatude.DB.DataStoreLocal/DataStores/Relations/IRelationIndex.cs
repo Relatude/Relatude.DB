@@ -23,6 +23,10 @@ public interface IRelationIndex {
 
     IEnumerable<RelData> GetOtherRelationsThatNeedsToRemovedBeforeAdd(int source, int target);
     IdSet Get(int id, bool fromTargetToSource);
+    /// <summary>The distinct ids valid as first argument to <see cref="Get"/> for the given
+    /// direction, i.e. the ids with at least one edge. Symmetric relations return all
+    /// participants regardless of direction. O(1) to obtain, live view of the internal keys.</summary>
+    IEnumerable<int> DistinctIds(bool fromTargetToSource);
     IEnumerable<RelData> Values { get; }
     DateTime GetDateTime(int source, int target);
 

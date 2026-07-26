@@ -110,6 +110,8 @@ public class ManyToManyIndex() : IRelationIndex {
         }
         return IdSet.Empty;
     }
+    public IEnumerable<int> DistinctIds(bool fromTargetToSource) => fromTargetToSource ? _relSourceByTarget.Keys : _relTargetBySource.Keys;
+
     public int CountRelated(int id, bool fromTargetToSource) {
         if (fromTargetToSource) {
             if (_relSourceByTarget.TryGetValue(id, out var sources)) return sources.Count;
