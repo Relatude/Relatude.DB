@@ -94,8 +94,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
                 Properties = {
                         { "transactionId", new() { Name = "Transaction ID", DataType = LogDataType.String } },
                         { "duration", new() { Name = "Duration", DataType = LogDataType.Double, Statistics = [new (StatisticsType.CountSumAvgMinMax)] } },
-                        { "actionCount", new() { Name = "Actions", Statistics = [new (StatisticsType.CountSumAvgMinMax)] }},
-                        { "primitiveActionCount", new() { Name = "Actions", Statistics = [new (StatisticsType.CountSumAvgMinMax)] }},
+                        { "actionCount", new() { Name = "Actions", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] }},
+                        { "primitiveActionCount", new() { Name = "Primitive actions", DataType = LogDataType.Integer, Statistics = [new (StatisticsType.CountSumAvgMinMax)] }},
                         { "diskFlush", new() { Name = "Disk flush", DataType = LogDataType.String } },
                     },
             },

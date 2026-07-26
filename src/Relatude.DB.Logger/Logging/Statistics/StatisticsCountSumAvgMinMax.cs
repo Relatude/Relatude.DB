@@ -1,8 +1,4 @@
-﻿using Relatude.DB.Hash.xxHash;
-using Relatude.DB.IO;
-using System.Text;
-
-namespace Relatude.DB.Logging.Statistics;
+﻿namespace Relatude.DB.Logging.Statistics;
 
 // for example per log entry
 public class StatisticsCount : StatisticsBase<int, bool> {
@@ -76,11 +72,11 @@ public class StatisticsIntegerSum : StatisticsBase<int, int> {
     public StatisticsIntegerSum(StatisticsInfo info, DayOfWeek firstDayOfWeek, string key) : base(info, firstDayOfWeek, key) { }
     public override void RecordIfPossible(DateTime dtUtc, object value) {
         if (value is int i) Record(dtUtc, i);
-        else if (value is uint ui) RecordIfPossible(dtUtc, ui);
-        else if (value is long l) RecordIfPossible(dtUtc, l);
-        else if (value is ulong ul) RecordIfPossible(dtUtc, ul);
-        else if (value is double d) RecordIfPossible(dtUtc, d);
-        else if (value is float f) RecordIfPossible(dtUtc, f);
+        else if (value is uint ui) Record(dtUtc, (int)Math.Min(ui, int.MaxValue));
+        else if (value is long l) Record(dtUtc, (int)Math.Clamp(l, int.MinValue, int.MaxValue));
+        else if (value is ulong ul) Record(dtUtc, (int)Math.Min(ul, int.MaxValue));
+        else if (value is double d && !double.IsNaN(d)) Record(dtUtc, (int)Math.Clamp(d, int.MinValue, int.MaxValue));
+        else if (value is float f && !float.IsNaN(f)) Record(dtUtc, (int)Math.Clamp((double)f, int.MinValue, int.MaxValue));
         else if (value is string s && int.TryParse(s, out var si)) Record(dtUtc, si);
     }
     protected override StatisticsIntervalBase<int, int> CreateStatistics(StatisticsInfo info, IntervalType intervalType, int maxNoIntervals, DayOfWeek firstDayOfWeek) {

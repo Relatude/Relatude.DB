@@ -1,8 +1,5 @@
 ﻿using Relatude.DB.IO;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.ComponentModel.DataAnnotations;
-using Relatude.DB.Logging;
 
 namespace Relatude.DB.Logging.Statistics;
 // Statistics is the class that holds the data
@@ -286,8 +283,8 @@ public abstract class StatisticsIntervalBase<TAggregator, TValue> {
         return ms.ToArray();
     }
     public void Record(DateTime dtUtc, TValue recordValue) {
-        var last = _intervals.LastOrDefault();
-        if (last == null || last.To < dtUtc) { // if none or too old, new interval needed
+        var last = _intervals.Count > 0 ? _intervals[^1] : null;
+        if (last == null || last.To <= dtUtc) { // if none or too old, new interval needed (interval covers [From, To>)
             if (last != null) last.CondenseIfPossible(); // condense all but last interval
             var agg = CreateAggregator();
             var from = IntervalUtils.Floor(dtUtc, IntervalType, _firstDayOfWeek);
@@ -301,10 +298,11 @@ public abstract class StatisticsIntervalBase<TAggregator, TValue> {
     public List<Interval<TAggregator>> GetValues(DateTime fromUtc, DateTime toUtc, bool fillInBlanks) {
         var result = new List<Interval<TAggregator>>();
         var current = IntervalUtils.Floor(fromUtc, IntervalType, _firstDayOfWeek);
+        var i = 0; // _intervals is sorted by From, walk it in step with the requested range
         while (current < toUtc) {
-            var value = _intervals.FirstOrDefault(v => v.From == current);
-            if (value != null) {
-                result.Add(value);
+            while (i < _intervals.Count && _intervals[i].From < current) i++;
+            if (i < _intervals.Count && _intervals[i].From == current) {
+                result.Add(_intervals[i++]);
             } else if (fillInBlanks) {
                 var to = IntervalUtils.AddOne(current, IntervalType);
                 result.Add(new Interval<TAggregator>(current, to));

@@ -25,7 +25,7 @@ public class Facets {
     }
     public bool? IsRangeFacet { get; set; }
     public int RangeCount = 10;
-    public double RangePowerBase = 1;//5d;
+    public double RangePowerBase = 1.8d;
     public double MaxValue;
     public double MinValue;
     public int MaxValues; // 0 = unlimited; selected values are never trimmed away

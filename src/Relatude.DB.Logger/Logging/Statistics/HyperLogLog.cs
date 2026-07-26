@@ -1,23 +1,6 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.Logging.Statistics;
-class LookUpPool {
-    static readonly Stack<byte[]> _pool = new();
-    public static byte[] Get() {
-        lock (_pool) {
-            if (_pool.Count > 0) {
-                return _pool.Pop();
-            } else {
-                return new byte[1024];
-            }
-        }
-    }
-    public static void Return(byte[] bytes) {
-        lock (_pool) {
-            _pool.Push(bytes);
-        }
-    }
-}
 /// <summary>
 /// "HyperLogLog" implementation for cardinality estimation
 /// Enables estimating the number of unique elements in a multiset
@@ -28,7 +11,7 @@ public class HyperLogLog {
     readonly private double stdError, mapSize, alpha_m, k;
     readonly private int kComplement;
     readonly private int[] Lookup;
-    private const double pow_2_32 = 4294967297; // 2^32 + 1
+    private const double pow_2_32 = 4294967296; // 2^32
     public HyperLogLog(byte[] state) {
         var bytes = CompressionUtility.Decompress(state);
         var mem = new MemoryStream(bytes);
@@ -71,7 +54,7 @@ public class HyperLogLog {
         return compressed;
     }
     private static double log2(double x) {
-        return Math.Log(x) / 0.69314718055994530941723212145818;//Ln2 
+        return Math.Log(x) / 0.69314718055994530941723212145818;//Ln2
     }
     private static int getRank(uint hash, int max) {
         int r = 1;
@@ -102,17 +85,16 @@ public class HyperLogLog {
 
         E = alpha_m * mapSize * mapSize / c;
 
-        // Make corrections & smoothen things. 
-        if (E <= 5 / 2 * mapSize) {
+        // Make corrections & smoothen things.
+        if (E <= 2.5 * mapSize) { // small range correction
             double V = 0;
             for (var i = 0; i < mapSize; i++)
                 if (Lookup[i] == 0) V++;
             if (V > 0)
                 E = mapSize * Math.Log(mapSize / V);
-        } else
-            if (E > 1 / 30 * pow_2_32)
+        } else if (E > pow_2_32 / 30) { // large range correction
             E = -pow_2_32 * Math.Log(1 - E / pow_2_32);
-        // Made corrections & smoothen things, or not. 
+        }
 
         return (int)E;
     }
@@ -122,29 +104,3 @@ public class HyperLogLog {
         Lookup[j] = Math.Max(Lookup[j], getRank(hashCode, kComplement));
     }
 }
-
-//public class HyperLogLog2 {
-//    CardinalityEstimator _lib;
-//    public HyperLogLog2() {
-//        _lib = new CardinalityEstimator(16);
-//    }
-//    public HyperLogLog2(byte[] state) {
-//        MemoryStream ms = new MemoryStream(state);
-//        BinaryFormatter bf = new BinaryFormatter();
-//#pragma warning disable SYSLIB0011 // BinaryFormatter.Deserialize is obsolete
-//        _lib = (CardinalityEstimator)bf.Deserialize(ms);
-//#pragma warning restore SYSLIB0011
-//    }
-//    public byte[] Serialize() {
-//        MemoryStream ms = new MemoryStream();
-//        BinaryFormatter bf = new BinaryFormatter();
-//#pragma warning disable SYSLIB0011 // BinaryFormatter.Serialize is obsolete
-//        bf.Serialize(ms, _lib);
-//#pragma warning restore SYSLIB0011
-//        return ms.ToArray();
-//    }
-//    public int EstimateCount() => (int)_lib.Count();
-//    public void Add(string val) {
-//        _lib.Add(val);
-//    }
-//}

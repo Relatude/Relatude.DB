@@ -85,8 +85,5 @@ public class SmallUniqueCount : StatisticsIntervalBase<AggregatorSmallUniqueCoun
     protected override byte[] SerializeAggregator(AggregatorSmallUniqueCount item) {
         return item.Serialize();
     }
-    public void Condense() {
-        throw new NotImplementedException();
-    }
 }
 

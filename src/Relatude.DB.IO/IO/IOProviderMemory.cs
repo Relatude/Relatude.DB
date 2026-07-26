@@ -84,6 +84,8 @@ public class IOProviderMemory : IIOProvider {
     IAppendStream openAppend(string fileName) {
         if (!_disk.TryGetValue(fileName, out var file)) {
             file = new MemFile();
+            file.Meta.Key = fileName;
+            file.Meta.CreationTimeUtc = DateTime.UtcNow;
             _disk.Add(fileName, file);
         } else {
             if (file.Meta.Readers > 0) throw new Exception($"File {fileName} is locked for reading. ");

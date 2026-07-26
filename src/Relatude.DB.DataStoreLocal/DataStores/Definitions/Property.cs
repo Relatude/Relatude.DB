@@ -108,8 +108,8 @@ namespace Relatude.DB.DataStores.Definitions {
                 var last = i == ranges.Count - 1;
                 // half-open buckets built from the generated boundaries, so continuous types
                 // (double, DateTime, ...) are fully covered with no gaps between buckets;
-                // the first boundary is forced down to the real min since the generator rounds
-                // boundaries to whole numbers (which could round the lowest values out):
+                // the generator's first boundary is at or below the real min (it aligns down to a
+                // "nice" step multiple), so it is replaced with the real min for display:
                 var from = i == 0 ? min : ranges[i].Item1;
                 var to = last ? ranges[i].Item2 : ranges[i + 1].Item1;
                 facets.AddValue(new FacetValue(from, to, null) { ToInclusive = last });

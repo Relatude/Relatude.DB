@@ -21,8 +21,8 @@ internal class LogTextStream : IDisposable {
         var sb = new StringBuilder();
         sb.Append(entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
         foreach (var kv in entry.Values) {
-            sb.Append("\t");
-            sb.Append((kv.Value + "").ToString().Replace("\t", " ").ReplaceLineEndings("[CR]"));
+            sb.Append('\t');
+            sb.Append((kv.Value + string.Empty).Replace("\t", " ").ReplaceLineEndings("[CR]"));
         }
         sb.AppendLine();
         stream.Append(Encoding.UTF8.GetBytes(sb.ToString()));
@@ -46,16 +46,8 @@ internal class LogTextStream : IDisposable {
             _lastAppendStream = null;
         }
     }
-    public List<DateTime> GetLogFileDates() {        
+    public List<DateTime> GetLogFileDates() {
         return _fileKeys.Logger_FileDatesTxt(_io, _logName, _fileInterval);
-    }
-    public int DeleteLogFilesBefore(DateTime dt) {
-        releaseOpenFiles();
-        var filesToDelete = GetLogFileDates().Where(f => dt > f);
-        foreach (var fileDt in filesToDelete) {
-            _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, fileDt));
-        }
-        return filesToDelete.Count();
     }
     public void FlushToDisk() {
         if (_lastAppendStream != null) _lastAppendStream.Flush(true);

@@ -5,7 +5,7 @@ using Relatude.DB.Logging.Statistics;
 namespace Relatude.DB.Logging;
 // threadsafe
 internal class Log : IDisposable {
-    object _lock = new();
+    readonly object _lock = new();
     public LogSettings Setting { get => _setting; }
     readonly LogStream _logStream;
     StatisticsCount _rowStat = null!; // initialized in loadAllStatistics
@@ -34,14 +34,13 @@ internal class Log : IDisposable {
         _rowStat = new StatisticsCount(ri, _setting.FirstDayOfWeek, getStatisticsFileKey("r_o_w", ri, _setting));
         var statByProp = new Dictionary<string, List<IStatistics>>();
         foreach (var kv in _setting.Properties) {
-            if (kv.Value.Statistics != null) {
-                foreach (var info in kv.Value.Statistics) {
-                    if (info == null) continue;
-                    var stat = createStatisticsIfPossible(kv.Key, kv.Value, info);
-                    if (stat == null) continue;
-                    if (!statByProp.ContainsKey(kv.Key)) statByProp.Add(kv.Key, new());
-                    statByProp[kv.Key].Add(stat);
-                }
+            if (kv.Value.Statistics == null) continue;
+            foreach (var info in kv.Value.Statistics) {
+                if (info == null) continue;
+                var stat = createStatisticsIfPossible(kv.Key, kv.Value, info);
+                if (stat == null) continue;
+                if (!statByProp.TryGetValue(kv.Key, out var stats)) statByProp.Add(kv.Key, stats = new());
+                stats.Add(stat);
             }
         }
         _statByProp = new(statByProp);
@@ -54,71 +53,19 @@ internal class Log : IDisposable {
     IStatistics? createStatisticsIfPossible(string propertyId, LogProperty property, StatisticsInfo info) {
         var f = _setting.FirstDayOfWeek;
         var key = getStatisticsFileKey(propertyId, info, _setting);
-        switch (property.DataType) {
-            case LogDataType.DateTime:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.UniqueCountWithValues: return new StatisticsGroupCount(info, f, key);
-                    case StatisticsType.UniqueCountHashedValues: return new StatisticsUniqueCount(info, f, key);
-                    case StatisticsType.UniqueCountEstimate: return new StatisticsEstimatedUniqueCount(info, f, key);
-                    case StatisticsType.Sum:
-                    case StatisticsType.AvgMinMax:
-                    default: return null;
-                }
-            case LogDataType.TimeSpan:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.UniqueCountWithValues: return new StatisticsGroupCount(info, f, key);
-                    case StatisticsType.UniqueCountHashedValues: return new StatisticsUniqueCount(info, f, key);
-                    case StatisticsType.UniqueCountEstimate: return new StatisticsEstimatedUniqueCount(info, f, key);
-                    case StatisticsType.Sum:
-                    case StatisticsType.AvgMinMax:
-                    default: return null;
-                }
-            case LogDataType.String:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.UniqueCountWithValues: return new StatisticsGroupCount(info, f, key);
-                    case StatisticsType.UniqueCountHashedValues: return new StatisticsUniqueCount(info, f, key);
-                    case StatisticsType.UniqueCountEstimate: return new StatisticsEstimatedUniqueCount(info, f, key);
-                    case StatisticsType.Sum:
-                    case StatisticsType.AvgMinMax:
-                    default: return null;
-                }
-            case LogDataType.Integer:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.Sum: return new StatisticsIntegerSum(info, f, key);
-                    case StatisticsType.AvgMinMax: return new StatisticsAvgMinMax(info, f, key);
-                    case StatisticsType.CountSumAvgMinMax: return new StatisticsCountSumAvgMinMax(info, f, key);
-                    case StatisticsType.UniqueCountWithValues: return new StatisticsGroupCount(info, f, key);
-                    case StatisticsType.UniqueCountHashedValues: return new StatisticsUniqueCount(info, f, key);
-                    case StatisticsType.UniqueCountEstimate: return new StatisticsEstimatedUniqueCount(info, f, key);
-                    default: return null;
-                }
-            case LogDataType.Double:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.Sum: return new StatisticsDoubleSum(info, f, key);
-                    case StatisticsType.AvgMinMax: return new StatisticsAvgMinMax(info, f, key);
-                    case StatisticsType.CountSumAvgMinMax: return new StatisticsCountSumAvgMinMax(info, f, key);
-                    case StatisticsType.UniqueCountWithValues: return new StatisticsGroupCount(info, f, key);
-                    case StatisticsType.UniqueCountHashedValues: return new StatisticsUniqueCount(info, f, key);
-                    case StatisticsType.UniqueCountEstimate: return new StatisticsEstimatedUniqueCount(info, f, key);
-                    default: return null;
-                }
-            case LogDataType.Bytes:
-                switch (info.StatisticsType) {
-                    case StatisticsType.Count: return new StatisticsCount(info, f, key);
-                    case StatisticsType.Sum:
-                    case StatisticsType.AvgMinMax:
-                    case StatisticsType.UniqueCountWithValues:
-                    case StatisticsType.UniqueCountHashedValues:
-                    case StatisticsType.UniqueCountEstimate:
-                    default: return null;
-                }
-            default: return null;
-        }
+        var isNumeric = property.DataType is LogDataType.Integer or LogDataType.Double;
+        var isBytes = property.DataType is LogDataType.Bytes;
+        return info.StatisticsType switch {
+            StatisticsType.Count => new StatisticsCount(info, f, key),
+            StatisticsType.Sum when property.DataType is LogDataType.Integer => new StatisticsIntegerSum(info, f, key),
+            StatisticsType.Sum when property.DataType is LogDataType.Double => new StatisticsDoubleSum(info, f, key),
+            StatisticsType.AvgMinMax when isNumeric => new StatisticsAvgMinMax(info, f, key),
+            StatisticsType.CountSumAvgMinMax when isNumeric => new StatisticsCountSumAvgMinMax(info, f, key),
+            StatisticsType.UniqueCountWithValues when !isBytes => new StatisticsGroupCount(info, f, key),
+            StatisticsType.UniqueCountHashedValues when !isBytes => new StatisticsUniqueCount(info, f, key),
+            StatisticsType.UniqueCountEstimate when !isBytes => new StatisticsEstimatedUniqueCount(info, f, key),
+            _ => null,
+        };
     }
     public void FlushToDiskNow() {
         if (_setting.EnableLog) {
@@ -130,12 +77,12 @@ internal class Log : IDisposable {
     }
     public void Record(LogEntry entry, bool flushToDisk, bool? forceLogging = null, bool? forceStatistics = null) {
         lock (_lock) {
-            if (_setting.EnableLog || (forceLogging.HasValue && forceLogging.Value)) {
+            if (_setting.EnableLog || forceLogging == true) {
                 var record = getRecord(entry);
                 _logStream.Record(record, flushToDisk);
                 if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
             }
-            if (_setting.EnableStatistics || (forceStatistics.HasValue && forceStatistics.Value)) {
+            if (_setting.EnableStatistics || forceStatistics == true) {
                 _rowStat.RecordIfPossible(entry.Timestamp, true);
                 foreach (var value in entry.Values) {
                     if (_statByProp.TryGetValue(value.Key, out var stats)) {
@@ -150,7 +97,7 @@ internal class Log : IDisposable {
     public IEnumerable<LogEntry> Extract(DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
         lock (_lock) {
             var records = _logStream.Extract(from, to, skip, take, orderByDescendingDates, out total);
-            return records.Select(r => getEntry(r));
+            return records.Select(getEntry).ToList(); // materialized inside lock
         }
     }
     public long GetTotalFileSize() => GetLogFileSize() + GetStatisticsFileSize();
@@ -246,7 +193,10 @@ internal class Log : IDisposable {
             var allStats = _statByProp.Values.SelectMany(s => s).ToList();
             var anyDirty = allStats.Any(s => s.IsDirty) || _rowStat.IsDirty;
             if (!anyDirty) return;
-            _io.CopyIfItExistsAndOverwrite(_statFileKey, _backupStatFile); // make backup first
+            // make backup first, but never overwrite a good backup with a file that is
+            // confirmed corrupt (a previous save may have failed halfway without a restart)
+            if (!canConfirmFileIsNotValid(_io, _statFileKey))
+                _io.CopyIfItExistsAndOverwrite(_statFileKey, _backupStatFile);
             _io.DeleteFileIfItExists(_statFileKey);
             using var stream = _io.OpenAppend(_statFileKey);
             stream.WriteString(_rowStat.Key);
@@ -324,7 +274,7 @@ internal class Log : IDisposable {
                 return default(int);
             case LogDataType.Double:
                 if (value is double) return value;
-                return default(long);
+                return default(double);
             case LogDataType.Bytes:
                 if (value is byte[]) return value;
                 return Array.Empty<byte>();
@@ -548,25 +498,23 @@ internal class Log : IDisposable {
         var chunkCount = filesize / (10 * 1024 * 1024);
         // around 10MB chunks, assuming linear distribution of data ( which is a big assumption...).
         // More work neeed later to handle large dataset.
-        var deltaTimePerChunk = (lastRecord.Value - firstRecord.Value).Ticks / (chunkCount + 1);
+        var end = lastRecord.Value.AddTicks(1); // Extract range is exclusive, include records at the exact last timestamp
+        var deltaTimePerChunk = (end - firstRecord.Value).Ticks / (chunkCount + 1);
+        if (deltaTimePerChunk < 1) deltaTimePerChunk = 1;
         var currentFrom = firstRecord.Value;
-        while (currentFrom < lastRecord.Value) {
-            var currentTo = new DateTime(currentFrom.Ticks + deltaTimePerChunk, DateTimeKind.Utc);
-            if (currentTo > lastRecord.Value) currentTo = lastRecord.Value;
-            var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, false, out var total);
+        while (currentFrom < end) {
+            var currentTo = new DateTime(Math.Min(currentFrom.Ticks + deltaTimePerChunk, end.Ticks), DateTimeKind.Utc);
+            var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, false, out _);
             lock (_lock) {
                 foreach (var entry in entries) {
                     _rowStat.RecordIfPossible(entry.Timestamp, true);
-                    Console.Write($"{entry.Timestamp} : ");
                     foreach (var value in entry.Values) {
                         if (_statByProp.TryGetValue(value.Key, out var stats)) {
                             foreach (var stat in stats) {
-                                Console.Write($"{value.Key}={value.Value}, ");
                                 stat.RecordIfPossible(entry.Timestamp, value.Value);
                             }
                         }
                     }
-                    Console.WriteLine();
                 }
             }
             currentFrom = currentTo;
