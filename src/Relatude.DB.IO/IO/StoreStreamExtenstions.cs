@@ -339,6 +339,17 @@ public static class StoreStreamExtenstions {
         return v;
     }
 
+    public static void WriteGuidArray(this IAppendStream s, Guid[] v) {
+        s.WriteVerifiedInt(v.Length);
+        foreach (var g in v) s.WriteGuid(g);
+    }
+    public static Guid[] ReadGuidArray(this IReadStream s) {
+        var length = s.ReadVerifiedInt();
+        var v = new Guid[length];
+        for (var n = 0; n < length; n++) v[n] = s.ReadGuid();
+        return v;
+    }
+
     public static void WriteCharArray(this IAppendStream s, char[] v) {
         s.WriteVerifiedInt(v.Length);
         var buffer = new byte[v.Length * 2];

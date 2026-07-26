@@ -24,6 +24,8 @@ public class Product {
     public DateTime Released { get; set; }
     [StringArrayProperty(Indexed = true)]
     public string[] Tags { get; set; } = [];
+    [GuidArrayProperty(Indexed = true)]
+    public Guid[] TagIds { get; set; } = [];
     [BooleanProperty(Indexed = true)]
     public bool Active { get; set; }
     [ReferenceProperty(Indexed = true)]
@@ -47,6 +49,12 @@ public class Brand {
 public class FacetTests {
 
     static readonly string[] _categories = ["Toys", "Games", "Tools", "Food"];
+
+    // fixed guids so failures are reproducible; seeded parallel to Tags (red/blue/green/paper)
+    static readonly Guid _tagRed = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    static readonly Guid _tagBlue = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    static readonly Guid _tagGreen = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    static readonly Guid _tagPaper = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
     static NodeStore OpenProductStore(out List<Product> all, out List<Brand> brands, bool persistedIndexes = false) {
         var dm = new Datamodel();
@@ -73,6 +81,7 @@ public class FacetTests {
                 Stock = i % 7,
                 Released = new DateTime(2020, 1, 1).AddDays(i * 11),
                 Tags = i % 5 == 0 ? ["red", "red", "blue"] : (i % 2 == 0 ? ["red"] : ["green"]),
+                TagIds = i % 5 == 0 ? [_tagRed, _tagRed, _tagBlue] : (i % 2 == 0 ? [_tagRed] : [_tagGreen]),
                 Active = i % 3 == 0,
                 Brand = new() { Id = brands[i % 3].Id },
             });
@@ -84,6 +93,7 @@ public class FacetTests {
                 Stock = i % 7,
                 Released = new DateTime(2020, 1, 1).AddDays(i * 11),
                 Tags = ["paper"],
+                TagIds = [_tagPaper],
                 Active = i % 3 == 0,
                 Brand = new() { Id = brands[i % 3].Id },
                 Pages = 100 + (i % 3),
@@ -646,6 +656,143 @@ public class FacetTests {
         var sel = store.Query<Product>().Facets().AddValueFacet("Tags").SetFacetValue("Tags", "x1").Execute();
         Assert.AreEqual(remaining.Count(p => p.Tags.Contains("x1")), sel.Count());
         store.Dispose();
+    }
+
+    [TestMethod]
+    public void GuidArrayFacet_CountsAndFilters_DuplicatesInOneNodeCountOnce() {
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets()
+            .AddValueFacet("TagIds")
+            .SetFacetValue("TagIds", _tagRed)
+            .Execute();
+        var facet = FacetOf(res, "TagIds");
+        var expectedRed = all.Count(p => p.TagIds.Contains(_tagRed)); // nodes with [red, red, blue] count once
+        Assert.AreEqual(expectedRed, facet.Values.First(v => Equals(v.Value, _tagRed)).Count);
+        Assert.AreEqual(expectedRed, res.Count());
+        // the same selection given as a string must coerce to the Guid buckets:
+        var res2 = store.Query<Product>().Facets()
+            .AddValueFacet("TagIds")
+            .SetFacetValue("TagIds", _tagRed.ToString())
+            .Execute();
+        Assert.AreEqual(expectedRed, res2.Count());
+        Assert.IsTrue(FacetOf(res2, "TagIds").Values.First(v => Equals(v.Value, _tagRed)).Selected);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void GuidArrayIndex_InternedArrays_SurviveUpdateChurnAndDeletes() {
+        // same churn as the string array variant: interned Guid[] combinations are repeatedly
+        // created, released to zero, and their slots reused - counts and selections must stay
+        // exactly in sync with a plain LINQ ground truth throughout
+        var store = OpenProductStore(out _, out _);
+        churnTagIdsAndVerify(store);
+    }
+
+    [TestMethod]
+    public void GuidArrayIndex_InternedArrays_PersistedBackend_SurviveUpdateChurnAndDeletes() {
+        // same churn against the persisted (native KV) guid array index, whose in-memory mirror
+        // uses the same intern table
+        var store = OpenProductStore(out _, out _, persistedIndexes: true);
+        churnTagIdsAndVerify(store);
+    }
+
+    static void churnTagIdsAndVerify(NodeStore store) {
+        var x1 = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
+        var y2 = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002");
+        var z3 = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000003");
+        var stored = store.Query<Product>().ToList();
+        var victims = stored.Take(20).ToList();
+        Guid[][] combos = [[x1], [x1, y2], [], [y2, x1], [z3], [x1, y2]];
+        foreach (var combo in combos) {
+            foreach (var p in victims) {
+                store.UpdateProperty<Product, Guid[]>(p.Id, x => x.TagIds, combo);
+                p.TagIds = combo;
+            }
+        }
+        // stagger: leave every victim on a different combination, some sharing, some empty
+        for (var i = 0; i < victims.Count; i++) {
+            var combo = combos[i % combos.Length];
+            store.UpdateProperty<Product, Guid[]>(victims[i].Id, x => x.TagIds, combo);
+            victims[i].TagIds = combo;
+        }
+        store.Delete(victims[0].Id);
+        store.Delete(victims[7].Id);
+        var remaining = stored.Where(p => p.Id != victims[0].Id && p.Id != victims[7].Id).ToList();
+
+        var res = store.Query<Product>().Facets().AddValueFacet("TagIds").Execute();
+        var tagFacet = FacetOf(res, "TagIds");
+        Assert.AreEqual(remaining.Count, res.SourceCount);
+        foreach (var g in remaining.SelectMany(p => p.TagIds.Distinct()).GroupBy(t => t)) {
+            Assert.AreEqual(g.Count(), tagFacet.Values.First(v => Equals(v.Value, g.Key)).Count, "Wrong count for tag id " + g.Key);
+        }
+        foreach (var fv in tagFacet.Values.Where(v => v.Value != null)) { // no stale buckets with wrong counts either
+            Assert.AreEqual(remaining.Count(p => p.TagIds.Contains((Guid)fv.Value!)), fv.Count, "Stale count for tag id " + fv.Value);
+        }
+        // selection exercises FilterInValues over the same index state:
+        var sel = store.Query<Product>().Facets().AddValueFacet("TagIds").SetFacetValue("TagIds", x1).Execute();
+        Assert.AreEqual(remaining.Count(p => p.TagIds.Contains(x1)), sel.Count());
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void GuidArray_ValuesAndFacets_SurviveRestart() {
+        // disk-backed round trip: node values travel through the WAL (GuidArrayPropertyModel
+        // byte format) and, on the persisted variant, the index mirror reloads from the backend
+        foreach (var persistedIndexes in new[] { false, true }) {
+            var dir = Path.Combine(Path.GetTempPath(), "relatude-guidarray-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try {
+                var store = openProductStoreOnDisk(dir, persistedIndexes);
+                var brands = new List<Brand> { new() { Id = Guid.NewGuid(), Name = "Acme" } };
+                store.Insert(brands);
+                var all = new List<Product>();
+                for (var i = 1; i <= 30; i++) {
+                    all.Add(new Product {
+                        Category = _categories[i % 4],
+                        TagIds = i % 5 == 0 ? [_tagRed, _tagRed, _tagBlue] : (i % 2 == 0 ? [_tagRed] : [_tagGreen]),
+                        Brand = new() { Id = brands[0].Id },
+                    });
+                }
+                store.Insert(all);
+                var truth = store.Query<Product>().ToList(); // re-read for ids
+                store.Dispose();
+
+                store = openProductStoreOnDisk(dir, persistedIndexes);
+                var reloaded = store.Query<Product>().ToList();
+                Assert.AreEqual(truth.Count, reloaded.Count, "persistedIndexes: " + persistedIndexes);
+                foreach (var p in truth) {
+                    var r = reloaded.First(x => x.Id == p.Id);
+                    CollectionAssert.AreEqual(p.TagIds, r.TagIds, "TagIds must round-trip exactly (order and duplicates), persistedIndexes: " + persistedIndexes);
+                }
+                var res = store.Query<Product>().Facets()
+                    .AddValueFacet("TagIds")
+                    .SetFacetValue("TagIds", _tagRed)
+                    .Execute();
+                var facet = FacetOf(res, "TagIds");
+                var expectedRed = truth.Count(p => p.TagIds.Contains(_tagRed));
+                Assert.AreEqual(expectedRed, facet.Values.First(v => Equals(v.Value, _tagRed)).Count, "persistedIndexes: " + persistedIndexes);
+                Assert.AreEqual(expectedRed, res.Count(), "persistedIndexes: " + persistedIndexes);
+                store.Dispose();
+            } finally {
+                try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+    }
+
+    static NodeStore openProductStoreOnDisk(string dir, bool persistedIndexes) {
+        var dm = new Datamodel();
+        dm.Add<Product>();
+        dm.Add<Book>();
+        dm.Add<Brand>();
+        if (persistedIndexes) {
+            var settings = new SettingsLocal {
+                UsePersistedValueIndexesByDefault = true,
+                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+            };
+            return new NodeStore(DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null,
+                () => new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir, null)));
+        }
+        return new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal(), new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, null));
     }
 
     [TestMethod]

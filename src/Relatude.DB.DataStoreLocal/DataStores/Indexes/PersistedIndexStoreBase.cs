@@ -99,9 +99,17 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     }
 
     public IStringArrayIndex StringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type) {
-        // No add/remove optimization wrapper exists for string-array indexes (the memory variant is
+        // No add/remove optimization wrapper exists for array indexes (the memory variant is
         // not wrapped either), so writes go straight through and there is no queue to manage here.
         var index = CreateStringArrayIndex(sets, id, friendlyName, type, out var justCreated);
+        registerFlaggable(id, index, justCreated);
+        return index;
+    }
+
+    public IGuidArrayIndex GuidArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type) {
+        // No add/remove optimization wrapper exists for array indexes (the memory variant is
+        // not wrapped either), so writes go straight through and there is no queue to manage here.
+        var index = CreateGuidArrayIndex(sets, id, friendlyName, type, out var justCreated);
         registerFlaggable(id, index, justCreated);
         return index;
     }
@@ -226,6 +234,10 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     /// <summary>Create (or open) the backend string-array index for <paramref name="id"/>. Set
     /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
     protected abstract IStringArrayIndex CreateStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
+
+    /// <summary>Create (or open) the backend guid-array index for <paramref name="id"/>. Set
+    /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
+    protected abstract IGuidArrayIndex CreateGuidArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
 
     /// <summary>Begin the backend's single write transaction. The base has already verified none is active.</summary>
     protected abstract void BeginTransactionCore();

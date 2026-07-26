@@ -61,6 +61,18 @@ public abstract class PropertyModel {
                 break;
             case PropertyType.StringArray:
                 break;
+            case PropertyType.Guid:
+                if (Guid.TryParse(anyFormat.ToString(), out var valueGuid)) {
+                    value = valueGuid;
+                    return true;
+                }
+                break;
+            case PropertyType.GuidArray:
+                if (Guid.TryParse(anyFormat.ToString(), out var valueGuidElement)) {
+                    value = valueGuidElement;
+                    return true;
+                }
+                break;
             case PropertyType.Relation:
                 break;
             default:
@@ -107,6 +119,7 @@ public abstract class PropertyModel {
             case PropertyType.ByteArray: return (T)(object)ByteArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.File: return (T)(object)FilePropertyModel.ForceValueType(value, out changed);
             case PropertyType.FloatArray: return (T)(object)FloatArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.GuidArray: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
             case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:

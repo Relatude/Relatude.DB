@@ -1,4 +1,3 @@
-using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
 /// <summary>
@@ -7,11 +6,4 @@ namespace Relatude.DB.DataStores.Indexes;
 /// <see cref="StringArrayIndex"/> and by the persisted variants handed out by
 /// <see cref="IPersistedIndexStore.StringArrayIndex"/>.
 /// </summary>
-public interface IStringArrayIndex : IIndex {
-    IdSet Filter(IdSet set, IndexOperator op, string value);
-    int CountEqual(IdSet set, string value);
-    bool ContainsValue(string value);
-    IEnumerable<string> GetUniqueValues();
-    int MaxCount(IndexOperator op, string value);
-    IdSet FilterInValues(IdSet set, List<string> values);
-}
+public interface IStringArrayIndex : IValueArrayIndex<string> { }

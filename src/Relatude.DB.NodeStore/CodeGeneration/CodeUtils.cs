@@ -28,6 +28,7 @@ internal static class CodeUtils {
             PropertyType.Float => "float",
             PropertyType.String => "string",
             PropertyType.StringArray => "string[]",
+            PropertyType.GuidArray => "Guid[]",
             PropertyType.Guid => "Guid",
             PropertyType.DateTime => "DateTime",
             PropertyType.DateTimeOffset => "DateTimeOffset",

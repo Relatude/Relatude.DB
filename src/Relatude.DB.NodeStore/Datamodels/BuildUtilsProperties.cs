@@ -44,6 +44,8 @@ internal static class BuildUtilsProperties {
             p = getFloatArrayPropertyModel(cast<FloatArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(string[])) {
             p = getStringArrayPropertyModel(cast<StringArrayPropertyAttribute>(a, m));
+        } else if (valueType == typeof(Guid[])) {
+            p = getGuidArrayPropertyModel(cast<GuidArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
         } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
@@ -97,6 +99,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(double)) attr = new DoublePropertyAttribute();
             else if (valueType == typeof(float)) attr = new FloatPropertyAttribute();
             else if (valueType == typeof(string[])) attr = new StringArrayPropertyAttribute();
+            else if (valueType == typeof(Guid[])) attr = new GuidArrayPropertyAttribute();
             else if (valueType == typeof(long)) attr = new LongPropertyAttribute();
             else if (valueType == typeof(decimal)) attr = new DecimalPropertyAttribute();
             else if (valueType == typeof(DateTime)) attr = new DateTimePropertyAttribute();
@@ -125,6 +128,7 @@ internal static class BuildUtilsProperties {
             || attr is IntegerPropertyAttribute && (valueType != typeof(int) && !valueType.IsEnum)
             || attr is DoublePropertyAttribute && valueType != typeof(double)
             || attr is StringArrayPropertyAttribute && valueType != typeof(string[])
+            || attr is GuidArrayPropertyAttribute && valueType != typeof(Guid[])
             || attr is LongPropertyAttribute && valueType != typeof(long)
             || attr is DecimalPropertyAttribute && valueType != typeof(decimal)
             || attr is DateTimePropertyAttribute && valueType != typeof(DateTime)
@@ -333,6 +337,11 @@ internal static class BuildUtilsProperties {
     }
     static StringArrayPropertyModel getStringArrayPropertyModel(StringArrayPropertyAttribute a) {
         var p = new StringArrayPropertyModel();
+        p.Indexed = a.Indexed;
+        return p;
+    }
+    static GuidArrayPropertyModel getGuidArrayPropertyModel(GuidArrayPropertyAttribute a) {
+        var p = new GuidArrayPropertyModel();
         p.Indexed = a.Indexed;
         return p;
     }

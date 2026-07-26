@@ -70,6 +70,8 @@ namespace Relatude.DB.Serialization {
                 PropertyType.TimeSpan => stream.ReadTimeSpan(), 
                 PropertyType.Double => stream.ReadDouble(),
                 PropertyType.Float => stream.ReadFloat(),
+                PropertyType.Guid => stream.ReadGuid(),
+                PropertyType.GuidArray => stream.ReadGuidArray(),
                 _ => throw new NotImplementedException(),
             };
         }

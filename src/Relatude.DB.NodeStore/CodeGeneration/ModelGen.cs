@@ -265,6 +265,14 @@ public static class ModelGen {
                     sb.AppendLine(")]");
                 }
                 break;
+            case PropertyType.GuidArray: {
+                    addBaseAttributes<GuidArrayPropertyAttribute>(p, dm, sb);
+                    var s = (GuidArrayPropertyModel)p;
+                    if (s.Indexed) sb.Append(", " + nameof(GuidArrayPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.UniqueValues) sb.Append(", " + nameof(GuidArrayPropertyAttribute.UniqueValues) + " = true");
+                    sb.AppendLine(")]");
+                }
+                break;
             case PropertyType.ByteArray: {
                     addBaseAttributes<ByteArrayPropertyAttribute>(p, dm, sb);
                     var s = (ByteArrayPropertyModel)p;

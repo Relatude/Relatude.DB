@@ -18,6 +18,7 @@ public enum PropertyType : int {
     File = 13,
     FloatArray = 14,
     DateTimeOffset = 15,
+    GuidArray = 16,
     Embedded = 50,
     Reference= 75,
     Relation = 100,

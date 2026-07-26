@@ -264,11 +264,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         LogInfo("Database intialized");
         _state = DataStoreState.Closed; // ready to be opened
     }
-    // persisted string-array mirrors load lazily on first use; loading them right after open moves
+    // persisted array-index mirrors load lazily on first use; loading them right after open moves
     // that read off the first user query. Queries arriving before it finishes simply block on the
     // same load lock they would have taken anyway.
     void warmIndexMirrorsInBackground() {
-        var mirrors = _definition.GetAllIndexes().OfType<PersistedStringArrayIndexBase>().ToArray();
+        var mirrors = _definition.GetAllIndexes().OfType<IIndexMirror>().ToArray();
         if (mirrors.Length == 0) return;
         Task.Run(() => {
             foreach (var mirror in mirrors) {

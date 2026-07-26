@@ -14,6 +14,7 @@ public static partial class ToBytes {
         if (value is double) return PropertyType.Double;
         if (value is float) return PropertyType.Float;
         if (value is string[]) return PropertyType.StringArray;
+        if (value is Guid[]) return PropertyType.GuidArray;
         if (value is bool) return PropertyType.Boolean;
         if (value is DateTime) return PropertyType.DateTime;
         if (value is TimeSpan) return PropertyType.TimeSpan;
@@ -34,6 +35,7 @@ public static partial class ToBytes {
             case PropertyType.Float: stream.WriteFloat((float)v); break;
             case PropertyType.String: stream.WriteString((string)v); break;
             case PropertyType.StringArray: stream.WriteStringArray((string[])v); break;
+            case PropertyType.GuidArray: stream.WriteGuidArray((Guid[])v); break;
             case PropertyType.DateTime: stream.WriteDateTime((DateTime)v); break;
             case PropertyType.TimeSpan: stream.WriteTimeSpan((TimeSpan)v); break;
             case PropertyType.Guid: stream.WriteGuid((Guid)v); break;

@@ -171,6 +171,11 @@ public class StringArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueCo
     public bool UniqueValues { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class GuidArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints {
+    public bool Indexed { get; set; }
+    public bool UniqueValues { get; set; }
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class HtmlPropertyAttribute : StringPropertyAttribute {
     public HtmlPropertyAttribute() {
         StringType = StringValueType.HTML;
