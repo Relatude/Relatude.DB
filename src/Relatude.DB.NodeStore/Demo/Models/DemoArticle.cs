@@ -24,6 +24,7 @@ public interface IDemoArticle {
     [EmbeddedMapProperty(KeyProperty = nameof(DemoParagraph.Code))]
     public EmbeddedMap<string, DemoParagraph> Paragraphs { get; }
     public Reference<IDemoArticle> Site { get; }
+    public References<IDemoArticle> Sites { get; }
     //public UrlLink<DemoArticle> Site { get; }
 
 }

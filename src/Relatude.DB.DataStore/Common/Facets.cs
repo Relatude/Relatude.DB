@@ -120,6 +120,7 @@ public class Facets {
                 PropertyType.String => StringPropertyModel.ForceValueType(v, out _),
                 PropertyType.StringArray => StringPropertyModel.ForceValueType(v, out _), // facet values of a string array are single strings
                 PropertyType.GuidArray => GuidPropertyModel.ForceValueType(v, out _), // facet values of a guid array are single guids
+                PropertyType.References => GuidPropertyModel.ForceValueType(v, out _), // facet values of a references property are single guids
                 _ => v,
             };
         } catch {

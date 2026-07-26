@@ -221,8 +221,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             Interlocked.Increment(ref _noNodeGetsSinceClearCache);
             _queryActivity.Record();
-            if (_guids.TryGetId(id, out var uid)) {
-                nodeData = ToOuter(_nodes.Get(uid, out _), ctx);
+            // the guid map may still resolve a recently deleted node, so the node fetch must also
+            // be a try (matching the int overload below) for TryGet to honor its contract
+            if (_guids.TryGetId(id, out var uid) && _nodes.TryGet(uid, out var nodeDataInner, out _)) {
+                nodeData = ToOuter(nodeDataInner, ctx);
                 return true;
             }
             nodeData = null;

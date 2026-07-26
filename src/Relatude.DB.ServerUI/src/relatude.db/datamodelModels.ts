@@ -57,6 +57,7 @@ export enum PropertyType {
     GuidArray = 16,
     Embedded = 50,
     Reference = 75,
+    References = 76,
     Relation = 100
 }
 export enum RelationType {

@@ -68,6 +68,7 @@ public abstract class PropertyModel {
                 }
                 break;
             case PropertyType.GuidArray:
+            case PropertyType.References:
                 if (Guid.TryParse(anyFormat.ToString(), out var valueGuidElement)) {
                     value = valueGuidElement;
                     return true;
@@ -120,6 +121,7 @@ public abstract class PropertyModel {
             case PropertyType.File: return (T)(object)FilePropertyModel.ForceValueType(value, out changed);
             case PropertyType.FloatArray: return (T)(object)FloatArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.GuidArray: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.References: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
             case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:

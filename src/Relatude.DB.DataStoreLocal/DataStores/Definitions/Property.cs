@@ -318,6 +318,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is TimeSpanPropertyModel t) return new TimeSpanProperty(t, def);
             if (pm is StringPropertyModel p) return new StringProperty(p, def);
             if (pm is StringArrayPropertyModel pa) return new StringArrayProperty(pa, def);
+            if (pm is ReferencesPropertyModel rs) return new ReferencesProperty(rs, def); // before GuidArrayPropertyModel: ReferencesPropertyModel derives from it
             if (pm is GuidArrayPropertyModel ga) return new GuidArrayProperty(ga, def);
             if (pm is RelationPropertyModel ra) return new RelationProperty(ra, def);
             if (pm is FilePropertyModel fa) return new FileProperty(fa, def);

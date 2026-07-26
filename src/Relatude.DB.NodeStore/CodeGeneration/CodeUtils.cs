@@ -40,6 +40,7 @@ internal static class CodeUtils {
             PropertyType.File => "Relatude.DB.Common.FileValue",
             PropertyType.Embedded => getTypeNameEmbedded(p, datamodel),
             PropertyType.Reference => getTypeNameReference(p, datamodel),
+            PropertyType.References => getTypeNameReferences(p, datamodel),
             PropertyType.Relation => getTypeNameRelationCollection(p, datamodel),
             _ => throw new NotSupportedException("The type " + p.PropertyType + " is not supported by the code generator."),
         };
@@ -71,6 +72,15 @@ internal static class CodeUtils {
         if (p is not ReferencePropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencePropertyModel.");
         var typeName = string.Empty;
         typeName += nameWithoutGeneric<Reference<object>>();
+        typeName += "<";
+        typeName += dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        typeName += ">";
+        return typeName;
+    }
+    static string getTypeNameReferences(PropertyModel p, Datamodel dm) {
+        if (p is not ReferencesPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencesPropertyModel.");
+        var typeName = string.Empty;
+        typeName += nameWithoutGeneric<References<object>>();
         typeName += "<";
         typeName += dm.FindFirstCommonBase(inp.NodeTypes).FullName;
         typeName += ">";

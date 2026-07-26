@@ -137,7 +137,8 @@ export function editorBlade(target: EditorTarget): Blade {
                     read: () => textarea.value.split("\n").map(v => v.trim()).filter(v => v.length > 0),
                 };
             }
-            case "GuidArray": {
+            case "GuidArray":
+            case "References": { // identical wire shape: an array of guid strings
                 const textarea = el("textarea", { class: "input", rows: "3", placeholder: "One GUID per line" });
                 if (Array.isArray(value)) textarea.value = value.join("\n");
                 return {

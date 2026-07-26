@@ -209,6 +209,13 @@ public class ReferencePropertyAttribute : PropertyAttribute {
     public bool Indexed { get; set; } // required for filtering and faceting on the reference
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints {
+    public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
+    public string[]? TypeIds { get; set; }
+    public bool Indexed { get; set; } // required for faceting on the references
+    public bool UniqueValues { get; set; }
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
     public string? Relation { get; set; }
     public bool RightToLeft { get; set; }

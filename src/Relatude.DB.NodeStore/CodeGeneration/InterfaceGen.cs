@@ -210,6 +210,27 @@ internal static class InterfaceGen {
                 sb.AppendLine("} ");
                 sb.AppendLine("set { throw new Exception(\"Reference properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
+            } else if (p.PropertyType == PropertyType.References) {
+                sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
+                sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                sb.AppendLine("get {");
+                sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                sb.AppendLine("var relations = this." + nameof(INodeShellAccess.__NodeDataShell) + "."
+                    + nameof(NodeDataShell.NodeData) + "."
+                    + nameof(NodeDataWithRelations.Relations) + ";");
+                sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[]? references = null; ");
+                sb.AppendLine("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) references = r; ");
+
+                sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid[]>(" + pIdName + ");");
+                sb.AppendLine("_" + p.CodeName + " = new ();");
+                sb.AppendLine("_" + p.CodeName + "." + nameof(IReferences.Initialize) + "(");
+                sb.AppendLine("__NodeDataShell.Store, v, references");
+                sb.AppendLine(");");
+                sb.AppendLine("}");
+                sb.AppendLine("return _" + p.CodeName + ";");
+                sb.AppendLine("} ");
+                sb.AppendLine("set { throw new Exception(\"References properties cannot be set. They are automatically initialized. \"); } ");
+                sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.Append("get { return " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ")");

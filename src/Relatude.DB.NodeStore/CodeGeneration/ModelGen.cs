@@ -334,6 +334,20 @@ public static class ModelGen {
                         var guidStrings = r.NodeTypes.Select(t => "\"" + t.ToString() + "\"");
                         sb.Append(", " + nameof(ReferencePropertyAttribute.TypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
                     }
+                    if (r.Indexed) sb.Append(", " + nameof(ReferencePropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencePropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
+                    sb.AppendLine(")]");
+                } break;
+                case PropertyType.References: {
+                    addBaseAttributes<ReferencesPropertyAttribute>(p, dm, sb);
+                    var r = (ReferencesPropertyModel)p;
+                    if (r.NodeTypes.Count > 0) {
+                        var guidStrings = r.NodeTypes.Select(t => "\"" + t.ToString() + "\"");
+                        sb.Append(", " + nameof(ReferencesPropertyAttribute.TypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
+                    }
+                    if (r.Indexed) sb.Append(", " + nameof(ReferencesPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (r.UniqueValues) sb.Append(", " + nameof(ReferencesPropertyAttribute.UniqueValues) + " = true");
+                    if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencesPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     sb.AppendLine(")]");
                 } break;
             default:

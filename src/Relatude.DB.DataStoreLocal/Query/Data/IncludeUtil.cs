@@ -72,6 +72,20 @@ internal static class IncludeUtil {
                     if (branch.HasChildren()) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
                 }
             }
+        } else if (propDef is ReferencesPropertyModel refsProp) {
+            if (_db.TryGetValue<Guid[]>(new PropertyPath(from.__Id, propId), out var guids)) {
+                List<NodeDataWithRelations> tos = new(guids.Length);
+                foreach (var guid in guids) { // preserve stored order
+                    if (top.HasValue && tos.Count >= top.Value) break;
+                    if (guid == Guid.Empty || !_db.Exists(guid)) continue; // unset or stale entry (target deleted): skip, not truncate
+                    if (!_db._guids.TryGetId(guid, out var id)) continue;
+                    idsToGet.Add(id);
+                    tos.Add(new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id))));
+                }
+                _totalNodeCount += tos.Count;
+                from.Relations.AddReferences(propId, tos.ToArray());
+                if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+            }
         } else if (propDef is RelationPropertyModel relProp) {
             var relation = _def.Relations[relProp.RelationId];
             var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);

@@ -21,6 +21,7 @@ public enum PropertyType : int {
     GuidArray = 16,
     Embedded = 50,
     Reference= 75,
+    References = 76,
     Relation = 100,
     //Collection = 200,
     //DataObject = 201,

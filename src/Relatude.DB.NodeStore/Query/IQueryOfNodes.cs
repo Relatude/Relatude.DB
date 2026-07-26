@@ -46,6 +46,7 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, ICollection<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IRelationProperty<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IReference<TProperty>>> referenceProperty, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IReferences<TProperty>>> referencesProperty, int? top = null);
 
     // subclass
     //IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Guid relationPropertyId, int? top = null);
@@ -55,6 +56,7 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IRelationProperty<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, int? top = null);
 
     //long Update<TProperty>(Expression<Func<TNode, TProperty>> property, object newValue);
 
@@ -67,6 +69,7 @@ public interface IIncludeQueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TI
     IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TProperty>(Expression<Func<TInclude, ICollection<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IRelationProperty<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IReference<TProperty>>> relationProperty, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IReferences<TProperty>>> referencesProperty, int? top = null);
 
     IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, int? top = null);
@@ -74,6 +77,7 @@ public interface IIncludeQueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TI
     IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, ICollection<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IRelationProperty<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, int? top = null);
 
 }
 

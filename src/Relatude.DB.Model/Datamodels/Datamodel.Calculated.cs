@@ -121,17 +121,28 @@ public partial class Datamodel {
         }
     }
     void verifyReferenceNodeTypes() {
-        foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.Reference)) {
-            if (p is not ReferencePropertyModel inp) throw new Exception("Reference property is not a ReferencePropertyModel");
-            if (inp.NodeTypesNames != null) {
-                foreach (var typeName in inp.NodeTypesNames) {
+        foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.Reference || p.PropertyType == PropertyType.References)) {
+            // both property types carry the same target-type trio, but the models are unrelated classes:
+            List<Guid> nodeTypes;
+            List<string>? nodeTypesNames;
+            if (p is ReferencePropertyModel refP) {
+                nodeTypes = refP.NodeTypes;
+                nodeTypesNames = refP.NodeTypesNames;
+            } else if (p is ReferencesPropertyModel refsP) {
+                nodeTypes = refsP.NodeTypes;
+                nodeTypesNames = refsP.NodeTypesNames;
+            } else {
+                throw new Exception("Reference property is not a ReferencePropertyModel or ReferencesPropertyModel");
+            }
+            if (nodeTypesNames != null) {
+                foreach (var typeName in nodeTypesNames) {
                     if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
                         throw new Exception("Reference property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
                     }
-                    inp.NodeTypes.Add(nodeType.Id);
+                    nodeTypes.Add(nodeType.Id);
                 }
             }
-            foreach (var typeId in inp.NodeTypes) {
+            foreach (var typeId in nodeTypes) {
                 if (!NodeTypes.TryGetValue(typeId, out var nodeType)) {
                     throw new Exception("Reference property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
                 }

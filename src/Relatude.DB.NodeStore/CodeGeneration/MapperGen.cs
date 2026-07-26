@@ -93,6 +93,8 @@ internal static class MapperGen {
                 sb.AppendLine("}");
             } else if (p is ReferencePropertyModel) {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReference.Id) + ");");
+            } else if (p is ReferencesPropertyModel) {
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReferences.Ids) + ");");
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");
@@ -265,6 +267,18 @@ internal static class MapperGen {
                     sb.AppendLine("vT = " + typeof(Guid).FullName + "." + nameof(Guid.Empty) + ";");
                     sb.AppendLine("}");
                     sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, reference);");
+                    sb.AppendLine("}");
+                } else if (p.PropertyType == PropertyType.References) {
+                    sb.AppendLine("{");
+                    sb.AppendLine(typeof(Guid).FullName + "[] vT;");
+                    sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[]? references = null; ");
+                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                    sb.AppendLine("vT = (" + typeof(Guid).FullName + "[])v;");
+                    sb.AppendLine("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) references = r; ");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("vT = " + typeof(Array).FullName + "." + nameof(Array.Empty) + "<" + typeof(Guid).FullName + ">();");
+                    sb.AppendLine("}");
+                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReferences.Initialize) + "(store, vT, references);");
                     sb.AppendLine("}");
                 } else if (p.PropertyType == PropertyType.File) {
                     // Example:

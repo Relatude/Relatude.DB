@@ -21,7 +21,7 @@ internal static class UtilsMath {
 			var existing = StringArrayPropertyModel.ForceValueType(oldValue, out _);
 			var newValues = StringArrayPropertyModel.ForceValueType(value, out _);
 			return existing.Concat(newValues).ToArray();
-		} else if (propDef.PropertyType == PropertyType.GuidArray) {
+		} else if (propDef.PropertyType == PropertyType.GuidArray || propDef.PropertyType == PropertyType.References) {
 			var existing = GuidArrayPropertyModel.ForceValueType(oldValue, out _);
 			var newValues = GuidArrayPropertyModel.ForceValueType(value, out _);
 			return existing.Concat(newValues).ToArray();
