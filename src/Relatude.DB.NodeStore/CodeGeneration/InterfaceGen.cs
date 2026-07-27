@@ -247,7 +247,7 @@ internal static class InterfaceGen {
                     sb.AppendLine("} ");
                     sb.AppendLine("set { throw new Exception(\"References properties cannot be set. They are automatically initialized. \"); } ");
                 } else { // plain collection of node-typed members: use preloaded references or lazy load from store
-                    var nodeType = datamodel.FindFirstCommonBase(refsP.NodeTypes).FullName;
+                    var nodeType = CodeUtils.CommonBaseWithClrType(datamodel, refsP.NodeTypes, "references property " + p.CodeName).FullName;
                     string toShape = refsP.ReferenceValueType switch {
                         ReferenceValueType.Array => ".ToArray()",
                         ReferenceValueType.List or ReferenceValueType.Collection => ".ToList()",

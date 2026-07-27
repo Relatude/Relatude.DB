@@ -16,6 +16,17 @@ internal static class CodeUtils {
             default: throw new Exception("Unknown model type " + mType);
         }
     }
+    // The base node type (INode) is synthetic and has no CLR type: when a set of target types
+    // only meet at the base, no valid member type can be generated - fail with a clear message
+    // instead of emitting a type name that will not compile.
+    internal static NodeTypeModel CommonBaseWithClrType(Datamodel dm, IEnumerable<Guid> ids, string context) {
+        var t = dm.FindFirstCommonBase(ids);
+        if (t.Id == NodeConstants.BaseNodeTypeId && !ids.Contains(NodeConstants.BaseNodeTypeId))
+            throw new Exception("Unable to generate code for " + context + ": the types "
+                + string.Join(", ", ids.Select(id => dm.NodeTypes.TryGetValue(id, out var nt) ? nt.CodeName : id.ToString()))
+                + " have no common base type in the datamodel. ");
+        return t;
+    }
     public static string GetTypeName(PropertyModel p, Datamodel datamodel) {
         if (p is IntegerPropertyModel intP && intP.IsEnum) {
             if (string.IsNullOrEmpty(intP.FullEnumTypeName))
@@ -58,7 +69,7 @@ internal static class CodeUtils {
             case EmbeddedValueType.InnerNodeList:
                 typeName += nameWithoutGeneric<Embedded<object>>();
                 typeName += "<";
-                typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
+                typeName += CommonBaseWithClrType(dm, inp.InnerNodeTypes, "embedded property " + p.CodeName).FullName;
                 typeName += ">";
                 break;
             case EmbeddedValueType.InnerNodeMap:
@@ -66,7 +77,7 @@ internal static class CodeUtils {
                 typeName += "<";
                 typeName += GetInnerPropertyKeyPropertyTypeName(inp, dm);
                 typeName += ", ";
-                typeName += dm.FindFirstCommonBase(inp.InnerNodeTypes).FullName;
+                typeName += CommonBaseWithClrType(dm, inp.InnerNodeTypes, "embedded property " + p.CodeName).FullName;
                 typeName += ">";
                 break;
             default:
@@ -76,7 +87,7 @@ internal static class CodeUtils {
     }
     static string getTypeNameReference(PropertyModel p, Datamodel dm) {
         if (p is not ReferencePropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencePropertyModel.");
-        var nodeType = dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        var nodeType = CommonBaseWithClrType(dm, inp.NodeTypes, "reference property " + p.CodeName).FullName;
         return inp.ReferenceValueType switch {
             ReferenceValueType.Wrapper => nameWithoutGeneric<Reference<object>>() + "<" + nodeType + ">",
             ReferenceValueType.Object => nodeType,
@@ -85,7 +96,7 @@ internal static class CodeUtils {
     }
     static string getTypeNameReferences(PropertyModel p, Datamodel dm) {
         if (p is not ReferencesPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencesPropertyModel.");
-        var nodeType = dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        var nodeType = CommonBaseWithClrType(dm, inp.NodeTypes, "references property " + p.CodeName).FullName;
         return inp.ReferenceValueType switch {
             ReferenceValueType.Wrapper => nameWithoutGeneric<References<object>>() + "<" + nodeType + ">",
             ReferenceValueType.Array => nodeType + "[]",
@@ -130,12 +141,14 @@ internal static class CodeUtils {
     static string getTypeNameRelationCollection(PropertyModel p, Datamodel dm) {
         if (p is not RelationPropertyModel rp) throw new Exception("PropertyModel " + p.ToString() + " is not a RelationPropertyModel.");
         var relation = dm.Relations[rp.RelationId];
-        var nodeType = dm.FindFirstCommonBase(rp.FromTargetToSource ? relation.SourceTypes : relation.TargetTypes);
+        // only non-native shapes need a CLR type for the related node (native shapes use the relation class):
+        var nodeType = new Lazy<NodeTypeModel>(() =>
+            CommonBaseWithClrType(dm, rp.FromTargetToSource ? relation.SourceTypes : relation.TargetTypes, "relation property " + p.CodeName));
         if (rp.IsMany) {
-            if (rp.RelationValueType == RelationValueType.Array) return nodeType + "[]";
-            if (rp.RelationValueType == RelationValueType.List) return "List<" + nodeType + ">";
-            if (rp.RelationValueType == RelationValueType.Collection) return "ICollection<" + nodeType + ">";
-            if (rp.RelationValueType == RelationValueType.Enumerable) return "IEnumerable<" + nodeType + ">";
+            if (rp.RelationValueType == RelationValueType.Array) return nodeType.Value + "[]";
+            if (rp.RelationValueType == RelationValueType.List) return "List<" + nodeType.Value + ">";
+            if (rp.RelationValueType == RelationValueType.Collection) return "ICollection<" + nodeType.Value + ">";
+            if (rp.RelationValueType == RelationValueType.Enumerable) return "IEnumerable<" + nodeType.Value + ">";
             if (rp.RelationValueType == RelationValueType.Native) {
                 var code = relation.FullName();
                 switch (relation.RelationType) {
@@ -212,7 +225,7 @@ internal static class CodeUtils {
                 }
                 return code;
             } else {
-                return nodeType.ToString();
+                return nodeType.Value.ToString();
             }
         }
     }
@@ -256,6 +269,9 @@ internal static class CodeUtils {
         if (nodeDef.Parents.Count == 0) return true;
         foreach (var parentId in nodeDef.Parents) {
             var parent = datamodel.NodeTypes[parentId];
+            // an interface parent only declares the member - a class or record must still
+            // implement it itself, so only class parents suppress the declaration:
+            if (nodeDef.ModelType != ModelType.Interface && parent.IsInterface) continue;
             if (getPropName(parent) == propName) return false;
             if (!isFirstClassInParentsThatUseThisName(propName, parent, datamodel, getPropName)) return false;
         }

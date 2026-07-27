@@ -388,23 +388,20 @@ public partial class Datamodel {
     public NodeTypeModel FindFirstCommonBase(IEnumerable<Guid> nodeTypes) {
         if (nodeTypes == null || nodeTypes.Count() == 0) return NodeTypes[NodeConstants.BaseNodeTypeId];
         if (nodeTypes.Count() == 1) return NodeTypes[nodeTypes.First()];
-        var candidates = new HashSet<Guid>();
-        foreach (var nt in NodeTypes.Values) {
-            bool implementsAllTypes = true;
-            foreach (var id in nodeTypes) {
-                if (!nt.ThisAndAllInheritedTypes.ContainsKey(id)) {
-                    implementsAllTypes = false;
-                    break;
-                }
-            }
-            if (implementsAllTypes) candidates.Add(nt.Id);
+        // the closest common ancestor: a type that every given type inherits or implements.
+        // (every type includes the base node type in its inheritance closure, so the
+        // intersection is never empty - disjoint types resolve to the base node type)
+        HashSet<Guid>? common = null;
+        foreach (var id in nodeTypes) {
+            var ancestors = NodeTypes[id].ThisAndAllInheritedTypes.Keys;
+            if (common == null) common = [.. ancestors];
+            else common.IntersectWith(ancestors);
         }
-        if (candidates.Count() == 0) return NodeTypes[NodeConstants.BaseNodeTypeId];
-        if (candidates.Count() == 1) return NodeTypes[candidates.First()];
-        // if multiple possible, select one with the fewest inherited types:
-        var bestId = candidates.OrderBy(c => NodeTypes[c].ThisAndAllInheritedTypes.Count()).First();
+        if (common == null || common.Count == 0) return NodeTypes[NodeConstants.BaseNodeTypeId];
+        // prefer the most derived common ancestor (largest inheritance closure), with a
+        // deterministic tie-break:
+        var bestId = common.OrderByDescending(c => NodeTypes[c].ThisAndAllInheritedTypes.Count).ThenBy(c => c).First();
         return NodeTypes[bestId];
-
     }
 
     public void AddDatamodel(Datamodel dm) {

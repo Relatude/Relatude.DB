@@ -280,7 +280,7 @@ internal static class MapperGen {
                         sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, reference);");
                         sb.AppendLine("}");
                     } else { // plain node-typed member, only populated when preloaded
-                        var nodeType = dm.FindFirstCommonBase(refP.NodeTypes).FullName;
+                        var nodeType = CodeUtils.CommonBaseWithClrType(dm, refP.NodeTypes, "reference property " + p.CodeName).FullName;
                         sb.AppendLine("{");
                         sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r) && r != null) obj." + p.CodeName + " = store.Get<" + nodeType + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")r);");
                         sb.AppendLine("}");
@@ -300,7 +300,7 @@ internal static class MapperGen {
                         sb.AppendLine("obj." + p.CodeName + "." + nameof(IReferences.Initialize) + "(store, vT, references);");
                         sb.AppendLine("}");
                     } else { // plain collection of node-typed members, only populated when preloaded
-                        var nodeType = dm.FindFirstCommonBase(refsP.NodeTypes).FullName;
+                        var nodeType = CodeUtils.CommonBaseWithClrType(dm, refsP.NodeTypes, "references property " + p.CodeName).FullName;
                         sb.AppendLine("{");
                         sb.Append("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r) && r != null) ");
                         sb.Append("obj." + p.CodeName + " = store." + nameof(NodeStore.GetRelated) + "<" + nodeType + ">(r)");

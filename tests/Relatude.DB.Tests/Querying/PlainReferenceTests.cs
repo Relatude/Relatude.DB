@@ -18,6 +18,7 @@ public class PlainRefProduct {
     public PlainRefTag[]? TagsArray { get; set; }                  // References, Array shape
     public List<PlainRefTag>? TagsList { get; set; }               // References, List shape
     public IEnumerable<PlainRefTag>? TagsEnumerable { get; set; }  // References, Enumerable shape
+    public ICollection<PlainRefTag>? TagsCollection { get; set; }  // References, Collection shape (generic interface)
 }
 [Node]
 public class PlainRefBrand {
@@ -101,6 +102,7 @@ public class PlainReferenceTests {
         assertReferences("TagsArray", ReferenceValueType.Array);
         assertReferences("TagsList", ReferenceValueType.List);
         assertReferences("TagsEnumerable", ReferenceValueType.Enumerable);
+        assertReferences("TagsCollection", ReferenceValueType.Collection);
     }
 
     [TestMethod]
@@ -153,6 +155,7 @@ public class PlainReferenceTests {
             TagsArray = [t1, t2],
             TagsList = [t2, t3],
             TagsEnumerable = [t3],
+            TagsCollection = [t3, t1],
         });
 
         // without include, plain reference members stay null:
@@ -161,6 +164,7 @@ public class PlainReferenceTests {
         Assert.IsNull(plain.TagsArray);
         Assert.IsNull(plain.TagsList);
         Assert.IsNull(plain.TagsEnumerable);
+        Assert.IsNull(plain.TagsCollection);
 
         // with include, they are populated in stored order:
         var loaded = store.Query<PlainRefProduct>()
@@ -168,12 +172,14 @@ public class PlainReferenceTests {
             .Include(p => p.TagsArray)
             .Include(p => p.TagsList)
             .Include(p => p.TagsEnumerable)
+            .Include(p => p.TagsCollection)
             .Execute().Single();
         Assert.IsNotNull(loaded.Brand);
         Assert.AreEqual(brand.Id, loaded.Brand!.Id);
         CollectionAssert.AreEqual(new[] { t1.Id, t2.Id }, loaded.TagsArray!.Select(t => t.Id).ToArray());
         CollectionAssert.AreEqual(new[] { t2.Id, t3.Id }, loaded.TagsList!.Select(t => t.Id).ToArray());
         CollectionAssert.AreEqual(new[] { t3.Id }, loaded.TagsEnumerable!.Select(t => t.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { t3.Id, t1.Id }, loaded.TagsCollection!.Select(t => t.Id).ToArray());
     }
 
     [TestMethod]

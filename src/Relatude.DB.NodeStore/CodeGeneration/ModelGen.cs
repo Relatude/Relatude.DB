@@ -110,6 +110,22 @@ public static class ModelGen {
             sb.Append("        ");
             sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
         }
+        // a class or record implementing a model interface must physically implement the members
+        // that the interface's model owns. They are emitted without attributes: the model builder
+        // assigns a member to its first declaring interface and ignores the class side.
+        if (nodeDef.ModelType == ModelType.Class || nodeDef.ModelType == ModelType.Record) {
+            var classParents = nodeDef.Parents.Select(id => datamodel.NodeTypes[id]).Where(t => !t.IsInterface).ToList();
+            var needsImplementation = nodeDef.AllProperties.Values
+                .Where(p => !p.Internal)
+                .Where(p => !nodeDef.Properties.ContainsKey(p.Id))
+                .Where(p => !classParents.Any(cp => cp.AllProperties.ContainsKey(p.Id))); // class parents already implement these
+            foreach (var p in needsImplementation) {
+                var typeName = typeAndNamespace(nodeDef.Namespace, CodeUtils.GetTypeName(p, datamodel));
+                var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
+                sb.Append("        ");
+                sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
+            }
+        }
         sb.AppendLine("    }"); // end class
     }
     static void addBaseAttributes<T>(PropertyModel p, Datamodel dm, StringBuilder sb, string? attributeName = null) where T : PropertyAttribute {
@@ -124,6 +140,8 @@ public static class ModelGen {
     }
     static string addAttributeBool(BoolValue b) => typeof(BoolValue).Namespace + "." + nameof(BoolValue) + "." + b.ToString();
     static string stringArrayArg(IEnumerable<string> values) => "new string[] {" + string.Join(", ", values) + "}"; // attribute arguments cannot use collection expressions
+    // user supplied strings must be escaped to form valid C# string literals (includes the quotes):
+    static string stringLiteral(string value) => Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);
     static string nameAtt<T>() {
         var t = typeof(T);
         var s = t.Namespace + "." + t.Name;
@@ -272,7 +290,7 @@ public static class ModelGen {
                     if (s.PrefixSearch) sb.Append(", " + nameof(StringPropertyAttribute.PrefixSearch) + " = true");
                     if (s.InfixSearch) sb.Append(", " + nameof(StringPropertyAttribute.InfixSearch) + " = true");
                     if (s.IgnoreDuplicateEmptyValues) sb.Append(", " + nameof(StringPropertyAttribute.IgnoreDuplicateEmptyValues) + " = true");
-                    if (s.DefaultValue != null) sb.Append(", " + nameof(StringPropertyAttribute.DefaultValue) + " = \"" + s.DefaultValue + "\"");
+                    if (s.DefaultValue != null) sb.Append(", " + nameof(StringPropertyAttribute.DefaultValue) + " = " + stringLiteral(s.DefaultValue));
                     if (s.StringType != StringValueType.AnyString) sb.Append(", " + nameof(StringPropertyAttribute.StringType) + " = " + typeof(StringValueType).Namespace + "." + nameof(StringValueType) + "." + s.StringType);
                     sb.AppendLine(")]");
                 }
@@ -300,7 +318,7 @@ public static class ModelGen {
                     if (s.UniqueValues) sb.Append(", " + nameof(EnumArrayPropertyAttribute.UniqueValues) + " = true");
                     if (!string.IsNullOrEmpty(s.FullEnumTypeName)) sb.Append(", " + nameof(EnumArrayPropertyAttribute.FullEnumTypeName) + " = \"" + s.FullEnumTypeName + "\"");
                     if (s.LegalValues != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValues) + " = new int[] {" + string.Join(", ", s.LegalValues.Select(v => v.ToString())) + "}");
-                    if (s.LegalValueNames != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValueNames) + " = new string[] {" + string.Join(", ", s.LegalValueNames.Select(n => "\"" + n + "\"")) + "}");
+                    if (s.LegalValueNames != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValueNames) + " = " + stringArrayArg(s.LegalValueNames.Select(stringLiteral)));
                     sb.AppendLine(")]");
                 }
                 break;

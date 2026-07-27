@@ -188,6 +188,11 @@ internal static class BuildUtilsProperties {
         return attr;
     }
     static bool isEnumArray(Type valueType) => valueType.IsArray && valueType.GetElementType()!.IsEnum;
+    // the generic collection interfaces do not implement their non-generic counterparts
+    // (only IEnumerable<T> : IEnumerable), so members declared as ICollection<T>/IList<T> etc.
+    // must be matched on the generic type definition:
+    static bool isAnyGenericInterface(Type t, params Type[] genericDefinitions) =>
+        t.IsInterface && t.IsGenericType && genericDefinitions.Contains(t.GetGenericTypeDefinition());
     // plain node-typed member usable as a single reference (guid value)
     static bool isPlainReferenceType(Type t) =>
         t.IsSubclassOf(typeof(object)) && !t.IsValueType && !t.IsEnum
@@ -388,9 +393,10 @@ internal static class BuildUtilsProperties {
         } else { // same collection shape detection as relation properties
             var genericTypes = valueType.GetGenericArguments();
             nodeType = genericTypes.Length > 0 ? genericTypes[0] : null;
-            if (valueType.InheritsFromOrImplements<IList>()) {
+            if (valueType.InheritsFromOrImplements<IList>() || isAnyGenericInterface(valueType, typeof(IList<>))) {
                 p.ReferenceValueType = ReferenceValueType.List;
-            } else if (valueType.InheritsFromOrImplements<ICollection>()) {
+            } else if (valueType.InheritsFromOrImplements<ICollection>()
+                || isAnyGenericInterface(valueType, typeof(ICollection<>), typeof(IReadOnlyCollection<>), typeof(IReadOnlyList<>))) {
                 p.ReferenceValueType = ReferenceValueType.Collection;
             } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
                 p.ReferenceValueType = ReferenceValueType.Enumerable;
@@ -517,9 +523,10 @@ internal static class BuildUtilsProperties {
                 }
                 if (valueType.InheritsFromOrImplements<Array>()) {
                     r.RelationValueType = RelationValueType.Array;
-                } else if (valueType.InheritsFromOrImplements<IList>()) {
+                } else if (valueType.InheritsFromOrImplements<IList>() || isAnyGenericInterface(valueType, typeof(IList<>))) {
                     r.RelationValueType = RelationValueType.List;
-                } else if (valueType.InheritsFromOrImplements<ICollection>()) {
+                } else if (valueType.InheritsFromOrImplements<ICollection>()
+                    || isAnyGenericInterface(valueType, typeof(ICollection<>), typeof(IReadOnlyCollection<>), typeof(IReadOnlyList<>))) {
                     r.RelationValueType = RelationValueType.Collection;
                 } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
                     r.RelationValueType = RelationValueType.Enumerable;

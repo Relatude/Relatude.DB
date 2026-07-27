@@ -14,6 +14,7 @@ namespace Relatude.RoundTripModels {
 
     public static class RtIds {
         public const string CarNodeId = "aaaaaaaa-0000-0000-0000-00000000c001";
+        public const string BoatNodeId = "aaaaaaaa-0000-0000-0000-00000000b001";
     }
 
     // class inheritance:
@@ -30,7 +31,7 @@ namespace Relatude.RoundTripModels {
         public int Wheels { get; set; }
         public RtCarsRel.OwnerOf Owner { get; set; } = new();
     }
-    [Node]
+    [Node(Id = RtIds.BoatNodeId)]
     public class RtBoat : RtVehicle {
         [DoubleProperty]
         public double Draft { get; set; }
@@ -74,7 +75,7 @@ namespace Relatude.RoundTripModels {
         public Guid ExternalId { get; set; }
         [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, MinWordLength = 2, MaxWordLength = 20,
             MinLength = 1, MaxLength = 500, PrefixSearch = true, InfixSearch = true, IgnoreDuplicateEmptyValues = true,
-            DefaultValue = "n/a", TextIndexBoost = 3)]
+            DefaultValue = "say \"hi\" in C:\\temp\\", TextIndexBoost = 3)] // hostile default: quotes and backslashes must be escaped in generated code
         public string Description { get; set; } = "";
         [StringProperty(ExcludeFromTextIndex = true, DisplayName = true)]
         public string Label { get; set; } = "";
@@ -147,7 +148,9 @@ namespace Relatude.RoundTripModels {
         public RtBoat[]? BoatArray { get; set; }                       // References, Array shape
         public List<RtBoat>? BoatList { get; set; }                    // References, List shape
         public IEnumerable<RtBoat>? BoatEnumerable { get; set; }       // References, Enumerable shape
-        public ICollection<RtBoat>? BoatCollection { get; set; }       // References, Enumerable shape (ICollection<T> lacks the non-generic interfaces)
+        public ICollection<RtBoat>? BoatCollection { get; set; }       // References, Collection shape
+        [ReferenceProperty(TypeIds = new string[] { RtIds.CarNodeId, RtIds.BoatNodeId })]
+        public RtVehicle? AnyVehicle { get; set; }                     // multi-target reference: common ancestor is RtVehicle
     }
     [Node]
     public class RtPassport {
@@ -203,6 +206,27 @@ namespace Relatude.RoundTripModels {
         public RtAutoParent? Parent { get; set; }
     }
 
+    // classes implementing model interfaces: the class model owns only its own members, the
+    // interface model owns the shared ones, and generated classes must still implement them:
+    public interface IRtNamed {
+        Guid Id { get; set; }
+        [StringProperty(Indexed = true)]
+        string DisplayLabel { get; set; }
+    }
+    [Node]
+    public class RtNamedThing : IRtNamed {
+        public Guid Id { get; set; }
+        public string DisplayLabel { get; set; } = "";
+        [IntegerProperty]
+        public int Rank { get; set; }
+    }
+    [Node]
+    public class RtSection : IRtSection { // includes an embedded (list) implementation
+        public Guid Id { get; set; }
+        public string Heading { get; set; } = "";
+        public Embedded<IRtParagraph> Paragraphs { get; } = [];
+    }
+
     // record model type:
     [Node]
     public record RtNote {
@@ -237,6 +261,9 @@ namespace Relatude.Querying {
             dm.Add<RtTeam>();
             dm.Add<RtDoc>();
             dm.Add<RtNote>();
+            dm.Add<IRtNamed>();
+            dm.Add<RtNamedThing>();
+            dm.Add<RtSection>();
             dm.Add<RtSpouseRel>();
             dm.Add<RtFriendsRel>();
             dm.Add<RtCarsRel>();
