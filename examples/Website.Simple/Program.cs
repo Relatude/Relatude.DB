@@ -20,9 +20,11 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpen = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 10_000_000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 500_000, 10_000); // populates the facet search example (see wwwroot/search.html)
     };
 });
+
+
 
 // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS:
 builder.Services.AddCors(options => {
@@ -44,6 +46,19 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
+
+app.MapGet("/ChangeColor", (RelatudeDBContext ctx) => {
+    var color = ctx.Database.First<Color>();
+    if (color.Name.Contains("-")) {
+        color.Name = color.Name.Split("-").First().Trim();
+    } else {
+        color.Name += " - " + DateTime.Now.ToString("HH:mm:ss");
+    }
+    ctx.Database.Update(color);
+    return color.Name;
+});
+
+
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //if (hasInserted) return "Already inserted.";
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
@@ -234,9 +249,11 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
     var db = ctx.Database;
     var query = db.Query<Product>();
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
-    var facetQuery = query.Facets()
+    var facetQuery = query.Include(p => p.Colors!).Facets() // Include so the page of products lists its colors
         .AddValueFacet(p => p.Category)
         .AddValueFacet(p => p.Brand)
+        .AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
+        .AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
         .AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
         .SetFacetOptions(p => p.Price, rangeCount: 10) // sort by value for ranges
         .AddValueFacet(p => p.InStock)
@@ -258,13 +275,16 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
         items = res.Select(p => new {
             p.Name, p.Description, p.Category, p.Price, p.InStock, p.Tags,
             Brand = p.Brand.TryGet(out var b) ? b.Name : "",
+            Colors = p.Colors?.Select(c => c.Name) ?? [],
+            Sizes = p.Sizes.Select(s => s.ToString()),
         }),
         facets = res.Facets.Select(f => new {
             property = f.CodeName,
             displayName = f.DisplayName,
             isRange = f.IsRangeFacet == true,
             values = f.Values.Select(v => new {
-                value = FacetJson.Str(v.Value),
+                // relation facet buckets are the related nodes; their id is what a selection posts back
+                value = FacetJson.Str(v.Value is Color c ? c.Id : v.Value),
                 value2 = FacetJson.Str(v.Value2),
                 display = v.DisplayName,
                 count = v.Count,
