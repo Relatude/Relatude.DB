@@ -3,7 +3,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 using Relatude.Utils;
 
-namespace Relatude;
+namespace Relatude.Transactions;
 
 [TestClass]
 public class TransactionOperationTests {
@@ -438,6 +438,28 @@ public class TransactionOperationTests {
     }
 
     [TestMethod]
+    public void AddToProperty_String_AppendsToStoredValue() {
+        using var store = Helper.Open();
+        store.Insert(new Article { Id = 1, Name = "base" });
+
+        var a = store.Get<Article>(1);
+        store.AddToProperty(a, x => x.Name, "-suffix");
+
+        Assert.AreEqual("base-suffix", store.Get<Article>(1).Name);
+    }
+
+    [TestMethod]
+    public void MultiplyProperty_Integer_MultipliesStoredValue() {
+        using var store = Helper.Open();
+        store.Insert(new Article { Id = 1, IntegerNum = 10 });
+
+        var a = store.Get<Article>(1);
+        store.MultiplyProperty(a, x => x.IntegerNum, 2);
+
+        Assert.AreEqual(20, store.Get<Article>(1).IntegerNum);
+    }
+
+    [TestMethod]
     public void ResetProperty_ExecutesWithoutError() {
         // ResetProperty removes a stored value so the node falls back to its default.
         // The exact observable value depends on how the property was stored.
@@ -697,5 +719,21 @@ public class TransactionOperationTests {
         t.Execute();
 
         Assert.AreEqual(2, store.Query<Article>().Count());
+    }
+
+    // -----------------------------------------------------------------------
+    // ChangeType
+    // -----------------------------------------------------------------------
+
+    [TestMethod]
+    public void ChangeType_NodeIsRetrievableAsNewType() {
+        using var store = Helper.Open();
+        store.Insert(new Article { Id = 1, Name = "Alpha" });
+
+        var a = store.Get<Article>(1);
+        store.ChangeType<Article2>(a);
+
+        var changed = store.Get<Article2>(1);
+        Assert.IsInstanceOfType(changed, typeof(Article2));
     }
 }

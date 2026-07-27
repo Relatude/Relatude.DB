@@ -2,7 +2,7 @@ using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 
-namespace Relatude;
+namespace Relatude.Indexes;
 
 [TestClass]
 public class CharArrayTrieTests

@@ -4,9 +4,9 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
-namespace Relatude;
+namespace Relatude.Indexes;
 [TestClass]
-public class ValueIndexTest {
+public class ValueIndexTests {
 
     [TestMethod]
     public void TestingCacheKeyLogic() {
@@ -40,9 +40,6 @@ public class ValueIndexTest {
         }
 
         var report = sb.ToString();
-
-
-
-
+        Assert.IsTrue(report.Length > 0, "cache key report should not be empty");
     }
 }

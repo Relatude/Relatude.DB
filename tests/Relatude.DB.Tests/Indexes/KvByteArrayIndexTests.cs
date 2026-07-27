@@ -1,6 +1,6 @@
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 
-namespace Relatude;
+namespace Relatude.Indexes;
 
 /// <summary>
 /// byte[] as an index value type in the KV engines: codec round-trip through the disk-backed

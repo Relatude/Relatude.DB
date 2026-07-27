@@ -3,7 +3,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.Transactions;
 using Relatude.Utils;
 
-namespace Relatude {
+namespace Relatude.Store {
     [TestClass]
     public class FilePropertyTests {
         [TestMethod]

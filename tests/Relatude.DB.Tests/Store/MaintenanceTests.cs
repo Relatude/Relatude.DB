@@ -2,7 +2,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
 using Relatude.Utils;
 
-namespace Relatude.Querying;
+namespace Relatude.Store;
 
 [TestClass]
 public class MaintenanceTests {

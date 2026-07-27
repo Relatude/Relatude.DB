@@ -5,7 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Relatude.Querying;
+namespace Relatude.Performance;
 
 #region shop-profile datamodel (mirrors Website.Simple's Product/Brand, no text index)
 [Node]

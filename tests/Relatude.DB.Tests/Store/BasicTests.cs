@@ -1,6 +1,6 @@
 using Relatude.Utils;
 
-namespace Relatude {
+namespace Relatude.Store {
     [TestClass]
     public class BasicTests {
         [TestMethod]

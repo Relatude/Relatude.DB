@@ -6,9 +6,9 @@ using Relatude.DB.Nodes;
 using Relatude.Utils;
 using NodeStore = Relatude.DB.Nodes.NodeStore; // disambiguate from the internal DataStores.Stores.NodeStore (visible via InternalsVisibleTo)
 
-namespace Relatude {
+namespace Relatude.Persistence {
     [TestClass]
-    public class FileCorruption {
+    public class FileCorruptionTests {
         [TestMethod]
         public void TestCorruptionInLogFile() {
             var io = new IOProviderMemory();

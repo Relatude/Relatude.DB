@@ -4,9 +4,9 @@ using Relatude.DB.Query;
 using Relatude.DB.Nodes;
 using Relatude.Utils;
 
-namespace Relatude;
+namespace Relatude.Persistence;
 [TestClass]
-public class Rewrite {
+public class RewriteTests {
     void testData(NodeStore store, List<Article> orgArticles) {
         for (int i = 1; i < orgArticles.Count + 1; i++) {
             var artFromStore = store.Get<Article>(i);

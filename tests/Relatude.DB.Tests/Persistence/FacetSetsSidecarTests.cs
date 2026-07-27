@@ -4,7 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Relatude;
+namespace Relatude.Persistence;
 
 [Node]
 public class ScProduct {

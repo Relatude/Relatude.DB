@@ -5,9 +5,9 @@ using System.Linq.Expressions;
 using Relatude.DB.Nodes;
 using Relatude.Utils;
 
-namespace Relatude;
+namespace Relatude.Transactions;
 [TestClass]
-public class Transactions {
+public class TransactionRollbackAndLockingTests {
 
     [TestMethod]
     public void Reversal() {

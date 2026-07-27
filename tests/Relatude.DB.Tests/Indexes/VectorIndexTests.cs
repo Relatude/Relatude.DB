@@ -2,25 +2,22 @@ using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 
-namespace Relatude {
+namespace Relatude.Indexes {
     [TestClass]
-    public class VectorIndexes {
+    public class VectorIndexTests {
 
         int searchCount = 10;
         int dataCount = 1000;
-        
-        static List<Tuple<int, float[]>> set;
+
         //static FlatMemoryVectorIndex flat = new();
-        static TurboQuantVectorIndex flat = new TurboQuantVectorIndex(1536);
         //static FlatDiskVectorIndex flat = new(File.Open("C:\\WAF_Temp\\flatdiskvectorindex.bin", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), 1536);
 
         [TestMethod]
-        public void GenerateTestData() {
-            set = getRandomEmbeddings(dataCount);
+        public void SetAndSearch() {
+            var flat = new TurboQuantVectorIndex(1536);
+            var set = getRandomEmbeddings(dataCount);
             foreach (var v in set) { flat.Set(v.Item1, v.Item2); }
-        }
-        [TestMethod]
-        public void Search() {
+
             var r = new Random(dataCount);
             var v2 = getVector(r);
             List<VectorHit>? hits = null;
@@ -33,6 +30,7 @@ namespace Relatude {
             Console.WriteLine("Per search: " + (sw.Elapsed.TotalMilliseconds / searchCount).To1000N() + "ms");
             Console.WriteLine("Datasize: " + dataCount);
             Assert.IsNotNull(hits);
+            Assert.IsTrue(hits.Count > 0, "search on a populated index should return hits");
         }
 
         List<Tuple<int, float[]>> getRandomEmbeddings(int noNodes) {

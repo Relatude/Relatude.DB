@@ -1,9 +1,9 @@
 using Relatude.DB.DataStores.Relations;
 using Relatude.DB.DataStores.Sets;
 
-namespace Relatude {
+namespace Relatude.Indexes {
     [TestClass]
-    public class RelationIndexes {
+    public class RelationIndexTests {
         public static SetRegister setRegister = new SetRegister(10000);
 
         [TestMethod]

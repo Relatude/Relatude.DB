@@ -4,10 +4,10 @@ using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.Nodes;
 using Relatude.Utils;
 
-namespace Relatude;
+namespace Relatude.Store;
 
 [TestClass]
-public class SemanticSearch {
+public class SemanticSearchTests {
     [TestMethod]
     public void SearchTest() {
         var datamodel = Helper.GetDatamodel();

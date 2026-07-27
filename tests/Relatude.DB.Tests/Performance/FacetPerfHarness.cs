@@ -5,7 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
-namespace Relatude.Querying;
+namespace Relatude.Performance;
 
 #region perf datamodel (text indexed, unlike the functional facet test model)
 [Node(TextIndex = BoolValue.True)]
