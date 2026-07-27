@@ -12,6 +12,10 @@ public class ReferencesPropertyModel : GuidArrayPropertyModel {
     public List<Guid> NodeTypes { get; set; } = [];
     public List<string>? NodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
+    public ReferenceValueType ReferenceValueType { get; set; } = ReferenceValueType.Wrapper;
 
-    public override string? GetDefaultDeclaration() => "new()";
+    // wrapper needs an initialized instance (the mapper calls Initialize on it); plain
+    // collection shapes must stay null until preloaded: null means "leave stored value
+    // unchanged" on save, while an empty collection clears the stored references
+    public override string? GetDefaultDeclaration() => ReferenceValueType == ReferenceValueType.Wrapper ? "new()" : null;
 }

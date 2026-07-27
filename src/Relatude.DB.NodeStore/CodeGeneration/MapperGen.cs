@@ -91,11 +91,19 @@ internal static class MapperGen {
                 var keyPropId = CodeUtils.GuidName(p.Id) + "_KeyProperty";
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(Embedded<object>.GetNodeDataMap) + "(" + newPath + ", " + keyPropId + "," + "store.Mapper" + "));");
                 sb.AppendLine("}");
-            } else if (p is ReferencePropertyModel) {
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReference.Id) + ");");
-            } else if (p is ReferencesPropertyModel) {
-                // clone: the stored value must never alias the wrapper's mutable array
-                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (" + typeof(Guid).FullName + "[])node." + p.CodeName + "." + nameof(IReferences.Ids) + ".Clone());");
+            } else if (p is ReferencePropertyModel refP) {
+                if (refP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                    sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + "." + nameof(IReference.Id) + ");");
+                } else { // plain node-typed member: null means "leave stored value unchanged" (missing values are preserved on update)
+                    sb.AppendLine("if(node." + p.CodeName + " != null) values.Add(" + CodeUtils.GuidName(p.Id) + ", store.Mapper." + nameof(NodeMapper.GetIdGuidOrCreate) + "(node." + p.CodeName + "));");
+                }
+            } else if (p is ReferencesPropertyModel refsP) {
+                if (refsP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                    // clone: the stored value must never alias the wrapper's mutable array
+                    sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", (" + typeof(Guid).FullName + "[])node." + p.CodeName + "." + nameof(IReferences.Ids) + ".Clone());");
+                } else { // plain collection of node-typed members: null means "leave stored value unchanged"
+                    sb.AppendLine("if(node." + p.CodeName + " != null) values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ".Select(n => store.Mapper." + nameof(NodeMapper.GetIdGuidOrCreate) + "(n)).ToArray());");
+                }
             } else if (p is FilePropertyModel) {
                 sb.AppendLine("{");
                 sb.AppendLine("var nodePath = propertyPath == null ? new (gid) : propertyPath." + nameof(PropertyPath.CreatePathToInnerNode) + "(gid);");
@@ -257,30 +265,54 @@ internal static class MapperGen {
                     sb.AppendLine("}");
                     sb.AppendLine("}");
                 } else if (p.PropertyType == PropertyType.Reference) {
-                    sb.AppendLine("{");
-                    //sb.AppendLine("if(obj." + p.CodeName + " == null) obj." + p.CodeName + " = []; ");
-                    sb.AppendLine(typeof(Guid).FullName + " vT;");
-                    sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "? reference = null; ");
-                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
-                    sb.AppendLine("vT = (" + typeof(Guid).FullName + ")v;");
-                    sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) reference = r; ");
-                    sb.AppendLine("} else {");
-                    sb.AppendLine("vT = " + typeof(Guid).FullName + "." + nameof(Guid.Empty) + ";");
-                    sb.AppendLine("}");
-                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, reference);");
-                    sb.AppendLine("}");
+                    if (p is not ReferencePropertyModel refP) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencePropertyModel.");
+                    if (refP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                        sb.AppendLine("{");
+                        //sb.AppendLine("if(obj." + p.CodeName + " == null) obj." + p.CodeName + " = []; ");
+                        sb.AppendLine(typeof(Guid).FullName + " vT;");
+                        sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "? reference = null; ");
+                        sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                        sb.AppendLine("vT = (" + typeof(Guid).FullName + ")v;");
+                        sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) reference = r; ");
+                        sb.AppendLine("} else {");
+                        sb.AppendLine("vT = " + typeof(Guid).FullName + "." + nameof(Guid.Empty) + ";");
+                        sb.AppendLine("}");
+                        sb.AppendLine("obj." + p.CodeName + "." + nameof(IReference.Initialize) + "(store, vT, reference);");
+                        sb.AppendLine("}");
+                    } else { // plain node-typed member, only populated when preloaded
+                        var nodeType = dm.FindFirstCommonBase(refP.NodeTypes).FullName;
+                        sb.AppendLine("{");
+                        sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r) && r != null) obj." + p.CodeName + " = store.Get<" + nodeType + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")r);");
+                        sb.AppendLine("}");
+                    }
                 } else if (p.PropertyType == PropertyType.References) {
-                    sb.AppendLine("{");
-                    sb.AppendLine(typeof(Guid).FullName + "[] vT;");
-                    sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[]? references = null; ");
-                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
-                    sb.AppendLine("vT = (" + typeof(Guid).FullName + "[])v;");
-                    sb.AppendLine("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) references = r; ");
-                    sb.AppendLine("} else {");
-                    sb.AppendLine("vT = " + typeof(Array).FullName + "." + nameof(Array.Empty) + "<" + typeof(Guid).FullName + ">();");
-                    sb.AppendLine("}");
-                    sb.AppendLine("obj." + p.CodeName + "." + nameof(IReferences.Initialize) + "(store, vT, references);");
-                    sb.AppendLine("}");
+                    if (p is not ReferencesPropertyModel refsP) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencesPropertyModel.");
+                    if (refsP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                        sb.AppendLine("{");
+                        sb.AppendLine(typeof(Guid).FullName + "[] vT;");
+                        sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[]? references = null; ");
+                        sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");
+                        sb.AppendLine("vT = (" + typeof(Guid).FullName + "[])v;");
+                        sb.AppendLine("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) references = r; ");
+                        sb.AppendLine("} else {");
+                        sb.AppendLine("vT = " + typeof(Array).FullName + "." + nameof(Array.Empty) + "<" + typeof(Guid).FullName + ">();");
+                        sb.AppendLine("}");
+                        sb.AppendLine("obj." + p.CodeName + "." + nameof(IReferences.Initialize) + "(store, vT, references);");
+                        sb.AppendLine("}");
+                    } else { // plain collection of node-typed members, only populated when preloaded
+                        var nodeType = dm.FindFirstCommonBase(refsP.NodeTypes).FullName;
+                        sb.AppendLine("{");
+                        sb.Append("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r) && r != null) ");
+                        sb.Append("obj." + p.CodeName + " = store." + nameof(NodeStore.GetRelated) + "<" + nodeType + ">(r)");
+                        if (refsP.ReferenceValueType == ReferenceValueType.Array) {
+                            sb.AppendLine(".ToArray();");
+                        } else if (refsP.ReferenceValueType == ReferenceValueType.List || refsP.ReferenceValueType == ReferenceValueType.Collection) {
+                            sb.AppendLine(".ToList();");
+                        } else {
+                            sb.AppendLine(";"); // IEnumerable
+                        }
+                        sb.AppendLine("}");
+                    }
                 } else if (p.PropertyType == PropertyType.File) {
                     // Example:
                     //{

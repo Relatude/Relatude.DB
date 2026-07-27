@@ -425,6 +425,20 @@ public class NodeStore : IDisposable {
     public IEnumerable<T> GetRelated<T>(NodeDataWithRelations[] node) { // used by mapper internally
         foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item, null);
     }
+    public T? GetReferencedNodeOrDefault<T>(Guid id) { // used by mapper internally, for plain-typed reference properties
+        if (id == Guid.Empty) return default;
+        if (!Datastore.TryGet(id, out var nodeData)) return default; // target deleted: skip
+        if (Get(nodeData) is T node) return node;
+        return default;
+    }
+    public IEnumerable<T> GetReferencedNodes<T>(Guid[]? ids) { // used by mapper internally, for plain-typed references properties
+        if (ids == null) yield break;
+        foreach (var id in ids) {
+            if (id == Guid.Empty) continue;
+            if (!Datastore.TryGet(id, out var nodeData)) continue; // target deleted: skip
+            if (Get(nodeData) is T node) yield return node;
+        }
+    }
 
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value) => Datastore.TryGetValue(path, out value);
     public T GetValue<T>(PropertyPath path) => Datastore.GetValue<T>(path);

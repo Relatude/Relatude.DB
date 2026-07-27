@@ -11,8 +11,8 @@ using Relatude.DB.Query;
 namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes
 internal static class BuildUtilsProperties {
-    public static PropertyModel CreatePropertyFromMember(MemberInfo m, Type valueType) {
-        var a = getOrCreatePropertyAttributeWithId(m, valueType);
+    public static PropertyModel CreatePropertyFromMember(MemberInfo m, Type valueType, bool autoDeduceRelations = false) {
+        var a = getOrCreatePropertyAttributeWithId(m, valueType, autoDeduceRelations);
         PropertyModel p;
         if (valueType == typeof(string)) {
             p = getStringPropertyModel(cast<StringPropertyAttribute>(a, m));
@@ -55,9 +55,15 @@ internal static class BuildUtilsProperties {
         } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
             p = getEmbeddedMapPropertyModel(cast<EmbeddedMapPropertyAttribute>(a, m), valueType);
         } else if (valueType.InheritsFromOrImplements<IReference>()) {
-            p = getReferencePropertyModel(cast<ReferencePropertyAttribute>(a, m), valueType);
+            p = getReferencePropertyModel(cast<ReferencePropertyAttribute>(a, m), m, valueType);
         } else if (valueType.InheritsFromOrImplements<IReferences>()) {
-            p = getReferencesPropertyModel(cast<ReferencesPropertyAttribute>(a, m), valueType);
+            p = getReferencesPropertyModel(cast<ReferencesPropertyAttribute>(a, m), m, valueType);
+        } else if (a is ReferencePropertyAttribute && valueType.IsSubclassOf(typeof(object))) {
+            // plain node-typed member modeled as a reference (single guid value)
+            p = getReferencePropertyModel(cast<ReferencePropertyAttribute>(a, m), m, valueType);
+        } else if (a is ReferencesPropertyAttribute && valueType.IsSubclassOf(typeof(object))) {
+            // plain collection of node-typed members modeled as references (guid array value)
+            p = getReferencesPropertyModel(cast<ReferencesPropertyAttribute>(a, m), m, valueType);
         } else if (valueType.IsSubclassOf(typeof(object))) {
             // if not primitive, then it is assumed to be a relation
             p = getRelationPropertyModel(cast<RelationPropertyAttribute>(a, m), m, valueType);
@@ -94,7 +100,7 @@ internal static class BuildUtilsProperties {
         if (a is T aT) return aT;
         throw new Exception("Attribute " + a.GetType().FullName + " does not match value type for " + m.DeclaringType?.FullName + "." + m.Name);
     }
-    static PropertyAttribute getOrCreatePropertyAttributeWithId(MemberInfo member, Type valueType) {
+    static PropertyAttribute getOrCreatePropertyAttributeWithId(MemberInfo member, Type valueType, bool autoDeduceRelations) {
         if (!BuildUtils.tryGetAttribute<PropertyAttribute>(member, out var attr)) {
             if (valueType == typeof(string)) attr = new StringPropertyAttribute();
             else if (valueType == typeof(bool)) attr = new BooleanPropertyAttribute();
@@ -127,8 +133,17 @@ internal static class BuildUtilsProperties {
                 else if (typeKey == typeof(Guid)) a.KeyType = KeyPropertyType.NodeGuidId;
                 else throw new Exception("The key type " + typeKey.FullName + " of property '" + "" + member.DeclaringType?.FullName + "." + member.Name + "' is not supported for EmbeddedMapProperty. ");
                 attr = a;
-            } else if (valueType.IsSubclassOf(typeof(object))) attr = new RelationPropertyAttribute();
-            else throw new NotSupportedException(member.DeclaringType?.FullName + "." + member.Name + " - The value type " + valueType.FullName + " is not supported as a member type. ");
+            } else if (valueType.IsSubclassOf(typeof(object))) {
+                if (autoDeduceRelations || valueType.InheritsFromOrImplements<IRelationProperty>()) {
+                    // native relation properties (nested relation classes) are always relations;
+                    // other node-typed members become relations only when auto-deduction is on
+                    attr = new RelationPropertyAttribute();
+                } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
+                    attr = new ReferencesPropertyAttribute();
+                } else {
+                    attr = new ReferencePropertyAttribute();
+                }
+            } else throw new NotSupportedException(member.DeclaringType?.FullName + "." + member.Name + " - The value type " + valueType.FullName + " is not supported as a member type. ");
         } else {
             if (attr is StringPropertyAttribute && valueType != typeof(string)
             || attr is BooleanPropertyAttribute && valueType != typeof(bool)
@@ -146,8 +161,8 @@ internal static class BuildUtilsProperties {
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
             || attr is FilePropertyAttribute && valueType != typeof(FileValue)
             || attr is EmbeddedPropertyAttribute && !(valueType.InheritsFromOrImplements<IEmbedded>() || valueType.InheritsFromOrImplements<IEmbeddedMap>())
-            || attr is ReferencePropertyAttribute && !valueType.InheritsFromOrImplements<IReference>()
-            || attr is ReferencesPropertyAttribute && !valueType.InheritsFromOrImplements<IReferences>()
+            || attr is ReferencePropertyAttribute && !(valueType.InheritsFromOrImplements<IReference>() || isPlainReferenceType(valueType))
+            || attr is ReferencesPropertyAttribute && !(valueType.InheritsFromOrImplements<IReferences>() || isPlainReferencesType(valueType))
             || attr is EmbeddedMapPropertyAttribute && !valueType.InheritsFromOrImplements<IEmbeddedMap>()
             || attr is RelationPropertyAttribute && !valueType.IsSubclassOf(typeof(object))
             ) {
@@ -173,6 +188,14 @@ internal static class BuildUtilsProperties {
         return attr;
     }
     static bool isEnumArray(Type valueType) => valueType.IsArray && valueType.GetElementType()!.IsEnum;
+    // plain node-typed member usable as a single reference (guid value)
+    static bool isPlainReferenceType(Type t) =>
+        t.IsSubclassOf(typeof(object)) && !t.IsValueType && !t.IsEnum
+        && !t.InheritsFromOrImplements<IEnumerable>() && !t.InheritsFromOrImplements<IRelationProperty>();
+    // plain collection of node-typed members usable as references (guid array value)
+    static bool isPlainReferencesType(Type t) =>
+        t.IsSubclassOf(typeof(object)) && t.InheritsFromOrImplements<IEnumerable>()
+        && !t.InheritsFromOrImplements<IRelationProperty>();
     static StringPropertyModel getStringPropertyModel(StringPropertyAttribute a) {
         var p = new StringPropertyModel();
         p.DefaultValue = a.DefaultValue;
@@ -321,9 +344,17 @@ internal static class BuildUtilsProperties {
         p._keyTypeInCodeModelForLaterChecks = valueType;
         return p;
     }
-    static ReferencePropertyModel getReferencePropertyModel(ReferencePropertyAttribute a, Type valueType) {
+    static ReferencePropertyModel getReferencePropertyModel(ReferencePropertyAttribute a, MemberInfo m, Type valueType) {
         var p = new ReferencePropertyModel();
 
+        Type nodeType;
+        if (valueType.InheritsFromOrImplements<IReference>()) {
+            p.ReferenceValueType = ReferenceValueType.Wrapper;
+            nodeType = valueType.GetGenericArguments()[0];
+        } else { // plain node-typed member
+            p.ReferenceValueType = ReferenceValueType.Object;
+            nodeType = valueType;
+        }
         if (a.TypeIds != null) {
             var ids = new List<Guid>();
             var names = new List<string>();
@@ -338,16 +369,35 @@ internal static class BuildUtilsProperties {
             if (names.Count > 0) p.NodeTypesNames = names;
         }
         if (a.TypeIds == null) {
-            var nodeType = valueType.GetGenericArguments()[0];
             p.NodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;
         p.Indexed = a.Indexed;
         return p;
     }
-    static ReferencesPropertyModel getReferencesPropertyModel(ReferencesPropertyAttribute a, Type valueType) {
+    static ReferencesPropertyModel getReferencesPropertyModel(ReferencesPropertyAttribute a, MemberInfo m, Type valueType) {
         var p = new ReferencesPropertyModel();
 
+        Type? nodeType;
+        if (valueType.InheritsFromOrImplements<IReferences>()) {
+            p.ReferenceValueType = ReferenceValueType.Wrapper;
+            nodeType = valueType.GetGenericArguments()[0];
+        } else if (valueType.InheritsFromOrImplements<Array>()) {
+            p.ReferenceValueType = ReferenceValueType.Array;
+            nodeType = valueType.GetElementType();
+        } else { // same collection shape detection as relation properties
+            var genericTypes = valueType.GetGenericArguments();
+            nodeType = genericTypes.Length > 0 ? genericTypes[0] : null;
+            if (valueType.InheritsFromOrImplements<IList>()) {
+                p.ReferenceValueType = ReferenceValueType.List;
+            } else if (valueType.InheritsFromOrImplements<ICollection>()) {
+                p.ReferenceValueType = ReferenceValueType.Collection;
+            } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
+                p.ReferenceValueType = ReferenceValueType.Enumerable;
+            } else {
+                throw new Exception("Could not determine collection type for " + m.DeclaringType?.FullName + "." + m.Name);
+            }
+        }
         if (a.TypeIds != null) {
             var ids = new List<Guid>();
             var names = new List<string>();
@@ -362,7 +412,7 @@ internal static class BuildUtilsProperties {
             if (names.Count > 0) p.NodeTypesNames = names;
         }
         if (a.TypeIds == null) {
-            var nodeType = valueType.GetGenericArguments()[0];
+            if (nodeType == null) throw new Exception("Could not determine node type of references property " + m.DeclaringType?.FullName + "." + m.Name);
             p.NodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;

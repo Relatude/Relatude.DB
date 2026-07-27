@@ -189,28 +189,43 @@ internal static class InterfaceGen {
                 sb.AppendLine("} ");
                 sb.AppendLine("set { throw new Exception(\"Embedded properties cannot be set. They are automatically initialized. \"); } ");
                 sb.AppendLine(" }");
-            } else if (p.PropertyType == PropertyType.Reference) {                
+            } else if (p.PropertyType == PropertyType.Reference) {
+                if (p is not ReferencePropertyModel refP) throw new Exception("Expected reference property model for property: " + p.CodeName);
                 sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.AppendLine("get {");
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
-                sb.AppendLine("var relations = this." + nameof(INodeShellAccess.__NodeDataShell) + "." 
-                    + nameof(NodeDataShell.NodeData) + "." 
+                sb.AppendLine("var relations = this." + nameof(INodeShellAccess.__NodeDataShell) + "."
+                    + nameof(NodeDataShell.NodeData) + "."
                     + nameof(NodeDataWithRelations.Relations) + ";");
                 sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "? reference = null; ");
                 sb.AppendLine("if(relations." + nameof(IRelations.TryGetReference) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) reference = r; ");
 
-                sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
-                sb.AppendLine("_" + p.CodeName + " = new ();");
-                sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
-                sb.AppendLine("__NodeDataShell.Store, v, reference");
-                sb.AppendLine(");");
-                sb.AppendLine("}");
-                sb.AppendLine("return _" + p.CodeName + ";");
-                sb.AppendLine("} ");
-                sb.AppendLine("set { throw new Exception(\"Reference properties cannot be set. They are automatically initialized. \"); } ");
+                if (refP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                    sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
+                    sb.AppendLine("_" + p.CodeName + " = new ();");
+                    sb.AppendLine("_" + p.CodeName + "." + nameof(IReference.Initialize) + "(");
+                    sb.AppendLine("__NodeDataShell.Store, v, reference");
+                    sb.AppendLine(");");
+                    sb.AppendLine("}");
+                    sb.AppendLine("return _" + p.CodeName + ";");
+                    sb.AppendLine("} ");
+                    sb.AppendLine("set { throw new Exception(\"Reference properties cannot be set. They are automatically initialized. \"); } ");
+                } else { // plain node-typed member: use preloaded reference or lazy load from store
+                    sb.AppendLine("if(reference != null) {");
+                    sb.AppendLine("_" + p.CodeName + " = __NodeDataShell.Store.Get<" + typeName + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")reference);");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid>(" + pIdName + ");");
+                    sb.AppendLine("_" + p.CodeName + " = __NodeDataShell.Store." + nameof(NodeStore.GetReferencedNodeOrDefault) + "<" + typeName + ">(v);");
+                    sb.AppendLine("}");
+                    sb.AppendLine("}");
+                    sb.AppendLine("return _" + p.CodeName + ";");
+                    sb.AppendLine("} ");
+                    sb.AppendLine("set { _" + p.CodeName + " = value; } ");
+                }
                 sb.AppendLine(" }");
             } else if (p.PropertyType == PropertyType.References) {
+                if (p is not ReferencesPropertyModel refsP) throw new Exception("Expected references property model for property: " + p.CodeName);
                 sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
                 sb.AppendLine("get {");
@@ -221,15 +236,34 @@ internal static class InterfaceGen {
                 sb.AppendLine(typeof(NodeDataWithRelations).Namespace + "." + nameof(NodeDataWithRelations) + "[]? references = null; ");
                 sb.AppendLine("if(relations." + nameof(IRelations.TryGetReferences) + "(" + CodeUtils.GuidName(p.Id) + ", out var r)) references = r; ");
 
-                sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid[]>(" + pIdName + ");");
-                sb.AppendLine("_" + p.CodeName + " = new ();");
-                sb.AppendLine("_" + p.CodeName + "." + nameof(IReferences.Initialize) + "(");
-                sb.AppendLine("__NodeDataShell.Store, v, references");
-                sb.AppendLine(");");
-                sb.AppendLine("}");
-                sb.AppendLine("return _" + p.CodeName + ";");
-                sb.AppendLine("} ");
-                sb.AppendLine("set { throw new Exception(\"References properties cannot be set. They are automatically initialized. \"); } ");
+                if (refsP.ReferenceValueType == ReferenceValueType.Wrapper) {
+                    sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid[]>(" + pIdName + ");");
+                    sb.AppendLine("_" + p.CodeName + " = new ();");
+                    sb.AppendLine("_" + p.CodeName + "." + nameof(IReferences.Initialize) + "(");
+                    sb.AppendLine("__NodeDataShell.Store, v, references");
+                    sb.AppendLine(");");
+                    sb.AppendLine("}");
+                    sb.AppendLine("return _" + p.CodeName + ";");
+                    sb.AppendLine("} ");
+                    sb.AppendLine("set { throw new Exception(\"References properties cannot be set. They are automatically initialized. \"); } ");
+                } else { // plain collection of node-typed members: use preloaded references or lazy load from store
+                    var nodeType = datamodel.FindFirstCommonBase(refsP.NodeTypes).FullName;
+                    string toShape = refsP.ReferenceValueType switch {
+                        ReferenceValueType.Array => ".ToArray()",
+                        ReferenceValueType.List or ReferenceValueType.Collection => ".ToList()",
+                        _ => "", // IEnumerable
+                    };
+                    sb.AppendLine("if(references != null) {");
+                    sb.AppendLine("_" + p.CodeName + " = __NodeDataShell.Store." + nameof(NodeStore.GetRelated) + "<" + nodeType + ">(references)" + toShape + ";");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<Guid[]>(" + pIdName + ");");
+                    sb.AppendLine("_" + p.CodeName + " = __NodeDataShell.Store." + nameof(NodeStore.GetReferencedNodes) + "<" + nodeType + ">(v)" + toShape + ";");
+                    sb.AppendLine("}");
+                    sb.AppendLine("}");
+                    sb.AppendLine("return _" + p.CodeName + ";");
+                    sb.AppendLine("} ");
+                    sb.AppendLine("set { _" + p.CodeName + " = value; } ");
+                }
                 sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");

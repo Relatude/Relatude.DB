@@ -75,21 +75,24 @@ internal static class CodeUtils {
     }
     static string getTypeNameReference(PropertyModel p, Datamodel dm) {
         if (p is not ReferencePropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencePropertyModel.");
-        var typeName = string.Empty;
-        typeName += nameWithoutGeneric<Reference<object>>();
-        typeName += "<";
-        typeName += dm.FindFirstCommonBase(inp.NodeTypes).FullName;
-        typeName += ">";
-        return typeName;
+        var nodeType = dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        return inp.ReferenceValueType switch {
+            ReferenceValueType.Wrapper => nameWithoutGeneric<Reference<object>>() + "<" + nodeType + ">",
+            ReferenceValueType.Object => nodeType,
+            _ => throw new NotSupportedException("The reference value type " + inp.ReferenceValueType + " is not supported for single references."),
+        };
     }
     static string getTypeNameReferences(PropertyModel p, Datamodel dm) {
         if (p is not ReferencesPropertyModel inp) throw new Exception("PropertyModel " + p.ToString() + " is not a ReferencesPropertyModel.");
-        var typeName = string.Empty;
-        typeName += nameWithoutGeneric<References<object>>();
-        typeName += "<";
-        typeName += dm.FindFirstCommonBase(inp.NodeTypes).FullName;
-        typeName += ">";
-        return typeName;
+        var nodeType = dm.FindFirstCommonBase(inp.NodeTypes).FullName;
+        return inp.ReferenceValueType switch {
+            ReferenceValueType.Wrapper => nameWithoutGeneric<References<object>>() + "<" + nodeType + ">",
+            ReferenceValueType.Array => nodeType + "[]",
+            ReferenceValueType.List => "List<" + nodeType + ">",
+            ReferenceValueType.Collection => "ICollection<" + nodeType + ">",
+            ReferenceValueType.Enumerable => "IEnumerable<" + nodeType + ">",
+            _ => throw new NotSupportedException("The reference value type " + inp.ReferenceValueType + " is not supported for references."),
+        };
     }
     public static string GetInnerPropertyKeyPropertyTypeName(EmbeddedPropertyModel p, Datamodel dm) {
         switch (p.EmbeddedValueType) {

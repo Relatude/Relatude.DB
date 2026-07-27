@@ -112,6 +112,7 @@ export interface DatamodelSource {
     type: number
     reference: any
     fileIO: any
+    autoDeduceRelations: boolean
 }
 export interface DataStoreStatus {
     state: StoreStates;

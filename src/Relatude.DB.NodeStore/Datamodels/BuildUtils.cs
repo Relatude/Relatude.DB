@@ -116,7 +116,7 @@ internal static class BuildUtils {
                 throw new Exception(type.FullName + " is not a known relation type. ");
         }
     }
-    public static NodeTypeModel CreateNodeTypeModelFromType(Type type) {
+    public static NodeTypeModel CreateNodeTypeModelFromType(Type type, bool autoDeduceRelations = false) {
         var c = new NodeTypeModel();
         var nodeAttr = GetOrCreateNodeAttributeWithId(type);
         if (nodeAttr.Id == null) throw new NullReferenceException();
@@ -155,7 +155,7 @@ internal static class BuildUtils {
             var valueType = m is PropertyInfo ? ((PropertyInfo)m).PropertyType : ((FieldInfo)m).FieldType;
             if (isIdPropertyThenAssignIt(c, m, valueType)) continue;
             if (isSystemPropertyThenAssignIt(c, m, valueType)) continue;
-            var property = BuildUtilsProperties.CreatePropertyFromMember(m, valueType);
+            var property = BuildUtilsProperties.CreatePropertyFromMember(m, valueType, autoDeduceRelations);
             c.Properties.Add(property.Id, property);
         }
         return c;

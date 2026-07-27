@@ -262,11 +262,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 } else {
                     assembly = Assembly.Load(source.Reference!);
                 }
-                dm.AddAssembly(assembly, source.Namespace!);
+                dm.AddAssembly(assembly, source.Namespace!, source.AutoDeduceRelations);
                 break;
             case DatamodelSourceType.TypeNameReference:
                 var type = Type.GetType(source.Reference!);
-                dm.Add(type!);
+                dm.Add(type!, true, source.AutoDeduceRelations);
                 break;
             case DatamodelSourceType.AssemblyFileReference:
                 throw new NotImplementedException();

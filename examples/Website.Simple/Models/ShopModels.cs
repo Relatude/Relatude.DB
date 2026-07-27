@@ -26,7 +26,7 @@ public class Product {
     public Reference<Brand> Brand { get; set; } = new();
     [EnumArrayProperty(Indexed = true)]
     public Size[] Sizes { get; set; } = []; // facet buckets carry the int values, displayed with the enum names
-    [RelationProperty<ProductColors>(Facet = true)] // faceting is opt-in for relation properties
+    //[RelationProperty<ProductColors>(Facet = true)] // faceting is opt-in for relation properties
     public IEnumerable<Color>? Colors { get; set; }
 }
 
@@ -49,7 +49,7 @@ public class Color {
 // A product comes in one or more colors and a color is shared by many products. Navigation
 // property pairs alone are only ever inferred as one-to-many, so the many-to-many relation
 // is declared explicitly and referenced from the property attribute above.
-public class ProductColors : ManyToMany<Product, Color> { }
+//public class ProductColors : ManyToMany<Product, Color> { }
 
 // Enums are skipped by the datamodel namespace scan; the legal values and names are captured
 // as metadata on the EnumArrayProperty when the Product model is built.

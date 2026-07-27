@@ -12,32 +12,32 @@ public static class DatamodelExtensions {
         return false;
 
     }
-    public static void AddNamespace<T>(this Datamodel datamodel) {
+    public static void AddNamespace<T>(this Datamodel datamodel, bool autoDeduceRelations = false) {
         var assembly = typeof(T).Assembly;
         var namespaces = typeof(T).Namespace;
         if (namespaces == null) throw new Exception("Namespace not found for type " + typeof(T).FullName);
         foreach (var type in assembly.GetTypes()) {
             if (excludeTypeAsNodeType(type)) continue;
             if (type.Namespace != namespaces) continue;
-            datamodel.Add(type, true);
+            datamodel.Add(type, true, autoDeduceRelations);
         }
     }
-    public static void AddAssembly(this Datamodel datamodel, Assembly assembly, string nameSpace) {
+    public static void AddAssembly(this Datamodel datamodel, Assembly assembly, string nameSpace, bool autoDeduceRelations = false) {
         if (nameSpace == null) throw new Exception("Namespace not found for assembly " + assembly.FullName);
         foreach (var type in assembly.GetTypes()) {
             if (excludeTypeAsNodeType(type)) continue;
             if (type.Namespace != nameSpace) continue;
-            datamodel.Add(type, true);
+            datamodel.Add(type, true, autoDeduceRelations);
         }
     }
-    public static void Add<T>(this Datamodel datamodel, bool includeAllReferencedModels = true) {
-        datamodel.Add(typeof(T), includeAllReferencedModels);
+    public static void Add<T>(this Datamodel datamodel, bool includeAllReferencedModels = true, bool autoDeduceRelations = false) {
+        datamodel.Add(typeof(T), includeAllReferencedModels, autoDeduceRelations);
     }
-    public static void Add(this Datamodel datamodel, Type type, bool includeAllReferencedModels = true) {
-        if (includeAllReferencedModels) foreach (var refType in getRefTypes(type)) datamodel.addType(refType);
-        datamodel.addType(type);
+    public static void Add(this Datamodel datamodel, Type type, bool includeAllReferencedModels = true, bool autoDeduceRelations = false) {
+        if (includeAllReferencedModels) foreach (var refType in getRefTypes(type)) datamodel.addType(refType, autoDeduceRelations);
+        datamodel.addType(type, autoDeduceRelations);
     }
-    static void addType(this Datamodel datamodel, Type t) {
+    static void addType(this Datamodel datamodel, Type t, bool autoDeduceRelations) {
         if (datamodel.HasInitialized()) throw new Exception("Datamodel is already initialized. Cannot add more types. " + t.FullName);
         if (t.InheritsFromOrImplements<IRelationProperty>()) return; // skip
         if (t.GetCustomAttribute<ExcludeAttribute>() != null) return; // skip excluded types
@@ -50,7 +50,7 @@ public static class DatamodelExtensions {
             if (!t.IsInterface && noZeroArgConstructor) {
                 throw new Exception("Node type " + t.FullName + " must have a parameterless constructor. ");
             }
-            var c = BuildUtils.CreateNodeTypeModelFromType(t);
+            var c = BuildUtils.CreateNodeTypeModelFromType(t, autoDeduceRelations);
             if (datamodel.NodeTypes.TryGetValue(c.Id, out var c2)) {
                 if (c.FullName == c2.FullName) return; // ignore, allow same class more than one time
                 throw new Exception($"Different types have same Id: {c.FullName} and {c2.FullName} have the same ID: {c.Id}");

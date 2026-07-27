@@ -39,9 +39,10 @@ public class RelatudeDBTester : ITester {
     }
     public void Open() {
         var dm = new Datamodel();
-        dm.Add<TestUser>();
-        dm.Add<TestCompany>();
-        dm.Add<TestDocument>();
+        // this model relies on auto-deduced relations (TestUser.Company/Documents, TestCompany.Users, TestDocument.Author)
+        dm.Add<TestUser>(autoDeduceRelations: true);
+        dm.Add<TestCompany>(autoDeduceRelations: true);
+        dm.Add<TestDocument>(autoDeduceRelations: true);
         var settings = new SettingsLocal();
         settings.WriteSystemLogConsole = false;
         settings.DoNotCacheMapperFile = false;

@@ -20,7 +20,7 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpen = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 500_000, 10_000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 500, 100); // populates the facet search example (see wwwroot/search.html)
     };
 });
 

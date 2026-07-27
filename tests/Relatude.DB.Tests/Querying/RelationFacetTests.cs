@@ -46,9 +46,10 @@ public class RelationFacetTests {
     // truth: product public id -> brand public id (null = no brand relation)
     static NodeStore openStore(out List<RelFacetBrand> brands, out List<RelFacetProduct> products, out Dictionary<Guid, Guid?> brandOf) {
         var dm = new Datamodel();
-        dm.Add<RelFacetProduct>();
-        dm.Add<RelFacetBrand>();
-        dm.Add<RelFacetSupplier>();
+        // this model relies on auto-deduced relations (Product.Brand/Supplier and their inverse collections)
+        dm.Add<RelFacetProduct>(autoDeduceRelations: true);
+        dm.Add<RelFacetBrand>(autoDeduceRelations: true);
+        dm.Add<RelFacetSupplier>(autoDeduceRelations: true);
         var store = new NodeStore(DataStoreLocal.Open(dm));
         brands = [
             new RelFacetBrand { Id = Guid.NewGuid(), Name = "Acme" },

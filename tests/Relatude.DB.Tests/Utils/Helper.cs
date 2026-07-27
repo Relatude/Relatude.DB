@@ -8,10 +8,11 @@ namespace Relatude.Utils {
         static TextGenerator _generator = new();
         public static Datamodel GetDatamodel() {
             var dm = new Datamodel();
-            dm.Add<Article>();
-            dm.Add<Article2>();
-            dm.Add<User>();
-            dm.Add<Group>();
+            // this shared test model relies on auto-deduced relations (Article.Author, Article.Parent/Children, User.Group/Articles, Group.Members)
+            dm.Add<Article>(autoDeduceRelations: true);
+            dm.Add<Article2>(autoDeduceRelations: true);
+            dm.Add<User>(autoDeduceRelations: true);
+            dm.Add<Group>(autoDeduceRelations: true);
             return dm;
         }
         public static NodeStore Open(string? baseFolder = null, IIOProvider? io = null, bool deleteOld = true) {
