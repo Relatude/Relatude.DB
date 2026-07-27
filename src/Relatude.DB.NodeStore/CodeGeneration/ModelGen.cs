@@ -11,7 +11,8 @@ public static class ModelGen {
     public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes = true) {
         var sb = new StringBuilder();
         datamodel.EnsureInitalization();
-        sb.AppendLine("using " + typeof(object).Namespace + ";"); // System namespace only
+        sb.AppendLine("using " + typeof(object).Namespace + ";");
+        sb.AppendLine("using System.Collections.Generic;"); // List<T>, IEnumerable<T> etc. in generated declarations
         sb.AppendLine("");
         var nodeTypesByNamespace = datamodel.NodeTypes.Values
             .Where(n => n.Id != NodeConstants.BaseNodeTypeId)
@@ -48,8 +49,12 @@ public static class ModelGen {
     }
     static void appendModelCode(NodeTypeModel nodeDef, Datamodel datamodel, StringBuilder sb, bool addAttributes) {
         if (addAttributes) {
-            sb.AppendLine("    [" + nameAtt<NodeAttribute>() + "(" + nameof(NodeAttribute.Id) + " = \"" + nodeDef.Id + "\")]");
-            // TODO: add more attributes
+            sb.Append("    [" + nameAtt<NodeAttribute>() + "(" + nameof(NodeAttribute.Id) + " = \"" + nodeDef.Id + "\"");
+            if (nodeDef.TextIndex.HasValue) sb.Append(", " + nameof(NodeAttribute.TextIndex) + " = " + addAttributeBool(nodeDef.TextIndex.Value ? BoolValue.True : BoolValue.False));
+            if (nodeDef.SemanticIndex.HasValue) sb.Append(", " + nameof(NodeAttribute.SemanticIndex) + " = " + addAttributeBool(nodeDef.SemanticIndex.Value ? BoolValue.True : BoolValue.False));
+            if (nodeDef.InstantTextIndexing.HasValue) sb.Append(", " + nameof(NodeAttribute.InstantTextIndexing) + " = " + addAttributeBool(nodeDef.InstantTextIndexing.Value ? BoolValue.True : BoolValue.False));
+            if (nodeDef.TextIndexBoost != 0) sb.Append(", " + nameof(NodeAttribute.TextIndexBoost) + " = " + nodeDef.TextIndexBoost.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine(")]");
         }
         var inheritance = string.Join(", ", nodeDef.Parents
             .Where(id => id != NodeConstants.BaseNodeTypeId)
@@ -91,12 +96,19 @@ public static class ModelGen {
             sb.Append("        ");
             sb.AppendLine(CodeUtils.FieldOrProperty("string", nodeDef.NameOfAddressProperty, nodeDef.ModelType));
         }
+        if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty) && CodeUtils.IsFirstClassUsingName_NameOfMetaProperty(nodeDef, datamodel)) {
+            // any member of type NodeMeta becomes the meta property, no attribute needed
+            sb.Append("        ");
+            sb.AppendLine(CodeUtils.FieldOrProperty(typeof(NodeMeta).FullName!, nodeDef.NameOfMetaProperty, nodeDef.ModelType));
+        }
         foreach (var p in nodeDef.Properties.Values.Where(p => !p.Internal)) {
             if (addAttributes) addPropertyAttribute(p, datamodel, sb);
             var typeName = CodeUtils.GetTypeName(p, datamodel);
             typeName = typeAndNamespace(nodeDef.Namespace, typeName);
+            // embedded (list) properties must be getter-only, the model builder rejects a setter
+            var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
             sb.Append("        ");
-            sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel)));
+            sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
         }
         sb.AppendLine("    }"); // end class
     }
@@ -106,10 +118,12 @@ public static class ModelGen {
         sb.Append(nameof(PropertyAttribute.Id) + " = \"" + p.Id + "\"");
         if (p.ExcludeFromTextIndex) sb.Append(", " + nameof(PropertyAttribute.ExcludeFromTextIndex) + " = true");
         if (p.DisplayName) sb.Append(", " + nameof(PropertyAttribute.DisplayName) + " = true");
+        if (p.IndexBoost != 0) sb.Append(", " + nameof(PropertyAttribute.TextIndexBoost) + " = " + p.IndexBoost);
         if (p.ReadAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.ReadAccess) + " = \"" + p.ReadAccess + "\"");
         if (p.WriteAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.WriteAccess) + " = \"" + p.WriteAccess + "\"");
     }
-    static string addAttributeBool(BoolValue b) => nameof(BoolValue) + "." + b.ToString();
+    static string addAttributeBool(BoolValue b) => typeof(BoolValue).Namespace + "." + nameof(BoolValue) + "." + b.ToString();
+    static string stringArrayArg(IEnumerable<string> values) => "new string[] {" + string.Join(", ", values) + "}"; // attribute arguments cannot use collection expressions
     static string nameAtt<T>() {
         var t = typeof(T);
         var s = t.Namespace + "." + t.Name;
@@ -134,7 +148,7 @@ public static class ModelGen {
             case PropertyType.Boolean: {
                     addBaseAttributes<BooleanPropertyAttribute>(p, dm, sb);
                     var b = (BooleanPropertyModel)p;
-                    if (b.Indexed) sb.Append(", " + nameof(BooleanPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (b.Indexed) sb.Append(", " + nameof(BooleanPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (b.DefaultValue) sb.Append(", " + nameof(BooleanPropertyAttribute.DefaultValue) + " = true");
                     sb.AppendLine(")]");
                 }
@@ -142,7 +156,7 @@ public static class ModelGen {
             case PropertyType.Guid: {
                     addBaseAttributes<GuidPropertyAttribute>(p, dm, sb);
                     var b = (GuidPropertyModel)p;
-                    if (b.Indexed) sb.Append(", " + nameof(GuidPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (b.Indexed) sb.Append(", " + nameof(GuidPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (b.DefaultValue != Guid.Empty) sb.Append(", " + nameof(GuidPropertyAttribute.DefaultValue) + " = \"" + b.DefaultValue + "\"");
                     if (b.UniqueValues) sb.Append(", " + nameof(GuidPropertyAttribute.UniqueValues) + " = true");
                     sb.AppendLine(")]");
@@ -151,7 +165,7 @@ public static class ModelGen {
             case PropertyType.Integer: {
                     addBaseAttributes<IntegerPropertyAttribute>(p, dm, sb);
                     var i = (IntegerPropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(IntegerPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(IntegerPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != 0) sb.Append(", " + nameof(IntegerPropertyAttribute.DefaultValue) + " = " + i.DefaultValue);
                     if (i.MinValue != int.MinValue) sb.Append(", " + nameof(IntegerPropertyAttribute.MinValue) + " = " + i.MinValue);
                     if (i.MaxValue != int.MaxValue) sb.Append(", " + nameof(IntegerPropertyAttribute.MaxValue) + " = " + i.MaxValue);
@@ -164,13 +178,15 @@ public static class ModelGen {
                         var legalValues = i.LegalValues.Select(v => v.ToString());
                         sb.Append(", " + nameof(IntegerPropertyAttribute.LegalValues) + " = new int[] {" + string.Join(", ", legalValues) + "}");
                     }
+                    if (i.FacetRangePowerBase != 0) sb.Append(", " + nameof(IntegerPropertyAttribute.FacetRangePowerBase) + " = " + i.FacetRangePowerBase.ToString(CultureInfo.InvariantCulture));
+                    if (i.FacetRangeCount != 0) sb.Append(", " + nameof(IntegerPropertyAttribute.FacetRangeCount) + " = " + i.FacetRangeCount);
                     sb.AppendLine(")]");
                 }
                 break;
             case PropertyType.Long: {
                     addBaseAttributes<LongPropertyAttribute>(p, dm, sb);
                     var i = (LongPropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(LongPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(LongPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != 0) sb.Append(", " + nameof(LongPropertyAttribute.DefaultValue) + " = " + i.DefaultValue.ToString(CultureInfo.InvariantCulture));
                     if (i.MinValue != long.MinValue) sb.Append(", " + nameof(LongPropertyAttribute.MinValue) + " = " + i.MinValue.ToString(CultureInfo.InvariantCulture));
                     if (i.MaxValue != long.MaxValue) sb.Append(", " + nameof(LongPropertyAttribute.MaxValue) + " = " + i.MaxValue.ToString(CultureInfo.InvariantCulture));
@@ -181,7 +197,7 @@ public static class ModelGen {
             case PropertyType.Double: {
                     addBaseAttributes<DoublePropertyAttribute>(p, dm, sb);
                     var i = (DoublePropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(DoublePropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(DoublePropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != 0) sb.Append(", " + nameof(DoublePropertyAttribute.DefaultValue) + " = " + i.DefaultValue.ToString(CultureInfo.InvariantCulture));
                     if (i.MinValue != double.MinValue) sb.Append(", " + nameof(DoublePropertyAttribute.MinValue) + " = " + i.MinValue.ToString(CultureInfo.InvariantCulture));
                     if (i.MaxValue != double.MaxValue) sb.Append(", " + nameof(DoublePropertyAttribute.MaxValue) + " = " + i.MaxValue.ToString(CultureInfo.InvariantCulture));
@@ -191,7 +207,7 @@ public static class ModelGen {
             case PropertyType.DateTime: {
                     addBaseAttributes<DateTimePropertyAttribute>(p, dm, sb);
                     var d = (DateTimePropertyModel)p;
-                    if (d.Indexed) sb.Append(", " + nameof(DateTimePropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (d.Indexed) sb.Append(", " + nameof(DateTimePropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (d.DefaultValue != DateTime.MinValue) sb.Append(", " + nameof(DateTimePropertyAttribute.DefaultValue) + " = \"" + d.DefaultValue.ToString("O") + "\"");
                     if (d.MinValue != DateTime.MinValue) sb.Append(", " + nameof(DateTimePropertyAttribute.MinValue) + " = \"" + d.MinValue.ToString("O") + "\"");
                     if (d.MaxValue != DateTime.MaxValue) sb.Append(", " + nameof(DateTimePropertyAttribute.MaxValue) + " = \"" + d.MaxValue.ToString("O") + "\"");
@@ -202,7 +218,7 @@ public static class ModelGen {
             case PropertyType.DateTimeOffset: {
                     addBaseAttributes<DateTimeOffsetPropertyAttribute>(p, dm, sb);
                     var d = (DateTimeOffsetPropertyModel)p;
-                    if (d.Indexed) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (d.Indexed) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (d.DefaultValue != DateTimeOffset.MinValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.DefaultValue) + " = \"" + d.DefaultValue.ToString("O") + "\"");
                     if (d.MinValue != DateTimeOffset.MinValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.MinValue) + " = \"" + d.MinValue.ToString("O") + "\"");
                     if (d.MaxValue != DateTimeOffset.MaxValue) sb.Append(", " + nameof(DateTimeOffsetPropertyAttribute.MaxValue) + " = \"" + d.MaxValue.ToString("O") + "\"");
@@ -213,7 +229,7 @@ public static class ModelGen {
             case PropertyType.Decimal: {
                     addBaseAttributes<DecimalPropertyAttribute>(p, dm, sb);
                     var i = (DecimalPropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(DecimalPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(DecimalPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != 0) sb.Append(", " + nameof(DecimalPropertyAttribute.DefaultValue) + " = \"" + i.DefaultValue.ToString(CultureInfo.InvariantCulture) + "\"");
                     if (i.MinValue != decimal.MinValue) sb.Append(", " + nameof(DecimalPropertyAttribute.MinValue) + " = \"" + i.MinValue.ToString(CultureInfo.InvariantCulture) + "\"");
                     if (i.MaxValue != decimal.MaxValue) sb.Append(", " + nameof(DecimalPropertyAttribute.MaxValue) + " = \"" + i.MaxValue.ToString(CultureInfo.InvariantCulture) + "\"");
@@ -224,7 +240,7 @@ public static class ModelGen {
             case PropertyType.TimeSpan: {
                     addBaseAttributes<TimeSpanPropertyAttribute>(p, dm, sb);
                     var i = (TimeSpanPropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(TimeSpanPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(TimeSpanPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != TimeSpan.Zero) sb.Append(", " + nameof(TimeSpanPropertyAttribute.DefaultValue) + " = \"" + i.DefaultValue.ToString("c") + "\"");
                     if (i.MinValue != TimeSpan.MinValue) sb.Append(", " + nameof(TimeSpanPropertyAttribute.MinValue) + " = \"" + i.MinValue.ToString("c") + "\"");
                     if (i.MaxValue != TimeSpan.MaxValue) sb.Append(", " + nameof(TimeSpanPropertyAttribute.MaxValue) + " = \"" + i.MaxValue.ToString("c") + "\"");
@@ -235,7 +251,7 @@ public static class ModelGen {
             case PropertyType.Float: {
                     addBaseAttributes<FloatPropertyAttribute>(p, dm, sb);
                     var i = (FloatPropertyModel)p;
-                    if (i.Indexed) sb.Append(", " + nameof(FloatPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (i.Indexed) sb.Append(", " + nameof(FloatPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (i.DefaultValue != 0) sb.Append(", " + nameof(FloatPropertyAttribute.DefaultValue) + " = " + i.DefaultValue.ToString(CultureInfo.InvariantCulture) + "f");
                     if (i.MinValue != int.MinValue) sb.Append(", " + nameof(FloatPropertyAttribute.MinValue) + " = " + i.MinValue.ToString(CultureInfo.InvariantCulture) + "f");
                     if (i.MaxValue != int.MaxValue) sb.Append(", " + nameof(FloatPropertyAttribute.MaxValue) + " = " + i.MaxValue.ToString(CultureInfo.InvariantCulture) + "f");
@@ -245,12 +261,16 @@ public static class ModelGen {
             case PropertyType.String: {
                     addBaseAttributes<StringPropertyAttribute>(p, dm, sb);
                     var s = (StringPropertyModel)p;
-                    if (s.IndexedBySemantic) sb.Append(", " + nameof(StringPropertyAttribute.IndexedBySemantic) + " = " + addAttributeBool(BoolValue.True));
-                    if (s.Indexed) sb.Append(", " + nameof(StringPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
-                    if (s.IndexedByWords) sb.Append(", " + nameof(StringPropertyAttribute.IndexedByWords) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.IndexedBySemantic) sb.Append(", " + nameof(StringPropertyAttribute.IndexedBySemantic) + " = true"); // the attribute member is a plain bool
+                    if (s.Indexed) sb.Append(", " + nameof(StringPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
+                    if (s.IndexedByWords) sb.Append(", " + nameof(StringPropertyAttribute.IndexedByWords) + " = true"); // the attribute member is a plain bool
                     if (s.UniqueValues) sb.Append(", " + nameof(StringPropertyAttribute.UniqueValues) + " = true");
                     if (s.MinWordLength != StringPropertyModel.DefaultMinWordLength) sb.Append(", " + nameof(StringPropertyAttribute.MinWordLength) + " = " + s.MinWordLength);
                     if (s.MaxWordLength != StringPropertyModel.DefaultMaxWordLength) sb.Append(", " + nameof(StringPropertyAttribute.MaxWordLength) + " = " + s.MaxWordLength);
+                    if (s.MinLength != 0) sb.Append(", " + nameof(StringPropertyAttribute.MinLength) + " = " + s.MinLength);
+                    if (s.MaxLength != int.MaxValue) sb.Append(", " + nameof(StringPropertyAttribute.MaxLength) + " = " + s.MaxLength);
+                    if (s.PrefixSearch) sb.Append(", " + nameof(StringPropertyAttribute.PrefixSearch) + " = true");
+                    if (s.InfixSearch) sb.Append(", " + nameof(StringPropertyAttribute.InfixSearch) + " = true");
                     if (s.IgnoreDuplicateEmptyValues) sb.Append(", " + nameof(StringPropertyAttribute.IgnoreDuplicateEmptyValues) + " = true");
                     if (s.DefaultValue != null) sb.Append(", " + nameof(StringPropertyAttribute.DefaultValue) + " = \"" + s.DefaultValue + "\"");
                     if (s.StringType != StringValueType.AnyString) sb.Append(", " + nameof(StringPropertyAttribute.StringType) + " = " + typeof(StringValueType).Namespace + "." + nameof(StringValueType) + "." + s.StringType);
@@ -260,7 +280,7 @@ public static class ModelGen {
             case PropertyType.StringArray: {
                     addBaseAttributes<StringArrayPropertyAttribute>(p, dm, sb);
                     var s = (StringArrayPropertyModel)p;
-                    if (s.Indexed) sb.Append(", " + nameof(StringArrayPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.Indexed) sb.Append(", " + nameof(StringArrayPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (s.UniqueValues) sb.Append(", " + nameof(StringArrayPropertyAttribute.UniqueValues) + " = true");
                     sb.AppendLine(")]");
                 }
@@ -268,7 +288,7 @@ public static class ModelGen {
             case PropertyType.GuidArray: {
                     addBaseAttributes<GuidArrayPropertyAttribute>(p, dm, sb);
                     var s = (GuidArrayPropertyModel)p;
-                    if (s.Indexed) sb.Append(", " + nameof(GuidArrayPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.Indexed) sb.Append(", " + nameof(GuidArrayPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (s.UniqueValues) sb.Append(", " + nameof(GuidArrayPropertyAttribute.UniqueValues) + " = true");
                     sb.AppendLine(")]");
                 }
@@ -276,7 +296,7 @@ public static class ModelGen {
             case PropertyType.EnumArray: {
                     addBaseAttributes<EnumArrayPropertyAttribute>(p, dm, sb);
                     var s = (EnumArrayPropertyModel)p;
-                    if (s.Indexed) sb.Append(", " + nameof(EnumArrayPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (s.Indexed) sb.Append(", " + nameof(EnumArrayPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (s.UniqueValues) sb.Append(", " + nameof(EnumArrayPropertyAttribute.UniqueValues) + " = true");
                     if (!string.IsNullOrEmpty(s.FullEnumTypeName)) sb.Append(", " + nameof(EnumArrayPropertyAttribute.FullEnumTypeName) + " = \"" + s.FullEnumTypeName + "\"");
                     if (s.LegalValues != null) sb.Append(", " + nameof(EnumArrayPropertyAttribute.LegalValues) + " = new int[] {" + string.Join(", ", s.LegalValues.Select(v => v.ToString())) + "}");
@@ -326,7 +346,7 @@ public static class ModelGen {
                     if (e.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(EmbeddedPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + e.IncludeTypes);
                     if (e.InnerNodeTypes.Count > 0) {
                         var guidStrings = e.InnerNodeTypes.Select(t => "\"" + t.ToString() + "\"");
-                        sb.Append(", " + nameof(EmbeddedPropertyAttribute.InnerTypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
+                        sb.Append(", " + nameof(EmbeddedPropertyAttribute.InnerTypeIds) + " = " + stringArrayArg(guidStrings));
                     }
                     if (isMap) {
                         if (e.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeIntId) {
@@ -344,9 +364,9 @@ public static class ModelGen {
                     var r = (ReferencePropertyModel)p;
                     if (r.NodeTypes.Count > 0) {
                         var guidStrings = r.NodeTypes.Select(t => "\"" + t.ToString() + "\"");
-                        sb.Append(", " + nameof(ReferencePropertyAttribute.TypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
+                        sb.Append(", " + nameof(ReferencePropertyAttribute.TypeIds) + " = " + stringArrayArg(guidStrings));
                     }
-                    if (r.Indexed) sb.Append(", " + nameof(ReferencePropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (r.Indexed) sb.Append(", " + nameof(ReferencePropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencePropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     sb.AppendLine(")]");
                 } break;
@@ -355,9 +375,9 @@ public static class ModelGen {
                     var r = (ReferencesPropertyModel)p;
                     if (r.NodeTypes.Count > 0) {
                         var guidStrings = r.NodeTypes.Select(t => "\"" + t.ToString() + "\"");
-                        sb.Append(", " + nameof(ReferencesPropertyAttribute.TypeIds) + " = [" + string.Join(", ", guidStrings) + "]");
+                        sb.Append(", " + nameof(ReferencesPropertyAttribute.TypeIds) + " = " + stringArrayArg(guidStrings));
                     }
-                    if (r.Indexed) sb.Append(", " + nameof(ReferencesPropertyAttribute.Indexed) + " = " + addAttributeBool(BoolValue.True));
+                    if (r.Indexed) sb.Append(", " + nameof(ReferencesPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (r.UniqueValues) sb.Append(", " + nameof(ReferencesPropertyAttribute.UniqueValues) + " = true");
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencesPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     sb.AppendLine(")]");
@@ -376,11 +396,11 @@ public static class ModelGen {
             sb.Append(nameof(RelationAttribute.Id) + " = \"" + relation.Id + "\"");
             if (relation.SourceTypes.Count > 0) {
                 var guidStrings = relation.SourceTypes.Select(t => "\"" + t.ToString() + "\"");
-                sb.Append(", " + nameof(RelationAttribute.SourceTypes) + " = [" + string.Join(", ", guidStrings) + "]");
+                sb.Append(", " + nameof(RelationAttribute.SourceTypes) + " = " + stringArrayArg(guidStrings));
             }
             if (relation.TargetTypes.Count > 0) {
                 var guidStrings = relation.TargetTypes.Select(t => "\"" + t.ToString() + "\"");
-                sb.Append(", " + nameof(RelationAttribute.TargetTypes) + " = [" + string.Join(", ", guidStrings) + "]");
+                sb.Append(", " + nameof(RelationAttribute.TargetTypes) + " = " + stringArrayArg(guidStrings));
             }
             if (relation.DisallowCircularReferences) {
                 sb.Append(", " + nameof(RelationAttribute.DisallowCircularReferences) + " = true");

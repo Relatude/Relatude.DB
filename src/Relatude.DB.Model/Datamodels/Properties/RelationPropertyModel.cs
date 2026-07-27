@@ -14,6 +14,9 @@ public class RelationPropertyModel : PropertyModel {
     public bool TextIndexRelatedContent { get; set; }
     public int TextIndexRecursiveLevelLimit { get; set; } = 1;
     public override string? GetDefaultDeclaration() {
+        // a non-native single relation is a plain node-typed member: no initializer
+        // (RelationValueType is only meaningful for many-relations and native properties)
+        if (!IsMany && RelationValueType != RelationValueType.Native) return null;
         switch (RelationValueType) {
             case RelationValueType.Collection:
             case RelationValueType.Enumerable:

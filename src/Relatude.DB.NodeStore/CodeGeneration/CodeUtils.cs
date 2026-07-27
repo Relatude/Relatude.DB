@@ -6,12 +6,13 @@ using System.Text;
 namespace Relatude.DB.CodeGeneration;
 
 internal static class CodeUtils {
-    public static string FieldOrProperty(string type, string name, ModelType mType, string? defaultDeclaration = null) {
+    public static string FieldOrProperty(string type, string name, ModelType mType, string? defaultDeclaration = null, bool getterOnly = false) {
+        var accessors = getterOnly ? " { get; }" : " { get; set; }"; // embedded (list) properties must not have a setter
         switch (mType) {
-            case ModelType.Interface: return type + " " + name + " { get; set; }";
-            case ModelType.Class: return "public " + type + " " + name + " { get; set; }" + (string.IsNullOrEmpty(defaultDeclaration) ? "" : (" = " + defaultDeclaration + ";"));
-            case ModelType.Record: return "public " + type + " " + name + " { get; set; }";
-            case ModelType.Struct: return type + " " + name + ";";
+            case ModelType.Interface: return type + " " + name + accessors;
+            case ModelType.Class: return "public " + type + " " + name + accessors + (string.IsNullOrEmpty(defaultDeclaration) ? "" : (" = " + defaultDeclaration + ";"));
+            case ModelType.Record: return "public " + type + " " + name + accessors;
+            case ModelType.Struct: return "public " + type + " " + name + ";";
             default: throw new Exception("Unknown model type " + mType);
         }
     }

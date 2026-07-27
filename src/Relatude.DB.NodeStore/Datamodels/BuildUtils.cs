@@ -178,7 +178,7 @@ internal static class BuildUtils {
         }
         return attr;
     }
-    static Type[] knownSupportedValueTypes = [typeof(bool), typeof(byte), typeof(int), typeof(long), typeof(double), typeof(decimal),
+    static Type[] knownSupportedValueTypes = [typeof(bool), typeof(byte), typeof(int), typeof(long), typeof(double), typeof(float), typeof(decimal),
         typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(TimeSpan)];
     static void firstTestForIllegalTypes(Type valueType, MemberInfo member) {
         if (valueType.IsEnum) return;

@@ -21,6 +21,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="Relatude.DB.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <Folder Include="Common\" />
 	</ItemGroup>
 
