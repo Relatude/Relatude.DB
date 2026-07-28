@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "website-simple",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-build", "--launch-profile", "https"],
+      "port": 5052,
+      "url": "http://localhost:5052"
+    }
+  ]
+}

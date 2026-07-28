@@ -37,7 +37,7 @@ internal class NodeObjectData : IStoreNodeData {
             } else {
                 var prop = _def.Datamodel.Properties[propertyId];
                 if (prop is RelationPropertyModel rp) return getRelated(rp);
-                throw new Exception($"Property {propertyName} not part of node object. ");
+                return prop.GetDefaultValue(); // values equal to the default are not stored
             }
         } else {
             var parts = propertyName.Split('.');

@@ -2,6 +2,7 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
+using Relatude.DB.GraphQL;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
@@ -43,6 +44,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
     + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"
     + $@"<p><a href='/search.html'>Facet search example</a></p>"
+    + $@"<p><a href='/graphql.html'>GraphQL playground</a></p>"
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
@@ -305,6 +307,13 @@ app.UseMiddleware<RelatudeDBMiddleware>();
 app.StartRelatudeDB();
 app.MapRelatudeDBAdmin();
 app.MapRelatudeDBClient();
+
+// GraphQL endpoint generated from the datamodel (see wwwroot/graphql.html for a GraphiQL playground).
+// POST /graphql for queries, GET /graphql?sdl for the schema as SDL.
+app.MapRelatudeDBGraphQL("/graphql", o => {
+    o.StoreResolver = http => http.RequestServices.GetRequiredService<RelatudeDBContext>().Database.Datastore;
+});
+
 app.Run();
 
 record ShopSearchRequest(string? Query, int Page, List<ShopFacetSelection>? Selections);

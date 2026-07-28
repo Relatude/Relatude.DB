@@ -44,7 +44,7 @@ Database:
     
 -   **Relatude.DB.FileStorage** — File storage provider
     
--   **Relatude.DB.GraphQL** — GraphQL endpoint _(not started)_
+-   **Relatude.DB.GraphQL** — read-only GraphQL endpoint generated from the datamodel (queries, typed filters, full introspection)
     
 -   **Relatude.DB.IO** — IO providers
     

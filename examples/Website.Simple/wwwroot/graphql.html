@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Relatude.DB GraphQL playground</title>
+  <link rel="stylesheet" href="https://unpkg.com/graphiql@3/graphiql.min.css" />
+  <style>
+    body { margin: 0; }
+    #graphiql { height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="graphiql">Loading GraphiQL…</div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/graphiql@3/graphiql.min.js"></script>
+  <script>
+    // The endpoint is mapped in Program.cs via app.MapRelatudeDBGraphQL("/graphql", ...).
+    // The schema (docs panel, autocompletion) is loaded through standard introspection.
+    const fetcher = async (graphQLParams) => {
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(graphQLParams),
+      });
+      return response.json();
+    };
+
+    const productsTab = {
+      query: `# Relatude.DB GraphQL — generated from the datamodel.
+# Press Ctrl+Space for completion; open the Docs panel for the full schema.
+query Products($minPrice: Float!) {
+  products(
+    filter: { price: { gte: $minPrice }, inStock: { eq: true } }
+    search: "leather"
+    orderBy: price
+    descending: true
+    pageSize: 5
+  ) {
+    totalCount
+    pageIndex
+    items {
+      id
+      name
+      price
+      category
+      tags
+      sizes
+      brand { name }
+      colors { name }
+    }
+  }
+}`,
+      variables: '{ "minPrice": 50 }',
+    };
+
+    const featuresTab = {
+      query: `# Aliases, fragments, directives and "facet-ish" counts via totalCount.
+query Features($withTags: Boolean!) {
+  all: products { totalCount }
+  cheap: products(filter: { price: { lt: 50 } }) { totalCount }
+  outdoor: products(filter: { category: { eq: "Outdoor" } }) { totalCount }
+  first: products(orderBy: name, pageSize: 3) {
+    items {
+      __typename
+      title: name
+      ...pricing
+      tags @include(if: $withTags)
+    }
+  }
+}
+fragment pricing on Product {
+  price
+  inStock
+}`,
+      variables: '{ "withTags": true }',
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+    root.render(React.createElement(GraphiQL, {
+      fetcher,
+      defaultTabs: [productsTab, featuresTab],
+    }));
+  </script>
+</body>
+</html>
