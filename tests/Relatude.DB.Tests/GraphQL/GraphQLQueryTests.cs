@@ -195,6 +195,39 @@ public class GraphQLQueryTests {
     }
 
     [TestMethod]
+    public void ExecutionTime_IsReportedPerFieldAndPerRequest() {
+        var (store, gql, _) = Open();
+        try {
+            var result = gql.Execute("""
+                { a: articles { durationMs totalCount } b: articles(pageSize: 1) { durationMs } }
+                """);
+            var data = RequireData(result);
+            foreach (var key in new[] { "a", "b" }) {
+                var ms = Get(data, key, "durationMs");
+                Assert.IsInstanceOfType(ms, typeof(double), $"{key}.durationMs should be a number");
+                Assert.IsTrue((double)ms! >= 0, $"{key}.durationMs should not be negative");
+            }
+            Assert.IsNotNull(result.Extensions);
+            var total = (double)result.Extensions!["durationMs"]!;
+            Assert.IsTrue(total >= 0);
+            // the request covers both fetches plus parsing and projection
+            Assert.IsTrue(total >= (double)Get(data, "a", "durationMs")!, "the request total should include the field fetch");
+            StringAssert.Contains(result.ToJson(), "\"extensions\"");
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void ExecutionTime_IsReportedForFailedRequests() {
+        var (store, gql, _) = Open();
+        try {
+            var result = gql.Execute("mutation { nope }");
+            Assert.IsNull(result.Data);
+            Assert.IsNotNull(result.Extensions);
+            Assert.IsTrue((double)result.Extensions!["durationMs"]! >= 0);
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
     public void Search_FiltersByFreeText() {
         var (store, gql, _) = Open();
         try {

@@ -20,7 +20,7 @@ public enum FieldSource {
     // root Query fields
     RootSingle, RootList,
     // fields of the generated <Type>Result wrapper
-    WrapperItems, WrapperTotalCount, WrapperPageIndex, WrapperPageSize,
+    WrapperItems, WrapperTotalCount, WrapperPageIndex, WrapperPageSize, WrapperExecutionTimeMs,
     // fields of the shared FileInfo type (source value is a FileValue)
     FileName, FileSize, FileWidth, FileHeight, FileContentType,
 }

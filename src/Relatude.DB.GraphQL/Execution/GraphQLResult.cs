@@ -11,6 +11,8 @@ namespace Relatude.DB.GraphQL;
 public sealed class GraphQLResult {
     public Dictionary<string, object?>? Data { get; init; }
     public List<GraphQLError>? Errors { get; init; }
+    /// <summary>Server metadata outside the spec's data/errors, always carrying "durationMs" for the whole request.</summary>
+    public Dictionary<string, object?>? Extensions { get; init; }
 
     static readonly JsonSerializerOptions _jsonOptions = new() {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

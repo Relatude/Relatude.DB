@@ -494,6 +494,8 @@ internal sealed class SchemaBuilder {
             new GqlField { Name = "totalCount", Type = nn(_scalars.Int), Source = FieldSource.WrapperTotalCount, Description = "Total matches before paging." },
             new GqlField { Name = "pageIndex", Type = nn(_scalars.Int), Source = FieldSource.WrapperPageIndex },
             new GqlField { Name = "pageSize", Type = _scalars.Int, Source = FieldSource.WrapperPageSize },
+            new GqlField { Name = "durationMs", Type = nn(_scalars.Float), Source = FieldSource.WrapperExecutionTimeMs,
+                Description = "Time spent fetching this result from the store, including loading the selected relations. Excludes parsing and result projection; see extensions.durationMs for the whole request." },
         ]);
         _allTypes.Add(w);
         return w;

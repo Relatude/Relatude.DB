@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using GraphQLParser;
 using GraphQLParser.AST;
@@ -16,6 +17,7 @@ namespace Relatude.DB.GraphQL.Execution;
 internal static class QueryExecutor {
 
     public static GraphQLResult Execute(RelatudeGraphQL host, IDataStore store, GraphQLRequest request, QueryContext? queryContext) {
+        var requestTimer = Stopwatch.StartNew();
         try {
             if (string.IsNullOrWhiteSpace(request.Query)) {
                 throw new GraphQLRequestException(new GraphQLError { Message = "No query provided." });
@@ -74,11 +76,22 @@ internal static class QueryExecutor {
                     ctx.AddError(ex.Message, cf.First, path);
                 }
             }
-            return new GraphQLResult { Data = data, Errors = ctx.Errors.Count > 0 ? ctx.Errors : null };
+            return new GraphQLResult {
+                Data = data,
+                Errors = ctx.Errors.Count > 0 ? ctx.Errors : null,
+                Extensions = timing(requestTimer),
+            };
         } catch (GraphQLRequestException rex) {
-            return new GraphQLResult { Errors = [rex.Error] };
+            return new GraphQLResult { Errors = [rex.Error], Extensions = timing(requestTimer) };
         }
     }
+
+    static Dictionary<string, object?> timing(Stopwatch sw) => new(StringComparer.Ordinal) {
+        ["durationMs"] = Round(sw.Elapsed.TotalMilliseconds),
+    };
+
+    /// <summary>Microsecond resolution is plenty and keeps float noise out of the response.</summary>
+    static double Round(double ms) => Math.Round(ms, 3);
 
     static GraphQLOperationDefinition selectOperation(GraphQLDocument document, string? operationName) {
         var operations = document.Definitions.OfType<GraphQLOperationDefinition>().ToList();
@@ -170,8 +183,10 @@ internal static class QueryExecutor {
             appendIncludes(ctx, sb, itemType, itemsSelections);
         }
 
+        var fetchTimer = Stopwatch.StartNew();
         var collection = runQuery(ctx, sb.ToString(), parameters);
         var nodes = collection.NodeValues.ToList();
+        fetchTimer.Stop();
 
         var result = new Dictionary<string, object?>(wrapperFields.Count);
         foreach (var wf in wrapperFields) {
@@ -192,6 +207,7 @@ internal static class QueryExecutor {
                 case FieldSource.WrapperTotalCount: result[wf.Key] = collection.TotalCount; break;
                 case FieldSource.WrapperPageIndex: result[wf.Key] = collection.PageIndexUsed; break;
                 case FieldSource.WrapperPageSize: result[wf.Key] = collection.PageSizeUsed; break;
+                case FieldSource.WrapperExecutionTimeMs: result[wf.Key] = Round(fetchTimer.Elapsed.TotalMilliseconds); break;
                 default: result[wf.Key] = null; break;
             }
         }
