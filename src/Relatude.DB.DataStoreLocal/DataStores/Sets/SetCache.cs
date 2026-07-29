@@ -22,7 +22,7 @@ internal class SetCacheKey {
         _verifyValues(); // not strictly necessary, but just to make sure any code uses wrong key types
 #endif
     }
-    SetOperation Operation { get; }
+    public SetOperation Operation { get; }
     long[] StateIds { get; }
     object[]? Values { get; }
     public bool NotCachable;

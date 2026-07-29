@@ -17,11 +17,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter(1));
     options.FileConverters.Add(new FFMpegVideoConverter());
+    options.OnDatamodelInit = (dm, container) => {
+        dm.Add<DemoArticle>();
+        dm.Add<Color>();
+        dm.Add<Product>();
+        dm.Add<Brand>();
+    };
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
-    options.OnStoreOpen = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 500, 100); // populates the facet search example (see wwwroot/search.html)
+    options.OnStoreOpenBackground = db => {
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 200_000, 100); // populates the facet search example (see wwwroot/search.html)
     };
 });
 

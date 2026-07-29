@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Diagnostics;
+using System.Globalization;
 
 namespace Relatude.DB.Common;
 public static class StringFormatExtentions {
@@ -17,6 +18,7 @@ public static class StringFormatExtentions {
     public static string To1000N(this int n) => n.ToString("N0");
     public static string To1000N(this double n) => n.ToString("N0");
     public static string To1000C00N(this double n) => n.ToString("0.00");
+    public static string ToMs(this Stopwatch sw) => sw.Elapsed.TotalMilliseconds.ToString("0.000ms");
     public static string To1000N(this float n) => n.ToString("N0");
     public static string ToTimeString(this TimeSpan timeSpan) {
         return string.Format("{0:D2}:{1:D2}:{2:D2}", (int)timeSpan.TotalHours, timeSpan.Minutes, timeSpan.Seconds);

@@ -1,4 +1,6 @@
+using Relatude.DB.Common;
 using System.Collections;
+using System.Diagnostics;
 using System.Numerics;
 
 namespace Relatude.DB.DataStores.Sets;
@@ -11,6 +13,7 @@ namespace Relatude.DB.DataStores.Sets;
 /// Enumeration order is always ascending id.
 /// </summary>
 public sealed class DenseBitSet : ICollection<int> {
+    static bool _debugOutput = false;
     ulong[] _words;
     int _base; // id of bit 0, always a multiple of 64
     public int Count { get; private set; }
@@ -30,7 +33,7 @@ public sealed class DenseBitSet : ICollection<int> {
     /// <summary>True when a bit set is worth it for a set of this shape: large enough to matter and
     /// dense enough that the window costs at most about twice an int array (it is then still much
     /// faster, and usually far smaller).</summary>
-    //public static bool WorthIt(int count, int minId, int maxId) => false;
+   // public static bool WorthIt(int count, int minId, int maxId) => false;
     public static bool WorthIt(int count, int minId, int maxId) => count > 256 && minId >= 0 && (long)maxId - minId < (long)count * 64;
 
     public static DenseBitSet From(IEnumerable<int> ids, int minId, int maxId) {
@@ -125,15 +128,19 @@ public sealed class DenseBitSet : ICollection<int> {
         return new DenseBitSet(words, baseId, count);
     }
 
+
     /// <summary>|a ∩ b| by word-parallel AND + popcount over the overlapping window.</summary>
     public static int AndCount(DenseBitSet a, DenseBitSet b) {
+        Stopwatch? sw = _debugOutput ? Stopwatch.StartNew() : null;
         if (a.Count == 0 || b.Count == 0) return 0;
         overlap(a, b, out var wa, out var wb, out var n);
         var count = 0;
         for (var i = 0; i < n; i++) count += BitOperations.PopCount(a._words[wa + i] & b._words[wb + i]);
+        if (sw != null) Console.WriteLine($"AndCount took {sw.ToMs()} Count A: {a.Count}, Count B: {b.Count}");
         return count;
     }
     public static DenseBitSet And(DenseBitSet a, DenseBitSet b) {
+        Stopwatch? sw = _debugOutput ? Stopwatch.StartNew() : null;
         overlap(a, b, out var wa, out var wb, out var n);
         var words = new ulong[n < 1 ? 1 : n];
         var count = 0;
@@ -142,9 +149,11 @@ public sealed class DenseBitSet : ICollection<int> {
             words[i] = w;
             count += BitOperations.PopCount(w);
         }
+        if (sw != null) Console.WriteLine($"And took {sw.ToMs()} Count A: {a.Count}, Count B: {b.Count}, Count AND: {count}");
         return new DenseBitSet(words, Math.Max(a._base, b._base), count);
     }
     public static DenseBitSet Or(DenseBitSet a, DenseBitSet b) {
+        Stopwatch? sw = _debugOutput ? Stopwatch.StartNew() : null;
         var newBase = Math.Min(a._base, b._base);
         var newMax = Math.Max(a._base + (a._words.Length << 6), b._base + (b._words.Length << 6)) - 1;
         var words = new ulong[wordsNeeded(newBase, newMax)];
@@ -158,10 +167,12 @@ public sealed class DenseBitSet : ICollection<int> {
             words[i] = w;
             count += BitOperations.PopCount(w);
         }
+        if (sw != null) Console.WriteLine($"Or took {sw.ToMs()} Count A: {a.Count}, Count B: {b.Count}, Count OR: {count}");
         return new DenseBitSet(words, newBase, count);
     }
     /// <summary>this |= other. Bits of other outside this window are added individually.</summary>
     public void OrWith(DenseBitSet other) {
+        Stopwatch? sw = _debugOutput ? Stopwatch.StartNew() : null;
         overlap(this, other, out var wt, out var wo, out var n);
         for (var i = 0; i < n; i++) {
             var before = _words[wt + i];
@@ -180,9 +191,11 @@ public sealed class DenseBitSet : ICollection<int> {
                 word &= word - 1;
             }
         }
+        if (sw != null) Console.WriteLine($"OrWith took {sw.ToMs()} Count A: {Count}, Count B: {other.Count}");
     }
     /// <summary>a \ b (all of a except the ids also in b).</summary>
     public static DenseBitSet AndNot(DenseBitSet a, DenseBitSet b) {
+        Stopwatch? sw = _debugOutput ? Stopwatch.StartNew() : null;
         var words = (ulong[])a._words.Clone();
         overlap(a, b, out var wa, out var wb, out var n);
         var removed = 0;
@@ -192,8 +205,10 @@ public sealed class DenseBitSet : ICollection<int> {
             words[wa + i] = after;
             removed += BitOperations.PopCount(before) - BitOperations.PopCount(after);
         }
+        if (sw != null) Console.WriteLine($"AndNot took {sw.ToMs()} Count A: {a.Count}, Count B: {b.Count}, Count removed: {removed}");
         return new DenseBitSet(words, a._base, a.Count - removed);
     }
+    /// <summary>Find the overlapping window of two bit sets, returning the word indices and count of words in the overlap.</summary>
     static void overlap(DenseBitSet a, DenseBitSet b, out int wa, out int wb, out int n) {
         var from = Math.Max(a._base, b._base);
         var to = Math.Min(a._base + (a._words.Length << 6), b._base + (b._words.Length << 6));

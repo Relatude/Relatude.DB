@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Hosting.Server;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
@@ -144,8 +146,11 @@ public partial class RelatudeDBServer {
         _serverSettings = await _settingsLoader.ReadAsync();
         Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
         if (_serverSettings.DBAdminUIUrlPath != null) setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
+        RaiseEventServerSettingsInit(_serverSettings);
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
+                RaiseEventContainerSettingsInit(containerSettings);
+                if(containerSettings .LocalSettings != null) RaiseEventStoreSettingsInit(containerSettings.LocalSettings, containerSettings);
                 var container = new NodeStoreContainer(containerSettings, this);
                 Containers.Add(containerSettings.Id, container);
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
@@ -198,40 +203,71 @@ public partial class RelatudeDBServer {
         if (container.Store == null) throw new Exception("Store not initialized. ");
         return container.Store;
     }
-    internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (nodeStoreContainer == null) return;
-        if (Options?.OnStoreOpen == null) return;
-        ThreadPool.QueueUserWorkItem((_) => {
-            try {
-                if (nodeStoreContainer == null) return;
-                Options.OnStoreOpen(store);
-            } catch (Exception err) {
-                Log("Error occurred during OnStoreOpen event: " + err.Message);
-            }
-        });
+    internal void RaiseEventServerSettingsInit( RelatudeDBServerSettings serverSettings ) {
+        if (Options?.OnServerSettingsInit == null) return;
+        try {
+            Options.OnServerSettingsInit(serverSettings);
+        } catch (Exception err) {
+            Log("Error occurred during OnServerSettingsInit event: " + err.Message);
+        }
+    }
+    internal void RaiseEventContainerSettingsInit(NodeStoreContainerSettings containerSettings) {
+        if (Options?.OnContainerSettingsInit == null) return;
+        try {
+            Options.OnContainerSettingsInit(containerSettings);
+        } catch (Exception err) {
+            Log("Error occurred during OnContainerSettingsInit event: " + err.Message);
+        }
+    }
+    internal void RaiseEventStoreSettingsInit(SettingsLocal storeSettings, NodeStoreContainerSettingsBase containerSettings) {
+        if (Options?.OnStoreSettingsInit == null) return;
+        try {
+            Options.OnStoreSettingsInit(storeSettings, containerSettings);
+        } catch (Exception err) {
+            Log("Error occurred during OnStoreSettingsInit event: " + err.Message);
+        }
+    }
+    internal void RaiseEventDatamodelInit(Datamodel datamodel, NodeStoreContainerSettingsBase containerSettings) {
+        if (Options?.OnDatamodelInit == null) return;
+        try {
+            Options.OnDatamodelInit(datamodel, containerSettings);
+        } catch (Exception err) {
+            Log("Error occurred during OnDatamodelInit event: " + err.Message);
+        }
     }
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (nodeStoreContainer == null) return;
         if (Options?.OnStoreInit == null) return;
-        //ThreadPool.QueueUserWorkItem((_) => {
         try {
-            if (nodeStoreContainer == null) return;
             Options.OnStoreInit(store);
         } catch (Exception err) {
             Log("Error occurred during OnStoreInit event: " + err.Message);
         }
-        //});
+    }
+    internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {
+        if (Options?.OnStoreOpen != null) {
+            try {
+                Options.OnStoreOpen(store);
+            } catch (Exception err) {
+                Log("Error occurred during OnStoreOpen event: " + err.Message);
+            }
+        }
+        if (Options?.OnStoreOpenBackground != null) {
+            ThreadPool.QueueUserWorkItem((_) => {
+                try {
+                    Options.OnStoreOpenBackground(store);
+                } catch (Exception err) {
+                    Log("Error occurred during OnStoreOpenBackground event: " + err.Message);
+                }
+            });
+        }
     }
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (Options?.OnStoreClose == null) return;
-        ThreadPool.QueueUserWorkItem((_) => {
-            try {
-                if (nodeStoreContainer == null) return;
-                Options.OnStoreClose(store);
-            } catch (Exception err) {
-                Log("Error occurred during OnStoreClose event: " + err.Message);
-            }
-        });
+        try {
+            Options.OnStoreClose(store);
+        } catch (Exception err) {
+            Log("Error occurred during OnStoreClose event: " + err.Message);
+        }
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
         lock (_ios) {
@@ -295,6 +331,36 @@ public class ServerOptions {
     public static string DefaultFileRootUrl => "/files";
 
     /// <summary>
+    /// Gets or sets the callback that is invoked when the server settings are initialized.
+    /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
+    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// It is a good place to programmatically modify the server settings before any containers are opened.
+    /// </summary>
+    public Action<RelatudeDBServerSettings>? OnServerSettingsInit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the callback that is invoked when the container settings are initialized.
+    /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
+    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// It is a good place to programmatically modify the container settings before any containers are opened.
+    /// </summary>
+    public Action<NodeStoreContainerSettings>? OnContainerSettingsInit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the callback that is invoked when the store settings are initialized.
+    /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
+    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// It is a good place to programmatically modify the store settings before any containers are opened.
+    /// </summary>
+    public Action<SettingsLocal, NodeStoreContainerSettingsBase>? OnStoreSettingsInit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the callback that is invoked when a new datamodel is initialized.
+    /// This is called every time a new datamodel is initialized, and before it is opened.
+    /// This is a good place to register custom task runners and plugins.
+    /// </summary>
+    public Action<Datamodel, NodeStoreContainerSettingsBase>? OnDatamodelInit { get; set; }
+    /// <summary>
     /// Callback that is triggered when a new database is initialized. 
     /// This is called every time a database is initialized, and before it it opened.
     /// This is a good place to register custom task runners and plugins.
@@ -303,16 +369,17 @@ public class ServerOptions {
     /// <summary>
     /// Gets or sets the callback to invoke when the database is closed.
     /// </summary>
-    /// <remarks>Assign a delegate to perform custom actions when the associated store is closed. The provided
-    /// callback receives the closed store as a parameter. If not set, no action is taken on store closure.</remarks>
     public Action<NodeStore>? OnStoreClose { get; set; }
     /// <summary>
     /// Gets or sets the callback that is invoked when the database is opened.
     /// </summary>
-    /// <remarks>Assign a delegate to perform custom actions when a store of type NodeStore is opened. The
-    /// callback receives the opened NodeStore instance as a parameter. If not set, no action is taken when the store
-    /// opens.</remarks>
     public Action<NodeStore>? OnStoreOpen { get; set; }
+
+    /// <summary>
+    /// Gets or sets the callback that is invoked when the database is opened, but in a background thread.
+    /// </summary>
+    public Action<NodeStore>? OnStoreOpenBackground { get; set; }
+
     /// <summary>
     /// Custom storage for server settings. 
     /// If not set, settings will be stored in a file named "relatude.db.json" in the root data folder.

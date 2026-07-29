@@ -3,9 +3,11 @@ using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores.Sets;
 
 public class SetRegister(long maxSize) {
+    static bool _debugInfo = false;
     bool _disabled = maxSize == 0;
     static int _aggregateCacheSize = 10000;
     private readonly SetCache _cache = new(maxSize);
@@ -34,8 +36,10 @@ public class SetRegister(long maxSize) {
     }
     private IdSet createOrLookup(SetCacheKey key, Func<ICollection<int>> create) {
         ICollection<int>? collection;
+        Stopwatch? sw = _debugInfo ? Stopwatch.StartNew() : null;
         if (key.NotCachable || _disabled) {
             collection = create();
+            if (sw != null) Console.WriteLine("NotCachable:{0} {1}, count={2}", key.Operation, sw.ToMs(), collection.Count);
             return collection.Count == 0 ? IdSet.EmptyUncachable : IdSet.UncachableSet(collection);
         }
         if (_cache.TryGet(key, out IdSet? set)) {
@@ -52,6 +56,7 @@ public class SetRegister(long maxSize) {
             return set;
         }
         collection = create();
+        if (sw != null) Console.WriteLine("Cachable:{0} {1}, count={2}", key.Operation, sw.ToMs(), collection.Count);
         if (collection.Count == 0) {
             set = IdSet.Empty;
         } else if (collection.Count == 1) {

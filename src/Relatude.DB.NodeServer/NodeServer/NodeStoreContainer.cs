@@ -95,6 +95,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Dispose();
             if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
+            server.RaiseEventDatamodelInit(Datamodel, settings);
             var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
             var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
