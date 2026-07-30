@@ -10,14 +10,13 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
-    static int[] _optimisticRetriesPausingMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000]; // in sum: max 5.5 seconds of waiting time
+    static int[] _optimisticRetryIntervalOnLockMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000]; // in sum: max 5.5 seconds of waiting time
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
     public TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Execute(transaction, true, flushToDisk, ctx);
     }
-    int _totalAccumelatedSleepTime;
     public TransactionResult Execute(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
         var attempt = 0;
         while (true) {
@@ -28,15 +27,14 @@ public sealed partial class DataStoreLocal : IDataStore {
                     var error = new NodeLockedException("Node locked, no retry attempts. ", err);
                     LogError(error.Message, error);
                     throw error;
-                }else if (++attempt > _optimisticRetriesPausingMs.Length) {
-                    var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + _optimisticRetriesPausingMs.Length + " attempts.", err);
+                }else if (++attempt > _optimisticRetryIntervalOnLockMs.Length) {
+                    var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + _optimisticRetryIntervalOnLockMs.Length + " attempts.", err);
                     LogError(error.Message, error);
                     throw error;
                 }
                 transaction.Timestamp = 0; // reset timestamp so that a new one will be generated for the retry
-                var sleep = _optimisticRetriesPausingMs[attempt - 1];
-                Interlocked.Add(ref _totalAccumelatedSleepTime, sleep);
-                LogWarning("Node locked, retry " + attempt + " of " + _optimisticRetriesPausingMs.Length + ". " + err.Message);
+                var sleep = _optimisticRetryIntervalOnLockMs[attempt - 1];
+                LogWarning("Node locked, retry " + attempt + " of " + _optimisticRetryIntervalOnLockMs.Length + ". " + err.Message);
                 Thread.Sleep(sleep);
             }
         }

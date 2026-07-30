@@ -253,6 +253,7 @@ app.MapGet("/query", (RelatudeDBContext ctx) => {
 // Facet search example used by wwwroot/search.html. The facets are computed from the free text
 // search result, so counts and range buckets adapt to the query as you type.
 app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
+    var iterations = 0;
     var swQuery = System.Diagnostics.Stopwatch.StartNew();
     var db = ctx.Database;
     var query = db.Query<Product>();
@@ -273,6 +274,9 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
         foreach (var r in sel.Ranges ?? []) facetQuery.SetFacetRangeValue(sel.Property, r.From, r.To);
     }
     var res = facetQuery.Execute();
+    for (var i = 0; i < iterations; i++) {
+        res = facetQuery.Execute();
+    }
     swQuery.Stop();
     return Results.Json(new {
         total = res.TotalCount,
