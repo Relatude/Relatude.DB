@@ -25,6 +25,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     readonly Dictionary<T, int> _idByValue = [];
     readonly Dictionary<T, MutableSet> _idsByValue = [];
     List<T>? _sortedValues;
+    int[]? _cumCounts; // _cumCounts[i] = total ids for _sortedValues[0..i], built and invalidated together with _sortedValues
     List<int>? _sortedIds; // sorted list of all ids, sorted by their values, and reset on every change, and lazily re-created on request ( somewhat expensive operation )
     readonly SetRegister _sets = sets;
     public void Index(T value, int id) {
@@ -40,6 +41,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         _idCount++;
         _sortedIds = null;
         _sortedValues = null;
+        _cumCounts = null;
     }
     public void DeIndex(T value, int id) {
         if (_idsByValue.TryGetValue(value, out var idList)) {
@@ -54,6 +56,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         _idCount--;
         _sortedIds = null;
         _sortedValues = null;
+        _cumCounts = null;
     }
     public bool ContainsValue(T value) => _idByValue.ContainsKey(value) || _idsByValue.ContainsKey(value);
     public bool TryGetValue(T value, [MaybeNullWhen(false)] out ICollection<int> ids) {
@@ -130,23 +133,36 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     void ensureSortedValues() {
         lock (_sortLock) {
             if (_sortedValues == null) {
-                _sortedValues = Values.ToList();
-                _sortedValues.Sort(_comparer);
+                var sorted = Values.ToList();
+                sorted.Sort(_comparer);
+                var cum = new int[sorted.Count];
+                var running = 0;
+                for (int i = 0; i < sorted.Count; i++) {
+                    running += countOf(sorted[i]);
+                    cum[i] = running;
+                }
+                _cumCounts = cum;
+                _sortedValues = sorted;
             }
         }
+    }
+    // id count for a value without allocating (TryGetValue wraps single ids in a SingleValueSet)
+    int countOf(T value) {
+        if (_idByValue.ContainsKey(value)) return 1;
+        if (_idsByValue.TryGetValue(value, out var set)) return set.Count;
+        return 0;
     }
     public int RangeCount(T from, T to, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0) return 0;
         ensureSortedValues();
-        var count = 0;
-        foreach (var value in rangeSearch(_sortedValues!, from, to, fromInclusive, toInclusive)) {
-            if (TryGetValue(value, out var set)) {
-                count += set.Count;
-            } else {
-                throw new Exception("Integrity problems with index. ");
-            }
-        }
-        return count;
+        var sorted = _sortedValues!;
+        int lower = sorted.BinarySearch(from, _comparer);
+        lower = lower < 0 ? ~lower : fromInclusive ? lower : lower + 1;
+        int upper = sorted.BinarySearch(to, _comparer);
+        upper = upper < 0 ? ~upper - 1 : toInclusive ? upper : upper - 1;
+        if (lower > upper || upper < 0 || lower >= sorted.Count) return 0;
+        var cum = _cumCounts!;
+        return cum[upper] - (lower > 0 ? cum[lower - 1] : 0);
     }
     public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0) return 0;
@@ -160,21 +176,15 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
 
     public int CountGreaterThan(T from, bool inclusive) {
         if (ValueCount == 0) return 0;
-        var count = 0;
         ensureSortedValues();
-        foreach (var value in greaterThan(_sortedValues!, from, inclusive)) {
-            if (TryGetValue(value, out var set)) {
-                count += set.Count;
-            } else {
-                throw new Exception("Integrity problems with index. ");
-            }
-        }
-        return count;
+        var sorted = _sortedValues!;
+        int index = sorted.BinarySearch(from, _comparer);
+        index = index < 0 ? ~index : inclusive ? index : index + 1;
+        if (index >= sorted.Count) return 0;
+        var cum = _cumCounts!;
+        return cum[^1] - (index > 0 ? cum[index - 1] : 0);
     }
-    public int CountEqual(T value) {
-        if (TryGetValue(value, out var set)) return set.Count;
-        return 0;
-    }
+    public int CountEqual(T value) => countOf(value);
     // |{ids with value} ∩ other| without materializing anything
     public int CountIntersection(T value, IdSet other) {
         if (_idByValue.TryGetValue(value, out var id)) return other.Has(id) ? 1 : 0;
@@ -183,16 +193,12 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     }
     public int CountLessThan(T to, bool inclusive) {
         if (ValueCount == 0) return 0;
-        var count = 0;
         ensureSortedValues();
-        foreach (var value in lessThan(_sortedValues!, to, inclusive)) {
-            if (TryGetValue(value, out var set)) {
-                count += set.Count;
-            } else {
-                throw new Exception("Integrity problems with index. ");
-            }
-        }
-        return count;
+        var sorted = _sortedValues!;
+        int index = sorted.BinarySearch(to, _comparer);
+        index = index < 0 ? ~index - 1 : inclusive ? index : index - 1;
+        if (index < 0) return 0;
+        return _cumCounts![index];
     }
     public IEnumerable<int> GreaterThan(T from, bool inclusive) {
         if (ValueCount == 0) yield break;
