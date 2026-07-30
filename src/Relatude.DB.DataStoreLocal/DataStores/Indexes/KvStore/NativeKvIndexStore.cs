@@ -18,8 +18,9 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
     public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory, Action<string>? log = null) : base(wordIndexFactory) {
         string? filePath;
         if (log == null) {
-            log = (msg) => { 
-                Console.WriteLine("IndexStore: " + msg); };
+            log = (msg) => {
+                Console.WriteLine("IndexStore: " + msg);
+            };
         }
         _log = log;
         if (folderPath != null) {
@@ -103,22 +104,34 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         // the base re-persists the WAL id and a timestamp of 0 immediately after this returns.
         _fileStorage.DeleteAll();
     }
-    public override void UpdatePersistedCaches() {
+    public override void SaveIndexCaches(bool force) {
         if (_kvFolder != null) {
             var timestamp = GetTimestamp();
             var isCacheOutOfDate = timestamp > _lastPersistedCacheTimestamp;
             var anyCacheDirty = _cachePersistableIndexes.Values.Any(i => i.AreThereNewUnsavedCachedSets);
-            if (isCacheOutOfDate || anyCacheDirty) {
+            if (isCacheOutOfDate || anyCacheDirty || force) {
                 var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
                 try {
+                    if (File.Exists(filePath)) File.Delete(filePath);
                     FacetSetsFile.Write(filePath, timestamp, _cachePersistableIndexes.Values, _log);
                     _lastPersistedCacheTimestamp = timestamp;
                 } catch { }
             }
         }
     }
+    public override void ResetIndexCaches() {
+        if (_kvFolder != null) {
+            var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
+            try {
+                if (File.Exists(filePath)) File.Delete(filePath);
+                _lastPersistedCacheTimestamp = 0;
+                _cachePersistableIndexes.Clear();
+                _lastPersistedCacheTimestamp = 0;
+            } catch { }
+        }
+    }
     protected override void DisposeCore() {
-        UpdatePersistedCaches();
+        SaveIndexCaches(false);
         _fileStorage.Dispose();
     }
 }

@@ -288,6 +288,7 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     /// <summary>Release backend resources (files, connections). Factory word indexes are already disposed.</summary>
     protected abstract void DisposeCore();
 
-    public virtual void UpdatePersistedCaches() { }
+    public virtual void SaveIndexCaches(bool force) { }
+    public virtual void ResetIndexCaches() { }
 
 }
