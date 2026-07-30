@@ -26,7 +26,7 @@ public class Product {
     public Reference<Brand> Brand { get; set; } = new();
     [EnumArrayProperty(Indexed = true)]
     public Size[] Sizes { get; set; } = []; // facet buckets carry the int values, displayed with the enum names
-    //[RelationProperty<ProductColors>(Facet = true)] // faceting is opt-in for relation properties
+    [ReferencesProperty(Indexed = true)] // faceting is opt-in for relation properties
     public IEnumerable<Color>? Colors { get; set; }
 }
 

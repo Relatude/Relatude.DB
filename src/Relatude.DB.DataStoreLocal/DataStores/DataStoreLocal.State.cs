@@ -278,14 +278,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         foreach (var e in idValidator.GetErrors()) logError(e);
         if (actionCount > 0) LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
         else LogInfo("   No actions read from log file.", null, true);
-        //if (_noTransactionsSinceLastStateSnapshot == 0) { // persist indexes that are new and never persisted
-        //    foreach (var indx in _definition.GetAllIndexes()) {
-        //        if (indx.PersistedTimestamp == 0) { // this indicates a new index, so persist it
-        //            LogInfo("Persisting new index '" + indx.FriendlyName + ". ");
-        //            // indx.SaveStateForMemoryIndexes(_wal.LastTimestamp, _wal.FileId);
-        //        }
-        //    }
-        //}
+        if (stateFileTimestamp > 0) { // persist indexes that are new and never persisted
+            foreach (var indx in _definition.GetAllIndexes()) {
+                if (indx.PersistedTimestamp == 0) { // this indicates a new index, so persist it
+                    LogInfo("Persisting new index \"" + indx.FriendlyName + "\" ");
+                    indx.SaveStateForMemoryIndexes(_wal.LastTimestamp, _wal.FileId);
+                }
+            }
+        }
 
         LogInfo(_noPrimitiveActionsInLogThatCanBeTruncated.To1000N() + " actions redundant in log file. ");
         LogInfo(_nodes.Count.To1000N() + " nodes in total");
