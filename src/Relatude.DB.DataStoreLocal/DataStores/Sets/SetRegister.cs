@@ -331,6 +331,16 @@ public class SetRegister(long maxSize) {
             return result;
         });
     }
+    /// <summary>
+    /// Multi source BFS over one relation: all ids with min distance from the seed set within [minLevel, maxLevel].
+    /// Cached; invalidated automatically when the relation or the seed set changes (state ids).
+    /// </summary>
+    internal IdSet TraverseRelation(IdSet seeds, Relation relation, bool fromTargetToSource, GraphDirection direction, int minLevel, int maxLevel, int maxVisited) {
+        var key = new SetCacheKey(SetOperation.TraverseRelation,
+            [relation.GeneralStateId, seeds.StateId],
+            [fromTargetToSource, (int)direction, minLevel, maxLevel, maxVisited]);
+        return createOrLookup(key, () => GraphTraversalUtils.CollectWithin(seeds, relation, fromTargetToSource, direction, minLevel, maxLevel, maxVisited));
+    }
     bool containsRelation(int level, int from, bool[] directions, Relation[] relations, int to) {
         if (directions.Length - level == 1) // last level
             return relations[level].Contains(from, to, directions[level]);

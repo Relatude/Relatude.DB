@@ -31,6 +31,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         PageSizeUsed = pageSizeUsed;
     }
     public int Count => _ids.Count;
+    internal IdSet Ids => _ids;
     public IEnumerable<object> Values {
         get {
             var allpropertyIdsByName = _def.Datamodel.NodeTypes[_nodeType.Id].AllPropertyIdsByName;

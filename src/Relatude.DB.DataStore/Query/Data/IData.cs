@@ -44,6 +44,16 @@ public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {
     int? PageSizeUsed { get; }
     string Search { get; }
 }
+public interface IGraphCollection : IStoreNodeDataCollection {
+    IStoreNodeDataCollection Traverse(Guid relationPropertyId, int minLevel, int maxLevel, GraphDirection direction, int? maxVisited);
+    IGraphPathResultData ShortestPath(Guid relationPropertyId, Guid fromNodeId, Guid toNodeId, int maxLevel, GraphDirection direction, int? maxVisited);
+}
+public interface IGraphPathResultData : IIncludeBranches, ICollectionBase {
+    bool Found { get; }
+    int Length { get; } // number of edges in the path, 0 when not found or from == to
+    List<Guid> NodeIds { get; } // node ids along the path, from -> to, inclusive
+    List<INodeDataExternal> Nodes { get; } // node data along the path, from -> to, inclusive
+}
 public interface IFacetSource : IStoreNodeDataCollection {
     Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx);
     Datamodel Datamodel { get; }

@@ -254,15 +254,59 @@ internal sealed class QueryStringBuilder {
         _sb.Append(id.ToStringLiteral());
         _sb.Append(')');
     }
+    internal void Traverse(string propertyId, int minLevel, int maxLevel, GraphDirection direction, int? maxVisited) {
+        _sb.Append(".Traverse(");
+        _sb.Append(propertyId.ToStringLiteral());
+        _sb.Append(", ");
+        _sb.Append(minLevel);
+        _sb.Append(", ");
+        _sb.Append(maxLevel);
+        if (direction != GraphDirection.Default || maxVisited.HasValue) {
+            _sb.Append(", ");
+            _sb.Append((int)direction);
+        }
+        if (maxVisited.HasValue) {
+            _sb.Append(", ");
+            _sb.Append(maxVisited.Value);
+        }
+        _sb.Append(')');
+    }
+    internal void ShortestPath(string propertyId, Guid fromNodeId, Guid toNodeId, int maxLevel, GraphDirection direction, int? maxVisited) {
+        _sb.Append(".ShortestPath(");
+        _sb.Append(propertyId.ToStringLiteral());
+        _sb.Append(", ");
+        _sb.Append(fromNodeId.ToString().ToStringLiteral());
+        _sb.Append(", ");
+        _sb.Append(toNodeId.ToString().ToStringLiteral());
+        _sb.Append(", ");
+        _sb.Append(maxLevel);
+        if (direction != GraphDirection.Default || maxVisited.HasValue) {
+            _sb.Append(", ");
+            _sb.Append((int)direction);
+        }
+        if (maxVisited.HasValue) {
+            _sb.Append(", ");
+            _sb.Append(maxVisited.Value);
+        }
+        _sb.Append(')');
+    }
 
     // Include and ThenInclude methods:
     List<IncludeBranch>? _branches;
     string? _branchMarker;
+    Dictionary<IncludeBranch, string>? _branchPaths; // full dotted property guid path per branch
+    List<KeyValuePair<string, string>>? _branchFilterEmissions; // path -> filter lambda source
     internal IncludeBranch CreateBranch<T, TProperty>(Expression<Func<T, TProperty>> expression, int? top) {
         ensureIncludeIsAddedToQuery();
         var b = new IncludeBranch(Store.Mapper.GetProperty(expression).Id, top);
         if (_branches == null) _branches = new();
         _branches.Add(b);
+        registerBranchPath(b, null);
+        return b;
+    }
+    internal IncludeBranch CreateBranch<T, TProperty>(Expression<Func<T, TProperty>> expression, int? top, Expression? filter) {
+        var b = CreateBranch(expression, top);
+        if (filter != null) addBranchFilter(b, filter);
         return b;
     }
     //internal IncludeBranch CreateBranch(Guid relationPropertyId, int? top) {
@@ -273,7 +317,25 @@ internal sealed class QueryStringBuilder {
     //    return b;
     //}
     internal IncludeBranch CreateChildBranch<T, TProperty>(IncludeBranch parent, Expression<Func<T, TProperty>> expression, int? top) {
-        return parent.ReuseOrCreateChildBranch(Store.Mapper.GetProperty(expression).Id, top);
+        var b = parent.ReuseOrCreateChildBranch(Store.Mapper.GetProperty(expression).Id, top);
+        registerBranchPath(b, parent);
+        return b;
+    }
+    internal IncludeBranch CreateChildBranch<T, TProperty>(IncludeBranch parent, Expression<Func<T, TProperty>> expression, int? top, Expression? filter) {
+        var b = CreateChildBranch(parent, expression, top);
+        if (filter != null) addBranchFilter(b, filter);
+        return b;
+    }
+    void registerBranchPath(IncludeBranch branch, IncludeBranch? parent) {
+        _branchPaths ??= new();
+        var path = parent == null ? branch.PropertyId.ToString() : _branchPaths[parent] + "." + branch.PropertyId;
+        _branchPaths[branch] = path; // a reused child branch registers the same path again, harmless
+    }
+    void addBranchFilter(IncludeBranch branch, Expression filter) {
+        // filters travel as an extra Include call carrying the lambda; the server AND merges
+        // it onto the branch of the path's last segment:
+        _branchFilterEmissions ??= new();
+        _branchFilterEmissions.Add(new(_branchPaths![branch], filter.ToQueryString(_parameters)));
     }
     internal void ensureIncludeIsAddedToQuery() {
         if (_branchMarker == null) {
@@ -343,6 +405,15 @@ internal sealed class QueryStringBuilder {
                 include.Append(".Include(\"");
                 include.Append(path);
                 include.Append("\")");
+            }
+        }
+        if (_branchFilterEmissions != null) {
+            foreach (var kv in _branchFilterEmissions) {
+                include.Append(".Include(\"");
+                include.Append(kv.Key);
+                include.Append("\", ");
+                include.Append(kv.Value);
+                include.Append(')');
             }
         }
         return _sb.ToString().Replace(_branchMarker, include.ToString());

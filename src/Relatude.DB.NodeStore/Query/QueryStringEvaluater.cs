@@ -26,6 +26,9 @@ internal sealed class QueryStringEvaluater {
         } else if (data is ISearchQueryResultData search) {
             var hitValues = search.Hits.Select(h => new SearchResultHit<object?>(_store.Mapper.CreateObjectFromNodeData(h.NodeData, null), h.Score, h.Sample));
             return new ResultSetNotEnumerable<object?>(hitValues, search.Count, search.TotalCount, search.PageIndexUsed, search.PageSizeUsed, search.DurationMs, search.Capped, search.InnerSearchTimeMs);
+        } else if (data is IGraphPathResultData path) {
+            var pathNodes = path.Nodes.Select(n => _store.Mapper.CreateObjectFromNodeData(n, null)).ToArray();
+            return new GraphPathResult<object?>(path.Found, [.. path.NodeIds], pathNodes, path.DurationMs);
         } else {
             return data;
         }

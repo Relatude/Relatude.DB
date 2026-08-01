@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Query;
@@ -36,6 +37,23 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
 
 
     QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluated = null, int? maxHitsEvaluated = null);
+
+    /// <summary>
+    /// Expands the current result set over a relation with a breadth first traversal and returns the reached nodes,
+    /// typed as the related node type. The current result set is the seed set at level 0; the result contains every node
+    /// whose minimum distance from any seed is within [minLevel, maxLevel]. Cycle safe. The result is a regular node
+    /// query: Where, OrderBy, Count, Page, Include and Facets can be chained after it.
+    /// </summary>
+    IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null);
+    IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, IEnumerable<TProperty>>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null);
+    IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, TProperty[]?>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null);
+    IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, ICollection<TProperty>>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null);
+
+    /// <summary>
+    /// Finds one shortest path (breadth first, unweighted) between two nodes over a relation.
+    /// Returns a path result with the node ids and materialized nodes in order, from -> to inclusive.
+    /// </summary>
+    QueryOfShortestPath<TNode, TInclude> ShortestPath<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid fromNodeId, Guid toNodeId, int maxLevel = 1000, GraphDirection direction = GraphDirection.Default, int? maxVisited = null);
     IQueryOfNodes<TNode, TInclude> OrderBy(Expression<Func<TNode, object>> expression, bool descending = false);
     IQueryOfNodes<TNode, TInclude> OrderByDescending(Expression<Func<TNode, object>> expression);
 
@@ -58,6 +76,23 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, int? top = null);
 
+    // Include / Preload with a filter on the related nodes: only related nodes passing the filter are loaded.
+    // The filter never affects the main result set, and it is applied before top.
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty[]?>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, IEnumerable<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, ICollection<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IRelationProperty<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IReference<TProperty>>> referenceProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TProperty>(Expression<Func<TNode, IReferences<TProperty>>> referencesProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, IEnumerable<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Include<TSubClass, TProperty>(Expression<Func<TSubClass, ICollection<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IRelationProperty<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> Preload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+
     //long Update<TProperty>(Expression<Func<TNode, TProperty>> property, object newValue);
 
 }
@@ -78,6 +113,22 @@ public interface IIncludeQueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TI
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IRelationProperty<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, int? top = null);
     IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, int? top = null);
+
+    // ThenInclude / ThenPreload with a filter on the related nodes of the deeper level:
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TProperty>(Expression<Func<TInclude, TProperty>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TProperty>(Expression<Func<TInclude, TProperty[]>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TProperty>(Expression<Func<TInclude, IEnumerable<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TProperty>(Expression<Func<TInclude, ICollection<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IRelationProperty<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IReference<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TProperty>(Expression<Func<TInclude, IReferences<TProperty>>> referencesProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, TProperty[]>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, IEnumerable<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenInclude<TSubClass, TProperty>(Expression<Func<TSubClass, ICollection<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IRelationProperty<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReference<TProperty>>> relationProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
+    IIncludeQueryOfNodes<TNode, TProperty> ThenPreload<TSubClass, TProperty>(Expression<Func<TSubClass, IReferences<TProperty>>> referencesProperty, Expression<Func<TProperty, bool>> filter, int? top = null);
 
 }
 

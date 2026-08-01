@@ -364,13 +364,70 @@ sealed class RelatesNotMethodDef : MethodDef {
     }
 }
 
+sealed class TraverseMethodDef : MethodDef {
+    // traverse(property, minLevel, maxLevel[, direction[, maxVisited]])
+    public override string[] Names => ["traverse"];
+    public override int MinArgs => 3;
+    public override int MaxArgs => 5;
+    public override MethodParamDef[] Params => [
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+    ];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        foreach (var arg in e.Arguments) if (arg is not ValueConstantToken) throw new Exception("Only constant arguments allowed in Traverse expression.");
+        var args = e.Arguments.Cast<ValueConstantToken>().ToArray();
+        return new TraverseMethod(BuildSource(e, dm), dm,
+            args[0].GetStringValue(),
+            args[1].GetIntValue(),
+            args[2].GetIntValue(),
+            args.Length > 3 ? args[3].GetIntValue() : 0,
+            args.Length > 4 ? args[4].GetIntOrNullValue() : null);
+    }
+}
+
+sealed class ShortestPathMethodDef : MethodDef {
+    // shortestpath(property, fromId, toId[, maxLevel[, direction[, maxVisited]]])
+    public override string[] Names => ["shortestpath"];
+    public override int MinArgs => 3;
+    public override int MaxArgs => 6;
+    public override MethodParamDef[] Params => [
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+    ];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        foreach (var arg in e.Arguments) if (arg is not ValueConstantToken) throw new Exception("Only constant arguments allowed in ShortestPath expression.");
+        var args = e.Arguments.Cast<ValueConstantToken>().ToArray();
+        return new ShortestPathMethod(BuildSource(e, dm), dm,
+            args[0].GetStringValue(),
+            args[1].GetStringValue(),
+            args[2].GetStringValue(),
+            args.Length > 3 ? args[3].GetIntValue() : 1000,
+            args.Length > 4 ? args[4].GetIntValue() : 0,
+            args.Length > 5 ? args[5].GetIntOrNullValue() : null);
+    }
+}
+
 sealed class IncludeMethodDef : MethodDef {
+    // include(path[, filterLambda]) - the optional lambda filters the related nodes of the LAST segment of the path
     public override string[] Names => ["include"];
     public override int MinArgs => 1;
-    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Lambda)];
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
         if (e.Arguments[0] is not ValueConstantToken prop) throw new Exception("Only string arguments allowed as property in include expression.");
-        return new IncludeMethod(BuildSource(e, dm), dm, prop.GetStringValue());
+        LambdaExpression? filter = null;
+        if (e.Arguments.Count > 1) {
+            if (e.Arguments[1] is not LambdaToken lambda) throw new Exception("Second argument of Include must be a lambda expression filtering the included nodes.");
+            filter = BuildLambda(lambda, dm, Names[0]);
+        }
+        return new IncludeMethod(BuildSource(e, dm), dm, prop.GetStringValue(), filter);
     }
 }
 
@@ -418,6 +475,7 @@ internal class BuildMethod {
         new SearchMethodDef(), new PageMethodDef(), new TakeMethodDef(), new SkipMethodDef(),
         new CountMethodDef(), new SumMethodDef(), new RelationMethodDef(), new WhereInMethodDef(),
         new WhereInIdsMethodDef(), new RelatesAnyMethodDef(), new RelatesMethodDef(), new RelatesNotMethodDef(),
+        new TraverseMethodDef(), new ShortestPathMethodDef(),
         new IncludeMethodDef(), new InRangeMethodDef(), new WhereCultureMethodDef(),
         new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
     );

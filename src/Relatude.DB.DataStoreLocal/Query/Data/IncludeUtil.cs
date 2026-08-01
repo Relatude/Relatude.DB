@@ -1,14 +1,30 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
-using System.Reflection.Metadata;
 
 namespace Relatude.DB.Query.Data;
 
 internal static class IncludeUtil {
+    // per query execution state of one include expansion: the store, context and
+    // lazily created filter evaluators (one per filtered branch)
+    sealed class IncludeWalk {
+        public required DataStoreLocal Db;
+        public required QueryContext Ctx;
+        public required Metrics Metrics;
+        Dictionary<IncludeBranch, IncludeFilterEvaluator?>? _evaluators;
+        public IncludeFilterEvaluator? GetEvaluator(IncludeBranch branch) {
+            if (branch.Filter == null) return null;
+            _evaluators ??= [];
+            if (!_evaluators.TryGetValue(branch, out var evaluator)) {
+                evaluator = IncludeFilterEvaluator.Create(branch, Db, Ctx, Metrics);
+                _evaluators.Add(branch, evaluator);
+            }
+            return evaluator;
+        }
+    }
     public static INodeDataExternal[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
         metrics.NodeCount += _ids.Count;
         if (_includeBranches == null) {
@@ -22,8 +38,9 @@ internal static class IncludeUtil {
             foreach (var id in _ids.Enumerate()) {
                 nodes[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
             }
+            var walk = new IncludeWalk { Db = _db, Ctx = ctx, Metrics = metrics };
             foreach (var branch in _includeBranches) branch.Reset();
-            foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, _db, ref metrics.NodeCount);
+            foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, walk, ref metrics.NodeCount);
             var nInner = _db._nodes.Get(idsToGet.ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
             var nOuter = _db.ToOuter(nInner, ctx);
             var dic = nOuter.ToDictionary(n => n.__Id); // get all nodes in one go
@@ -40,36 +57,39 @@ internal static class IncludeUtil {
         }
         return root.Children.ToList();
     }
-    static void ensureIncludes(NodeDataWithRelations from, IEnumerable<IncludeBranch> branches, HashSet<int> idsToGet, int level, DataStoreLocal _db, ref int _totalNodeCount) {
+    static void ensureIncludes(NodeDataWithRelations from, IEnumerable<IncludeBranch> branches, HashSet<int> idsToGet, int level, IncludeWalk walk, ref int _totalNodeCount) {
         foreach (var branch in branches) {
 
             // TODO: NONE WORKING OPTIMZATION, LOOK INTO LATER
-            //if (branch.EvaluatedIds.Contains(from.__Id)) continue; // already evaluated this node branch  
+            //if (branch.EvaluatedIds.Contains(from.__Id)) continue; // already evaluated this node branch
             //branch.EvaluatedIds.Add(from.__Id); // mark this node branch as evaluated
 
 
-            ensureIncludes(from, branch, idsToGet, level, _db, ref _totalNodeCount);
+            ensureIncludes(from, branch, idsToGet, level, walk, ref _totalNodeCount);
         }
     }
-    static void ensureIncludes(NodeDataWithRelations from, IncludeBranch branch, HashSet<int> idsToGet, int level, DataStoreLocal _db, ref int _totalNodeCount) {
+    static void ensureIncludes(NodeDataWithRelations from, IncludeBranch branch, HashSet<int> idsToGet, int level, IncludeWalk walk, ref int _totalNodeCount) {
         var propId = branch.PropertyId;
+        var _db = walk.Db;
         var _def = _db._definition;
         var typeDef = _def.Datamodel.NodeTypes[from.NodeType];
         if (!typeDef.AllProperties.ContainsKey(propId)) return; // not relevant for this node type
         if (from.Relations.ContainsRelation(propId)) return; // already included
         int? top = branch.Top;
+        var filter = walk.GetEvaluator(branch); // null when the branch has no filter
         var propDef = _def.Datamodel.Properties[propId];
         if (propDef is ReferencePropertyModel refProp) {
             if (_db.TryGetValue<Guid>(new PropertyPath(from.__Id, propId), out var guid)) {
                 if (guid != Guid.Empty && _db.Exists(guid)) {
                     // has value, is set, and exists in the database:
                     if (!_db._guids.TryGetId(guid, out var id)) return;
+                    if (filter != null && !filter.Keep(id)) return; // filtered out: same result as an unset reference
                     idsToGet.Add(id);
                     var typeId = _db._definition.GetTypeOfNode(id);
                     var idNodePlaceholder = new NodeDataOnlyTypeAndId(id, typeId);
                     var to = new NodeDataWithRelations(idNodePlaceholder);
                     from.Relations.AddReference(propId, to);
-                    if (branch.HasChildren()) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+                    if (branch.HasChildren()) ensureIncludes(to, branch.Children, idsToGet, level + 1, walk, ref _totalNodeCount);
                 }
             }
         } else if (propDef is ReferencesPropertyModel refsProp) {
@@ -79,30 +99,44 @@ internal static class IncludeUtil {
                     if (top.HasValue && tos.Count >= top.Value) break;
                     if (guid == Guid.Empty || !_db.Exists(guid)) continue; // unset or stale entry (target deleted): skip, not truncate
                     if (!_db._guids.TryGetId(guid, out var id)) continue;
+                    if (filter != null && !filter.Keep(id)) continue; // filter before top
                     idsToGet.Add(id);
                     tos.Add(new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id))));
                 }
                 _totalNodeCount += tos.Count;
                 from.Relations.AddReferences(propId, tos.ToArray());
-                if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+                if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, walk, ref _totalNodeCount);
             }
         } else if (propDef is RelationPropertyModel relProp) {
             var relation = _def.Relations[relProp.RelationId];
             var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);
-            _totalNodeCount += idsRel.Count;
-            var ids = idsRel.Enumerate();
-            int count; // faster count, avoiding Count() on the enumerable
-            if (top.HasValue && idsRel.Count > top) {
-                ids = ids.Take(top.Value);
-                count = top.Value;
-            } else {
-                count = idsRel.Count;
-            }
-            var tos = new NodeDataWithRelations[count];
-            var i = 0;
-            foreach (var id in ids) {
-                idsToGet.Add(id);
-                tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
+            NodeDataWithRelations[] tos;
+            if (filter == null) {
+                _totalNodeCount += idsRel.Count;
+                var ids = idsRel.Enumerate();
+                int count; // faster count, avoiding Count() on the enumerable
+                if (top.HasValue && idsRel.Count > top) {
+                    ids = ids.Take(top.Value);
+                    count = top.Value;
+                } else {
+                    count = idsRel.Count;
+                }
+                tos = new NodeDataWithRelations[count];
+                var i = 0;
+                foreach (var id in ids) {
+                    idsToGet.Add(id);
+                    tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
+                }
+            } else { // filter before top:
+                List<NodeDataWithRelations> kept = new();
+                foreach (var id in idsRel.Enumerate()) {
+                    if (top.HasValue && kept.Count >= top.Value) break;
+                    if (!filter.Keep(id)) continue;
+                    idsToGet.Add(id);
+                    kept.Add(new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id))));
+                }
+                _totalNodeCount += kept.Count;
+                tos = kept.ToArray();
             }
             if (relProp.IsMany) {
                 from.Relations.AddManyRelation(propId, tos);
@@ -110,12 +144,12 @@ internal static class IncludeUtil {
                 if (tos.Length == 1) {
                     from.Relations.AddOneRelation(propId, tos[0]);
                 } else if (tos.Length == 0) {
-                    from.Relations.SetNoRelation(propId); // no relation
+                    from.Relations.SetNoRelation(propId); // no relation, or the single related node was filtered out
                 } else if (tos.Length > 1) {
                     throw new Exception("Multiple relations on property " + relProp.CodeName + " for node " + from.__Id + " is not allowed.");
                 }
             }
-            if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, _db, ref _totalNodeCount);
+            if (branch.HasChildren()) foreach (var to in tos) ensureIncludes(to, branch.Children, idsToGet, level + 1, walk, ref _totalNodeCount);
         } else {
             throw new Exception("Property " + propDef.CodeName + " is not a reference or relation property, cannot preload.");
         }
