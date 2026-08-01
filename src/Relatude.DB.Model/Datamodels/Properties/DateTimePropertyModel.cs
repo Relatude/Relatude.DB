@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
-public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContraints {
+public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.DateTime; }
     public DateTime DefaultValue { get; set; }
     public DateTime MinValue { get; set; } = DateTime.MinValue;
     public DateTime MaxValue { get; set; } = DateTime.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static DateTime ForceValueType(object? value, out bool changed) {
         if (value is DateTime dt) {

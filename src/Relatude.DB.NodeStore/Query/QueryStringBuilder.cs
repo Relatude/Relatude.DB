@@ -188,6 +188,7 @@ internal sealed class QueryStringBuilder {
         if (value is Guid g) return g.ToString().ToStringLiteral();
         if (value is bool b) return b.ToString().ToLower();
         if (value is DateTime dt) return dt.Ticks.ToString();
+        if (value is DateTimeOffset dto) return dto.UtcTicks.ToString(); // the server reads the long as UTC ticks, so the instant is preserved
         if (value is Enum e)
             return Convert.ToInt32(e).ToString();
         if (value is int or long or short or byte or sbyte or ushort or uint or ulong)

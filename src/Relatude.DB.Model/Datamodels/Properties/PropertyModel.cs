@@ -19,6 +19,7 @@ public abstract class PropertyModel {
     public Guid Id { get; set; }
     public Guid NodeType { get; set; }
     public bool Indexed { get; set; }
+    public bool NotFacet { get; set; } // opt-out: an indexed property is facetable unless set (relations opt IN via RelationPropertyModel.Facet instead)
     public bool CultureSensitive { get; set; }
     public IndexStorageType IndexType { get; set; }
     public bool DisplayName { get; set; }

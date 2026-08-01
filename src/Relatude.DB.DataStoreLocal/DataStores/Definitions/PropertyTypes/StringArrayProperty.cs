@@ -29,7 +29,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         foreach (var v in values) if (index.ContainsValue(v)) return true;
         return false;
     }
-    public override bool CanBeFacet() => Indexed;
+    public override bool CanBeFacet() => Indexed && !Model.NotFacet;
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var index = GetIndex(ctx);
         if (index == null) throw new NullReferenceException("Index is null. ");

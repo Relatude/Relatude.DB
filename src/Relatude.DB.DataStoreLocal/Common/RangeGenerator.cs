@@ -7,6 +7,7 @@ public static class RangeGenerators {
     public static RangeGenerator<double> Doubles = new();
     public static RangeGenerator<byte> Bytes = new();
     public static RangeGenerator<DateTime> DateTimes = new();
+    public static RangeGenerator<DateTimeOffset> DateTimeOffsets = new();
     public static RangeGenerator<TimeSpan> TimeSpans = new();
     public static RangeGenerator<T>? TryGet<T>() where T : notnull { // null for types that cannot be range-bucketed
         if (typeof(T) == typeof(decimal)) return (RangeGenerator<T>)(object)Decimals;
@@ -16,6 +17,7 @@ public static class RangeGenerators {
         if (typeof(T) == typeof(double)) return (RangeGenerator<T>)(object)Doubles;
         if (typeof(T) == typeof(byte)) return (RangeGenerator<T>)(object)Bytes;
         if (typeof(T) == typeof(DateTime)) return (RangeGenerator<T>)(object)DateTimes;
+        if (typeof(T) == typeof(DateTimeOffset)) return (RangeGenerator<T>)(object)DateTimeOffsets;
         if (typeof(T) == typeof(TimeSpan)) return (RangeGenerator<T>)(object)TimeSpans;
         return null;
     }
@@ -30,7 +32,9 @@ public static class RangeGenerators {
 // the given minimum and the last Item2 at or above the given maximum, so half-open buckets built from
 // the boundaries cover every value with no gaps.
 public class RangeGenerator<T> where T : notnull { // only the types listed in RangeGenerators are supported (convertToT/convertToDecimal)
-    static readonly bool _isDateTime = typeof(T) == typeof(DateTime);
+    // DateTimeOffset shares the DateTime calendar logic: values are bucketed on their UTC ticks, so
+    // boundaries are calendar-aligned in UTC and generated as offsets with a zero (UTC) offset
+    static readonly bool _isDateTime = typeof(T) == typeof(DateTime) || typeof(T) == typeof(DateTimeOffset);
     static readonly bool _isTimeSpan = typeof(T) == typeof(TimeSpan);
     static readonly bool _isIntegral = typeof(T) == typeof(byte) || typeof(T) == typeof(int) || typeof(T) == typeof(long);
     T convertToT(decimal n) {
@@ -62,6 +66,11 @@ public class RangeGenerator<T> where T : notnull { // only the types listed in R
             if (n < DateTime.MinValue.Ticks) return (T)(object)DateTime.MinValue;
             return (T)(object)new DateTime((long)n);
         }
+        if (typeof(T) == typeof(DateTimeOffset)) {
+            if (n > DateTime.MaxValue.Ticks) return (T)(object)DateTimeOffset.MaxValue;
+            if (n < DateTime.MinValue.Ticks) return (T)(object)DateTimeOffset.MinValue;
+            return (T)(object)new DateTimeOffset((long)n, TimeSpan.Zero);
+        }
         if (typeof(T) == typeof(TimeSpan)) {
             if (n > TimeSpan.MaxValue.Ticks) return (T)(object)TimeSpan.MaxValue;
             if (n < TimeSpan.MinValue.Ticks) return (T)(object)TimeSpan.MinValue;
@@ -71,6 +80,7 @@ public class RangeGenerator<T> where T : notnull { // only the types listed in R
     }
     static decimal convertToDecimal(T value) {
         if (typeof(T) == typeof(DateTime)) return ((DateTime)(object)value!).Ticks;
+        if (typeof(T) == typeof(DateTimeOffset)) return ((DateTimeOffset)(object)value!).UtcTicks;
         if (typeof(T) == typeof(TimeSpan)) return ((TimeSpan)(object)value!).Ticks;
         if (typeof(T) == typeof(double) || typeof(T) == typeof(float)) { // may exceed the decimal range
             var d = Convert.ToDouble(value);

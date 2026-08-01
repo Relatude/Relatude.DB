@@ -42,10 +42,11 @@ namespace Relatude.DB.DataStores.Definitions {
         public bool ContainsValue(object value, QueryContext ctx) {
             return GetValueIndex(ctx).ContainsValue((T)value);
         }
-        public override bool CanBeFacet() => Indexed;
+        public override bool CanBeFacet() => Indexed && !Model.NotFacet;
         static readonly RangeGenerator<T>? _rangeGenerator = RangeGenerators.TryGet<T>();
         const int _autoRangeMinUniqueValues = 25; // scalar facets with more distinct values than this are bucketed into ranges unless value facets were explicitly requested
-        T coerce(object v) => PropertyModel.ForceValueAnyType<T>(v, Model.PropertyType, out _);
+        protected virtual bool AutoRangeBuckets => true; // false suppresses the automatic value->range switch (ranges can still be requested explicitly)
+        protected virtual T coerce(object v) => PropertyModel.ForceValueAnyType<T>(v, Model.PropertyType, out _);
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             var index = GetValueIndex(ctx);
             List<T> values = new();
@@ -97,6 +98,7 @@ namespace Relatude.DB.DataStores.Definitions {
         bool useRangeBuckets(Facets? given, IValueIndex<T> index) {
             if (_rangeGenerator == null || index.ValueCount < 2) return false;
             if (given?.IsRangeFacet != null) return given.IsRangeFacet.Value; // AddRangeFacet/AddValueFacet made the choice explicit
+            if (!AutoRangeBuckets) return false;
             if (Model is IScalarProperty sp && sp.FacetRangeCount > 0) return true;
             return index.ValueCount > _autoRangeMinUniqueValues;
         }

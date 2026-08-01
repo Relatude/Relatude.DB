@@ -52,7 +52,7 @@ internal class EnumArrayProperty : Property, IPropertyContainsValue {
         return false;
     }
     string displayNameOfValue(int value) => _nameByValue.TryGetValue(value, out var name) ? name : value.ToString();
-    public override bool CanBeFacet() => Indexed;
+    public override bool CanBeFacet() => Indexed && !Model.NotFacet;
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var index = GetIndex(ctx);
         if (index == null) throw new NullReferenceException("Index is null. ");
