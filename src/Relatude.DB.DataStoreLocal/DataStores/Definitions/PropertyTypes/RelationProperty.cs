@@ -39,6 +39,16 @@ internal class RelationProperty : Property {
     Relation relation => Definition.Relations[RelModel.RelationId];
 
     public override bool CanBeFacet() => RelModel.Facet;
+    public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
+        var rel = relation;
+        var dir = !RelModel.FromTargetToSource;
+        long total = 0; // selected buckets combine with OR: sum of the cached relation set sizes (unresolvable selections match nothing)
+        foreach (var fv in facets.Values) {
+            if (!fv.Selected || fv.Value == null) continue;
+            if (tryCoerceToNodeId(fv.Value, out var bucketId)) total += rel.GetRelated(bucketId, dir).Count;
+        }
+        return total;
+    }
 
     // selections must never match the wrong bucket: unresolvable input yields no match
     bool tryCoerceToNodeId(object value, out int id) {

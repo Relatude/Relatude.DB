@@ -12,17 +12,27 @@ namespace Relatude.DB.Query.Data {
             var result = new Dictionary<Guid, Facets>();
             var innerSet = ids;
             var specialSetsForSelectedFacets = new Dictionary<Guid, IdSet>();
-            var propsWithSelection = new Dictionary<Guid, Property>();
+            var propsWithSelection = new List<Property>();
             foreach (var prop in relevantProps) {
                 var facets = prop.GetDefaultFacets(givenById.TryGetValue(prop.Id, out var g) ? g : null, ctx);
                 facets.Sort();
                 result.Add(prop.Id, facets);
                 if (selection.TryGetValue(prop.Id, out var selected))
                     facets.SetSelected(selected.HasValues() ? selected.Values : null);
-                if (facets.HasSelected()) {
-                    innerSet = prop.FilterFacets(facets, innerSet, ctx);
-                    propsWithSelection.Add(prop.Id, prop);
-                }
+                if (facets.HasSelected()) propsWithSelection.Add(prop);
+            }
+            // most selective selection first (cheap worst-case estimates, same idea as
+            // AndNativeExpression): every later FilterFacets then runs against the smallest
+            // possible set, and the sideways chains below walk the same order so they share the
+            // longest possible prefixes in the set operation cache. OrderBy is stable, so
+            // properties without a cheap estimate keep their relative order at the end.
+            if (propsWithSelection.Count > 1) {
+                var estimates = propsWithSelection.ToDictionary(p => p.Id, p => p.EstimateFilterFacetsMaxCount(result[p.Id], ids, ctx));
+                propsWithSelection = propsWithSelection.OrderBy(p => estimates[p.Id]).ToList();
+            }
+            foreach (var prop in propsWithSelection) {
+                if (innerSet.Count == 0) break; // empty stays empty: skip the remaining filters
+                innerSet = prop.FilterFacets(result[prop.Id], innerSet, ctx);
             }
             // drill-sideways sets and per-property counting are independent of each other, so on
             // large sources they run on all cores. Safe because everything they touch is either
@@ -33,13 +43,14 @@ namespace Relatude.DB.Query.Data {
             var parallel = ids.Count >= 262_144;
             IdSet sidewaysSet(Property prop) { // all OTHER selections applied, so the facet's own alternatives stay visible
                 var specialSet = ids;
-                foreach (var otherProp in propsWithSelection.Values) {
+                foreach (var otherProp in propsWithSelection) {
                     if (otherProp.Id == prop.Id) continue;
+                    if (specialSet.Count == 0) break; // empty stays empty: skip the remaining filters
                     specialSet = otherProp.FilterFacets(result[otherProp.Id], specialSet, ctx);
                 }
                 return specialSet;
             }
-            var selectedProps = propsWithSelection.Values.ToList();
+            var selectedProps = propsWithSelection;
             if (parallel && selectedProps.Count > 1) {
                 var sets = new IdSet[selectedProps.Count];
                 Parallel.For(0, selectedProps.Count, i => sets[i] = sidewaysSet(selectedProps[i]));

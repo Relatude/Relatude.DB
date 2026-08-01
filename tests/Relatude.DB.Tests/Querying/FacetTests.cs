@@ -824,6 +824,54 @@ public class FacetTests {
     }
 
     [TestMethod]
+    public void MultiSelection_ResultIsIndependentOfSelectionOrder() {
+        // selection filters are internally reordered by estimated effect (most selective first);
+        // that must never change the result, whatever order the facets were added in
+        var store = OpenProductStore(out var all, out var brands);
+        var brandId = brands[0].Id;
+        var res1 = store.Query<Product>().Facets()
+            .AddValueFacet("Category").AddValueFacet("Active").AddValueFacet("Brand")
+            .SetFacetValue("Category", "Toys").SetFacetValue("Active", true).SetFacetValue("Brand", brandId)
+            .Execute();
+        var res2 = store.Query<Product>().Facets()
+            .AddValueFacet("Brand").AddValueFacet("Active").AddValueFacet("Category")
+            .SetFacetValue("Brand", brandId).SetFacetValue("Active", true).SetFacetValue("Category", "Toys")
+            .Execute();
+        var expected = all.Count(p => p.Category == "Toys" && p.Active && p.Brand.Id == brandId);
+        Assert.AreEqual(expected, res1.Count());
+        Assert.AreEqual(expected, res2.Count());
+        foreach (var res in new[] { res1, res2 }) {
+            // drill-sideways: a selected facet's counts ignore its own selection but respect the others
+            var catFacet = FacetOf(res, "Category");
+            Assert.AreEqual(all.Count(p => p.Category == "Games" && p.Active && p.Brand.Id == brandId),
+                catFacet.Values.First(v => Equals(v.Value, "Games")).Count);
+            Assert.AreEqual(all.Count(p => p.Category == "Toys" && p.Active && p.Brand.Id == brandId),
+                catFacet.Values.First(v => Equals(v.Value, "Toys")).Count);
+        }
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void MultiSelection_EmptyMatch_ShortCircuitsAndKeepsSidewaysCounts() {
+        // a selection matching nothing empties the running set early (remaining filters are
+        // skipped); the drill-sideways counts of the other facets must still be correct
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets()
+            .AddValueFacet("Category").AddValueFacet("Active")
+            .SetFacetValue("Category", "NoSuchCategory").SetFacetValue("Active", true)
+            .Execute();
+        Assert.AreEqual(0, res.Count());
+        // Active counts against the (empty) category selection...
+        var activeFacet = FacetOf(res, "Active");
+        Assert.AreEqual(0, activeFacet.Values.First(v => Equals(v.Value, true)).Count);
+        // ...while Category counts ignore their own selection and see only Active = true:
+        var catFacet = FacetOf(res, "Category");
+        Assert.AreEqual(all.Count(p => p.Category == "Toys" && p.Active),
+            catFacet.Values.First(v => Equals(v.Value, "Toys")).Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
     public async Task ExecuteAsync_MatchesExecute() {
         var store = OpenProductStore(out var all, out _);
         var res = await store.Query<Product>().Facets()
