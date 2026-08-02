@@ -60,7 +60,7 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             return true;
         } else if (exp is RangeExpression rangeEx) {
             if (nodeType.AllPropertiesByName.TryGetValue(rangeEx.PropertyName, out var prop)) {
-                if (prop is DateTimeProperty dt) return dt.Indexed;
+                if (prop is DateTimeProperty or DateTimeOffsetProperty) return prop.Indexed;
             }
             return false;
         } else if (exp is NotPrefixExpression notPrefix) {

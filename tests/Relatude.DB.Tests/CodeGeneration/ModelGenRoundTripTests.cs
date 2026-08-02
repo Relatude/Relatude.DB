@@ -52,24 +52,24 @@ namespace Relatude.RoundTripModels {
         [AddressProperty]
         public string Url { get; set; } = "";
 
-        [BooleanProperty(Indexed = true, DefaultValue = true)]
+        [BooleanProperty(Indexed = true, DefaultValue = true, NotFacet = true)]
         public bool Flag { get; set; }
         [IntegerProperty(Indexed = true, DefaultValue = 7, MinValue = -5, MaxValue = 5000, UniqueValues = true, FacetRangePowerBase = 2.5, FacetRangeCount = 6)]
         public int Number { get; set; }
         public RtColor Color { get; set; }
-        [LongProperty(DefaultValue = 123456789012345, MinValue = -10, MaxValue = 9000000000000000000)]
+        [LongProperty(DefaultValue = 123456789012345, MinValue = -10, MaxValue = 9000000000000000000, FacetRangePowerBase = 1.5, FacetRangeCount = 5)]
         public long BigNumber { get; set; }
-        [DoubleProperty(Indexed = true, DefaultValue = 2.5)]
+        [DoubleProperty(Indexed = true, DefaultValue = 2.5, FacetRangeCount = 8, NotFacet = true)]
         public double Ratio { get; set; }
-        [FloatProperty(DefaultValue = 1.5f, MinValue = -100f, MaxValue = 100f)]
+        [FloatProperty(DefaultValue = 1.5f, MinValue = -100f, MaxValue = 100f, FacetRangePowerBase = 3)]
         public float Weight { get; set; }
-        [DecimalProperty(DefaultValue = "1.25", MinValue = "-10.5", MaxValue = "99999.75", UniqueValues = true)]
+        [DecimalProperty(DefaultValue = "1.25", MinValue = "-10.5", MaxValue = "99999.75", UniqueValues = true, FacetRangeCount = 4)]
         public decimal Price { get; set; }
-        [DateTimeProperty(Indexed = true, DefaultValue = "2024-01-02T03:04:05.0000000Z")]
+        [DateTimeProperty(Indexed = true, DefaultValue = "2024-01-02T03:04:05.0000000Z", FacetRangeCount = 12)]
         public DateTime SomeDate { get; set; }
-        [DateTimeOffsetProperty(DefaultValue = "2024-01-02T03:04:05.0000000+02:00")]
+        [DateTimeOffsetProperty(DefaultValue = "2024-01-02T03:04:05.0000000+02:00", NotFacet = true, FacetRangeCount = 9)]
         public DateTimeOffset SomeOffset { get; set; }
-        [TimeSpanProperty(DefaultValue = "01:02:03")]
+        [TimeSpanProperty(DefaultValue = "01:02:03", FacetRangePowerBase = 2)]
         public TimeSpan Duration { get; set; }
         [GuidProperty(Indexed = true, DefaultValue = "eeeeeeee-1111-2222-3333-444444444444", UniqueValues = true)]
         public Guid ExternalId { get; set; }
@@ -77,15 +77,15 @@ namespace Relatude.RoundTripModels {
             MinLength = 1, MaxLength = 500, PrefixSearch = true, InfixSearch = true, IgnoreDuplicateEmptyValues = true,
             DefaultValue = "say \"hi\" in C:\\temp\\", TextIndexBoost = 3)] // hostile default: quotes and backslashes must be escaped in generated code
         public string Description { get; set; } = "";
-        [StringProperty(ExcludeFromTextIndex = true, DisplayName = true)]
+        [StringProperty(ExcludeFromTextIndex = true, DisplayName = true, NotFacet = true)]
         public string Label { get; set; } = "";
         [StringProperty(ReadAccess = "99999999-1111-2222-3333-444444444444", WriteAccess = "88888888-1111-2222-3333-444444444444")]
         public string Restricted { get; set; } = "";
-        [StringArrayProperty(Indexed = true, UniqueValues = true)]
+        [StringArrayProperty(Indexed = true, UniqueValues = true, NotFacet = true)]
         public string[] Tags { get; set; } = [];
-        [GuidArrayProperty(Indexed = true)]
+        [GuidArrayProperty(Indexed = true, NotFacet = true)]
         public Guid[] RelatedIds { get; set; } = [];
-        [EnumArrayProperty(Indexed = true)]
+        [EnumArrayProperty(Indexed = true, NotFacet = true)]
         public RtColor[] Colors { get; set; } = [];
         [ByteArrayProperty]
         public byte[] Blob { get; set; } = [];
@@ -138,9 +138,9 @@ namespace Relatude.RoundTripModels {
         [RelationProperty<RtDocsRel>(Facet = true, TextIndexRelatedContent = true, TextIndexRelatedDisplayName = true, TextIndexRecursiveLevelLimit = 2)]
         public List<RtDoc>? Docs { get; set; }                         // non-native relation property
 
-        [ReferenceProperty(Indexed = true)]
+        [ReferenceProperty(Indexed = true, NotFacet = true)]
         public Reference<RtCar> FavoriteCar { get; set; } = new();     // Reference, wrapper
-        [ReferencesProperty(Indexed = true, UniqueValues = true)]
+        [ReferencesProperty(Indexed = true, UniqueValues = true, NotFacet = true)]
         public References<RtCar> PastCars { get; set; } = new();       // References, wrapper
         public RtBoat? DreamBoat { get; set; }                         // Reference, Object shape
         [ReferenceProperty(TypeIds = new string[] { RtIds.CarNodeId }, IncludeTypes = IncludeTypeOptions.ThisTypeOnly)]

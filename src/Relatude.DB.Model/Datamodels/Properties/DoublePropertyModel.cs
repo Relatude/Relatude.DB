@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
-public class DoublePropertyModel : PropertyModel {
+public class DoublePropertyModel : PropertyModel, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Double; }
     public double DefaultValue { get; set; }
     public double MinValue { get; set; } = double.MinValue;
     public double MaxValue { get; set; } = double.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static double ForceValueType(object? value, out bool changed) {
         if (value is double d) {

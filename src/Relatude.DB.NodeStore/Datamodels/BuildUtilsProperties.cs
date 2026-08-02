@@ -83,6 +83,7 @@ internal static class BuildUtilsProperties {
                 psc.FacetRangeCount = asc.FacetRangeCount;
             }
         }
+        if (a is IAttrWithNotFacet anf) p.NotFacet = anf.NotFacet;
         if (a is IAttrWithUniqueContraints au) {
             if (p is IPropertyModelUniqueContraints pu) {
                 pu.UniqueValues = au.UniqueValues;
@@ -177,6 +178,7 @@ internal static class BuildUtilsProperties {
         if (valueType.IsEnum && attr is IntegerPropertyAttribute ipa) {
             ipa.IsEnum = true;
             ipa.LegalValues = valueType.GetEnumValues().Cast<int>().ToArray();
+            ipa.LegalValueNames = valueType.GetEnumNames(); // same order as GetEnumValues (sorted by value)
             ipa.FullEnumTypeName = valueType.FullName;
         }
         if (isEnumArray(valueType) && attr is EnumArrayPropertyAttribute eaa) {
@@ -225,6 +227,7 @@ internal static class BuildUtilsProperties {
         p.MinValue = a.MinValue;
         p.IsEnum = a.IsEnum;
         p.LegalValues = a.LegalValues;
+        p.LegalValueNames = a.LegalValueNames;
         p.FullEnumTypeName = a.FullEnumTypeName;
         return p;
     }

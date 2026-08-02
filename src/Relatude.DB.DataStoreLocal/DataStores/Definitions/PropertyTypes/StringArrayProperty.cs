@@ -29,7 +29,16 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         foreach (var v in values) if (index.ContainsValue(v)) return true;
         return false;
     }
-    public override bool CanBeFacet() => Indexed;
+    public override bool CanBeFacet() => Indexed && !Model.NotFacet;
+    public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
+        var index = GetIndex(ctx);
+        long total = 0; // selected values combine with OR: sum of the maintained per-value counts
+        foreach (var fv in facets.Values) {
+            if (!fv.Selected || fv.Value == null) continue;
+            total += index.MaxCount(IndexOperator.Equal, StringPropertyModel.ForceValueType(fv.Value, out _));
+        }
+        return total;
+    }
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var index = GetIndex(ctx);
         if (index == null) throw new NullReferenceException("Index is null. ");

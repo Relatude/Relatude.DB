@@ -37,7 +37,16 @@ internal class GuidArrayProperty : Property, IPropertyContainsValue {
         guid = Guid.Empty;
         return false;
     }
-    public override bool CanBeFacet() => Indexed;
+    public override bool CanBeFacet() => Indexed && !Model.NotFacet;
+    public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
+        var index = GetIndex(ctx);
+        long total = 0; // selected values combine with OR: sum of the maintained per-value counts (unresolvable selections match nothing)
+        foreach (var fv in facets.Values) {
+            if (!fv.Selected || fv.Value == null) continue;
+            if (tryCoerceToGuid(fv.Value, out var v)) total += index.MaxCount(IndexOperator.Equal, v);
+        }
+        return total;
+    }
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var index = GetIndex(ctx);
         if (index == null) throw new NullReferenceException("Index is null. ");

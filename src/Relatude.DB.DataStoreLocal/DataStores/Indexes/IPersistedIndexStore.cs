@@ -38,6 +38,7 @@ public interface IPersistedIndexStore : IDisposable {
     long GetTimestamp();
     long GetTotalDiskSpace();
     void OptimizeDisk();
-    void UpdatePersistedCaches();
+    void SaveIndexCaches(bool force);
     void ResetAll();
+    void ResetIndexCaches();
 }

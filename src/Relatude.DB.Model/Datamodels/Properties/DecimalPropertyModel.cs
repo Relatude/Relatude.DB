@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
-public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
+public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Decimal; }
     public decimal DefaultValue { get; set; }
-    public decimal MinValue { get; set; } = int.MinValue;
-    public decimal MaxValue { get; set; } = int.MaxValue;
+    public decimal MinValue { get; set; } = decimal.MinValue;
+    public decimal MaxValue { get; set; } = decimal.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static decimal ForceValueType(object? value, out bool changed) {
         if (value is decimal v) {

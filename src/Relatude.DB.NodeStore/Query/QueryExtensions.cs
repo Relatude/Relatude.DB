@@ -16,4 +16,7 @@ public static class QueryExtensions {
     public static bool InRange(this DateTime obj, DateTime from, DateTime to) {
         throw new NotImplementedException("Only for building query expressions. ");
     }
+    public static bool InRange(this DateTimeOffset obj, DateTimeOffset from, DateTimeOffset to) {
+        throw new NotImplementedException("Only for building query expressions. ");
+    }
 }

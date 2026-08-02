@@ -206,7 +206,7 @@ internal sealed class SchemaBuilder {
             case PropertyType.Integer: {
                     var ip = (IntegerPropertyModel)p;
                     if (ip.IsEnum) {
-                        var et = getEnumType(ip.FullEnumTypeName, null, ip.LegalValues);
+                        var et = getEnumType(ip.FullEnumTypeName, ip.LegalValueNames, ip.LegalValues);
                         if (et != null) return new GqlField { Name = claimFieldName(p, used), Type = nn(et), Source = FieldSource.EnumProperty, Property = p };
                     }
                     return new GqlField { Name = claimFieldName(p, used), Type = nn(_scalars.Int), Source = FieldSource.ScalarProperty, Property = p };
@@ -410,7 +410,7 @@ internal sealed class SchemaBuilder {
             case PropertyType.Integer: {
                     var ip = (IntegerPropertyModel)p;
                     if (ip.IsEnum) {
-                        var et = getEnumType(ip.FullEnumTypeName, null, ip.LegalValues);
+                        var et = getEnumType(ip.FullEnumTypeName, ip.LegalValueNames, ip.LegalValues);
                         if (et != null) return enumOperatorInput(et);
                     }
                     return sharedOperatorInput("IntFilterInput", _scalars.Int, ordered: true, withIn: true);

@@ -165,7 +165,11 @@ public class WordIndexLucene : PersistedIndexBase, IPersistentWordIndex {
     public void Open() {
         _directory = FSDirectory.Open(_path);
         _analyzer = new StandardAnalyzer(_version);
-        _writer = new IndexWriter(_directory, new(_version, _analyzer));
+        try {
+            _writer = new IndexWriter(_directory, new(_version, _analyzer));
+        } catch (Exception err){ 
+            throw new Exception("Failed to open Lucene index writer for path: " + _path, err);
+        }
     }
     public void Dispose() {
         _writer.Dispose();

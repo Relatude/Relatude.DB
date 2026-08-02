@@ -99,7 +99,8 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
         ensureLoaded();
         switch (op) {
             case IndexOperator.Equal:
-                return 1;
+                // real per-value count: the in-memory mirror maintains the id set per unique element, so this is O(1)
+                return _nodeIdByValue.TryGetValueIdSet(value, out var ids) ? ids.Count : 0;
             case IndexOperator.NotEqual:
             case IndexOperator.Greater:
             case IndexOperator.Smaller:

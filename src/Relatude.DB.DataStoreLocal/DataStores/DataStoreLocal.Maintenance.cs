@@ -134,12 +134,22 @@ public sealed partial class DataStoreLocal : IDataStore {
             _noPrimitiveActionsSinceLastStateSnapshot = Settings.AutoSaveIndexStatesActionCountUpperLimit + 1;
         }
         PersistedIndexStore?.ResetAll();
+        PersistedIndexStore?.ResetIndexCaches();
     }
-    public void UpdatePersistedCaches() {
+    public void SaveIndexCaches(bool force) {
         _lock.EnterWriteLock();
         try {
             if (State == DataStoreState.Open)
-                PersistedIndexStore?.UpdatePersistedCaches();
+                PersistedIndexStore?.SaveIndexCaches(force);
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
+    public void ResetIndexCaches() {
+        _lock.EnterWriteLock();
+        try {
+            if (State == DataStoreState.Open)
+                PersistedIndexStore?.ResetIndexCaches();
         } finally {
             _lock.ExitWriteLock();
         }
@@ -176,9 +186,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _noTransactionsSinceClearCache = 0;
                 _noQueriesSinceClearCache = 0;
                 _noNodeGetsSinceClearCache = 0;
+                PersistedIndexStore?.ResetIndexCaches();
                 foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             }
+
             if (a.HasFlag(MaintenanceAction.PurgeCache)) {
                 _nodes.HalfCacheSize();
                 _sets.HalfCacheSize();
@@ -199,7 +211,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
         if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
-        if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) UpdatePersistedCaches();
+        if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) SaveIndexCaches(true);
     }
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);

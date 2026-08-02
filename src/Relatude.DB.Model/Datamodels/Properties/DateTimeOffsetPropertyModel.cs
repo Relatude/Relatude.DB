@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
-public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
+public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.DateTimeOffset; }
     public DateTimeOffset DefaultValue { get; set; }
     public DateTimeOffset MinValue { get; set; } = DateTimeOffset.MinValue;
     public DateTimeOffset MaxValue { get; set; } = DateTimeOffset.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static DateTimeOffset ForceValueType(object? value, out bool changed) {
         if (value is DateTimeOffset dt) {

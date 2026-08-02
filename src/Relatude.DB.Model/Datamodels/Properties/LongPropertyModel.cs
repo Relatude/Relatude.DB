@@ -1,12 +1,14 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
 
-public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
+public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Long; }
     public long DefaultValue { get; set; }
-    public long MinValue { get; set; } = int.MinValue;
-    public long MaxValue { get; set; } = int.MaxValue;
+    public long MinValue { get; set; } = long.MinValue;
+    public long MaxValue { get; set; } = long.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static long ForceValueType(object? value, out bool changed) {
         if (value is long l) {

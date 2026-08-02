@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties {
-    public class TimeSpanPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
+    public class TimeSpanPropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
         public override bool ExcludeFromTextIndex { get; set; } = true;
         public override PropertyType PropertyType { get => PropertyType.TimeSpan; }
         public TimeSpan DefaultValue { get; set; }
         public TimeSpan MinValue { get; set; } = TimeSpan.MinValue;
         public TimeSpan MaxValue { get; set; } = TimeSpan.MaxValue;
+        public double FacetRangePowerBase { get; set; }
+        public int FacetRangeCount { get; set; }
         public override object GetDefaultValue() => DefaultValue;
         public static TimeSpan ForceValueType(object? value, out bool changed) {
             if (value is TimeSpan t) {

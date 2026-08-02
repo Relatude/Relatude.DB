@@ -55,7 +55,8 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     public int MaxCount(IndexOperator op, T value) {
         switch (op) {
             case IndexOperator.Equal:
-                return 1;
+                // real per-value count: the id set per unique element is maintained, so this is O(1)
+                return _nodeIdByValue.TryGetValueIdSet(value, out var ids) ? ids.Count : 0;
             case IndexOperator.NotEqual:
             case IndexOperator.Greater:
             case IndexOperator.Smaller:

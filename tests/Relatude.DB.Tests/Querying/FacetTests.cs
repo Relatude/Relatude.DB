@@ -824,6 +824,54 @@ public class FacetTests {
     }
 
     [TestMethod]
+    public void MultiSelection_ResultIsIndependentOfSelectionOrder() {
+        // selection filters are internally reordered by estimated effect (most selective first);
+        // that must never change the result, whatever order the facets were added in
+        var store = OpenProductStore(out var all, out var brands);
+        var brandId = brands[0].Id;
+        var res1 = store.Query<Product>().Facets()
+            .AddValueFacet("Category").AddValueFacet("Active").AddValueFacet("Brand")
+            .SetFacetValue("Category", "Toys").SetFacetValue("Active", true).SetFacetValue("Brand", brandId)
+            .Execute();
+        var res2 = store.Query<Product>().Facets()
+            .AddValueFacet("Brand").AddValueFacet("Active").AddValueFacet("Category")
+            .SetFacetValue("Brand", brandId).SetFacetValue("Active", true).SetFacetValue("Category", "Toys")
+            .Execute();
+        var expected = all.Count(p => p.Category == "Toys" && p.Active && p.Brand.Id == brandId);
+        Assert.AreEqual(expected, res1.Count());
+        Assert.AreEqual(expected, res2.Count());
+        foreach (var res in new[] { res1, res2 }) {
+            // drill-sideways: a selected facet's counts ignore its own selection but respect the others
+            var catFacet = FacetOf(res, "Category");
+            Assert.AreEqual(all.Count(p => p.Category == "Games" && p.Active && p.Brand.Id == brandId),
+                catFacet.Values.First(v => Equals(v.Value, "Games")).Count);
+            Assert.AreEqual(all.Count(p => p.Category == "Toys" && p.Active && p.Brand.Id == brandId),
+                catFacet.Values.First(v => Equals(v.Value, "Toys")).Count);
+        }
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void MultiSelection_EmptyMatch_ShortCircuitsAndKeepsSidewaysCounts() {
+        // a selection matching nothing empties the running set early (remaining filters are
+        // skipped); the drill-sideways counts of the other facets must still be correct
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets()
+            .AddValueFacet("Category").AddValueFacet("Active")
+            .SetFacetValue("Category", "NoSuchCategory").SetFacetValue("Active", true)
+            .Execute();
+        Assert.AreEqual(0, res.Count());
+        // Active counts against the (empty) category selection...
+        var activeFacet = FacetOf(res, "Active");
+        Assert.AreEqual(0, activeFacet.Values.First(v => Equals(v.Value, true)).Count);
+        // ...while Category counts ignore their own selection and see only Active = true:
+        var catFacet = FacetOf(res, "Category");
+        Assert.AreEqual(all.Count(p => p.Category == "Toys" && p.Active),
+            catFacet.Values.First(v => Equals(v.Value, "Toys")).Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
     public async Task ExecuteAsync_MatchesExecute() {
         var store = OpenProductStore(out var all, out _);
         var res = await store.Query<Product>().Facets()
@@ -832,6 +880,138 @@ public class FacetTests {
             .ExecuteAsync();
         Assert.AreEqual(all.Count(p => p.Category == "Food"), res.Count());
         Assert.AreEqual(all.Count(p => p.Category == "Food"), FacetOf(res, "Category").Values.First(v => Equals(v.Value, "Food")).Count);
+        store.Dispose();
+    }
+}
+
+#region facet attribute settings test datamodel
+public enum GadgetKind { Basic = 1, Pro = 2, Max = 3 }
+[Node]
+public class Gadget {
+    [InternalIdProperty]
+    public int Id { get; set; }
+    [IntegerProperty(Indexed = true)]
+    public GadgetKind Kind { get; set; }
+    [DoubleProperty(Indexed = true, FacetRangeCount = 4)]
+    public double Score { get; set; }
+    [StringProperty(Indexed = true)]
+    public string Line { get; set; } = "";
+    [StringProperty(Indexed = true, NotFacet = true)]
+    public string Serial { get; set; } = "";
+}
+#endregion
+
+[TestClass]
+public class FacetAttributeSettingsTests {
+
+    static NodeStore OpenGadgetStore(out List<Gadget> all) {
+        var dm = new Datamodel();
+        dm.Add<Gadget>();
+        var store = new NodeStore(DataStoreLocal.Open(dm));
+        all = new List<Gadget>();
+        for (var i = 1; i <= 12; i++) {
+            all.Add(new Gadget {
+                Kind = (GadgetKind)(i % 3 + 1),
+                Score = i * 2.5, // distinct values, but fewer than the automatic range threshold
+                Line = "L" + i % 3,
+                Serial = "SN" + i,
+            });
+        }
+        store.Insert(all);
+        return store;
+    }
+
+    static Facets FacetOf<T>(ResultSetFacets<T> res, string codeName)
+        => res.Facets.First(f => f.CodeName == codeName);
+
+    [TestMethod]
+    public void NotFacet_ExcludesIndexedPropertyFromFaceting() {
+        var store = OpenGadgetStore(out _);
+        var res = store.Query<Gadget>().Facets().Execute(); // no adds: every facet-capable property
+        Assert.IsTrue(res.Facets.Any(f => f.CodeName == "Line"), "An indexed property must facet by default");
+        Assert.IsFalse(res.Facets.Any(f => f.CodeName == "Serial"), "NotFacet must exclude the property from default facets");
+        var explicitRes = store.Query<Gadget>().Facets().AddValueFacet("Serial").AddValueFacet("Line").Execute();
+        Assert.IsTrue(explicitRes.Facets.Any(f => f.CodeName == "Line"));
+        Assert.IsFalse(explicitRes.Facets.Any(f => f.CodeName == "Serial"), "NotFacet must drop explicit facet requests too");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void FacetRangeCount_OnDoubleAttribute_DrivesDefaultRangeBuckets() {
+        var store = OpenGadgetStore(out var all);
+        // 12 distinct values would give value buckets by default; FacetRangeCount = 4 must force ranges:
+        var facet = FacetOf(store.Query<Gadget>().Facets().AddFacet("Score").Execute(), "Score");
+        Assert.IsTrue(facet.IsRangeFacet == true, "FacetRangeCount on the attribute must switch the default to range buckets");
+        Assert.IsTrue(facet.Values.Count is >= 2 and <= 5, "Bucket count must follow the attribute (4, soft cap), got " + facet.Values.Count);
+        Assert.AreEqual(all.Count, facet.Values.Sum(v => v.Count), "Contiguous buckets must cover every value");
+        // an explicit value facet still overrides the model setting:
+        var valueFacet = FacetOf(store.Query<Gadget>().Facets().AddValueFacet("Score").Execute(), "Score");
+        Assert.IsFalse(valueFacet.IsRangeFacet == true);
+        Assert.AreEqual(all.Select(g => g.Score).Distinct().Count(), valueFacet.Values.Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void ScalarEnumFacet_ShowsEnumNames_AndResolvesNameSelections() {
+        var store = OpenGadgetStore(out var all);
+        var facet = FacetOf(store.Query<Gadget>().Facets().AddValueFacet("Kind").Execute(), "Kind");
+        foreach (var (value, name) in new[] { (1, "Basic"), (2, "Pro"), (3, "Max") }) {
+            var fv = facet.Values.FirstOrDefault(v => Equals(v.Value, value));
+            Assert.IsNotNull(fv, "Missing bucket for " + name);
+            Assert.AreEqual(name, fv.DisplayName, "Scalar enum buckets must show the enum name, like enum arrays");
+            Assert.AreEqual(all.Count(g => (int)g.Kind == value), fv.Count);
+        }
+        // selection with a typed enum value:
+        var sel = store.Query<Gadget>().Facets().AddValueFacet("Kind").SetFacetValue("Kind", GadgetKind.Pro).Execute();
+        Assert.AreEqual(all.Count(g => g.Kind == GadgetKind.Pro), sel.Count());
+        Assert.IsTrue(sel.All(g => g.Kind == GadgetKind.Pro));
+        // selection with the enum NAME string (as a facet UI would send it):
+        var selByName = store.Query<Gadget>().Facets().AddValueFacet("Kind").SetFacetValue("Kind", "Pro").Execute();
+        Assert.AreEqual(all.Count(g => g.Kind == GadgetKind.Pro), selByName.Count());
+        Assert.IsTrue(selByName.All(g => g.Kind == GadgetKind.Pro));
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void DateTimeRangeFacet_DefaultsToLinearCalendarBuckets() {
+        // dates default to RangePowerBase = 1: uniform calendar steps, not the general 1.8 power
+        // curve (which anchors at the minimum and would give the OLDEST dates the finest buckets)
+        var dm = new Datamodel();
+        dm.Add<Product>();
+        dm.Add<Brand>();
+        var store = new NodeStore(DataStoreLocal.Open(dm));
+        var all = new List<Product>();
+        for (var i = 1; i <= 70; i++) all.Add(new Product { Released = new DateTime(2020, 1, 1).AddDays(i * 11) });
+        store.Insert(all);
+        var facet = FacetOf(store.Query<Product>().Facets().AddRangeFacet("Released").Execute(), "Released");
+        Assert.IsTrue(facet.IsRangeFacet == true);
+        Assert.AreEqual(all.Count, facet.Values.Sum(v => v.Count));
+        // interior boundaries (every bucket start except the first, which is the real minimum)
+        // must be aligned calendar steps with one uniform stride:
+        var bounds = facet.Values.Skip(1).Select(v => (DateTime)v.Value!).ToList();
+        Assert.IsTrue(bounds.Count > 1, "Expected several range buckets, got " + facet.Values.Count);
+        Assert.IsTrue(bounds.All(b => b.Day == 1 && b.TimeOfDay == TimeSpan.Zero), "Interior boundaries must be aligned month starts");
+        var monthIndex = bounds.Select(b => b.Year * 12 + b.Month).ToList();
+        var step = monthIndex[1] - monthIndex[0];
+        for (var i = 1; i < monthIndex.Count; i++) Assert.AreEqual(step, monthIndex[i] - monthIndex[i - 1], "Bucket strides must be uniform");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void ScalarEnumFacet_ManyDistinctValues_StaysValueBuckets() {
+        // 30 distinct underlying values exceed the automatic range threshold; enums must still
+        // facet as one bucket per value (like enum arrays), never as int ranges
+        var dm = new Datamodel();
+        dm.Add<Gadget>();
+        var store = new NodeStore(DataStoreLocal.Open(dm));
+        var all = new List<Gadget>();
+        for (var i = 1; i <= 30; i++) all.Add(new Gadget { Kind = (GadgetKind)i, Score = i, Line = "L", Serial = "SN" + i });
+        store.Insert(all);
+        var facet = FacetOf(store.Query<Gadget>().Facets().AddFacet("Kind").Execute(), "Kind");
+        Assert.IsFalse(facet.IsRangeFacet == true, "Enum facets must never switch to range buckets automatically");
+        Assert.AreEqual(30, facet.Values.Count);
+        Assert.AreEqual("Pro", facet.Values.First(v => Equals(v.Value, 2)).DisplayName); // defined values show their name...
+        Assert.IsNull(facet.Values.First(v => Equals(v.Value, 7)).ExplicitDisplayName); // ...undefined values keep the generated fallback
         store.Dispose();
     }
 }

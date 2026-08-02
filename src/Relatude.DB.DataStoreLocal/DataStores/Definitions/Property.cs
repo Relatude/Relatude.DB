@@ -42,10 +42,25 @@ namespace Relatude.DB.DataStores.Definitions {
         public bool ContainsValue(object value, QueryContext ctx) {
             return GetValueIndex(ctx).ContainsValue((T)value);
         }
-        public override bool CanBeFacet() => Indexed;
+        public override bool CanBeFacet() => Indexed && !Model.NotFacet;
+        // selected buckets combine with OR, so the estimate is the sum of whole-index bucket
+        // counts (maintained counts / O(log n) tree probes, never id enumeration - see
+        // IValueIndex.CountEqual(value)/CountInRange)
+        public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
+            if (!TryValueGetIndex(ctx, out var index)) return long.MaxValue;
+            long total = 0;
+            foreach (var fv in facets.Values) {
+                if (!fv.Selected) continue;
+                if (fv.Value == null) total += Math.Max(0, source.Count - index.IdCount); // the missing-value bucket
+                else if (fv.Value2 == null) total += index.CountEqual(coerce(fv.Value));
+                else total += index.CountInRange(coerce(fv.Value), coerce(fv.Value2), fv.FromInclusive, fv.ToInclusive);
+            }
+            return total;
+        }
         static readonly RangeGenerator<T>? _rangeGenerator = RangeGenerators.TryGet<T>();
         const int _autoRangeMinUniqueValues = 25; // scalar facets with more distinct values than this are bucketed into ranges unless value facets were explicitly requested
-        T coerce(object v) => PropertyModel.ForceValueAnyType<T>(v, Model.PropertyType, out _);
+        protected virtual bool AutoRangeBuckets => true; // false suppresses the automatic value->range switch (ranges can still be requested explicitly)
+        protected virtual T coerce(object v) => PropertyModel.ForceValueAnyType<T>(v, Model.PropertyType, out _);
         public override IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) {
             var index = GetValueIndex(ctx);
             List<T> values = new();
@@ -97,6 +112,7 @@ namespace Relatude.DB.DataStores.Definitions {
         bool useRangeBuckets(Facets? given, IValueIndex<T> index) {
             if (_rangeGenerator == null || index.ValueCount < 2) return false;
             if (given?.IsRangeFacet != null) return given.IsRangeFacet.Value; // AddRangeFacet/AddValueFacet made the choice explicit
+            if (!AutoRangeBuckets) return false;
             if (Model is IScalarProperty sp && sp.FacetRangeCount > 0) return true;
             return index.ValueCount > _autoRangeMinUniqueValues;
         }
@@ -331,6 +347,11 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract void ValidateValue(object value, INodeData node);
         public abstract object ForceValueType(object value, out bool changed);
         public virtual bool CanBeFacet() => false;
+        // Cheap worst-case estimate of how many ids FilterFacets can return for the current
+        // selection, used to run the most selective selection filters first. Same contract as
+        // IBooleanNativeExpression.MaxCount: must be fast and is only an estimation.
+        // long.MaxValue = no cheap estimate available; such properties filter last.
+        public virtual long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) => long.MaxValue;
         public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) => throw new NotSupportedException();
         // true when every id this property's index can contain is of the query type or one of its
         // descendants (the property's declaring type lies within the query type's subtree), so a

@@ -1,4 +1,35 @@
 
+
+DBA UI:
+Overview:
+
+Notification area: Show reason or error message from database from startup, if any
+
+Add interval selection for all statistics:
+Upper right selection: 1m/15m/1h/24h/7d
+
+NODES
+	No nodes and relations
+	Background no nodes last 15m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Rules for Meta data
 
 Default QueryContext filter:

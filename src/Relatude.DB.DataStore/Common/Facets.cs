@@ -16,6 +16,11 @@ public class Facets {
         CodeName = propery.CodeName;
         IsRangeFacet = rangeFacet;
 
+        // dates default to uniform calendar buckets: the general 1.8 power curve would give the
+        // OLDEST dates the finest buckets (the curve is anchored at the minimum), which is backwards
+        // for typical date facets. An explicit FacetRangePowerBase on the property still wins below.
+        if (propery.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset) RangePowerBase = 1;
+
         if (propery is IScalarProperty scalar) {
             if (scalar.FacetRangePowerBase > 0) RangePowerBase = scalar.FacetRangePowerBase;
             if (scalar.FacetRangeCount > 0) RangeCount = scalar.FacetRangeCount;
@@ -26,7 +31,7 @@ public class Facets {
     }
     public bool? IsRangeFacet { get; set; }
     public int RangeCount = 10;
-    public double RangePowerBase = 1.8d;
+    public double RangePowerBase = 1.8d; // finer buckets near the minimum (typical for prices); DateTime properties default to 1 (linear) in the constructor
     public double MaxValue;
     public double MinValue;
     public int MaxValues; // 0 = unlimited; selected values are never trimmed away

@@ -1,11 +1,13 @@
 ﻿using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
-public class FloatPropertyModel : PropertyModel {
+public class FloatPropertyModel : PropertyModel, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Float; }
     public float DefaultValue { get; set; }
     public float MinValue { get; set; } = float.MinValue;
     public float MaxValue { get; set; } = float.MaxValue;
+    public double FacetRangePowerBase { get; set; }
+    public int FacetRangeCount { get; set; }
     public override object GetDefaultValue() => DefaultValue;
     public static float ForceValueType(object? value, out bool changed) {
         if (value is float f) {

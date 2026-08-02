@@ -7,6 +7,7 @@ public class IntegerPropertyModel : PropertyModel, IPropertyModelUniqueContraint
     public bool IsEnum { get; set; }
     public string? FullEnumTypeName { get; set; }
     public int[]? LegalValues { get; set; }
+    public string[]? LegalValueNames { get; set; } // parallel to LegalValues
     public int MinValue { get; set; } = int.MinValue;
     public int MaxValue { get; set; } = int.MaxValue;
     public double FacetRangePowerBase { get; set; }
