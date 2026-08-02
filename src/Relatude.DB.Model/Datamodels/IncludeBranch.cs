@@ -8,6 +8,11 @@ public class IncludeBranch {
     }
     public Guid PropertyId { get; }
     public int? Top { get; private set; }
+    /// <summary>
+    /// Optional filter on the related nodes of this branch: only nodes passing the filter are loaded.
+    /// Applied before Top. Set by the query layer, evaluated by the engine.
+    /// </summary>
+    public IIncludeFilter? Filter { get; set; }
     public readonly HashSet<int> EvaluatedIds = [];
     List<IncludeBranch>? _children;
     public IncludeBranch ReuseOrCreateChildBranch(Guid propertyId, int? top) {
@@ -78,6 +83,8 @@ public class IncludeBranch {
                 _children.Add(branch);
             } else { // found existing branch with same propertyId, so merge them
                 if (existing.Top == null || existing.Top < branch.Top) existing.Top = branch.Top; // take the highest top value
+                if (branch.Filter != null) // filters are AND combined: both constraints were requested
+                    existing.Filter = existing.Filter == null ? branch.Filter : CompositeIncludeFilter.And(existing.Filter, branch.Filter);
                 foreach (var c in branch.Children) existing.AddBranch(c); // merge children too
             }
         }

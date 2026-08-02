@@ -358,6 +358,9 @@ public class NodeStore : IDisposable {
     public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereRelates(propertyId, nodeId);
 
     public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, QueryContext? ctx = null) => Query<T>(fromId, ctx).WhereRelates<T, object>(expression, toId).Count() > 0;
+    /// <summary>Finds one shortest path (breadth first, unweighted) between two nodes over a relation. </summary>
+    public GraphPathResult<T> ShortestPath<T, TProperty>(Guid fromNodeId, Expression<Func<T, TProperty>> relationProperty, Guid toNodeId, int maxLevel = 1000, GraphDirection direction = GraphDirection.Default, int? maxVisited = null, QueryContext? ctx = null)
+        => Query<T>(ctx).ShortestPath(relationProperty, fromNodeId, toNodeId, maxLevel, direction, maxVisited).Execute();
     public Task FlushAsync() => Datastore.MaintenanceAsync(MaintenanceAction.FlushDisk);
     public Task MaintenanceAsync(MaintenanceAction options) => Datastore.MaintenanceAsync(options);
 

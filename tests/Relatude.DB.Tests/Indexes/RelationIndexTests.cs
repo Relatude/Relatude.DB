@@ -1,10 +1,8 @@
 using Relatude.DB.DataStores.Relations;
-using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.Indexes {
     [TestClass]
     public class RelationIndexTests {
-        public static SetRegister setRegister = new SetRegister(10000);
 
         [TestMethod]
         public void TestManyMany() {
@@ -56,7 +54,7 @@ namespace Relatude.Indexes {
         }
         [TestMethod]
         public void TestOneToMany() {
-            var r = new OneToManyIndex(setRegister);
+            var r = new OneToManyIndex();
             r.Add(1, 1, DateTime.UtcNow);
             r.Remove(1, 1);
             r.Add(2, 1, DateTime.UtcNow);
@@ -71,7 +69,7 @@ namespace Relatude.Indexes {
         }
         [TestMethod]
         public void TestOneToOne() {
-            var r = new OneToOneIndex(setRegister);
+            var r = new OneToOneIndex();
             r.Add(1, 1, DateTime.UtcNow);
             r.Remove(1, 1);
             r.Add(2, 1, DateTime.UtcNow);
@@ -86,7 +84,7 @@ namespace Relatude.Indexes {
         }
         [TestMethod]
         public void TestOneOne() {
-            var r = new OneOneIndex(setRegister);
+            var r = new OneOneIndex();
             r.Add(1, 1, DateTime.UtcNow);
             r.Remove(1, 1);
             r.Add(2, 1, DateTime.UtcNow);

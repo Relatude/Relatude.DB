@@ -5,7 +5,7 @@ using Relatude.DB.DataStores.Sets;
 using System.Collections.Generic;
 
 namespace Relatude.DB.DataStores.Relations;
-public class OneToOneIndex(SetRegister setRegister) : IRelationIndex {
+public class OneToOneIndex() : IRelationIndex {
     public bool IsSymmetric => false;
     readonly Dictionary<int, int> _targetBySource = new();
     readonly Dictionary<int, int> _sourceByTarget = new();
@@ -75,10 +75,11 @@ public class OneToOneIndex(SetRegister setRegister) : IRelationIndex {
         }
     }
     public IdSet Get(int id, bool fromTargetToSource) {
+        // IdSet.SingleIdSet: deterministic per id StateId, no global set cache lock per probe
         if (fromTargetToSource) {
-            if (_sourceByTarget.TryGetValue(id, out var source)) return setRegister.SingleValueIdSet(source);
+            if (_sourceByTarget.TryGetValue(id, out var source)) return IdSet.SingleIdSet(source);
         } else {
-            if (_targetBySource.TryGetValue(id, out var target)) return setRegister.SingleValueIdSet(target);
+            if (_targetBySource.TryGetValue(id, out var target)) return IdSet.SingleIdSet(target);
         }
         return IdSet.Empty;
     }

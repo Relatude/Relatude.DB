@@ -2,7 +2,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Relations;
-public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
+public class OneToManyIndex() : IRelationIndex {
     public bool IsSymmetric => false;
     // source (One ) target ( Many ) 
     readonly Dictionary<int, RelatedList> _targetBySource = new();
@@ -113,7 +113,8 @@ public class OneToManyIndex(SetRegister setRegister) : IRelationIndex {
     }
     public IdSet Get(int id, bool fromTargetToSource) {
         if (fromTargetToSource) {
-            if (_sourceByTarget.TryGetValue(id, out var source)) return setRegister.SingleValueIdSet(source);
+            // IdSet.SingleIdSet: deterministic per id StateId, no global set cache lock per probe
+            if (_sourceByTarget.TryGetValue(id, out var source)) return IdSet.SingleIdSet(source);
         } else {
             if (_targetBySource.TryGetValue(id, out var targets)) return targets.ToIdSet();
         }
