@@ -42,9 +42,9 @@ namespace Relatude.DB.DataStores.Definitions {
         public RelationType RelationType { get => Model.RelationType; }
         public void Initialize(Definition def) {
             switch (RelationType) {
-                case RelationType.OneOne: _index = new OneOneIndex(def.Sets); break;
-                case RelationType.OneToOne: _index = new OneToOneIndex(def.Sets); break;
-                case RelationType.OneToMany: _index = new OneToManyIndex(def.Sets); break;
+                case RelationType.OneOne: _index = new OneOneIndex(); break;
+                case RelationType.OneToOne: _index = new OneToOneIndex(); break;
+                case RelationType.OneToMany: _index = new OneToManyIndex(); break;
                 case RelationType.ManyMany: _index = new ManyManyIndex(); break;
                 case RelationType.ManyToMany: _index = new ManyToManyIndex(); break;
                 default: break;

@@ -17,7 +17,10 @@ internal class RelationDataDictionary {
     public int Count => _relData.Count;
     internal class RelationKeyComparer : IEqualityComparer<RKey> {
         public bool Equals(RKey x, RKey y) => x.Source.Equals(y.Source) && x.Target.Equals(y.Target);
-        public int GetHashCode(RKey obj) => obj.Source.GetHashCode() + obj.Target.GetHashCode();
+        // NB: must mix both fields; a plain sum makes every pair with the same source+target sum
+        // collide into one bucket, degrading dense relations towards O(n) chains.
+        // Order sensitivity is fine: symmetric indexes normalize to (min, max) before every call.
+        public int GetHashCode(RKey obj) => HashCode.Combine(obj.Source, obj.Target);
     }
     internal struct RKey {
         public RKey(int source, int target) {

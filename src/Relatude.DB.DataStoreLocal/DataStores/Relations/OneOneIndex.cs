@@ -5,12 +5,13 @@ using Relatude.DB.DataStores.Sets;
 using System.Collections.Generic;
 
 namespace Relatude.DB.DataStores.Relations;
-public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
+public class OneOneIndex() : IRelationIndex {
     public bool IsSymmetric => true;
     readonly Dictionary<int, int> _rel = new();
     readonly RelationDataDictionary _relData = new();
     public IEnumerable<KeyValuePair<int, int>> AllSourceTarget => _rel;
-    public bool Contains(int source, int target) => _relData.Contains(Math.Min(source, target), Math.Max(source, target));
+    // one strong int keyed probe; _rel holds both directions, so this is symmetric by construction
+    public bool Contains(int source, int target) => _rel.TryGetValue(source, out var other) && other == target;
     public bool ContainsSource(int source) => _rel.ContainsKey(source);
     public bool ContainsTarget(int target) => _rel.ContainsKey(target);
     public bool TryGetTarget(int source, [MaybeNullWhen(false)] out int target) => _rel.TryGetValue(source, out target);
@@ -75,7 +76,9 @@ public class OneOneIndex(SetRegister setRegister) : IRelationIndex {
 
     }
     public IdSet Get(int id, bool fromTargetToSource) {
-        if (_rel.TryGetValue(id, out var related)) return setRegister.SingleValueIdSet(related);
+        // IdSet.SingleIdSet has a deterministic per id StateId, so downstream cached set
+        // operations still key correctly - without the global set cache lock per probe:
+        if (_rel.TryGetValue(id, out var related)) return IdSet.SingleIdSet(related);
         return IdSet.Empty;
     }
     public IEnumerable<int> DistinctIds(bool fromTargetToSource) => _rel.Keys; // symmetric: all participants
