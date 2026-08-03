@@ -54,6 +54,12 @@ public class OneToOneIndex() : IRelationIndex {
         _relData.Add(source, target, changedUtc);
     }
     public DateTime GetDateTime(int source, int target) => _relData.Get(source, target);
+    public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+        // single-valued: nothing to reorder, but validate the pair like Remove does
+        var contains = fromTargetToSource ? Contains(moved, owner) : Contains(owner, moved);
+        if (!contains) throw new ItemNotInRelationException();
+    }
+    public int IndexOfRelated(int owner, int related, bool fromTargetToSource) => (fromTargetToSource ? Contains(related, owner) : Contains(owner, related)) ? 0 : -1;
     public void CompressMemory() {
 
     }

@@ -160,6 +160,20 @@ public class TransactionData {
     public void ClearRelation(Guid relationId, int source, int target) => Add(new RelationAction(RelationOperation.Clear, relationId) { Source = source, Target = target });
     public void ClearRelation(Guid relationId, Guid source, Guid target) => Add(new RelationAction(RelationOperation.Clear, relationId) { SourceGuid = source, TargetGuid = target });
 
+    // reordering of relation lists, owner = the node whose ordered list of related items is changed:
+    public void MoveRelation(Guid relationId, int owner, int[] items, int offset, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveOffset, relationId) { Owner = owner, Items = items, Offset = offset, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelation(Guid relationId, Guid owner, Guid[] items, int offset, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveOffset, relationId) { OwnerGuid = owner, ItemGuids = items, Offset = offset, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationToTop(Guid relationId, int owner, int[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveToTop, relationId) { Owner = owner, Items = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationToTop(Guid relationId, Guid owner, Guid[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveToTop, relationId) { OwnerGuid = owner, ItemGuids = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationToBottom(Guid relationId, int owner, int[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveToBottom, relationId) { Owner = owner, Items = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationToBottom(Guid relationId, Guid owner, Guid[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveToBottom, relationId) { OwnerGuid = owner, ItemGuids = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationBefore(Guid relationId, int owner, int[] items, int anchor, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveBefore, relationId) { Owner = owner, Items = items, Anchor = anchor, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationBefore(Guid relationId, Guid owner, Guid[] items, Guid anchor, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveBefore, relationId) { OwnerGuid = owner, ItemGuids = items, AnchorGuid = anchor, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationAfter(Guid relationId, int owner, int[] items, int anchor, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveAfter, relationId) { Owner = owner, Items = items, Anchor = anchor, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void MoveRelationAfter(Guid relationId, Guid owner, Guid[] items, Guid anchor, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.MoveAfter, relationId) { OwnerGuid = owner, ItemGuids = items, AnchorGuid = anchor, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void SetRelationOrder(Guid relationId, int owner, int[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.SetOrder, relationId) { Owner = owner, Items = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+    public void SetRelationOrder(Guid relationId, Guid owner, Guid[] items, bool reorderSourcesOfTarget) => Add(new RelationAction(RelationOperation.SetOrder, relationId) { OwnerGuid = owner, ItemGuids = items, ReorderSourcesOfTarget = reorderSourcesOfTarget });
+
     public IEnumerable<INodeData> GetAllDeletedNodes() {
         var deletedNodes = new Dictionary<Guid, INodeData>();
         foreach (var a in Actions) {

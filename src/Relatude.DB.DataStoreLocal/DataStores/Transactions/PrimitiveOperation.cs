@@ -4,4 +4,5 @@ namespace Relatude.DB.DataStores.Transactions;
 public enum PrimitiveOperation : byte {
     Add = 0,
     Remove = 1,
+    Move = 2, // only used by PrimitiveRelationReorderAction
 }

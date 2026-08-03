@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Indexes.Meta;
+using Relatude.DB.DataStores.Relations;
 using Relatude.DB.DataStores.Indexes.Trie.TrieNet._Ukkonen;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
@@ -291,8 +292,58 @@ internal class ActionConverter {
                     yield return new PrimitiveRelationAction(PrimitiveOperation.Remove, a.RelationId, r.Source, r.Target, a.ChangeUtc);
                 }
             }
+        } else if (a.Operation is RelationOperation.MoveOffset or RelationOperation.MoveToTop or RelationOperation.MoveToBottom
+            or RelationOperation.MoveBefore or RelationOperation.MoveAfter or RelationOperation.SetOrder) {
+            foreach (var move in toMovePrimitiveActions(db, a)) yield return move;
         } else {
             throw new NotImplementedException();
+        }
+    }
+    IEnumerable<PrimitiveActionBase> toMovePrimitiveActions(DataStoreLocal db, RelationAction a) {
+        var owner = a.Owner != 0 ? a.Owner : db._guids.GetId(a.OwnerGuid);
+        List<int> items = [];
+        if (a.Items != null) items.AddRange(a.Items);
+        if (a.ItemGuids != null) items.AddRange(a.ItemGuids.Select(db._guids.GetId));
+        if (items.Count == 0) yield break; // nothing to move
+        var r = db._definition.Relations[a.RelationId];
+        var dir = a.ReorderSourcesOfTarget;
+        var current = r.GetRelated(owner, dir).Enumerate().ToList();
+        var currentSet = new HashSet<int>(current);
+        var selected = new HashSet<int>(items);
+        if (selected.Count != items.Count) throw new ExceptionWithoutIntegrityLoss($"Duplicate items given when reordering relation {r.Model}. ");
+        foreach (var id in items) {
+            if (!currentSet.Contains(id)) throw new ExceptionWithoutIntegrityLoss($"Unable to reorder relation {r.Model}. Item {id} is not related to {owner}. ");
+        }
+        List<int> desired;
+        switch (a.Operation) {
+            case RelationOperation.MoveOffset:
+                if (a.Offset == 0) yield break;
+                desired = RelationOrderUtils.MoveByOffset(current, selected, a.Offset);
+                break;
+            case RelationOperation.MoveToTop:
+                desired = RelationOrderUtils.MoveToEdge(current, selected, top: true);
+                break;
+            case RelationOperation.MoveToBottom:
+                desired = RelationOrderUtils.MoveToEdge(current, selected, top: false);
+                break;
+            case RelationOperation.MoveBefore:
+            case RelationOperation.MoveAfter: {
+                    var anchor = a.Anchor != 0 ? a.Anchor : db._guids.GetId(a.AnchorGuid);
+                    if (!currentSet.Contains(anchor)) throw new ExceptionWithoutIntegrityLoss($"Unable to reorder relation {r.Model}. Anchor {anchor} is not related to {owner}. ");
+                    if (selected.Contains(anchor)) throw new ExceptionWithoutIntegrityLoss($"Unable to reorder relation {r.Model}. Anchor {anchor} cannot be one of the moved items. ");
+                    desired = RelationOrderUtils.MoveRelativeToAnchor(current, selected, anchor, after: a.Operation == RelationOperation.MoveAfter);
+                    break;
+                }
+            case RelationOperation.SetOrder:
+                if (items.Count != current.Count) throw new ExceptionWithoutIntegrityLoss($"Unable to set order of relation {r.Model}. {items.Count} items given but {current.Count} are related to {owner}. ");
+                desired = items; // membership already validated above, and counts match, so items is a permutation of current
+                break;
+            default:
+                throw new NotImplementedException();
+        }
+        foreach (var (moved, fromIndex, toIndex) in RelationOrderUtils.DiffToMoves(current, desired)) {
+            if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.MovedRelation;
+            yield return new PrimitiveRelationReorderAction(a.RelationId, owner, moved, dir, fromIndex, toIndex);
         }
     }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {

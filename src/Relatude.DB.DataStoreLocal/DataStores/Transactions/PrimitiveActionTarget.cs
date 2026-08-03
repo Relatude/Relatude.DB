@@ -5,4 +5,5 @@ public enum PrimitiveActionTarget: byte {
     Node = 0,
     Relation = 1,
     Binary = 2,
+    RelationOrder = 3,
 }

@@ -78,10 +78,22 @@ namespace Relatude.DB.DataStores.Definitions {
             newState();
             _index.DeleteIfReferenced(id);
         }
+        public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+            if (!Contains(owner, moved, fromTargetToSource))
+                throw new ExceptionWithoutIntegrityLoss($"Unable to move {moved} in the relation {Model}. It is not related to {owner}. ");
+            newState();
+            _index.Move(owner, moved, fromTargetToSource, toIndex);
+        }
+        public void OnlyMoveIfValid(int owner, int moved, bool fromTargetToSource, int toIndex) {
+            if (!Contains(owner, moved, fromTargetToSource)) return;
+            newState();
+            _index.Move(owner, moved, fromTargetToSource, toIndex);
+        }
         public IEnumerable<RelData> GetOtherRelationsThatNeedsToRemovedBeforeAdd(int source, int target) => _index.GetOtherRelationsThatNeedsToRemovedBeforeAdd(source, target);
         public bool Contains(int source, int target) => _index.Contains(source, target);
         public bool Contains(int from, int to, bool fromTargetToSource) => fromTargetToSource ? _index.Contains(to, from) : _index.Contains(from, to);
         public IdSet GetRelated(int id, bool fromTargetToSource) => _index.Get(id, fromTargetToSource);
+        public int IndexOfRelated(int owner, int related, bool fromTargetToSource) => _index.IndexOfRelated(owner, related, fromTargetToSource);
         public IEnumerable<int> DistinctIds(bool fromTargetToSource) => _index.DistinctIds(fromTargetToSource);
         public void CompressMemory() => _index.CompressMemory();
         public int MaxCountTo { get; }

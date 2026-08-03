@@ -46,6 +46,14 @@ public class ManyManyIndex() : IRelationIndex {
 
     }
     public DateTime GetDateTime(int source, int target) => _relData.Get(Math.Min(source, target), Math.Max(source, target));
+    public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+        // symmetric: one list per participant, direction is irrelevant
+        if (!_rel.TryGetValue(owner, out var related)) throw new ItemNotInRelationException();
+        related.MoveTo(moved, toIndex);
+    }
+    public int IndexOfRelated(int owner, int related, bool fromTargetToSource) {
+        return _rel.TryGetValue(owner, out var list) ? list.IndexOf(related) : -1;
+    }
     public void CompressMemory() {
 
     }

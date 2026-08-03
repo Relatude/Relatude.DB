@@ -54,6 +54,11 @@ public class OneOneIndex() : IRelationIndex {
         _relData.Add(Math.Min(source, target), Math.Max(source, target), changedUtc);
     }
     public DateTime GetDateTime(int source, int target) => _relData.Get(Math.Min(source, target), Math.Max(source, target));
+    public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+        // single-valued: nothing to reorder, but validate the pair like Remove does
+        if (!Contains(owner, moved)) throw new ItemNotInRelationException();
+    }
+    public int IndexOfRelated(int owner, int related, bool fromTargetToSource) => Contains(owner, related) ? 0 : -1;
     public void CompressMemory() {
 
     }

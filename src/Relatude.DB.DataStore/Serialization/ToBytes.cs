@@ -110,6 +110,18 @@ public static partial class ToBytes {
         stream.WriteUInt((uint)action.Target);
         stream.WriteDateTime(action.ChangeUtc);
         // stream.WriteBool(action.EnsuringCausedChange); // not relevant for writing and not serialized
+        if (action.Operation >= RelationOperation.MoveOffset) { // extra fields for the move operations only, keeps older streams byte compatible
+            stream.WriteUInt((uint)action.Owner);
+            stream.WriteGuid(action.OwnerGuid);
+            stream.WriteInt(action.Items == null ? 0 : action.Items.Length);
+            if (action.Items != null) foreach (var id in action.Items) stream.WriteUInt((uint)id);
+            stream.WriteInt(action.ItemGuids == null ? 0 : action.ItemGuids.Length);
+            if (action.ItemGuids != null) foreach (var id in action.ItemGuids) stream.WriteGuid(id);
+            stream.WriteUInt((uint)action.Anchor);
+            stream.WriteGuid(action.AnchorGuid);
+            stream.WriteInt(action.Offset);
+            StreamExtenstions.WriteOneByte(stream, action.ReorderSourcesOfTarget ? (byte)1 : (byte)0);
+        }
     }
     //static void collectionAction(CollectionAction action, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
     //    nodeSegmentRelativeOffset = 0; nodeSegmentLength = 0; // not relevant for collections

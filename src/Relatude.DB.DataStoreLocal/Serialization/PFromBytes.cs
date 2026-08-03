@@ -15,6 +15,7 @@ namespace Relatude.DB.Serialization {
             if (target == PrimitiveActionTarget.Node) return nodeAction(datamodel, stream, out nodeSegmentRelativeOffset, out nodeSegmenLength);
             nodeSegmentRelativeOffset = 0; nodeSegmenLength = 0; // not relevant for relations
             if (target == PrimitiveActionTarget.Relation) return relationAction(stream);
+            if (target == PrimitiveActionTarget.RelationOrder) return relationReorderAction(stream);
             throw new NotImplementedException();
         }
         static PrimitiveNodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
@@ -33,6 +34,15 @@ namespace Relatude.DB.Serialization {
             var target = (int)stream.ReadUInt();
             var dtUtc = stream.ReadDateTime();
             return new PrimitiveRelationAction(operation, relationId, source, target, dtUtc);
+        }
+        static PrimitiveRelationReorderAction relationReorderAction(Stream stream) {
+            var relationId = stream.ReadGuid();
+            var owner = (int)stream.ReadUInt();
+            var moved = (int)stream.ReadUInt();
+            var fromTargetToSource = stream.ReadOneByte() == 1;
+            var fromIndex = stream.ReadInt();
+            var toIndex = stream.ReadInt();
+            return new PrimitiveRelationReorderAction(relationId, owner, moved, fromTargetToSource, fromIndex, toIndex);
         }
 
     }

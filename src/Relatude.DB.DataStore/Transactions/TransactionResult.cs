@@ -14,6 +14,8 @@ public enum ResultingOperation {
     RemovedAllRelationsToTarget, // all relations to target were removed, e.g. RelationAction.RemoveAllToTarget
 
     ChangedProperty, // a property was changed, e.g. PropertyUpdate if different, Add, Multiply
+
+    MovedRelation, // relation items were reordered, e.g. RelationAction.MoveOffset, MoveToTop, MoveToBottom, MoveBefore, MoveAfter, SetOrder
 }
 public class TransactionResult(long id, ResultingOperation[] resultingOperations) {
     public long TransactionId { get; } = id;

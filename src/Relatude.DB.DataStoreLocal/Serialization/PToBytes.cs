@@ -8,6 +8,7 @@ internal static class PToBytes {
         StreamExtenstions.WriteOneByte(stream, (byte)action.ActionTarget);
         if (action is PrimitiveNodeAction na) nodeAction(na, def, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
         else if (action is PrimitiveRelationAction ra) relationAction(ra, def, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
+        else if (action is PrimitiveRelationReorderAction rra) relationReorderAction(rra, stream, out nodeSegmentRelativeOffset, out nodeSegmentLength);
         else throw new NotImplementedException();
     }
     static void nodeAction(PrimitiveNodeAction action, Datamodel def, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
@@ -24,6 +25,15 @@ internal static class PToBytes {
         stream.WriteUInt((uint)action.Source);
         stream.WriteUInt((uint)action.Target);
         stream.WriteDateTime(action.ChangeUtc);
+        nodeSegmentRelativeOffset = 0; nodeSegmentLength = 0; // not relevant for relations
+    }
+    static void relationReorderAction(PrimitiveRelationReorderAction action, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
+        stream.WriteGuid(action.RelationId);
+        stream.WriteUInt((uint)action.Owner);
+        stream.WriteUInt((uint)action.Moved);
+        StreamExtenstions.WriteOneByte(stream, action.FromTargetToSource ? (byte)1 : (byte)0);
+        stream.WriteInt(action.FromIndex);
+        stream.WriteInt(action.ToIndex);
         nodeSegmentRelativeOffset = 0; nodeSegmentLength = 0; // not relevant for relations
     }
 }

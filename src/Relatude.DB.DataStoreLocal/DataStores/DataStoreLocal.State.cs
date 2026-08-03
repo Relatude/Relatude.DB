@@ -246,6 +246,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                             _addresses.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                             } else if (a is PrimitiveRelationAction ra) {
                                 _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
+                            } else if (a is PrimitiveRelationReorderAction rra) {
+                                _relations.RegisterActionIfPossible(rra);
                             } else throw new NotImplementedException();
                             _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
                         }
