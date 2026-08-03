@@ -148,6 +148,7 @@ public static partial class ToBytes {
             foreach (var v in f.Values) {
                 stream.WriteString(v.DisplayName);
                 stream.WriteInt(v.Count);
+                if(v.Value==null) throw new NotSupportedException();
                 writeValueType(v.Value, stream);
                 if (v.Value2 == null) {
                     stream.WriteBool(false);

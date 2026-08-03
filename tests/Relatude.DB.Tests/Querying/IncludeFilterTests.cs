@@ -44,12 +44,12 @@ public class IncludeFilterTests {
     public void TestIncludeFilterOnOneSide() {
         var store = openStore(out _);
         { // parent passes the filter -> loaded
-            var c1 = store.Query<Article>().Where(a => a.Id == 2).Include(a => a.Parent, p => p.Name == "root").Execute().Single();
+            var c1 = store.Query<Article>().Where(a => a.Id == 2).Include(a => a.Parent, p => p!.Name == "root").Execute().Single();
             Assert.IsNotNull(c1.Parent);
             Assert.AreEqual("root", c1.Parent!.Name);
         }
         { // parent fails the filter -> property stays empty
-            var c1 = store.Query<Article>().Where(a => a.Id == 2).Include(a => a.Parent, p => p.Name == "other").Execute().Single();
+            var c1 = store.Query<Article>().Where(a => a.Id == 2).Include(a => a.Parent, p => p!.Name == "other").Execute().Single();
             Assert.IsNull(c1.Parent);
         }
         store.Dispose();
@@ -119,9 +119,9 @@ public class IncludeFilterTests {
         store.Insert(author);
         store.Insert(article);
         store.AddRelation(article, a => a.Author, author);
-        var withAuthor = store.Query<Article>().Include(a => a.Author, u => u.Username == "alice").Execute().Single();
+        var withAuthor = store.Query<Article>().Include(a => a.Author, u => u!.Username == "alice").Execute().Single();
         Assert.IsNotNull(withAuthor.Author);
-        var withoutAuthor = store.Query<Article>().Include(a => a.Author, u => u.Username == "bob").Execute().Single();
+        var withoutAuthor = store.Query<Article>().Include(a => a.Author, u => u!.Username == "bob").Execute().Single();
         Assert.IsNull(withoutAuthor.Author);
         store.Dispose();
     }

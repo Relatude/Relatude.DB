@@ -240,7 +240,7 @@ public class NodeStore : IDisposable {
 
     public TransactionResult RemoveRelation<T>(T fromNode, Expression<Func<T, object?>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).RemoveRelation(fromNode, expression, toNode), flushToDisk);
     public TransactionResult RemoveRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).RemoveRelation(fromId, expression, toId), flushToDisk);
-    public TransactionResult RemoveRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).RemoveRelation(fromId, expression, toIds), flushToDisk);
+    public TransactionResult RemoveRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).RemoveRelation(fromId, expression, toIds), flushToDisk);
     public TransactionResult RemoveRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).RemoveRelation(fromId, propertyId, toId), flushToDisk);
     public TransactionResult RemoveRelation(int fromId, Guid propertyId, int toId, bool flushToDisk = false) => Execute(new Transaction(this).RemoveRelation(fromId, propertyId, toId), flushToDisk);
 
@@ -249,31 +249,31 @@ public class NodeStore : IDisposable {
     public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object?>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult SetRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toId), flushToDisk);
 
-    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNodes), flushToDisk);
-    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toIds), flushToDisk);
-    public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
-    public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNodes), flushToDisk);
+    public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
+    public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object?>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);
     public TransactionResult SetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toIds), flushToDisk);
 
-    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromNode, expression).SetRelation(fromNode, expression, toNodes), flushToDisk);
-    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromNode, expression).SetRelation(fromNode, expression, toIds), flushToDisk);
-    public TransactionResult ClearAndSetRelation<T>(Guid fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromId, expression).SetRelation(fromId, expression, toIds), flushToDisk);
-    public TransactionResult ClearAndSetRelation<T>(int fromId, Expression<Func<T, object>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
+    public TransactionResult ClearAndSetRelation<T>(int fromId, Expression<Func<T, object?>> expression, IEnumerable<int> toIds, bool flushToDisk = false) where T : notnull
         => Execute(new Transaction(this).ClearRelations(fromId, expression).SetRelation(fromId, expression, toIds), flushToDisk);
     public TransactionResult ClearAndSetRelation(Guid fromId, Guid propertyId, IEnumerable<Guid> toIds, bool flushToDisk = false)
         => Execute(new Transaction(this).ClearRelations(fromId, propertyId).SetRelation(fromId, propertyId, toIds), flushToDisk);
 
-    public TransactionResult ClearRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromNode, expression, toNode), flushToDisk);
-    public TransactionResult ClearRelation<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
-    public TransactionResult ClearRelation<T>(int fromId, Expression<Func<T, object>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult ClearRelation<T>(T fromNode, Expression<Func<T, object?>> expression, object toNode, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromNode, expression, toNode), flushToDisk);
+    public TransactionResult ClearRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
+    public TransactionResult ClearRelation<T>(int fromId, Expression<Func<T, object?>> expression, Guid toId, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult ClearRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
     public TransactionResult ClearRelation(int fromId, Guid propertyId, int toId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelation(fromId, propertyId, toId), flushToDisk);
-    public TransactionResult ClearRelations<T>(T fromNode, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromNode, expression), flushToDisk);
-    public TransactionResult ClearRelations<T>(int fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
-    public TransactionResult ClearRelations<T>(Guid fromId, Expression<Func<T, object>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
+    public TransactionResult ClearRelations<T>(T fromNode, Expression<Func<T, object?>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromNode, expression), flushToDisk);
+    public TransactionResult ClearRelations<T>(int fromId, Expression<Func<T, object?>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
+    public TransactionResult ClearRelations<T>(Guid fromId, Expression<Func<T, object?>> expression, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).ClearRelations(fromId, expression), flushToDisk);
     public TransactionResult ClearRelations(Guid fromId, Guid propertyId, bool flushToDisk = false) => Execute(new Transaction(this).ClearRelations(fromId, propertyId), flushToDisk);
 
     public TransactionResult ReIndex(Guid id, bool flushToDisk = false) => Execute(new Transaction(this).ReIndex(id), flushToDisk);
@@ -550,7 +550,7 @@ public class NodeStore : IDisposable {
     public void UpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => UpdateProperty(nodeId, Mapper.GetProperty(expression).Id, value, flushToDisk);
     public void UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => UpdateProperty(nodeId, Mapper.GetProperty(expression).Id, value, flushToDisk);
     public void UpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => Execute(new Transaction(this).UpdateProperty(ids, expression, value), flushToDisk);
-    public void UpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).UpdateProperties(nodeId, propertyValuePairs));
+    public void UpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object?>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).UpdateProperties(nodeId, propertyValuePairs));
 
     public void UpdateDisplayName(Guid nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
     public void UpdateDisplayName(int nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
@@ -612,7 +612,7 @@ public class NodeStore : IDisposable {
     public void ForceUpdateProperty<T, V>(Guid nodeId, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => ForceUpdateProperty(nodeId, Mapper.GetProperty(expression).Id, value, flushToDisk);
     public void ForceUpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => ForceUpdateProperty(nodeId, Mapper.GetProperty(expression).Id, value, flushToDisk);
     public void ForceUpdateProperty<T, V>(IEnumerable<Guid> ids, Expression<Func<T, V>> expression, V value, bool flushToDisk = false) where T : notnull where V : notnull => Execute(new Transaction(this).ForceUpdateProperty(ids, expression, value), flushToDisk);
-    public void ForceUpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).ForceUpdateProperties(nodeId, propertyValuePairs));
+    public void ForceUpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object?>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).ForceUpdateProperties(nodeId, propertyValuePairs));
 
     public void UpdateIfDifferentProperty(Guid nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateIfDifferentProperty(nodeId, propertyId, value), flushToDisk);
     public void UpdateIfDifferentProperty(int nodeId, Guid propertyId, object value, bool flushToDisk = false) => Execute(new Transaction(this).UpdateIfDifferentProperty(nodeId, propertyId, value), flushToDisk);

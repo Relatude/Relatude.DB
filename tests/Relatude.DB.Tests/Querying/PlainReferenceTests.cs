@@ -171,8 +171,8 @@ public class PlainReferenceTests {
             .Include(p => p.Brand)
             .Include(p => p.TagsArray)
             .Include(p => p.TagsList)
-            .Include(p => p.TagsEnumerable)
-            .Include(p => p.TagsCollection)
+            .Include(p => p.TagsEnumerable!)
+            .Include(p => p.TagsCollection!)
             .Execute().Single();
         Assert.IsNotNull(loaded.Brand);
         Assert.AreEqual(brand.Id, loaded.Brand!.Id);

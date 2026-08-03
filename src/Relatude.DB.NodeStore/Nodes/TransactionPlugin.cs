@@ -10,16 +10,16 @@ public class PropertyValuePair(Guid propertyId, object? oldValue, object? newVal
     public object? NewValue { get; } = newValue;
 }
 public class PropertyHelper<T>(NodeStore store, Transaction transaction) where T : notnull {
-    public Guid GetPropertyId(Expression<Func<T, object>> expression) => store.Mapper.GetProperty(expression).Id;
+    public Guid GetPropertyId(Expression<Func<T, object?>> expression) => store.Mapper.GetProperty(expression).Id;
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
     public IEnumerable<T> GetNodes(Guid[]? nodeIds) {
         if (nodeIds == null || nodeIds.Length == 0) return [];
         return store.Query<T>(nodeIds).Execute();
     }
-    public void SetProperty(Guid nodeId, Expression<Func<T, object>> property, object value) {
+    public void SetProperty(Guid nodeId, Expression<Func<T, object?>> property, object value) {
         transaction.UpdateIfDifferentProperty(nodeId, GetPropertyId(property), value);
     }
-    public object GetProperty(Guid nodeId, Expression<Func<T, object>> property) {
+    public object? GetProperty(Guid nodeId, Expression<Func<T, object?>> property) {
         var nodeData = store.Datastore.Get(nodeId);
         if (nodeData == null) throw new InvalidOperationException($"Node with ID {nodeId} not found.");
         var propertyId = GetPropertyId(property);
@@ -66,14 +66,14 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
         }
         return changedProperties;
     }
-    public Guid GetPropertyId(Expression<Func<T, object>> expression) => store.Mapper.GetProperty(expression).Id;
+    public Guid GetPropertyId(Expression<Func<T, object?>> expression) => store.Mapper.GetProperty(expression).Id;
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
     public T GetNode() {
         if (action.Node is NodeDataOnlyId) return store.Get<T>(action.Node.Id);
         return store.Mapper.CreateObjectFromNodeData<T>(action.Node, null);
     }
     public void SetNode(T node) => action.Node = store.Mapper.CreateNodeDataFromObject(node, null, null);
-    public bool HasPropertyChanged(Expression<Func<T, object>> expression) {
+    public bool HasPropertyChanged(Expression<Func<T, object?>> expression) {
         var nodeData = action.Node;
         var oldNodeData = store.Datastore.Get(nodeData.Id);
         if (oldNodeData == null) return false;
@@ -85,10 +85,10 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
         }
         return true;
     }
-    public void SetProperty(Expression<Func<T, object>> property, object value) {
+    public void SetProperty(Expression<Func<T, object?>> property, object value) {
         action.Node.AddOrUpdate(GetPropertyId(property), value);
     }
-    public object GetProperty(Expression<Func<T, object>> property) {
+    public object? GetProperty(Expression<Func<T, object?>> property) {
         var propertyId = GetPropertyId(property);
         if (action.Node.TryGetValue(propertyId, out var existingValue)) return existingValue;
         throw new InvalidOperationException($"Property {propertyId} not found in node {action.Node.Id}.");

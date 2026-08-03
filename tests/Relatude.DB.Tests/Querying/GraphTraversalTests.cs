@@ -26,11 +26,11 @@ public class GraphTraversalTests {
         store.Insert(gc2);
         store.Insert(ggc1);
         store.Insert(unrelated);
-        store.AddRelation(c1, a => a.Parent, root);
-        store.AddRelation(c2, a => a.Parent, root);
-        store.AddRelation(gc1, a => a.Parent, c1);
-        store.AddRelation(gc2, a => a.Parent, c1);
-        store.AddRelation(ggc1, a => a.Parent, gc1);
+        store.AddRelation(c1, a => a.Parent!, root);
+        store.AddRelation(c2, a => a.Parent!, root);
+        store.AddRelation(gc1, a => a.Parent!, c1);
+        store.AddRelation(gc2, a => a.Parent!, c1);
+        store.AddRelation(ggc1, a => a.Parent!, gc1);
         return store;
     }
     static string[] names(IEnumerable<Article> articles) => articles.Select(a => a.Name).OrderBy(n => n).ToArray();
@@ -65,7 +65,7 @@ public class GraphTraversalTests {
         }
         { // traversal over the single (Parent) side: ancestors of ggc1
             var r = store.Query<Article>().Where(a => a.Id == 6).Traverse(a => a.Parent, maxLevel: 10).Execute();
-            CollectionAssert.AreEqual(new[] { "c1", "gc1", "root" }, names(r));
+            CollectionAssert.AreEqual(new[] { "c1", "gc1", "root" }, names(r!));
         }
         { // Reverse over Children == Parent direction
             var r = store.Query<Article>().Where(a => a.Id == 6).Traverse(a => a.Children, maxLevel: 10, minLevel: 1, GraphDirection.Reverse).Execute();
@@ -119,7 +119,7 @@ public class GraphTraversalTests {
         store.AddRelation(b, x => x.Parent, c);
         store.AddRelation(c, x => x.Parent, a);
         var r = store.Query<Article>().Where(x => x.Id == 1).Traverse(x => x.Parent, maxLevel: 100).Execute();
-        CollectionAssert.AreEqual(new[] { "b", "c" }, names(r)); // terminates; the seed itself stays at level 0 even when reached again
+        CollectionAssert.AreEqual(new[] { "b", "c" }, names(r!)); // terminates; the seed itself stays at level 0 even when reached again
         var all = store.Query<Article>().Execute().ToDictionary(n => n!.Name, n => n!.PId);
         var path = store.Query<Article>().ShortestPath(x => x.Parent, all["a"], all["c"]).Execute();
         Assert.IsTrue(path.Found);
@@ -149,7 +149,7 @@ public class GraphTraversalTests {
         // co-members of u1 via chaining, re-typed User -> Group -> User:
         var coMembers = store.Query<User>().Where(u => u.Username == "u1")
             .Traverse(u => u.Group, maxLevel: 1)
-            .Traverse(g => g.Members, maxLevel: 1)
+            .Traverse(g => g!.Members!, maxLevel: 1)
             .Execute();
         CollectionAssert.AreEqual(new[] { "u1", "u2", "u3" }, coMembers.Select(u => u.Username).OrderBy(n => n).ToArray());
         store.Dispose();

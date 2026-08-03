@@ -20,14 +20,14 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         _given = new();
         _set = new();
     }
-    Guid getPropertyId<TChild>(Expression<Func<TChild, object>> expression) where TChild : T {
+    Guid getPropertyId<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T {
         return _query.Store.Mapper.GetProperty<TChild>(expression).Id;
     }
     Guid getPropertyId<TChild>(string propertyName) where TChild : T {
         return _query.Store.Mapper.GetProperty<TChild>(propertyName).Id;
     }
-    public QueryOfFacets<T, TInclude> AddFacet(Expression<Func<T, object>> expression) => AddFacet(getPropertyId(expression));
-    public QueryOfFacets<T, TInclude> AddFacet<TChild>(Expression<Func<TChild, object>> expression) where TChild : T => AddFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddFacet(Expression<Func<T, object?>> expression) => AddFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddFacet<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T => AddFacet(getPropertyId(expression));
     public QueryOfFacets<T, TInclude> AddFacet(string propertyName) => AddFacet(getPropertyId<T>(propertyName));
     public QueryOfFacets<T, TInclude> AddFacet<TChild>(string propertyName) where TChild : T => AddFacet(getPropertyId<TChild>(propertyName));
     public QueryOfFacets<T, TInclude> AddFacet(Guid propertyId) {
@@ -36,8 +36,8 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> AddValueFacet(Expression<Func<T, object>> expression) => AddValueFacet(getPropertyId(expression));
-    public QueryOfFacets<T, TInclude> AddValueFacet<TChild>(Expression<Func<TChild, object>> expression) where TChild : T => AddValueFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddValueFacet(Expression<Func<T, object?>> expression) => AddValueFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddValueFacet<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T => AddValueFacet(getPropertyId(expression));
     public QueryOfFacets<T, TInclude> AddValueFacet(string propertyName) => AddValueFacet(getPropertyId<T>(propertyName));
     public QueryOfFacets<T, TInclude> AddValueFacet<TChild>(string propertyName) where TChild : T => AddValueFacet(getPropertyId<TChild>(propertyName));
     public QueryOfFacets<T, TInclude> AddValueFacet(Guid propertyId) {
@@ -46,7 +46,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Expression<Func<T, object>> expression) => AddSingleRangeFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Expression<Func<T, object?>> expression) => AddSingleRangeFacet(getPropertyId(expression));
     public QueryOfFacets<T, TInclude> AddSingleRangeFacet(string propertyName) => AddSingleRangeFacet(getPropertyId<T>(propertyName));
     public QueryOfFacets<T, TInclude> AddSingleRangeFacet(Guid propertyId) {
         AddRangeFacet(propertyId);
@@ -54,9 +54,9 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object>> expression, object from, object to) => AddRangeFacet(getPropertyId(expression), from, to);
-    public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object>> expression) => AddRangeFacet(getPropertyId(expression));
-    public QueryOfFacets<T, TInclude> AddRangeFacet<TChild>(Expression<Func<TChild, object>> expression) where TChild : T => AddRangeFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object?>> expression, object from, object to) => AddRangeFacet(getPropertyId(expression), from, to);
+    public QueryOfFacets<T, TInclude> AddRangeFacet(Expression<Func<T, object?>> expression) => AddRangeFacet(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> AddRangeFacet<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T => AddRangeFacet(getPropertyId(expression));
     public QueryOfFacets<T, TInclude> AddRangeFacet(string propertyName) => AddRangeFacet(getPropertyId<T>(propertyName));
     public QueryOfFacets<T, TInclude> AddRangeFacet(string propertyName, object from, object to) => AddRangeFacet(getPropertyId<T>(propertyName), from, to);
     public QueryOfFacets<T, TInclude> AddRangeFacet<TChild>(string propertyName) where TChild : T => AddRangeFacet(getPropertyId<TChild>(propertyName));
@@ -82,8 +82,8 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         }
     }
 
-    public QueryOfFacets<T, TInclude> SetFacetValue(Expression<Func<T, object>> expression, object value, string? displayName = null) => SetFacetValue(getPropertyId(expression), value, displayName);
-    public QueryOfFacets<T, TInclude> SetFacetValue<TChild>(Expression<Func<TChild, object>> expression, object value, string? displayName = null) where TChild : T => SetFacetValue(getPropertyId(expression), value, displayName);
+    public QueryOfFacets<T, TInclude> SetFacetValue(Expression<Func<T, object?>> expression, object value, string? displayName = null) => SetFacetValue(getPropertyId(expression), value, displayName);
+    public QueryOfFacets<T, TInclude> SetFacetValue<TChild>(Expression<Func<TChild, object?>> expression, object value, string? displayName = null) where TChild : T => SetFacetValue(getPropertyId(expression), value, displayName);
     public QueryOfFacets<T, TInclude> SetFacetValue(string propertyName, object value, string? displayName = null) => SetFacetValue(getPropertyId<T>(propertyName), value, displayName);
     public QueryOfFacets<T, TInclude> SetFacetValue<TChild>(string propertyName, object value, string? displayName = null) where TChild : T => SetFacetValue(getPropertyId<TChild>(propertyName), value, displayName);
     public QueryOfFacets<T, TInclude> SetFacetValue(Guid propertyId, object value, string? displayName = null) {
@@ -93,8 +93,8 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> SetFacetRangeValue(Expression<Func<T, object>> expression, object from, object to, string? displayName = null) => SetFacetRangeValue(getPropertyId(expression), from, to, displayName);
-    public QueryOfFacets<T, TInclude> SetFacetRangeValue<TChild>(Expression<Func<TChild, object>> expression, object from, object to, string? displayName = null) where TChild : T => SetFacetRangeValue(getPropertyId(expression), from, to, displayName);
+    public QueryOfFacets<T, TInclude> SetFacetRangeValue(Expression<Func<T, object?>> expression, object from, object to, string? displayName = null) => SetFacetRangeValue(getPropertyId(expression), from, to, displayName);
+    public QueryOfFacets<T, TInclude> SetFacetRangeValue<TChild>(Expression<Func<TChild, object?>> expression, object from, object to, string? displayName = null) where TChild : T => SetFacetRangeValue(getPropertyId(expression), from, to, displayName);
     public QueryOfFacets<T, TInclude> SetFacetRangeValue(string propertyName, object from, object to, string? displayName = null) => SetFacetRangeValue(getPropertyId<T>(propertyName), from, to, displayName);
     public QueryOfFacets<T, TInclude> SetFacetRangeValue<TChild>(string propertyName, object from, object to, string? displayName = null) where TChild : T => SetFacetRangeValue(getPropertyId<TChild>(propertyName), from, to, displayName);
     public QueryOfFacets<T, TInclude> SetFacetRangeValue(Guid propertyId, object from, object to, string? displayName = null) {
@@ -102,7 +102,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> SetFacetMissingValue(Expression<Func<T, object>> expression) => SetFacetMissingValue(getPropertyId(expression));
+    public QueryOfFacets<T, TInclude> SetFacetMissingValue(Expression<Func<T, object?>> expression) => SetFacetMissingValue(getPropertyId(expression));
     public QueryOfFacets<T, TInclude> SetFacetMissingValue(string propertyName) => SetFacetMissingValue(getPropertyId<T>(propertyName));
     public QueryOfFacets<T, TInclude> SetFacetMissingValue<TChild>(string propertyName) where TChild : T => SetFacetMissingValue(getPropertyId<TChild>(propertyName));
     public QueryOfFacets<T, TInclude> SetFacetMissingValue(Guid propertyId) { // selects the missing-value bucket (nodes without a value)
@@ -110,7 +110,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return this;
     }
 
-    public QueryOfFacets<T, TInclude> SetFacetOptions(Expression<Func<T, object>> expression, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0)
+    public QueryOfFacets<T, TInclude> SetFacetOptions(Expression<Func<T, object?>> expression, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0)
         => SetFacetOptions(getPropertyId(expression), maxValues, minCount, includeMissing, sortByCount, rangeCount);
     public QueryOfFacets<T, TInclude> SetFacetOptions(string propertyName, int maxValues = 0, int minCount = 0, bool includeMissing = false, bool sortByCount = false, int rangeCount = 0)
         => SetFacetOptions(getPropertyId<T>(propertyName), maxValues, minCount, includeMissing, sortByCount, rangeCount);

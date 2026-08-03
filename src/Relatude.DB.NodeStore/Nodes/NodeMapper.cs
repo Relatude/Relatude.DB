@@ -28,7 +28,7 @@ public class NodeMapper {
         _store = store;
         _mapperByType = new();
     }
-    public PropertyModel GetProperty<T>(Expression<Func<T, object>> expression) {
+    public PropertyModel GetProperty<T>(Expression<Func<T, object?>> expression) {
         var exp = expression.Body;
         if (exp is UnaryExpression unExp && unExp.NodeType == ExpressionType.Convert) {
             exp = unExp.Operand;

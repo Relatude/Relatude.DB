@@ -54,7 +54,7 @@ public partial class Transaction {
     //public Transaction Relate<T, K>(T fromNode, Expression<Func<T, OneProperty<K>>> expression, K toNode) {
     //    return this;
     //}
-    public Transaction AddRelation<T>(T fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction AddRelation<T>(T fromNode, Expression<Func<T, object?>> expression, object toNode) {
         if (fromNode == null) throw new Exception("From node cannot be null. ");
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
@@ -79,7 +79,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction AddRelation<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
+    public Transaction AddRelation<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
@@ -89,7 +89,7 @@ public partial class Transaction {
         _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction AddRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
+    public Transaction AddRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, IEnumerable<Guid> idTos) {
         var p = getRelProp(expression);
         foreach (var idTo in idTos) _transactionData.AddRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
@@ -119,7 +119,7 @@ public partial class Transaction {
     //public Transaction Relate<TFrom, TTo>(OneToOne<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
     //public Transaction Relate<TFrom, TTo>(ManyToMany<TFrom, TTo> relation, TFrom fromNode, TTo toNode) => relate(relation, fromNode, toNode);
 
-    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object?>> expression, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             SetRelation(fromGuid, expression, toGuid);
@@ -143,12 +143,12 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction SetRelation<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
+    public Transaction SetRelation<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.SetRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction SetRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
+    public Transaction SetRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
         if (idTo == Guid.Empty) {
             ClearRelations(idFrom, expression);
             return this;
@@ -184,11 +184,11 @@ public partial class Transaction {
         _transactionData.SetRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, IEnumerable<object> toNodes) {
+    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object?>> expression, IEnumerable<object> toNodes) {
         foreach (var to in toNodes) SetRelation(fromNode, expression, to);
         return this;
     }
-    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, IEnumerable<Guid> toNodeIds) {
+    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object?>> expression, IEnumerable<Guid> toNodeIds) {
         var pId = getRelProp(expression).Id;
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             foreach (var to in toNodeIds) SetRelation(fromGuid, pId, to);
@@ -199,7 +199,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object>> expression, IEnumerable<int> toNodeIds) {
+    public Transaction SetRelation<T>(object fromNode, Expression<Func<T, object?>> expression, IEnumerable<int> toNodeIds) {
         var pId = getRelProp(expression).Id;
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             throw new Exception("Both source and target must currently use same datatype for id. Could be improved later. ");
@@ -211,7 +211,7 @@ public partial class Transaction {
         return this;
     }
 
-    public Transaction RemoveRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction RemoveRelation<T>(object fromNode, Expression<Func<T, object?>> expression, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             RemoveRelation(fromGuid, expression, toGuid);
@@ -223,17 +223,17 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction UnRelate<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
+    public Transaction UnRelate<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
+    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
         var p = getRelProp(expression);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, IEnumerable<Guid> idTos) {
+    public Transaction RemoveRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, IEnumerable<Guid> idTos) {
         var p = getRelProp(expression);
         foreach (var idTo in idTos) _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
@@ -249,7 +249,7 @@ public partial class Transaction {
         return this;
     }
 
-    public Transaction ClearRelation<T>(object fromNode, Expression<Func<T, object>> expression, object toNode) {
+    public Transaction ClearRelation<T>(object fromNode, Expression<Func<T, object?>> expression, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             ClearRelation(fromGuid, expression, toGuid);
@@ -261,12 +261,12 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction ClearRelation<T>(int idFrom, Expression<Func<T, object>> expression, int idTo) {
+    public Transaction ClearRelation<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction ClearRelation<T>(Guid idFrom, Expression<Func<T, object>> expression, Guid idTo) {
+    public Transaction ClearRelation<T>(Guid idFrom, Expression<Func<T, object?>> expression, Guid idTo) {
         var p = getRelProp(expression);
         _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
@@ -281,7 +281,7 @@ public partial class Transaction {
         _transactionData.ClearRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;
     }
-    public Transaction ClearRelations<T>(object fromNode, Expression<Func<T, object>> expression) {
+    public Transaction ClearRelations<T>(object fromNode, Expression<Func<T, object?>> expression) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)) {
             ClearRelations(fromGuid, expression);
         } else if (Store.Mapper.TryGetIdUInt(fromNode, out var fromUint)) {
@@ -291,7 +291,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction ClearRelations<T>(int idFrom, Expression<Func<T, object>> expression) {
+    public Transaction ClearRelations<T>(int idFrom, Expression<Func<T, object?>> expression) {
         var p = getRelProp(expression);
         if (p.FromTargetToSource) {
             _transactionData.ClearRelationsWithTarget(p.RelationId, idFrom);
@@ -300,7 +300,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction ClearRelations<T>(Guid idFrom, Expression<Func<T, object>> expression) {
+    public Transaction ClearRelations<T>(Guid idFrom, Expression<Func<T, object?>> expression) {
         var p = getRelProp(expression);
         if (p.FromTargetToSource) {
             _transactionData.ClearRelationsWithTarget(p.RelationId, idFrom);
@@ -335,8 +335,8 @@ public partial class Transaction {
     public Transaction UpdateProperty<T, V>(int nodeId, Expression<Func<T, V>> expression, V value) => UpdateIfDifferentProperty(nodeId, expression, value);
     public Transaction UpdateProperty(Guid nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
     public Transaction UpdateProperty(int nodeId, Guid propertyId, object value) => UpdateIfDifferentProperty(nodeId, propertyId, value);
-    public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) => UpdateIfDifferentProperties(nodeId, propertyValuePairs);
-    public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
+    public Transaction UpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object?>>, object>> propertyValuePairs) => UpdateIfDifferentProperties(nodeId, propertyValuePairs);
+    public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object?>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
 
     public Transaction UpdateDisplayName(object node, string value) => UpdateIfDifferentDisplayName(node, value);
     public Transaction UpdateDisplayName(Guid nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
@@ -365,7 +365,7 @@ public partial class Transaction {
         _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
         return this;
     }
-    public Transaction ForceUpdateProperty<T>(Guid nodeId, Expression<Func<T, object>> expression, object value) {
+    public Transaction ForceUpdateProperty<T>(Guid nodeId, Expression<Func<T, object?>> expression, object value) {
         if (value == null) throw new Exception("Value cannot be null. ");
         var propertyId = Store.Mapper.GetProperty(expression).Id;
         _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
@@ -391,13 +391,13 @@ public partial class Transaction {
         _transactionData.ForceUpdateProperty(nodeId, propertyId, value);
         return this;
     }
-    public Transaction ForceUpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
+    public Transaction ForceUpdateProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object?>>, object>> propertyValuePairs) {
         var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
         var values = propertyValuePairs.Select(tuple => tuple.Item2).ToArray();
         _transactionData.ForceUpdateProperties(nodeId, propertyIds, values);
         return this;
     }
-    public Transaction ForceUpdateProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
+    public Transaction ForceUpdateProperties<T>(Guid nodeId, Expression<Func<T, object?>>[] expressions, object[] values) {
         var propertyIds = expressions.Select(expression => Store.Mapper.GetProperty(expression).Id).ToArray();
         _transactionData.ForceUpdateProperties(nodeId, propertyIds, values);
         return this;
@@ -487,13 +487,13 @@ public partial class Transaction {
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
-    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object>>, object>> propertyValuePairs) {
+    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object?>>, object>> propertyValuePairs) {
         var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
         var values = propertyValuePairs.Select(tuple => tuple.Item2).ToArray();
         _transactionData.UpdateIfDifferentProperties(nodeId, propertyIds, values);
         return this;
     }
-    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, Expression<Func<T, object>>[] expressions, object[] values) {
+    public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, Expression<Func<T, object?>>[] expressions, object[] values) {
         var propertyIds = expressions.Select(expression => Store.Mapper.GetProperty(expression).Id).ToArray();
         _transactionData.UpdateIfDifferentProperties(nodeId, propertyIds, values);
         return this;
@@ -770,7 +770,7 @@ public partial class Transaction {
     int target(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? from : to;
     Guid source(Guid from, RelationPropertyModel p, Guid to) => p.FromTargetToSource ? to : from;
     Guid target(Guid from, RelationPropertyModel p, Guid to) => p.FromTargetToSource ? from : to;
-    RelationPropertyModel getRelProp<T>(Expression<Func<T, object>> expression) => getRelProp(Store.Mapper.GetProperty(expression).Id);
+    RelationPropertyModel getRelProp<T>(Expression<Func<T, object?>> expression) => getRelProp(Store.Mapper.GetProperty(expression).Id);
     RelationPropertyModel getRelProp(Guid propertyId) {
         if (!Store.Datastore.Datamodel.Properties.TryGetValue(propertyId, out var property)) {
             throw new Exception("Property with id " + propertyId + " is not part of the datamodel. ");
