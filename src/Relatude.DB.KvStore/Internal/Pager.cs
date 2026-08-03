@@ -417,7 +417,7 @@ internal sealed class Pager : IPageSource, IDisposable
             if (best is null || m.TxId > best.Value.TxId)
                 best = m;
         }
-        return best ?? throw new InvalidDataException("No valid meta page found. The file is not a SuperFastIndex database or is corrupt.");
+        return best ?? throw new InvalidDataException("No valid meta page found. The file is not a Index database or is corrupt.");
     }
 
     private static ulong Fnv1a64(ReadOnlySpan<byte> data)
