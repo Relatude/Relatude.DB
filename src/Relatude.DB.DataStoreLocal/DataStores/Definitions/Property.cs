@@ -331,6 +331,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is GuidPropertyModel g) return new GuidProperty(g, def);
             if (pm is DateTimePropertyModel dt) return new DateTimeProperty(dt, def);
             if (pm is DateTimeOffsetPropertyModel dto) return new DateTimeOffsetProperty(dto, def);
+            if (pm is GeoCoordinatePropertyModel geo) return new GeoCoordinateProperty(geo, def);
             if (pm is TimeSpanPropertyModel t) return new TimeSpanProperty(t, def);
             if (pm is StringPropertyModel p) return new StringProperty(p, def);
             if (pm is StringArrayPropertyModel pa) return new StringArrayProperty(pa, def);
@@ -381,6 +382,10 @@ namespace Relatude.DB.DataStores.Definitions {
             return false;
         }
         public virtual bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) => true;
+        // false excludes a specific VALUE from this property's indexes (e.g. empty GeoCoordinates,
+        // which mean "no location"). Must be a pure function of the value: index and de-index of
+        // the same value have to agree, or removals would target entries that were never added.
+        public virtual bool ShouldIndexValue(object value) => true;
         public virtual bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
             throw new NotImplementedException("The property " + CodeName + " of type " + PropertyType + " cannot support value requirements. ");
         }

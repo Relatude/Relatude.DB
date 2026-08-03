@@ -32,6 +32,8 @@ internal static class BuildUtilsProperties {
             p = getDateTimeOffsetPropertyModel(cast<DateTimeOffsetPropertyAttribute>(a, m));
         } else if (valueType == typeof(TimeSpan)) {
             p = getTimeSpanPropertyModel(cast<TimeSpanPropertyAttribute>(a, m));
+        } else if (valueType == typeof(GeoCoordinate)) {
+            p = getGeoCoordinatePropertyModel(cast<GeoCoordinatePropertyAttribute>(a, m));
         } else if (valueType == typeof(Guid)) {
             p = getGuidPropertyModel(cast<GuidPropertyAttribute>(a, m));
         } else if (valueType == typeof(byte[])) {
@@ -117,6 +119,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(DateTime)) attr = new DateTimePropertyAttribute();
             else if (valueType == typeof(DateTimeOffset)) attr = new DateTimeOffsetPropertyAttribute();
             else if (valueType == typeof(TimeSpan)) attr = new TimeSpanPropertyAttribute();
+            else if (valueType == typeof(GeoCoordinate)) attr = new GeoCoordinatePropertyAttribute();
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
@@ -158,6 +161,7 @@ internal static class BuildUtilsProperties {
             || attr is DateTimePropertyAttribute && valueType != typeof(DateTime)
             || attr is DateTimeOffsetPropertyAttribute && valueType != typeof(DateTimeOffset)
             || attr is TimeSpanPropertyAttribute && valueType != typeof(TimeSpan)
+            || attr is GeoCoordinatePropertyAttribute && valueType != typeof(GeoCoordinate)
             || attr is GuidPropertyAttribute && valueType != typeof(Guid)
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
             || attr is FilePropertyAttribute && valueType != typeof(FileValue)
@@ -261,6 +265,11 @@ internal static class BuildUtilsProperties {
         p.Indexed = a.Indexed;
         p.MaxValue = string.IsNullOrEmpty(a.MaxValue) ? DateTimeOffset.MaxValue : DateTimeOffset.Parse(a.MaxValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         p.MinValue = string.IsNullOrEmpty(a.MinValue) ? DateTimeOffset.MinValue : DateTimeOffset.Parse(a.MinValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        return p;
+    }
+    static GeoCoordinatePropertyModel getGeoCoordinatePropertyModel(GeoCoordinatePropertyAttribute a) {
+        var p = new GeoCoordinatePropertyModel();
+        p.Indexed = a.Indexed;
         return p;
     }
     static TimeSpanPropertyModel getTimeSpanPropertyModel(TimeSpanPropertyAttribute a) {

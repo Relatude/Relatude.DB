@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Buffers.Binary;
+using System.Globalization;
 namespace Relatude.DB.Datamodels.Properties;
 public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueContraints, IScalarProperty {
     public override bool ExcludeFromTextIndex { get; set; } = true;
@@ -32,6 +33,21 @@ public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueCo
         }
         return default;
     }
-    public override string GetDefaultValueAsCode() => 
+    public override string GetDefaultValueAsCode() =>
         $"new DateTimeOffset({DefaultValue.Ticks}, new TimeSpan({DefaultValue.Offset.Ticks}))";
+    // node data codec: 8 bytes utc ticks + 2 bytes offset in minutes (offsets are whole minutes, range ±14h)
+    public static byte[] GetBytes(DateTimeOffset value) {
+        var bytes = new byte[10];
+        BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(0, 8), value.UtcTicks);
+        BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(8, 2), checked((short)value.Offset.TotalMinutes));
+        return bytes;
+    }
+    public static DateTimeOffset GetValue(byte[] bytes) {
+        // 8 bytes = unix milliseconds: a read case for this encoding predates any working write
+        // path, so no stored data should have it, but it is kept readable just in case
+        if (bytes.Length == 8) return DateTimeOffset.FromUnixTimeMilliseconds(BitConverter.ToInt64(bytes));
+        var utcTicks = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(0, 8));
+        var offsetMinutes = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(8, 2));
+        return new DateTimeOffset(utcTicks, TimeSpan.Zero).ToOffset(TimeSpan.FromMinutes(offsetMinutes));
+    }
 }

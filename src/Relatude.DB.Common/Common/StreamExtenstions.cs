@@ -82,6 +82,15 @@ namespace Relatude.DB.Common {
             return new DateTimeOffset(new DateTime(ticks), new TimeSpan(offsetTicks));
         }
 
+        public static void WriteGeoCoordinate(this Stream s, GeoCoordinate v) {
+            s.Write(BitConverter.GetBytes(v.StorageValue), 0, 8);
+        }
+        public static GeoCoordinate ReadGeoCoordinate(this Stream s) {
+            byte[] b = new byte[8];
+            s.ReadExactly(b, 0, 8);
+            return GeoCoordinate.FromStorageValue(BitConverter.ToUInt64(b, 0));
+        }
+
         public static void WriteTimeSpan(this Stream s, TimeSpan v) {
             s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
         }

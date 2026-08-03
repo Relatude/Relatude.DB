@@ -259,6 +259,13 @@ public static class ModelGen {
                     sb.AppendLine(")]");
                 }
                 break;
+            case PropertyType.GeoCoordinate: {
+                    addBaseAttributes<GeoCoordinatePropertyAttribute>(p, dm, sb);
+                    var g = (GeoCoordinatePropertyModel)p;
+                    if (g.Indexed) sb.Append(", " + nameof(GeoCoordinatePropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
+                    sb.AppendLine(")]");
+                }
+                break;
             case PropertyType.Decimal: {
                     addBaseAttributes<DecimalPropertyAttribute>(p, dm, sb);
                     var i = (DecimalPropertyModel)p;

@@ -73,6 +73,7 @@ namespace Relatude.DB.Serialization {
                 PropertyType.Guid => stream.ReadGuid(),
                 PropertyType.GuidArray => stream.ReadGuidArray(),
                 PropertyType.EnumArray => stream.ReadIntArray(),
+                PropertyType.GeoCoordinate => stream.ReadGeoCoordinate(),
                 _ => throw new NotImplementedException(),
             };
         }

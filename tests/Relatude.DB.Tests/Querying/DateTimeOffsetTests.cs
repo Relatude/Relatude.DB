@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 
@@ -104,4 +105,37 @@ public class DateTimeOffsetTests {
 
     static Facets FacetOf<T>(ResultSetFacets<T> res, string codeName)
         => res.Facets.First(f => f.CodeName == codeName);
+
+    [TestMethod]
+    public void NodeData_PersistenceRoundTrip_PreservesInstantAndOffset() {
+        // a store WITHOUT an IO provider never serializes node data, so only this test (not the
+        // ones above) exercises the ToBytes/FromBytes node-data codec for DateTimeOffset
+        var io = new IOProviderMemory();
+        var dm = new Datamodel();
+        dm.Add<Meeting>();
+        var offsets = new[] { 0.0, 5.5, -8, 14, -14, 1 }; // includes the ±14h extremes and a half-hour offset
+        var all = offsets.Select((h, i) => new Meeting {
+            StartUtc = new DateTime(2020, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i),
+            Start = new DateTimeOffset(new DateTime(2020, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i)).ToOffset(TimeSpan.FromHours(h)),
+        }).ToList();
+
+        void verify(NodeStore s) {
+            var stored = s.Query<Meeting>().Execute().OrderBy(m => m.StartUtc).ToList();
+            Assert.AreEqual(all.Count, stored.Count);
+            for (var i = 0; i < all.Count; i++) {
+                Assert.AreEqual(all[i].Start, stored[i].Start, "Instant must survive the round trip");
+                Assert.AreEqual(all[i].Start.Offset, stored[i].Start.Offset, "Offset must survive the round trip");
+            }
+        }
+
+        var store = new NodeStore(DataStoreLocal.Open(dm, null, io));
+        store.Insert(all);
+        store.Maintenance(MaintenanceAction.ClearCache); // forces node segments to be re-read (deserialized) from the log
+        verify(store);
+        store.Dispose();
+
+        store = new NodeStore(DataStoreLocal.Open(dm, null, io)); // reopen: full log replay
+        verify(store);
+        store.Dispose();
+    }
 }

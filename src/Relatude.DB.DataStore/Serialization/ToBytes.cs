@@ -17,12 +17,14 @@ public static partial class ToBytes {
         if (value is Guid[]) return PropertyType.GuidArray;
         if (value is bool) return PropertyType.Boolean;
         if (value is DateTime) return PropertyType.DateTime;
+        if (value is DateTimeOffset) return PropertyType.DateTimeOffset;
         if (value is TimeSpan) return PropertyType.TimeSpan;
         if (value is Guid) return PropertyType.Guid;
         if (value is decimal) return PropertyType.Decimal;
         if (value is long) return PropertyType.Long;
         if (value is byte[]) return PropertyType.ByteArray;
         if (value is float[]) return PropertyType.FloatArray;
+        if (value is GeoCoordinate) return PropertyType.GeoCoordinate;
         throw new NotSupportedException("Only value types supported. ");
     }
     static void writeValueType(object v, Stream stream, PropertyType propType = PropertyType.Any) {
@@ -38,12 +40,14 @@ public static partial class ToBytes {
             case PropertyType.GuidArray: stream.WriteGuidArray((Guid[])v); break;
             case PropertyType.EnumArray: stream.WriteIntArray((int[])v); break;
             case PropertyType.DateTime: stream.WriteDateTime((DateTime)v); break;
+            case PropertyType.DateTimeOffset: stream.WriteDateTimeOffset((DateTimeOffset)v); break;
             case PropertyType.TimeSpan: stream.WriteTimeSpan((TimeSpan)v); break;
             case PropertyType.Guid: stream.WriteGuid((Guid)v); break;
             case PropertyType.Decimal: stream.WriteDecimal((decimal)v); break;
             case PropertyType.Long: stream.WriteLong((long)v); break;
             case PropertyType.ByteArray: stream.WriteByteArray((byte[])v); break;
             case PropertyType.FloatArray: stream.WriteFloatArray((float[])v); break;
+            case PropertyType.GeoCoordinate: stream.WriteGeoCoordinate((GeoCoordinate)v); break;
 
             case PropertyType.Any:
             case PropertyType.Relation:

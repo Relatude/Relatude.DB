@@ -73,6 +73,8 @@ namespace Relatude.RoundTripModels {
         public TimeSpan Duration { get; set; }
         [GuidProperty(Indexed = true, DefaultValue = "eeeeeeee-1111-2222-3333-444444444444", UniqueValues = true)]
         public Guid ExternalId { get; set; }
+        [GeoCoordinateProperty(Indexed = true)]
+        public GeoCoordinate Position { get; set; }
         [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, MinWordLength = 2, MaxWordLength = 20,
             MinLength = 1, MaxLength = 500, PrefixSearch = true, InfixSearch = true, IgnoreDuplicateEmptyValues = true,
             DefaultValue = "say \"hi\" in C:\\temp\\", TextIndexBoost = 3)] // hostile default: quotes and backslashes must be escaped in generated code

@@ -136,6 +136,10 @@ public class DateTimeOffsetPropertyAttribute : PropertyAttribute, IAttrWithUniqu
     public int FacetRangeCount { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
+public class GeoCoordinatePropertyAttribute : PropertyAttribute {
+    public bool Indexed { get; set; }
+}
+[AttributeUsage(AttributeTargets.Property)]
 public class TimeSpanPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrScalarProperty, IAttrWithNotFacet {
     // TimeSpan is not a legal attribute parameter type, values are given as constant ("c") format strings:
     public string? DefaultValue { get; set; }

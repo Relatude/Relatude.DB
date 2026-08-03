@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.Datamodels.Properties;
 
@@ -81,6 +82,16 @@ public abstract class PropertyModel {
                     return true;
                 }
                 break;
+            case PropertyType.GeoCoordinate:
+                if (anyFormat is GeoCoordinate valueGeoGiven) {
+                    value = valueGeoGiven;
+                    return true;
+                }
+                if (GeoCoordinate.TryParse(anyFormat.ToString(), out var valueGeo)) {
+                    value = valueGeo;
+                    return true;
+                }
+                break;
             case PropertyType.Relation:
                 break;
             default:
@@ -131,6 +142,7 @@ public abstract class PropertyModel {
             case PropertyType.References: return (T)(object)GuidArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.EnumArray: return (T)(object)EnumArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
+            case PropertyType.GeoCoordinate: return (T)(object)GeoCoordinatePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:
             default:

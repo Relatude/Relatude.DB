@@ -442,6 +442,31 @@ sealed class InRangeMethodDef : MethodDef {
     }
 }
 
+sealed class IsWithinMethodDef : MethodDef {
+    public override string[] Names => ["iswithin"];
+    public override int MinArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (e.Subject == null) throw new NullReferenceException();
+        var path = (e.Subject as VariableReferenceToken)?.Name ?? throw new NullReferenceException();
+        var center = ((ValueConstantToken)e.Arguments[0]).DirectValue;
+        var meters = ((ValueConstantToken)e.Arguments[1]).DirectValue;
+        return new GeoWithinExpression(path, center, meters);
+    }
+}
+
+sealed class DistanceToMethodDef : MethodDef {
+    public override string[] Names => ["distanceto"];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (e.Subject == null) throw new NullReferenceException();
+        var path = (e.Subject as VariableReferenceToken)?.Name ?? throw new NullReferenceException();
+        var center = ((ValueConstantToken)e.Arguments[0]).DirectValue;
+        return new GeoDistanceExpression(path, center);
+    }
+}
+
 sealed class WhereCultureMethodDef : MethodDef {
     public override string[] Names => ["whereculture"];
     public override int MinArgs => 1;
@@ -476,8 +501,8 @@ internal class BuildMethod {
         new CountMethodDef(), new SumMethodDef(), new RelationMethodDef(), new WhereInMethodDef(),
         new WhereInIdsMethodDef(), new RelatesAnyMethodDef(), new RelatesMethodDef(), new RelatesNotMethodDef(),
         new TraverseMethodDef(), new ShortestPathMethodDef(),
-        new IncludeMethodDef(), new InRangeMethodDef(), new WhereCultureMethodDef(),
-        new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
+        new IncludeMethodDef(), new InRangeMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
+        new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
     );
 
     private static Dictionary<string, MethodDef> BuildRegistry(params MethodDef[] defs)

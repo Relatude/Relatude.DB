@@ -62,6 +62,7 @@ public static class DatamodelExtensions {
     }
     static HashSet<Type> standardPropertyObjectTypes = [ // not relations
         typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(Guid[]), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal)
+        , typeof(GeoCoordinate)
         , typeof(FileValue)
         , typeof(IEmbedded)
         , typeof(IEmbeddedMap)

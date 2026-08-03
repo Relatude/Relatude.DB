@@ -63,6 +63,11 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 if (prop is DateTimeProperty or DateTimeOffsetProperty) return prop.Indexed;
             }
             return false;
+        } else if (exp is GeoWithinExpression geoEx) {
+            if (nodeType.AllPropertiesByName.TryGetValue(geoEx.PropertyName, out var prop)) {
+                if (prop is GeoCoordinateProperty) return prop.Indexed;
+            }
+            return false;
         } else if (exp is NotPrefixExpression notPrefix) {
             return canBeNative(vars, notPrefix.Subject, nodeType);
         } else {
@@ -162,6 +167,9 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     case PropertyType.Guid:
                         var guidValue = GuidPropertyModel.ForceValueType(constEx.Value!, out _);
                         return new OperatorExpressionNativeGuidProperty((GuidProperty)prop, guidValue, op);
+                    case PropertyType.GeoCoordinate:
+                        var geoValue = GeoCoordinatePropertyModel.ForceValueType(constEx.Value!, out _);
+                        return new OperatorExpressionNativeGeoCoordinateProperty((GeoCoordinateProperty)prop, def.Sets, geoValue, op);
                     case PropertyType.Any:
                     case PropertyType.Relation:
                     default: throw new NotSupportedException();
@@ -214,6 +222,15 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             if (prop is not IValueProperty vProp)
                 throw new NotSupportedException(rangeEx.PropertyName + " does not support range queries");
             return new MethodExpressionNativeRange(vProp, rangeEx.From, rangeEx.To);
+        } else if (orgFilter is GeoWithinExpression geoEx) {
+            var collection = geoEx.SourceObject.Evaluate(vars); // normally this collection... but could be other
+            if (collection is not NodeCollectionData nc) throw new NotSupportedException();
+            if (!nc._nodeType.AllPropertiesByName.TryGetValue(geoEx.PropertyName, out var prop)) {
+                throw new NotSupportedException(geoEx.PropertyName + " is not a property of " + nc._nodeType.ToString());
+            }
+            if (prop is not GeoCoordinateProperty geoProp)
+                throw new NotSupportedException(geoEx.PropertyName + " is not a GeoCoordinate property");
+            return new MethodExpressionNativeGeoWithin(geoProp, def.Sets, geoEx.Center, geoEx.Meters);
         } else {
             throw new NotImplementedException();
         }

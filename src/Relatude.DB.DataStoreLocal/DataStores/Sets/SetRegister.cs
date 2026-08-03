@@ -122,6 +122,24 @@ public class SetRegister(long maxSize) {
     public IdSet FilterRangesObject<T>(IValueIndex<T> index, IdSet set, object from, object to) where T : notnull {
         return FilterRanges(index, set, [new Tuple<T, T>((T)from, (T)to)]);
     }
+    /// <summary>
+    /// Ids whose coordinate lies within the given great-circle distance of center: candidates are
+    /// collected from the Z-order ranges covering the radius, then refined with the exact
+    /// distance. The refined (pre-intersection) set is cached by (index state, center, meters).
+    /// </summary>
+    public IdSet WhereWithinRadius(IValueIndex<GeoCoordinate> index, IdSet nodeIds, GeoCoordinate center, double meters) {
+        var key = new SetCacheKey(SetOperation.WhereWithinRadius, [index.StateId], [center, meters]);
+        var matches = createOrLookup(key, () => {
+            var hits = new List<int>();
+            foreach (var (from, to) in GeoSpatial.CoverRadius(center, meters)) {
+                foreach (var id in index.RangeSearch(from, to, true, true)) { // cover ranges never overlap, so ids stay unique
+                    if (index.TryGetValue(id, out var v) && v.DistanceTo(center) <= meters) hits.Add(id);
+                }
+            }
+            return hits;
+        });
+        return Intersection(nodeIds, matches);
+    }
 
     // Generates a set with a single value, and caches it for future use.
     public IdSet SingleValueIdSet(int id) {

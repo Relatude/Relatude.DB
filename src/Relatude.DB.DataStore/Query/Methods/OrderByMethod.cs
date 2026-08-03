@@ -22,6 +22,7 @@ public class OrderByMethod(IExpression input, LambdaExpression lambda, bool desc
         else if (v is long) order = reorder<long>(values.Values!, descending);
         else if (v is DateTime) order = reorder<DateTime>(values.Values!, descending);
         else if (v is TimeSpan) order = reorder<TimeSpan>(values.Values!, descending);
+        else if (v is Relatude.DB.Common.GeoCoordinate) throw new Exception("OrderBy does not support GeoCoordinate values (the index order is a space filling curve, not a meaningful sort order). Order by distance instead: OrderBy(x => x.Location.DistanceTo(center)). ");
         else throw new Exception("OrderBy does not support the type of the values in the collection. ");
         return coll.ReOrder(order);
     }

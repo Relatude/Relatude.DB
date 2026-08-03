@@ -50,6 +50,7 @@ internal static class CodeUtils {
             PropertyType.DateTime => "DateTime",
             PropertyType.DateTimeOffset => "DateTimeOffset",
             PropertyType.TimeSpan => "TimeSpan",
+            PropertyType.GeoCoordinate => "Relatude.DB.Common.GeoCoordinate",
             PropertyType.Long => "long",
             PropertyType.ByteArray => "byte[]",
             PropertyType.FloatArray => "float[]",

@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
@@ -140,6 +141,7 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
             PropertyType.Double => "REAL",
             PropertyType.String => "TEXT",
             PropertyType.DateTime => "INTEGER",
+            PropertyType.GeoCoordinate => "INTEGER", // the 62-bit storage code fits a signed sqlite INTEGER and preserves order
             _ => throw new NotImplementedException()
         };
     }
@@ -166,12 +168,14 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
         if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value);
         if (value is long && typeof(T) == typeof(int)) return (T)(object)(int)(long)value;
         if (value is long && typeof(T) == typeof(bool)) return (T)(object)((long)value != 0);
+        if (value is long && typeof(T) == typeof(GeoCoordinate)) return (T)(object)GeoCoordinate.FromStorageValue((ulong)(long)value);
         if (value is double && typeof(T) == typeof(float)) return (T)(object)(float)(double)value;
         return (T)value;
     }
     public object? CastToDb(object value) {
         if (value is DateTime dt) return dt.ToString("O");
         if (value is DateTimeOffset dto) return dto.ToString("O");
+        if (value is GeoCoordinate geo) return (long)geo.StorageValue; // 62-bit code: always non-negative as signed
         return value;
     }
 

@@ -23,6 +23,7 @@ public class ParameterModel {
             "DateTime" => DateTime.Parse(model.Value, formatProvider),
             "TimeSpan" => TimeSpan.Parse(model.Value, formatProvider),
             "Guid" => Guid.Parse(model.Value),
+            "GeoCoordinate" => Common.GeoCoordinate.TryParse(model.Value, out var geo) ? geo : throw new InvalidOperationException($"Invalid GeoCoordinate value: {model.Value}"),
             "string[]" => model.Value.Split(',').Select(s => s.Trim()).ToArray(),
             "Guid[]" => model.Value.Split(',').Select(s => Guid.Parse(s.Trim())).ToArray(),
             _ => throw new InvalidOperationException($"Unsupported data type: {model.DataType}")

@@ -15,4 +15,8 @@
 		<InternalsVisibleTo Include="SuperFastIndex.Faster" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />
+	</ItemGroup>
+
 </Project>

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
@@ -68,9 +69,10 @@ internal static class KeyCodec
         if (t == typeof(string)) return (new StringCodec(), 16);
         if (t == typeof(DateTimeOffset)) return (new DateTimeOffsetCodec(), 17);
         if (t == typeof(byte[])) return (new ByteArrayCodec(), 18);
+        if (t == typeof(GeoCoordinate)) return (new GeoCoordinateCodec(), 19);
         throw new NotSupportedException(
             $"Type '{t}' is not supported as an index value. Supported: integral types, bool, char, " +
-            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[].");
+            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], GeoCoordinate.");
     }
 
     /// <summary>Encodes a signed 32-bit id so unsigned byte order equals signed numeric order.</summary>
@@ -277,6 +279,21 @@ internal static class KeyCodec
             var offset = TimeSpan.FromMinutes(offsetMinutes);
             return new DateTimeOffset(utcTicks + offset.Ticks, offset);
         }
+    }
+
+    private sealed class GeoCoordinateCodec : IKeyCodec<GeoCoordinate>
+    {
+        // The storage value is the 62-bit Morton code + 1 (0 = Empty); big-endian byte order
+        // equals its numeric order, which is the type's CompareTo order.
+        public int FixedSize => 8;
+        public int GetMaxSize(GeoCoordinate value) => 8;
+        public int Encode(Span<byte> dst, GeoCoordinate value)
+        {
+            BinaryPrimitives.WriteUInt64BigEndian(dst, value.StorageValue);
+            return 8;
+        }
+        public GeoCoordinate Decode(ReadOnlySpan<byte> src)
+            => GeoCoordinate.FromStorageValue(BinaryPrimitives.ReadUInt64BigEndian(src));
     }
 
     private sealed class TimeSpanCodec : IKeyCodec<TimeSpan>

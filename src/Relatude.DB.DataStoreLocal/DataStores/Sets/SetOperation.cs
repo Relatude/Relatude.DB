@@ -22,6 +22,7 @@ public enum SetOperation : int {
     WhereNotEqual,
     WhereInRange,
     WherePartOfRange,
+    WhereWithinRadius,
     WhereHasRelation,
     OrderByAscending,
     OrderByDescending,

@@ -20,6 +20,10 @@ internal sealed class LinqQueryVisitor(List<Parameter> _queryParams) : Expressio
         if (!canBeEvaluated(node)) return base.VisitInvocation(node);
         return evaluateAndRegister(node);
     }
+    protected override Expression VisitNew(NewExpression node) {
+        if (!canBeEvaluated(node)) return base.VisitNew(node);
+        return evaluateAndRegister(node); // e.g. new GeoCoordinate(59.9, 10.7) folds into one typed parameter
+    }
     protected override Expression VisitLambda<T>(Expression<T> node) {
         // collect lambda parameters so we don't evaluate expressions depending on them
         foreach (var param in node.Parameters) _lambdaParams.Add(param);
@@ -46,6 +50,9 @@ internal sealed class LinqQueryVisitor(List<Parameter> _queryParams) : Expressio
                                        mc.Arguments.All(canBeEvaluated),
 
             InvocationExpression ie => canBeEvaluated(ie.Expression) && ie.Arguments.All(canBeEvaluated),
+
+            // constructor call with evaluatable arguments, e.g. new GeoCoordinate(59.9, 10.7) or new DateTime(2020, 1, 1)
+            NewExpression ne => ne.Arguments.All(canBeEvaluated),
 
             // unary / binary ops are evaluatable if all parts are
             UnaryExpression ue => canBeEvaluated(ue.Operand),
@@ -78,6 +85,9 @@ internal sealed class LinqQueryVisitor(List<Parameter> _queryParams) : Expressio
                 var obj = mc.Object != null ? evaluate(mc.Object) : null;
                 var args = mc.Arguments.Select(evaluate).ToArray();
                 return mc.Method.Invoke(obj, args);
+            case NewExpression ne:
+                var ctorArgs = ne.Arguments.Select(evaluate).ToArray();
+                return ne.Constructor != null ? ne.Constructor.Invoke(ctorArgs) : Activator.CreateInstance(ne.Type);
             case InvocationExpression ie:
                 // Handle calling Func<T> or delegate references
                 var lambda = evaluate(ie.Expression);

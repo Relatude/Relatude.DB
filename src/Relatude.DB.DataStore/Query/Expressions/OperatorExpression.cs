@@ -109,6 +109,13 @@ public class OperatorExpression : IExpression {
                 _ => throw operatorException(v1, op, v2),
             };
         }
+        if (v1 is Relatude.DB.Common.GeoCoordinate g1 && v2 is Relatude.DB.Common.GeoCoordinate g2) {
+            return op switch {
+                Operator.Equal => g1 == g2,
+                Operator.NotEqual => g1 != g2,
+                _ => throw operatorException(v1, op, v2), // order comparisons are not meaningful, use DistanceTo
+            };
+        }
         if (v1 is TimeSpan ts1 && v2 is TimeSpan ts2) {
             return op switch {
                 Operator.Equal => ts1 == ts2,

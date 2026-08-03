@@ -174,6 +174,38 @@ namespace Relatude.DB.Query.Expressions {
     internal class OperatorExpressionNativeGuidProperty : OperatorExpressionNativeProperty<Guid> {
         public OperatorExpressionNativeGuidProperty(GuidProperty property, Guid value, IndexOperator op) : base(property, value, op) { }
     }
+    internal class OperatorExpressionNativeGeoCoordinateProperty : IBooleanNativeExpression {
+        // equality matches the exact grid cell (~1 cm); order comparisons follow the Morton code
+        // order (well-defined but of little practical use). Empty values are excluded from the
+        // index, so "== Empty" (has no location) is answered by set difference against the ids
+        // that do have a location - keeping the indexed path consistent with row evaluation.
+        readonly GeoCoordinate _value;
+        readonly GeoCoordinateProperty _property;
+        readonly IndexOperator _operator;
+        readonly SetRegister _sets;
+        public OperatorExpressionNativeGeoCoordinateProperty(GeoCoordinateProperty property, SetRegister sets, GeoCoordinate value, IndexOperator op) {
+            _property = property;
+            _sets = sets;
+            _value = value;
+            _operator = op;
+        }
+        public IdSet Filter(IdSet set, QueryContext ctx) {
+            var index = _property.GetValueIndex(ctx);
+            if (_value.IsEmpty) {
+                if (_operator is not (IndexOperator.Equal or IndexOperator.NotEqual))
+                    throw new NotSupportedException("Empty GeoCoordinates only support equality comparisons. ");
+                var having = index.IdCount == 0 ? IdSet.Empty : _sets.FilterRanges(index, set, [new Tuple<GeoCoordinate, GeoCoordinate>(index.MinValue()!, index.MaxValue()!)]);
+                return _operator == IndexOperator.Equal ? _sets.Difference(set, having) : having;
+            }
+            return index.Filter(set, _operator, _value);
+        }
+        public int MaxCount(QueryContext ctx) {
+            if (_value.IsEmpty) return int.MaxValue; // ids without a location are not countable from the index
+            return _property.GetValueIndex(ctx).MaxCount(_operator, _value);
+        }
+        public override string ToString() => IndexOperatorUtil.ToString(_property.CodeName, _operator, "\"" + _value + "\"");
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
 
 
     //    internal class OperatorExpressionNativeBooleanProperty : IBooleanNativeExpression {
@@ -410,6 +442,33 @@ namespace Relatude.DB.Query.Expressions {
             return prop.FilterRanges(set, fromO, toO, ctx);
         }
         public int MaxCount(QueryContext ctx) => 1000;
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
+    internal class MethodExpressionNativeGeoWithin : IBooleanNativeExpression {
+        readonly GeoCoordinateProperty _property;
+        readonly SetRegister _sets;
+        readonly GeoCoordinate _center;
+        readonly double _meters;
+        List<(GeoCoordinate From, GeoCoordinate To)>? _cover;
+        List<(GeoCoordinate From, GeoCoordinate To)> cover => _cover ??= GeoSpatial.CoverRadius(_center, _meters);
+        public MethodExpressionNativeGeoWithin(GeoCoordinateProperty property, SetRegister sets, GeoCoordinate center, double meters) {
+            _property = property;
+            _sets = sets;
+            _center = center;
+            _meters = meters;
+        }
+        public IdSet Filter(IdSet set, QueryContext ctx) => _sets.WhereWithinRadius(_property.GetValueIndex(ctx), set, _center, _meters);
+        public int MaxCount(QueryContext ctx) {
+            // candidates in the covering Z-order ranges, from maintained counts (no id enumeration)
+            var index = _property.GetValueIndex(ctx);
+            long total = 0;
+            foreach (var (from, to) in cover) {
+                total += index.CountInRange(from, to, true, true);
+                if (total >= int.MaxValue) return int.MaxValue;
+            }
+            return (int)total;
+        }
+        public override string ToString() => _property.CodeName + ".IsWithin(\"" + _center + "\", " + _meters + ")";
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class OperatorExpressionNativeNotPrefix : IBooleanNativeExpression {

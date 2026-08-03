@@ -56,6 +56,7 @@ export enum PropertyType {
     DateTimeOffset = 15,
     GuidArray = 16,
     EnumArray = 17,
+    GeoCoordinate = 18,
     Embedded = 50,
     Reference = 75,
     References = 76,

@@ -67,6 +67,7 @@ internal sealed class Definition {
         if (node is NodeData nd) {
             foreach (var kv in nd.Values) {
                 var propDef = Properties[kv.PropertyId];
+                if (!propDef.ShouldIndexValue(kv.Value)) continue;
                 foreach (var index in propDef.AllIndexes) {
                     if (propDef.IsNodeRelevantForIndex(nd.NodeType, index)) action(nd, index, kv.Value);
                 }
@@ -77,6 +78,7 @@ internal sealed class Definition {
                 if (rev.RevisionType == RevisionType.Published) {
                     foreach (var kv in rev.Values) {
                         var propDef = Properties[kv.PropertyId];
+                        if (!propDef.ShouldIndexValue(kv.Value)) continue;
                         bool shouldIndex = true;
                         if (!propDef.Model.CultureSensitive) {  // only once for all revisions
                             if (!indexedProps.Contains(propDef.Id)) {
