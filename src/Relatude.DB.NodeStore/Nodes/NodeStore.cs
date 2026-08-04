@@ -248,7 +248,6 @@ public class NodeStore : IDisposable {
     public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult SetRelation<T>(int fromId, Expression<Func<T, object?>> expression, int toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toId), flushToDisk);
     public TransactionResult SetRelation(Guid fromId, Guid propertyId, Guid toId, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, propertyId, toId), flushToDisk);
-
     public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<object> toNodes, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toNodes), flushToDisk);
     public TransactionResult SetRelation<T>(T fromNode, Expression<Func<T, object?>> expression, IEnumerable<Guid> toIds, bool flushToDisk = false) where T : notnull => Execute(new Transaction(this).SetRelation(fromNode, expression, toIds), flushToDisk);
     public TransactionResult SetRelation<T>(Guid fromId, Expression<Func<T, object?>> expression, IEnumerable<int> toIds, bool flushToDisk = false) => Execute(new Transaction(this).SetRelation(fromId, expression, toIds), flushToDisk);

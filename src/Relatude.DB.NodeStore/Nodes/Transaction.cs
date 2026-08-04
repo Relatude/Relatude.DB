@@ -67,7 +67,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction Relate(object fromNode, Guid propertyId, object toNode) {
+    public Transaction AddRelation(object fromNode, Guid propertyId, object toNode) {
         if (Store.Mapper.TryGetIdGuidAndCreateIfPossible(fromNode, out var fromGuid)
             && Store.Mapper.TryGetIdGuidAndCreateIfPossible(toNode, out var toGuid)) {
             AddRelation(fromGuid, propertyId, toGuid);
@@ -223,7 +223,7 @@ public partial class Transaction {
         }
         return this;
     }
-    public Transaction UnRelate<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
+    public Transaction RemoveRelation<T>(int idFrom, Expression<Func<T, object?>> expression, int idTo) {
         var p = getRelProp(expression);
         _transactionData.RemoveRelation(p.RelationId, source(idFrom, p, idTo), target(idFrom, p, idTo));
         return this;

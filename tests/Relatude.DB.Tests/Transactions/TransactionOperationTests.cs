@@ -531,7 +531,7 @@ public class TransactionOperationTests {
         store.AddRelation<Article>(1, a => a.Children, 2);
 
         var t = store.CreateTransaction();
-        t.UnRelate<Article>(1, a => a.Children, 2);
+        t.RemoveRelation<Article>(1, a => a.Children, 2);
         t.Execute();
     }
 
