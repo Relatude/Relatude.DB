@@ -33,6 +33,18 @@ public class RelatedList {
         }
         if (_idSet != null) _idSet = null;
     }
+    public int IndexOf(int key) => _list.IndexOf(key);
+    public void MoveTo(int key, int toIndex) {
+        var fromIndex = _list.IndexOf(key);
+        if (fromIndex < 0) throw new ItemNotInRelationException();
+        if (toIndex < 0) toIndex = 0;
+        if (toIndex > _list.Count - 1) toIndex = _list.Count - 1;
+        if (fromIndex == toIndex) return;
+        _list.RemoveAt(fromIndex);
+        _list.Insert(toIndex, key);
+        // membership is unchanged so _set stays valid, but order changed so the cached IdSet must go
+        if (_idSet != null) _idSet = null;
+    }
     public IEnumerator<int> GetEnumerator() {
         return _list.GetEnumerator();
     }

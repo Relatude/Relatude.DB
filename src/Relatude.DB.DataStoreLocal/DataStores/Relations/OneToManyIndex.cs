@@ -58,6 +58,18 @@ public class OneToManyIndex() : IRelationIndex {
         _relData.Add(source, target, changedUtc);
     }
     public DateTime GetDateTime(int source, int target) => _relData.Get(source, target);
+    public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+        if (fromTargetToSource) { // the single source of a target, nothing to reorder
+            if (!_sourceByTarget.TryGetValue(owner, out var source) || source != moved) throw new ItemNotInRelationException();
+        } else {
+            if (!_targetBySource.TryGetValue(owner, out var targets)) throw new ItemNotInRelationException();
+            targets.MoveTo(moved, toIndex);
+        }
+    }
+    public int IndexOfRelated(int owner, int related, bool fromTargetToSource) {
+        if (fromTargetToSource) return _sourceByTarget.TryGetValue(owner, out var source) && source == related ? 0 : -1;
+        return _targetBySource.TryGetValue(owner, out var targets) ? targets.IndexOf(related) : -1;
+    }
     public void CompressMemory() {
 
     }

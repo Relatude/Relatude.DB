@@ -42,6 +42,15 @@ public class ManyToManyIndex() : IRelationIndex {
         _relData.Add(source, target, changedUtc);
     }
     public DateTime GetDateTime(int source, int target) => _relData.Get(source, target);
+    public void Move(int owner, int moved, bool fromTargetToSource, int toIndex) {
+        var lists = fromTargetToSource ? _relSourceByTarget : _relTargetBySource;
+        if (!lists.TryGetValue(owner, out var related)) throw new ItemNotInRelationException();
+        related.MoveTo(moved, toIndex);
+    }
+    public int IndexOfRelated(int owner, int related, bool fromTargetToSource) {
+        var lists = fromTargetToSource ? _relSourceByTarget : _relTargetBySource;
+        return lists.TryGetValue(owner, out var list) ? list.IndexOf(related) : -1;
+    }
     public void CompressMemory() { }
     public void SaveState(IAppendStream stream) {
         // this is saving duplicate data, and could be done more efficiently

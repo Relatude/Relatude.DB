@@ -200,11 +200,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else if (a is PrimitiveRelationAction ra) {
             if (_nodeWriteLocks.IsLocked(ra.Source, transactionLocks)) throw new NodeLockedException("Node with ID: " + ra.Source + " is locked and cannot have relations changed. ");
             if (_nodeWriteLocks.IsLocked(ra.Target, transactionLocks)) throw new NodeLockedException("Node with ID: " + ra.Target + " is locked and cannot have relations changed. ");
+        } else if (a is PrimitiveRelationReorderAction rra) {
+            if (_nodeWriteLocks.IsLocked(rra.Owner, transactionLocks)) throw new NodeLockedException("Node with ID: " + rra.Owner + " is locked and cannot have relations changed. ");
+            if (_nodeWriteLocks.IsLocked(rra.Moved, transactionLocks)) throw new NodeLockedException("Node with ID: " + rra.Moved + " is locked and cannot have relations changed. ");
         }
     }
     void executeAction(PrimitiveActionBase action, QueryContext ctx) {
         if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx);
         else if (action is PrimitiveRelationAction ra) executeRelationAction(ra);
+        else if (action is PrimitiveRelationReorderAction rra) _relations.RegisterAction(rra); // order only, no node or native model changes
         else throw new NotImplementedException();
     }
     void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx) {

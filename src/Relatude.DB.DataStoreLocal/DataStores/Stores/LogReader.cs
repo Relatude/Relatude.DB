@@ -103,6 +103,12 @@ internal class LogReader : IDisposable {
                 } else {
                     // unknown relation types are ignored
                 }
+            } else if (action is PrimitiveRelationReorderAction rra) { // check that loaded relation is of known type
+                if (def.Relations.ContainsKey(rra.RelationId)) {
+                    actions.Add(action);
+                } else {
+                    // unknown relation types are ignored
+                }
             } else { // cultures and collections....
                 throw new NotSupportedException("Unknown action type: " + action.GetType().Name);
             }

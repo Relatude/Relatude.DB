@@ -49,7 +49,7 @@ internal class LogRewriter {
     List<ExecutedPrimitiveTransaction> _newTransactionsWhileRewriting;
     (int nodeId, NodeSegment segment)[] _snapshot;
     public Dictionary<int, NodeSegment> _newSegements;
-    (Guid relId, RelData[] relations)[] _relations;
+    (Guid relId, RelData[] relations, PrimitiveRelationReorderAction[] reorders)[] _relations;
     readonly WALFile _newWAL;
     readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
     readonly ReadSegmentsFunc _threadSafeReadSegments;
@@ -57,7 +57,7 @@ internal class LogRewriter {
     public LogRewriter(string newFileKey, Definition definition,
         IIOProvider destinationIO,
         (int nodeId, NodeSegment segment)[] snapshot,
-        (Guid relId, RelData[] relations)[] relations,
+        (Guid relId, RelData[] relations, PrimitiveRelationReorderAction[] reorders)[] relations,
         ReadSegmentsFunc threadSafeReadSegments, // call back to old log file for reading segment content from old file
         RegisterNodeSegmentCallbackFunc registerNodeSegment // call back to store to register node segments in cache ( NodeStore )
         ) {
@@ -125,11 +125,12 @@ internal class LogRewriter {
             i++;
             if(_cancelled)  throw new OperationCanceledException("Log rewrite cancelled. ");
             reportProgress("Writing relation " + i + " of " + _relations.Length, 80 + (10 * i / _relations.Length));
-            var actions = new List<PrimitiveActionBase>(r.relations.Count());
+            var actions = new List<PrimitiveActionBase>(r.relations.Length + r.reorders.Length);
             foreach (var rel in r.relations) {
                 var action = new PrimitiveRelationAction(PrimitiveOperation.Add, r.relId, rel.Source, rel.Target, rel.DateTimeUtc);
                 actions.Add(action);
             }
+            actions.AddRange(r.reorders); // restores list orders that the plain add sequence cannot reproduce
             var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
             _newWAL.QueDiskWrites(t);
             _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);

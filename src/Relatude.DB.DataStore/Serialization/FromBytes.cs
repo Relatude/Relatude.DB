@@ -43,6 +43,24 @@ namespace Relatude.DB.Serialization {
             r.Source = (int)stream.ReadUInt();
             r.Target = (int)stream.ReadUInt();
             r.ChangeUtc = stream.ReadDateTime();
+            if (operation >= RelationOperation.MoveOffset) { // extra fields for the move operations only
+                r.Owner = (int)stream.ReadUInt();
+                r.OwnerGuid = stream.ReadGuid();
+                var itemCount = stream.ReadInt();
+                if (itemCount > 0) {
+                    r.Items = new int[itemCount];
+                    for (var i = 0; i < itemCount; i++) r.Items[i] = (int)stream.ReadUInt();
+                }
+                var itemGuidCount = stream.ReadInt();
+                if (itemGuidCount > 0) {
+                    r.ItemGuids = new Guid[itemGuidCount];
+                    for (var i = 0; i < itemGuidCount; i++) r.ItemGuids[i] = stream.ReadGuid();
+                }
+                r.Anchor = (int)stream.ReadUInt();
+                r.AnchorGuid = stream.ReadGuid();
+                r.Offset = stream.ReadInt();
+                r.ReorderSourcesOfTarget = stream.ReadOneByte() == 1;
+            }
             return r;
         }
         // object
