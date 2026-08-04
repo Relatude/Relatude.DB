@@ -23,6 +23,7 @@ Sources of truth in this repo:
 `src/Relatude.DB.NodeStore/Nodes/Attributes.cs`,
 `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`,
 `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs`,
+`src/Relatude.DB.NodeStore/Query/QueryExtensions.cs`,
 `examples/Website.Simple/Models/ShopModels.cs`,
 `examples/Website.Simple/Program.cs`,
 `examples/Website.Simple/relatude.db.json`.
@@ -51,8 +52,9 @@ properties map automatically by CLR type; attributes only *tune* things.
 public class Product {
     [PublicIdProperty] public Guid Id { get; set; }
 
-    [StringProperty(Indexed = true)] public string Name { get; set; } = "";
-    public string Description { get; set; } = "";      // no attribute needed
+    [StringProperty(Indexed = true, IndexedByWords = true)] public string Name { get; set; } = "";
+    [StringProperty(IndexedByWords = true)] public string Description { get; set; } = "";
+    public string Sku { get; set; } = "";              // no attribute needed
     [DoubleProperty(Indexed = true)] public double Price { get; set; }
     [BooleanProperty(Indexed = true)] public bool InStock { get; set; }
     [StringArrayProperty(Indexed = true)] public string[] Tags { get; set; } = [];
@@ -62,7 +64,9 @@ public class Product {
 ```
 
 `Indexed = true` is what makes a property filterable and facetable — the only
-performance knob needed on day one.
+performance knob needed on day one. (`IndexedByWords = true` is the one other knob worth
+knowing: it adds a word index to that single property, which is what `MatchesSearch` in §4
+searches.)
 
 ### Property types
 
@@ -208,6 +212,37 @@ foreach (var f in res.Facets)
 ```
 
 Async twins exist: `ExecuteAsync()`, `CountAsync()`, `FirstOrDefaultAsync()`.
+
+### Filtering text and arrays
+
+Inside a `Where` lambda the familiar C# methods work, answered from the index when the
+property has one and row by row when it does not:
+
+| Written as | Means | Needs |
+|---|---|---|
+| `p.Tags.Contains("eco")` | the array holds that element | – |
+| `p.Name.Contains("jacket")` | ordinal substring | – |
+| `p.Name.StartsWith("Wool")` | ordinal prefix | – |
+| `p.Description.MatchesSearch("wool jacket")` | word + semantic search in that **one** property | `IndexedByWords = true` |
+
+```csharp
+db.Query<Product>().Where(p => p.Tags.Contains("eco") && p.Name.StartsWith("Wo")).Execute();
+
+// scoped search: the words must be in Description, not merely somewhere in the node
+db.Query<Product>().Where(p => p.Description.MatchesSearch("waterproof")
+                            || p.Name.MatchesSearch("waterproof")).Execute();
+```
+
+Three things worth saying once:
+
+- Text matching is **ordinal** — case matters, like `==` on strings. An explicit
+  `StringComparison` is rejected rather than quietly ignored.
+- `Contains` means what it means in C#: an element on `string[]`/`Guid[]`/`int[]`/enum
+  arrays/`float[]`/`byte[]`, a substring on a `string`.
+- `MatchesSearch` is `WhereSearch` narrowed to one property, and being a predicate it
+  composes with `||` and `!` where a chained `WhereSearch` cannot. It is the one filter with
+  no unindexed fallback — a search cannot be evaluated row by row — so it requires
+  `IndexedByWords` (or `IndexedBySemantic`) and says so if the property lacks it.
 
 ## 5. Mutation API
 

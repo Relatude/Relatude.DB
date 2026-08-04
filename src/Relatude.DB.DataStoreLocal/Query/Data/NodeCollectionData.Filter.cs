@@ -54,8 +54,13 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 }
             }
             return true;
-        } else if (exp is SearchPropertyExpression) {
-            return true;
+        } else if (exp is MatchesSearchExpression matchesEx) {
+            // a search has no row evaluation, so only claim it when an index can actually answer it.
+            // note the word and semantic indexes are independent of the value index, hence no Indexed check
+            if (nodeType.AllPropertiesByName.TryGetValue(matchesEx.PropertyName, out var prop)) {
+                if (prop is StringProperty sp) return sp.IndexedByWords || sp.IndexedBySemantic;
+            }
+            return false;
         } else if (exp is RelationExpression) {
             return true;
         } else if (exp is RangeExpression rangeEx) {
@@ -69,10 +74,15 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             }
             return false;
         } else if (exp is ContainsExpression containsEx) {
-            // only array properties keeping a per element index can answer this from the index;
-            // everything else (non indexed arrays, float and byte arrays) falls back to row evaluation
+            // arrays need a per element index, strings need the value index to scan unique values;
+            // everything else (non indexed properties, float and byte arrays) falls back to row evaluation
             if (nodeType.AllPropertiesByName.TryGetValue(containsEx.PropertyName, out var prop)) {
-                if (prop is IArrayProperty) return prop.Indexed;
+                if (prop is IArrayProperty or StringProperty) return prop.Indexed;
+            }
+            return false;
+        } else if (exp is StartsWithExpression startsWithEx) {
+            if (nodeType.AllPropertiesByName.TryGetValue(startsWithEx.PropertyName, out var prop)) {
+                if (prop is StringProperty) return prop.Indexed;
             }
             return false;
         } else if (exp is NotPrefixExpression notPrefix) {
@@ -80,6 +90,14 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         } else {
             return false;
         }
+    }
+    // the property a "x.Name.Method(..)" expression is called on, resolved against the collection
+    // the lambda parameter is bound to (normally this collection... but could be other)
+    static Property propertyOf(Variables vars, VariableReferenceExpression source, string propertyName) {
+        if (source.Evaluate(vars) is not NodeCollectionData nc) throw new NotSupportedException();
+        if (!nc._nodeType.AllPropertiesByName.TryGetValue(propertyName, out var prop))
+            throw new NotSupportedException(propertyName + " is not a property of " + nc._nodeType.ToString());
+        return prop;
     }
     static IExpression getIndexExpression(Variables vars, IExpression orgFilter, Definition def, DataStores.DataStoreLocal db) {
         if (orgFilter is OperatorExpression opExp && opExp.IsBooleanExpression) {
@@ -201,12 +219,11 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                     _ => throw new NotSupportedException(),
                 };
             }
-        } else if (orgFilter is SearchPropertyExpression searchExp) {
-            var collection = searchExp.PropertyReference.Evaluate(vars); // normally this collection... but could be other
-            if (collection is not NodeCollectionData nc) throw new NotSupportedException();
-            var propName = searchExp.PropertyReference.PropertyName;
-            var prop = nc._nodeType.AllPropertiesByName[propName];
-            return new MethodExpressionNativeSearchProperty(def.Sets, (StringProperty)prop, searchExp.SearchText, db);
+        } else if (orgFilter is MatchesSearchExpression matchesEx) {
+            var prop = propertyOf(vars, matchesEx.SourceObject, matchesEx.PropertyName);
+            if (prop is not StringProperty strProp)
+                throw new NotSupportedException(matchesEx.PropertyName + " is not a string property, so MatchesSearch is not supported");
+            return new MethodExpressionNativeMatchesSearch(strProp, def.Sets, db, matchesEx);
         } else if (orgFilter is NotPrefixExpression notPrefix) {
             var exp = (IBooleanNativeExpression)getIndexExpression(vars, notPrefix.Subject, def, db);
             return new OperatorExpressionNativeNotPrefix(def.Sets, exp);
@@ -239,14 +256,17 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 throw new NotSupportedException(geoEx.PropertyName + " is not a GeoCoordinate property");
             return new MethodExpressionNativeGeoWithin(geoProp, def.Sets, geoEx.Center, geoEx.Meters);
         } else if (orgFilter is ContainsExpression containsEx) {
-            var collection = containsEx.SourceObject.Evaluate(vars); // normally this collection... but could be other
-            if (collection is not NodeCollectionData nc) throw new NotSupportedException();
-            if (!nc._nodeType.AllPropertiesByName.TryGetValue(containsEx.PropertyName, out var prop)) {
-                throw new NotSupportedException(containsEx.PropertyName + " is not a property of " + nc._nodeType.ToString());
-            }
+            var prop = propertyOf(vars, containsEx.SourceObject, containsEx.PropertyName);
+            if (prop is StringProperty strProp) // substring, as in C#
+                return new MethodExpressionNativeStringContains(strProp, def.Sets, containsEx.SubstringValue);
             if (prop is not IArrayProperty arrayProp)
-                throw new NotSupportedException(containsEx.PropertyName + " is not an array property with a per element index, so Contains cannot be answered from the index");
+                throw new NotSupportedException(containsEx.PropertyName + " is neither a string nor an array property with a per element index, so Contains cannot be answered from the index");
             return new MethodExpressionNativeContains(arrayProp, prop.CodeName, containsEx.Value);
+        } else if (orgFilter is StartsWithExpression startsWithEx) {
+            var prop = propertyOf(vars, startsWithEx.SourceObject, startsWithEx.PropertyName);
+            if (prop is not StringProperty strProp)
+                throw new NotSupportedException(startsWithEx.PropertyName + " is not a string property, so StartsWith is not supported");
+            return new MethodExpressionNativeStringStartsWith(strProp, def.Sets, startsWithEx.Prefix);
         } else {
             throw new NotImplementedException();
         }

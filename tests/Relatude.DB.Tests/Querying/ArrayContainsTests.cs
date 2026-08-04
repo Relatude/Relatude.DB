@@ -231,16 +231,6 @@ public class ArrayContainsTests {
     }
 
     [TestMethod]
-    public void Contains_OnNonArrayProperty_Throws() {
-        var store = OpenStore(out _);
-        // Name is a string, not an array: this must fail loudly rather than silently match nothing
-        var ex = Assert.ThrowsException<NotSupportedException>(
-            () => store.Query<TaggedItem>().Where(x => x.Name.Contains("Item")).Count());
-        StringAssert.Contains(ex.Message, "array");
-        store.Dispose();
-    }
-
-    [TestMethod]
     public void Contains_OnUnknownPropertyPath_Throws() {
         var store = OpenStore(out _);
         var ex = Assert.ThrowsException<Exception>(

@@ -141,6 +141,48 @@ public class SetRegister(long maxSize) {
         return Intersection(nodeIds, matches);
     }
 
+    /// <summary>
+    /// Ids whose string starts with prefix. The prefixed values lie in the half open range
+    /// [prefix, prefix.OrdinalPrefixUpperBound()), so one range scan answers this, usually without
+    /// reading a single value. Only for the prefixes where that range is not exact
+    /// (see <see cref="StringExtenstions.HasExactOrdinalPrefixRange"/>) is each candidate confirmed.
+    /// The matching (pre-intersection) set is cached by (index state, prefix).
+    /// </summary>
+    public IdSet WhereStringStartsWith(IValueIndex<string> index, IdSet nodeIds, string prefix) {
+        var key = new SetCacheKey(SetOperation.WhereStringStartsWith, [index.StateId], [prefix]);
+        var matches = createOrLookup(key, () => {
+            var upper = prefix.OrdinalPrefixUpperBound();
+            var candidates = upper == null
+                ? index.CollectGreaterThan(prefix, true) // no upper bound: every value from the prefix onwards
+                : index.CollectRangeSearch(prefix, upper, true, false);
+            if (prefix.HasExactOrdinalPrefixRange()) return candidates;
+            var hits = new List<int>(); // the range is a superset here, so confirm against the value
+            foreach (var id in candidates) {
+                if (index.TryGetValue(id, out var v) && v.StartsWith(prefix, StringComparison.Ordinal)) hits.Add(id);
+            }
+            return hits;
+        });
+        return Intersection(nodeIds, matches);
+    }
+
+    /// <summary>
+    /// Ids whose string holds value as a substring. No index answers a substring query directly, so
+    /// the unique values are scanned and the ids of the matching ones unioned: work proportional to
+    /// the number of distinct values rather than to the number of nodes, and no node is read. The
+    /// matching (pre-intersection) set is cached by (index state, value).
+    /// </summary>
+    public IdSet WhereStringContains(IValueIndex<string> index, IdSet nodeIds, string value) {
+        var key = new SetCacheKey(SetOperation.WhereStringContains, [index.StateId], [value]);
+        var matches = createOrLookup(key, () => {
+            var hits = new List<int>();
+            foreach (var v in index.UniqueValues) { // an id holds one value, so ids stay unique across values
+                if (v.Contains(value, StringComparison.Ordinal)) hits.AddRange(index.GetIds(v));
+            }
+            return hits;
+        });
+        return Intersection(nodeIds, matches);
+    }
+
     // Generates a set with a single value, and caches it for future use.
     public IdSet SingleValueIdSet(int id) {
         var key = new SetCacheKey(SetOperation.SingleValueSet, [], [id]);

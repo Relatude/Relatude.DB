@@ -58,6 +58,13 @@ abstract class MethodDef {
         return ExpressionTreeBuilder.Build(e.Subject, dm);
     }
 
+    /// <summary>The "x.Name" the method is called on, for methods that only apply to a property.</summary>
+    protected static string subjectPath(MethodCallToken e, string methodName) {
+        if (e.Subject is not VariableReferenceToken subject)
+            throw new Exception($"'{methodName}' is only supported directly on a property of the queried node, like x.Name.{methodName}(\"abc\").");
+        return subject.Name;
+    }
+
     protected static LambdaExpression BuildLambda(LambdaToken lambda, Datamodel dm, string methodName) {
         if (lambda.Paramaters == null || lambda.Paramaters.Length != 1)
             throw new Exception($"'{methodName}' only accepts a lambda with exactly one parameter.");
@@ -443,14 +450,55 @@ sealed class InRangeMethodDef : MethodDef {
 }
 
 sealed class ContainsMethodDef : MethodDef {
-    // x.Tags.Contains("red") on an array property: true when the array holds the value
+    // x.Tags.Contains("red") holds an element on an array property, an ordinal substring on a string
+    // property. The optional second argument is a StringComparison, only accepted as Ordinal.
     public override string[] Names => ["contains"];
     public override int MinArgs => 1;
-    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
-        if (e.Subject is not VariableReferenceToken subject)
-            throw new Exception("Contains is only supported directly on an array property, like x.Tags.Contains(\"red\").");
-        return new ContainsExpression(subject.Name, ((ValueConstantToken)e.Arguments[0]).DirectValue);
+        var subject = subjectPath(e, "Contains");
+        if (e.Arguments.Count > 1) StringMethodExpressionUtil.ValidateComparison(((ValueConstantToken)e.Arguments[1]).DirectValue, "Contains");
+        return new ContainsExpression(subject, ((ValueConstantToken)e.Arguments[0]).DirectValue);
+    }
+}
+
+sealed class StartsWithMethodDef : MethodDef {
+    // x.Name.StartsWith("Hello") on a string property. The optional second argument is a
+    // StringComparison, only accepted as Ordinal.
+    public override string[] Names => ["startswith"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var subject = subjectPath(e, "StartsWith");
+        if (e.Arguments.Count > 1) StringMethodExpressionUtil.ValidateComparison(((ValueConstantToken)e.Arguments[1]).DirectValue, "StartsWith");
+        return new StartsWithExpression(subject, ((ValueConstantToken)e.Arguments[0]).DirectValue);
+    }
+}
+
+sealed class MatchesSearchMethodDef : MethodDef {
+    // x.Body.MatchesSearch("wool jacket"[, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluated]):
+    // the search of "search"/"wheresearch" narrowed to one property, and usable as a predicate
+    public override string[] Names => ["matchessearch"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 5;
+    public override MethodParamDef[] Params => [
+        MethodParamDef.Required(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+        MethodParamDef.Optional(MethodParamKind.Constant),
+    ];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var subject = subjectPath(e, "MatchesSearch");
+        foreach (var arg in e.Arguments) if (arg is not ValueConstantToken) throw new Exception("Only constant arguments allowed in MatchesSearch expression.");
+        var args = e.Arguments.Cast<ValueConstantToken>().ToArray();
+        return new MatchesSearchExpression(subject, args[0].DirectValue,
+            args.Length > 1 ? args[1].GetDoubleOrNullValue() : null,
+            args.Length > 2 ? args[2].GetFloatOrNullValue() : null,
+            args.Length > 3 ? args[3].GetBoolOrNullValue() : null,
+            args.Length > 4 ? args[4].GetIntOrNullValue() : null);
     }
 }
 
@@ -513,8 +561,8 @@ internal class BuildMethod {
         new CountMethodDef(), new SumMethodDef(), new RelationMethodDef(), new WhereInMethodDef(),
         new WhereInIdsMethodDef(), new RelatesAnyMethodDef(), new RelatesMethodDef(), new RelatesNotMethodDef(),
         new TraverseMethodDef(), new ShortestPathMethodDef(),
-        new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(),
-        new IsWithinMethodDef(), new DistanceToMethodDef(),
+        new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(), new StartsWithMethodDef(),
+        new MatchesSearchMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
         new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
     );
 

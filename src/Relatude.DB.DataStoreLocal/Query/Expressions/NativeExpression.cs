@@ -398,34 +398,25 @@ namespace Relatude.DB.Query.Expressions {
     //    public object Evaluate(IVariables vars) => throw new NotImplementedException();
     //}
 
-    internal class MethodExpressionNativeSearchProperty : IBooleanNativeExpression {
-        readonly string _value;
-        readonly int _maxHits;
-        readonly StringProperty _property;
-        public MethodExpressionNativeSearchProperty(SetRegister sets, StringProperty property, string value, DataStoreLocal db) {
-            _property = property;
-            _value = value;
-            var ps = _value.Split('|');
-            if (ps.Length > 1) {
-                int.TryParse(ps[1], out _maxHits);
-                _value = ps[0];
-            } else {
-                _maxHits = int.MaxValue;
-            }
+    /// <summary>
+    /// x.Body.MatchesSearch(..): the hits of the property's own word and semantic indexes, intersected
+    /// with the set being filtered. The hits are found once and kept, so MaxCount can report the real
+    /// count and let the AND planner order this against the cheaper filters properly.
+    /// </summary>
+    internal class MethodExpressionNativeMatchesSearch(StringProperty property, SetRegister sets, DataStoreLocal db, MatchesSearchExpression exp) : IBooleanNativeExpression {
+        QueryContext? _ctxOfHits;
+        IdSet? _hits;
+        IdSet hits(QueryContext ctx) {
+            // ctx selects the culture specific index, so a memo only holds for the ctx it was made for
+            if (_hits != null && ReferenceEquals(_ctxOfHits, ctx)) return _hits;
+            var s = Data.NodeCollectionData.ResolveSearchSettings(db, exp.SemanticRatio, exp.MinimumVectorSimilarity, exp.OrSearch, exp.MaxWordsEvaluated);
+            _hits = property.SearchForIdSet(exp.SearchText, s.RatioSemantic, s.MinimumVectorSimilarity, s.OrSearch, s.MaxWordsEvaluated, db, ctx);
+            _ctxOfHits = ctx;
+            return _hits;
         }
-        public IdSet Filter(IdSet set, QueryContext ctx) {
-            throw new NotImplementedException("Search method with max hits not implemented in native expression.");
-            //var ids = _property.SearchForIdSet(_value, ratioSemantic, orSearch, _db);
-            //return _sets.Intersection(set, ids);
-        }
-        public int MaxCount(QueryContext ctx) {
-            throw new NotImplementedException("Search method with max hits not implemented in native expression.");
-            //if (_property.WordIndex == null) throw new NullReferenceException(nameof(_property.WordIndex));
-            //return _property.SearchForIdSet(_value, ratioSemantic, false, _db).Count;
-        }
-        public override string ToString() {
-            return _property.CodeName + ".Contains(" + _value.ToStringLiteral() + ")";
-        }
+        public IdSet Filter(IdSet set, QueryContext ctx) => sets.Intersection(set, hits(ctx));
+        public int MaxCount(QueryContext ctx) => hits(ctx).Count;
+        public override string ToString() => property.CodeName + ".MatchesSearch(" + exp.SearchText.ToStringLiteral() + ")";
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class MethodExpressionNativeRelation(SetRegister sets, bool[] directions, Relation[] relations, int to, RelQuestion method) : IBooleanNativeExpression {
@@ -448,6 +439,25 @@ namespace Relatude.DB.Query.Expressions {
         public IdSet Filter(IdSet set, QueryContext ctx) => property.FilterContainsElement(set, value, ctx);
         public int MaxCount(QueryContext ctx) => property.MaxCountContainsElement(value, ctx);
         public override string ToString() => codeName + ".Contains(" + ContainsExpression.ValueToString(value) + ")";
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
+    internal class MethodExpressionNativeStringStartsWith(StringProperty property, SetRegister sets, string prefix) : IBooleanNativeExpression {
+        public IdSet Filter(IdSet set, QueryContext ctx) => sets.WhereStringStartsWith(property.GetValueIndex(ctx), set, prefix);
+        public int MaxCount(QueryContext ctx) {
+            // the prefixed values are one range, so this comes from the index's maintained counts
+            var index = property.GetValueIndex(ctx);
+            var upper = prefix.OrdinalPrefixUpperBound();
+            return upper == null ? index.IdCount : index.CountInRange(prefix, upper, true, false);
+        }
+        public override string ToString() => property.CodeName + ".StartsWith(" + prefix.ToStringLiteral() + ")";
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
+    internal class MethodExpressionNativeStringContains(StringProperty property, SetRegister sets, string value) : IBooleanNativeExpression {
+        public IdSet Filter(IdSet set, QueryContext ctx) => sets.WhereStringContains(property.GetValueIndex(ctx), set, value);
+        // a substring match cannot be counted without scanning the unique values, so this filter is
+        // deliberately estimated as the worst case and therefore runs last within an AND
+        public int MaxCount(QueryContext ctx) => int.MaxValue;
+        public override string ToString() => property.CodeName + ".Contains(" + value.ToStringLiteral() + ")";
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
     internal class MethodExpressionNativeGeoWithin : IBooleanNativeExpression {

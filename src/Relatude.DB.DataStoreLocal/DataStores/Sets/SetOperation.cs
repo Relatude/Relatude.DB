@@ -23,6 +23,8 @@ public enum SetOperation : int {
     WhereInRange,
     WherePartOfRange,
     WhereWithinRadius,
+    WhereStringStartsWith,
+    WhereStringContains,
     WhereHasRelation,
     OrderByAscending,
     OrderByDescending,
