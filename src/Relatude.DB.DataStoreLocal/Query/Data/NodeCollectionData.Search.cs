@@ -3,16 +3,30 @@ namespace Relatude.DB.Query.Data;
 
 internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource, ISearchCollection {
     /// <summary>
-    /// The search settings a caller left open, filled in from the AI settings - or with the search
+    /// The search settings a caller left open, filled in from the store settings - or with the search
     /// turned fully lexical when no AI engine is configured. Shared by the two collection level
     /// searches and by the per property MatchesSearch filter, so all three default alike.
+    /// Order of precedence: the value given by the caller, then the AI provider setting if it was
+    /// explicitly configured, then SettingsLocal.DefaultSemanticIndexWeight / DefaultSemanticSimilarityLimit.
     /// </summary>
     internal static (double RatioSemantic, float MinimumVectorSimilarity, bool OrSearch, int MaxWordsEvaluated) ResolveSearchSettings(
         DataStores.DataStoreLocal db, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordsEvaluated) => (
-            ratioSemantic ?? (db._ai == null ? 0 : db._ai.Settings.GetDefaultSemanticRatio()),
-            minimumVectorSimilarity ?? (db._ai == null ? 0 : (float)db._ai.Settings.GetDefaultMinimumSimilarity()),
+            ratioSemantic ?? (db._ai == null ? 0 : defaultSemanticWeight(db)),
+            minimumVectorSimilarity ?? (db._ai == null ? 0 : defaultSimilarityLimit(db)),
             orSearch ?? false,
             maxWordsEvaluated ?? int.MaxValue);
+
+    /// <summary>
+    /// The weight is a 0-1 blend between the word index and the semantic index. It comes from a config
+    /// file, so it is clamped here rather than trusted. The similarity limit is a cosine similarity and
+    /// is left alone, -1 is a legal value meaning "no limit".
+    /// </summary>
+    static double defaultSemanticWeight(DataStores.DataStoreLocal db) {
+        var weight = db._ai!.Settings.DefaultSemanticRatio ?? db.Settings.DefaultSemanticIndexWeight;
+        return weight < 0 ? 0 : (weight > 1 ? 1 : weight);
+    }
+    static float defaultSimilarityLimit(DataStores.DataStoreLocal db)
+        => (float)(db._ai!.Settings.DefaultMinimumSimilarity ?? db.Settings.DefaultSemanticSimilarityLimit);
 
     public ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated) {
         var property = _def.Properties[searchPropertyId];

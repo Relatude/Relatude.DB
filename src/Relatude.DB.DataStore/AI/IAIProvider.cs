@@ -31,7 +31,12 @@ public class AIProviderSettings {
     public string? CompletionModel { get; set; }
     public Dictionary<string, string>? CompletionModelsByKey { get; set; }
 
+    /// <summary>
+    /// Optional provider level override of the search defaults. When left null the store settings
+    /// (SettingsLocal.DefaultSemanticIndexWeight and DefaultSemanticSimilarityLimit) decide.
+    /// </summary>
     public double? DefaultSemanticRatio { get; set; }
+    /// <inheritdoc cref="DefaultSemanticRatio"/>
     public double? DefaultMinimumSimilarity { get; set; }
 
     public int? MaxCharsInBatch { get; set; }

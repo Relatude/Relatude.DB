@@ -60,14 +60,18 @@ public class SettingsLocal {
     public double AutoPurgeCacheIntervalInMinutes { get; set; } = 5;
     public double AutoPurgeCacheLowerSizeLimitInMb { get; set; } = 1;
 
+    public double DefaultSemanticIndexWeight { get; set; } = 0.5;
+    public double DefaultSemanticSimilarityLimit { get; set; } = 0.4;
+
     public bool UsePersistedValueIndexesByDefault { get; set; } = false;
+    public bool UsePersistedTextIndexesByDefault { get; set; } = false;
+
     public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Memory;
     public string? PersistedValueIndexFolderPath { get; set; }
 
     public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
-    public bool UsePersistedTextIndexesByDefault { get; set; } = false;
     public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Memory;
 
     public bool AutoDequeTasks { get; set; } = true;
