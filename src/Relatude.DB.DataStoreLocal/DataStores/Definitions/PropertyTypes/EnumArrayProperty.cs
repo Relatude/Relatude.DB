@@ -5,9 +5,10 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Query.Expressions;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class EnumArrayProperty : Property, IPropertyContainsValue {
+internal class EnumArrayProperty : Property, IPropertyContainsValue, IArrayProperty {
     IndexUtil<IIntArrayIndex> _indexUtil = new();
     readonly Dictionary<int, string> _nameByValue = new();
     readonly Dictionary<string, int> _valueByName = new();
@@ -52,6 +53,13 @@ internal class EnumArrayProperty : Property, IPropertyContainsValue {
         return false;
     }
     string displayNameOfValue(int value) => _nameByValue.TryGetValue(value, out var name) ? name : value.ToString();
+    // Contains takes a boxed enum, an int or a numeric string, but deliberately not an enum NAME
+    // string: unlike a facet selection (which arrives as text from a UI) a Contains value would then
+    // only resolve on the indexed path, and row evaluation of a non indexed property has no name map.
+    public IdSet FilterContainsElement(IdSet set, object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<int>(value, out var v) ? GetIndex(ctx).Filter(set, IndexOperator.Equal, v) : IdSet.Empty;
+    public int MaxCountContainsElement(object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<int>(value, out var v) ? GetIndex(ctx).MaxCount(IndexOperator.Equal, v) : 0;
     public override bool CanBeFacet() => Indexed && !Model.NotFacet;
     public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
         var index = GetIndex(ctx);

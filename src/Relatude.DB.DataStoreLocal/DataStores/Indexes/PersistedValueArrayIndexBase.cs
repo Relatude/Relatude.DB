@@ -78,7 +78,10 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
 
     public IdSet Filter(IdSet set, IndexOperator op, T value) {
-        throw new NotSupportedException(GetType().Name + " does not support the " + op.ToString().ToUpper() + " operator. ");
+        // equality means "the array holds this element"; ordering operators have no meaning per array
+        if (op != IndexOperator.Equal) throw new NotSupportedException(GetType().Name + " does not support the " + op.ToString().ToUpper() + " operator. ");
+        ensureLoaded();
+        return _nodeIdByValue.TryGetValueIdSet(value, out var ids) ? _sets.Intersection(set, ids) : IdSet.Empty;
     }
     public int CountEqual(IdSet set, T value) {
         ensureLoaded();

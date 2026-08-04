@@ -26,7 +26,9 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     }
     public string UniqueKey { get; private set; }
     public IdSet Filter(IdSet set, IndexOperator op, T value) {
-        throw new NotSupportedException(GetType().Name + " does not support the " + op.ToString().ToUpper() + " operator. ");
+        // equality means "the array holds this element"; ordering operators have no meaning per array
+        if (op != IndexOperator.Equal) throw new NotSupportedException(GetType().Name + " does not support the " + op.ToString().ToUpper() + " operator. ");
+        return _nodeIdByValue.TryGetValueIdSet(value, out var ids) ? _sets.Intersection(set, ids) : IdSet.Empty;
     }
     public int CountEqual(IdSet set, T value) {
         if (_nodeIdByValue.TryGetValueIdSet(value, out var ids)) {

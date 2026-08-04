@@ -17,7 +17,7 @@ public class FloatArrayPropertyModel : PropertyModel {
         changed = true;
         return [];
     }
-    public override string GetDefaultValueAsCode() => "Array.Empty<byte>()";
+    public override string GetDefaultValueAsCode() => "Array.Empty<float>()";
 
     public static byte[] GetBytes(float[] value) {
         if (value == null || value.Length == 0) return Array.Empty<byte>();

@@ -68,6 +68,13 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
                 if (prop is GeoCoordinateProperty) return prop.Indexed;
             }
             return false;
+        } else if (exp is ContainsExpression containsEx) {
+            // only array properties keeping a per element index can answer this from the index;
+            // everything else (non indexed arrays, float and byte arrays) falls back to row evaluation
+            if (nodeType.AllPropertiesByName.TryGetValue(containsEx.PropertyName, out var prop)) {
+                if (prop is IArrayProperty) return prop.Indexed;
+            }
+            return false;
         } else if (exp is NotPrefixExpression notPrefix) {
             return canBeNative(vars, notPrefix.Subject, nodeType);
         } else {
@@ -231,6 +238,15 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             if (prop is not GeoCoordinateProperty geoProp)
                 throw new NotSupportedException(geoEx.PropertyName + " is not a GeoCoordinate property");
             return new MethodExpressionNativeGeoWithin(geoProp, def.Sets, geoEx.Center, geoEx.Meters);
+        } else if (orgFilter is ContainsExpression containsEx) {
+            var collection = containsEx.SourceObject.Evaluate(vars); // normally this collection... but could be other
+            if (collection is not NodeCollectionData nc) throw new NotSupportedException();
+            if (!nc._nodeType.AllPropertiesByName.TryGetValue(containsEx.PropertyName, out var prop)) {
+                throw new NotSupportedException(containsEx.PropertyName + " is not a property of " + nc._nodeType.ToString());
+            }
+            if (prop is not IArrayProperty arrayProp)
+                throw new NotSupportedException(containsEx.PropertyName + " is not an array property with a per element index, so Contains cannot be answered from the index");
+            return new MethodExpressionNativeContains(arrayProp, prop.CodeName, containsEx.Value);
         } else {
             throw new NotImplementedException();
         }

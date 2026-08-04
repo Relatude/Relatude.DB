@@ -5,9 +5,10 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Query.Expressions;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class StringArrayProperty : Property, IPropertyContainsValue {
+internal class StringArrayProperty : Property, IPropertyContainsValue, IArrayProperty {
     IndexUtil<IStringArrayIndex> _indexUtil = new();
     public IStringArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
@@ -29,6 +30,10 @@ internal class StringArrayProperty : Property, IPropertyContainsValue {
         foreach (var v in values) if (index.ContainsValue(v)) return true;
         return false;
     }
+    public IdSet FilterContainsElement(IdSet set, object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<string>(value, out var v) ? GetIndex(ctx).Filter(set, IndexOperator.Equal, v) : IdSet.Empty;
+    public int MaxCountContainsElement(object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<string>(value, out var v) ? GetIndex(ctx).MaxCount(IndexOperator.Equal, v) : 0;
     public override bool CanBeFacet() => Indexed && !Model.NotFacet;
     public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
         var index = GetIndex(ctx);

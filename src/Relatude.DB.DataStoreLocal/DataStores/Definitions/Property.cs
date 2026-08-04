@@ -15,6 +15,22 @@ namespace Relatude.DB.DataStores.Definitions {
     public interface IProperty {
         object ForceValueType(object value, out bool changed);
     }
+    /// <summary>
+    /// An array property whose index keeps a set of ids per unique element, so
+    /// "the array holds this value" can be answered from the index instead of per row.
+    /// Implemented by the string, enum and guid array properties. Float and byte arrays do not
+    /// implement it (they have no per element index) and fall back to row evaluation.
+    /// </summary>
+    public interface IArrayProperty : IProperty {
+        /// <summary>
+        /// The ids in set whose array holds an element equal to value. Empty when value cannot be
+        /// coerced to the element type, matching how an unparsable facet selection matches nothing.
+        /// Only valid when the property is indexed.
+        /// </summary>
+        IdSet FilterContainsElement(IdSet set, object? value, QueryContext ctx);
+        /// <summary>Worst case count of <see cref="FilterContainsElement"/>, used to order AND/OR operands.</summary>
+        int MaxCountContainsElement(object? value, QueryContext ctx);
+    }
     public interface IValueProperty : IProperty {
         IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx);
         bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted);

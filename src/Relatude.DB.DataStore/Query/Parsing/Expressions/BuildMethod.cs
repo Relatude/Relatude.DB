@@ -442,6 +442,18 @@ sealed class InRangeMethodDef : MethodDef {
     }
 }
 
+sealed class ContainsMethodDef : MethodDef {
+    // x.Tags.Contains("red") on an array property: true when the array holds the value
+    public override string[] Names => ["contains"];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (e.Subject is not VariableReferenceToken subject)
+            throw new Exception("Contains is only supported directly on an array property, like x.Tags.Contains(\"red\").");
+        return new ContainsExpression(subject.Name, ((ValueConstantToken)e.Arguments[0]).DirectValue);
+    }
+}
+
 sealed class IsWithinMethodDef : MethodDef {
     public override string[] Names => ["iswithin"];
     public override int MinArgs => 2;
@@ -501,7 +513,8 @@ internal class BuildMethod {
         new CountMethodDef(), new SumMethodDef(), new RelationMethodDef(), new WhereInMethodDef(),
         new WhereInIdsMethodDef(), new RelatesAnyMethodDef(), new RelatesMethodDef(), new RelatesNotMethodDef(),
         new TraverseMethodDef(), new ShortestPathMethodDef(),
-        new IncludeMethodDef(), new InRangeMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
+        new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(),
+        new IsWithinMethodDef(), new DistanceToMethodDef(),
         new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
     );
 

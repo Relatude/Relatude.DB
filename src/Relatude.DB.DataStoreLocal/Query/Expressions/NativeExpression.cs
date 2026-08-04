@@ -444,6 +444,12 @@ namespace Relatude.DB.Query.Expressions {
         public int MaxCount(QueryContext ctx) => 1000;
         public object Evaluate(IVariables vars) => throw new NotImplementedException();
     }
+    internal class MethodExpressionNativeContains(IArrayProperty property, string codeName, object? value) : IBooleanNativeExpression {
+        public IdSet Filter(IdSet set, QueryContext ctx) => property.FilterContainsElement(set, value, ctx);
+        public int MaxCount(QueryContext ctx) => property.MaxCountContainsElement(value, ctx);
+        public override string ToString() => codeName + ".Contains(" + ContainsExpression.ValueToString(value) + ")";
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
     internal class MethodExpressionNativeGeoWithin : IBooleanNativeExpression {
         readonly GeoCoordinateProperty _property;
         readonly SetRegister _sets;

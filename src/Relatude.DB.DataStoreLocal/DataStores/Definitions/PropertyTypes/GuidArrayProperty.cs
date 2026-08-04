@@ -5,9 +5,10 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Query.Expressions;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class GuidArrayProperty : Property, IPropertyContainsValue {
+internal class GuidArrayProperty : Property, IPropertyContainsValue, IArrayProperty {
     IndexUtil<IGuidArrayIndex> _indexUtil = new();
     public IGuidArrayIndex GetIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     public GuidArrayProperty(GuidArrayPropertyModel pm, Definition def) : base(pm, def) {
@@ -37,6 +38,10 @@ internal class GuidArrayProperty : Property, IPropertyContainsValue {
         guid = Guid.Empty;
         return false;
     }
+    public IdSet FilterContainsElement(IdSet set, object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<Guid>(value, out var v) ? GetIndex(ctx).Filter(set, IndexOperator.Equal, v) : IdSet.Empty;
+    public int MaxCountContainsElement(object? value, QueryContext ctx)
+        => ArrayElementMatch.TryCoerce<Guid>(value, out var v) ? GetIndex(ctx).MaxCount(IndexOperator.Equal, v) : 0;
     public override bool CanBeFacet() => Indexed && !Model.NotFacet;
     public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
         var index = GetIndex(ctx);
