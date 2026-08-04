@@ -1,6 +1,34 @@
 
+TODO:
+- change tracking. 
+		One object for classes ( and interfaces )
+		Built in tracking on dynamic generated objects (from interfaces )
+- Link property type
+- Html parsring and Markdown parsing ( plugins )
+   link tracking
+- File conversion status page in DBA UI
+ - Changs file for dm models
+ - Tests for code generation...
+ - Simpler common Attributes for "Index"
+ - Remote store access
+ - Vector index optimazation
+
+   
+
+
+
+
+
 
 DBA UI:
+
+
+
+
+
+
+
+
 Overview:
 
 Notification area: Show reason or error message from database from startup, if any
