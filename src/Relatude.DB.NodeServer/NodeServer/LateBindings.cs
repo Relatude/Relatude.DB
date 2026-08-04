@@ -40,7 +40,7 @@ public static class LateBindings {
             case PersistedValueIndexEngine.Memory:
                 throw new Exception("The Memory engine is not supported for persisted index store. Please use Sqlite or Native engine.");
             case PersistedValueIndexEngine.Sqlite:
-                return create<IPersistedIndexStore>("Relatude.DB.DataStores.Indexes.PersistedIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath, wordIndexFactory]);
+                return create<IPersistedIndexStore>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath, wordIndexFactory]);
             case PersistedValueIndexEngine.Native:
                 if(wordIndexFactory == null) throw new Exception("wordIndexFactory cannot be null for Native engine.");
                 return new NativeKvIndexStore(indexPath, wordIndexFactory);
