@@ -15,7 +15,7 @@ TODO:
 
    
 
-
+   - look into using NativeKv for storage of NodeSegments in NodeStore and Meta indexes and GuidStore to reduce memory usage
 
 
 

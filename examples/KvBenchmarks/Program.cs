@@ -19,7 +19,7 @@ using KvBenchmarks.Harness;
 var options = Options.Parse(args);
 
 if (args.Length == 0) {
-    options.N = 100_000;
+    options.N = 1_000_000;
     options.SkipVerify = true;
     options.InProcess = true;
 }

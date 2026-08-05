@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Datastores.Indexes.BTreeIndex;
+using Relatude.DB.Datastores.Indexes.BTreeIndex;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.AI;
@@ -6,9 +6,7 @@ namespace Relatude.DB.AI;
 public class NativeKvEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     readonly BPlusTreeStorageEngine _fileStorage;
-    readonly ISortedIntIndex<ulong> _hashes;
-    readonly ISortedIntIndex<byte[]> _embeddings;
-    int _nextId;
+    readonly ISortedUlongIndex<byte[]> _embeddings;
     bool _disposed;
     public NativeKvEmbeddingCache(string filePath) {
         var options = new BPlusTreeEngineOptions() {
@@ -16,16 +14,19 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             ValueCacheEntries = 10000,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
-        _hashes = _fileStorage.OpenOrCreateIntIndex<ulong>("embedding-hashes");
-        _embeddings = _fileStorage.OpenOrCreateIntIndex<byte[]>("embeddings");
-        _nextId = _hashes.Keys.DefaultIfEmpty(-1).Max() + 1;
+        try {
+            _embeddings = _fileStorage.OpenOrCreateUlongIndex<byte[]>("embeddings");
+        } catch (InvalidOperationException) {
+            // the file uses an older cache layout; it is only a cache, so discard it and start fresh
+            _fileStorage.DeleteAll();
+            _embeddings = _fileStorage.OpenOrCreateUlongIndex<byte[]>("embeddings");
+        }
     }
 
     public void ClearAll() {
         lock (_lock) {
             throwIfDisposed();
             _fileStorage.DeleteAll();
-            _nextId = 0;
         }
     }
 
@@ -41,7 +42,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         ArgumentNullException.ThrowIfNull(embedding);
         lock (_lock) {
             throwIfDisposed();
-            write(() => set(hash, embedding));
+            write(() => _embeddings.Set(hash, toBytes(embedding)));
         }
     }
 
@@ -52,7 +53,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             write(() => {
                 foreach (var (hash, embedding) in values) {
                     ArgumentNullException.ThrowIfNull(embedding);
-                    set(hash, embedding);
+                    _embeddings.Set(hash, toBytes(embedding));
                 }
             });
         }
@@ -61,25 +62,13 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
     public bool TryGet(ulong hash, [MaybeNullWhen(false)] out float[] embedding) {
         lock (_lock) {
             throwIfDisposed();
-            var id = getId(hash);
-            if (id.HasValue && _embeddings.TryGetValue(id.Value, out var value)) {
+            if (_embeddings.TryGetValue(hash, out var value)) {
                 embedding = toFloats(value);
                 return true;
             }
         }
         embedding = null;
         return false;
-    }
-
-    void set(ulong hash, float[] embedding) {
-        var id = getId(hash) ?? _nextId++;
-        _hashes.Set(id, hash);
-        _embeddings.Set(id, toBytes(embedding));
-    }
-
-    int? getId(ulong hash) {
-        foreach (var id in _hashes.GetIds(hash)) return id;
-        return null;
     }
 
     void write(Action action) {
@@ -107,4 +96,3 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
 
     void throwIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
-
