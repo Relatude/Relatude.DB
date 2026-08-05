@@ -48,14 +48,22 @@ public static class BenchRunner
         int durableTxns = 100, durableOpsPerTxn = 10;
         int removes = n / 4;
 
+        // The hash layout has no ordering to measure: it skips the ordered phases, which show as
+        // "-" in the report, and does not pay for their setup either. (It is exactly the layout
+        // whose index does not implement ISortedIntIndex, which is what gates the phases below.)
+        bool ordered = !Engines.IsHashLayout(engineName);
+
         // Range windows over the sorted inserted values: [from..to] spans ~window entries.
-        T[] sorted = (T[])values.Clone();
-        Array.Sort(sorted, (a, b) => OrderedCodec.Compare(OrderedCodec.EncodeValue(a), OrderedCodec.EncodeValue(b)));
-        var windows = new (T From, T To)[rangeQueries];
-        for (int i = 0; i < rangeQueries; i++)
+        var windows = new (T From, T To)[ordered ? rangeQueries : 0];
+        if (ordered)
         {
-            int s = rnd.Next(0, Math.Max(1, n - window));
-            windows[i] = (sorted[s], sorted[Math.Min(n - 1, s + window - 1)]);
+            T[] sorted = (T[])values.Clone();
+            Array.Sort(sorted, (a, b) => OrderedCodec.Compare(OrderedCodec.EncodeValue(a), OrderedCodec.EncodeValue(b)));
+            for (int i = 0; i < rangeQueries; i++)
+            {
+                int s = rnd.Next(0, Math.Max(1, n - window));
+                windows[i] = (sorted[s], sorted[Math.Min(n - 1, s + window - 1)]);
+            }
         }
 
         int[] readIds = new int[reads];
@@ -72,7 +80,8 @@ public static class BenchRunner
 
         using var engineDisposable = (IDisposable)Engines.Create(engineName, dir);
         var engine = (IStorageEngine)engineDisposable;
-        var index = engine.OpenOrCreateIntIndex<T>("bench");
+        IIntIndex<T> index = Engines.OpenBenchIndex<T>(engine, engineName);
+        var sortedIndex = index as ISortedIntIndex<T>; // null only for the hash layout
         long ts = 0;
         var sw = new Stopwatch();
 
@@ -119,45 +128,50 @@ public static class BenchRunner
         result.Phases.Add(new("PointRead", reads, sw.Elapsed.TotalSeconds));
         if (found == 0) result.Error = "sanity: no point read found anything";
 
-        // ---- GetIds(value) ----
-        Progress("GetIds");
-        for (int i = 0; i < warm; i++) index.GetIds(values[i]).Count();
-        long idHits = 0;
-        sw.Restart();
-        for (int i = 0; i < getIdsOps; i++)
+        if (sortedIndex is not null)
         {
-            foreach (int _ in index.GetIds(values[rnd.Next(n)])) idHits++;
-        }
-        sw.Stop();
-        result.Phases.Add(new("GetIds", getIdsOps, sw.Elapsed.TotalSeconds));
-        if (idHits < getIdsOps) result.Error ??= "sanity: GetIds returned fewer ids than lookups";
+            // ---- GetIds(value) ----
+            // Only for layouts with a value index. The hash layout answers this by scanning every
+            // bucket, so running it here would time an O(n) operation against O(log n) ones.
+            Progress("GetIds");
+            for (int i = 0; i < warm; i++) sortedIndex.GetIds(values[i]).Count();
+            long idHits = 0;
+            sw.Restart();
+            for (int i = 0; i < getIdsOps; i++)
+            {
+                foreach (int _ in sortedIndex.GetIds(values[rnd.Next(n)])) idHits++;
+            }
+            sw.Stop();
+            result.Phases.Add(new("GetIds", getIdsOps, sw.Elapsed.TotalSeconds));
+            if (idHits < getIdsOps) result.Error ??= "sanity: GetIds returned fewer ids than lookups";
 
-        // ---- Range scans (rows/sec) ----
-        Progress("range scans");
-        for (int i = 0; i < 25; i++) index.GetIdsInRange(windows[i % rangeQueries].From, windows[i % rangeQueries].To).Count();
-        long rows = 0;
-        sw.Restart();
-        for (int i = 0; i < rangeQueries; i++)
-        {
-            var (from, to) = windows[i];
-            foreach (int _ in index.GetIdsInRange(from, to)) rows++;
-        }
-        sw.Stop();
-        result.Phases.Add(new("RangeScan", rows, sw.Elapsed.TotalSeconds));
+            // ---- Range scans (rows/sec) ----
+            Progress("range scans");
+            for (int i = 0; i < 25; i++) sortedIndex.GetIdsInRange(windows[i % rangeQueries].From, windows[i % rangeQueries].To).Count();
+            long rows = 0;
+            sw.Restart();
+            for (int i = 0; i < rangeQueries; i++)
+            {
+                var (from, to) = windows[i];
+                foreach (int _ in sortedIndex.GetIdsInRange(from, to)) rows++;
+            }
+            sw.Stop();
+            result.Phases.Add(new("RangeScan", rows, sw.Elapsed.TotalSeconds));
 
-        // ---- Range counts ----
-        Progress("range counts");
-        for (int i = 0; i < 25; i++) index.CountIdsInRange(windows[i % rangeQueries].From, windows[i % rangeQueries].To);
-        long counted = 0;
-        sw.Restart();
-        for (int i = 0; i < rangeQueries; i++)
-        {
-            var (from, to) = windows[i];
-            counted += index.CountIdsInRange(from, to);
+            // ---- Range counts ----
+            Progress("range counts");
+            for (int i = 0; i < 25; i++) sortedIndex.CountIdsInRange(windows[i % rangeQueries].From, windows[i % rangeQueries].To);
+            long counted = 0;
+            sw.Restart();
+            for (int i = 0; i < rangeQueries; i++)
+            {
+                var (from, to) = windows[i];
+                counted += sortedIndex.CountIdsInRange(from, to);
+            }
+            sw.Stop();
+            result.Phases.Add(new("RangeCount", rangeQueries, sw.Elapsed.TotalSeconds));
+            if (counted != rows) result.Error ??= $"sanity: RangeCount total {counted} != RangeScan rows {rows}";
         }
-        sw.Stop();
-        result.Phases.Add(new("RangeCount", rangeQueries, sw.Elapsed.TotalSeconds));
-        if (counted != rows) result.Error ??= $"sanity: RangeCount total {counted} != RangeScan rows {rows}";
 
         // ---- Updates ----
         Progress("updates");

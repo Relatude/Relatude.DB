@@ -1,16 +1,15 @@
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
-/// A bidirectional map between ids and ordered values: point lookups in both directions
-/// plus ordered range scans over the values. Entries are kept sorted by (value, id), so every
-/// query returns a deterministic order. One value per id; many ids may share a value.
+/// A map from ids to values: one value per id, many ids may share a value.
+/// Enumeration order is implementation-defined — see <see cref="ISortedDictionaryIndex{K,T}"/>
+/// for the variant that also orders by value and <see cref="IIntIndex{T}"/> (and its ulong/Guid
+/// siblings) for the unordered, lookup-only variant.
 /// </summary>
-public interface ISortedDictionaryIndex<K, T> where K : notnull where T : notnull {
+public interface IDictionaryIndex<K, T> {
+
     /// <summary>Number of entries (distinct ids).</summary>
     int Count { get; }
-
-    /// <summary>Number of distinct values across all entries.</summary>
-    int DistinctValueCount { get; }
 
     /// <summary>Maps <paramref name="id"/> to <paramref name="value"/>, replacing any existing mapping for that id.</summary>
     void Set(K id, T value);
@@ -27,17 +26,49 @@ public interface ISortedDictionaryIndex<K, T> where K : notnull where T : notnul
     /// <summary>True if an entry exists for <paramref name="id"/>.</summary>
     bool ContainsKey(K id);
 
-    /// <summary>True if at least one id is mapped to <paramref name="value"/>.</summary>
-    bool ContainsValue(T value);
-
-    /// <summary>All ids mapped to exactly <paramref name="value"/>, in ascending id order.</summary>
+    /// <summary>All ids mapped to exactly <paramref name="value"/>, in this index's enumeration order.</summary>
     IEnumerable<K> GetIds(T value);
 
-    /// <summary>Every (id, value) entry, ordered by id.</summary>
+    /// <summary>Every (id, value) entry, in this index's enumeration order.</summary>
     IEnumerable<KeyValuePair<K, T>> Entries { get; }
 
-    /// <summary>Every id with an entry, in ascending id order.</summary>
+    /// <summary>Every id with an entry, in this index's enumeration order.</summary>
     IEnumerable<K> Keys { get; }
+
+    /// <summary>
+    /// The engine timestamp this index is synchronized with: 0 for an index that was newly
+    /// created (did not exist) and has not yet seen an engine commit or
+    /// <see cref="IStorageEngine.SetTimestamp"/>; otherwise exactly the engine's timestamp.
+    /// An index never carries a timestamp of its own.
+    /// </summary>
+    long GetTimestamp();
+
+    /// <summary>
+    /// Sets the index timestamp: 0 marks the index as not yet synchronized (as if newly created);
+    /// the engine's current timestamp marks it synchronized. Any other value throws, since an
+    /// index timestamp is always either 0 or the engine's (see <see cref="GetTimestamp"/>).
+    /// </summary>
+    void SetTimestamp(long timestamp);
+
+}
+
+/// <summary>
+/// A bidirectional map between ids and ordered values: point lookups in both directions
+/// plus ordered range scans over the values. Entries are kept sorted by (value, id), so every
+/// query returns a deterministic order. One value per id; many ids may share a value.
+/// <para>
+/// The inherited members tighten their order contract here: <see cref="IDictionaryIndex{K,T}.Keys"/>
+/// and <see cref="IDictionaryIndex{K,T}.Entries"/> yield ascending id order, and
+/// <see cref="IDictionaryIndex{K,T}.GetIds"/> yields the ids of one value in ascending order.
+/// </para>
+/// </summary>
+public interface ISortedDictionaryIndex<K, T>: IDictionaryIndex<K, T> where K : notnull where T : notnull {
+
+    /// <summary>Number of distinct values across all entries.</summary>
+    int DistinctValueCount { get; }
+
+    /// <summary>True if at least one id is mapped to <paramref name="value"/>.</summary>
+    bool ContainsValue(T value);
 
     /// <summary>Every distinct value across all entries, in ascending value order.</summary>
     IEnumerable<T> DistinctValues { get; }
@@ -82,27 +113,33 @@ public interface ISortedDictionaryIndex<K, T> where K : notnull where T : notnul
     /// <summary>Number of ids whose value is smaller than <paramref name="value"/> (or equal to it when <paramref name="includeValue"/>).</summary>
     int CountIdsSmallerThan(T value, bool includeValue = true);
 
-    /// <summary>
-    /// The engine timestamp this index is synchronized with: 0 for an index that was newly
-    /// created (did not exist) and has not yet seen an engine commit or
-    /// <see cref="IStorageEngine.SetTimestamp"/>; otherwise exactly the engine's timestamp.
-    /// An index never carries a timestamp of its own.
-    /// </summary>
-    long GetTimestamp();
-
-    /// <summary>
-    /// Sets the index timestamp: 0 marks the index as not yet synchronized (as if newly created);
-    /// the engine's current timestamp marks it synchronized. Any other value throws, since an
-    /// index timestamp is always either 0 or the engine's (see <see cref="GetTimestamp"/>).
-    /// </summary>
-    void SetTimestamp(long timestamp);
 }
 
-public interface ISortedIntIndex<T> : ISortedDictionaryIndex<int, T> where T : notnull {
+
+/// <summary>
+/// An int-keyed map with no ordering obligations: everything is reached through the id.
+/// <see cref="IDictionaryIndex{K,T}.Keys"/>, <see cref="IDictionaryIndex{K,T}.Entries"/> and
+/// <see cref="IDictionaryIndex{K,T}.GetIds"/> enumerate in an unspecified, unstable order, and
+/// <see cref="IDictionaryIndex{K,T}.GetIds"/> is a full scan — dropping those guarantees is what
+/// buys the constant-time lookups (see <c>OpenOrCreateIntHashIndex</c>). A sorted index satisfies
+/// this contract too, so an engine without a dedicated hash layout can serve one.
+/// </summary>
+public interface IIntIndex<T> : IDictionaryIndex<int, T> where T : notnull {
 }
-public interface ISortedUlongIndex<T> : ISortedDictionaryIndex<ulong, T> where T : notnull {
+
+/// <summary>Same contract as <see cref="IIntIndex{T}"/>, keyed by ulong ids.</summary>
+public interface IUlongIndex<T> : IDictionaryIndex<ulong, T> where T : notnull {
 }
-public interface ISortedGuidIndex<T> : ISortedDictionaryIndex<Guid, T> where T : notnull {
+
+/// <summary>Same contract as <see cref="IIntIndex{T}"/>, keyed by Guid ids.</summary>
+public interface IGuidIndex<T> : IDictionaryIndex<Guid, T> where T : notnull {
+}
+
+public interface ISortedIntIndex<T> : ISortedDictionaryIndex<int, T>, IIntIndex<T> where T : notnull {
+}
+public interface ISortedUlongIndex<T> : ISortedDictionaryIndex<ulong, T>, IUlongIndex<T> where T : notnull {
+}
+public interface ISortedGuidIndex<T> : ISortedDictionaryIndex<Guid, T>, IGuidIndex<T> where T : notnull {
 }
 
 /// <summary>
@@ -133,6 +170,26 @@ public interface IStorageEngine {
 
     /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by Guid ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
     ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull;
+
+    /// <summary>
+    /// Opens the unordered index named <paramref name="name"/>, creating it if absent — same
+    /// storage, same transactions and same timestamp as <see cref="OpenOrCreateIntIndex{T}"/>,
+    /// but without any ordering (see <see cref="IIntIndex{T}"/>), which makes lookups by id and
+    /// writes markedly cheaper. A name belongs to one layout: opening a sorted index as a hash
+    /// index (or the reverse) throws, as does a mismatched id or value type.
+    /// <para>
+    /// The default implementation returns the sorted index, whose stronger guarantees satisfy this
+    /// contract; engines with a dedicated unordered layout override it.
+    /// </para>
+    /// </summary>
+    IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull => OpenOrCreateIntIndex<T>(name);
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by ulong ids.</summary>
+    IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull => OpenOrCreateUlongIndex<T>(name);
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by Guid ids.</summary>
+    IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull => OpenOrCreateGuidIndex<T>(name);
+
     /// <summary>Begins the single writer transaction; mutations require one.</summary>
     void BeginTransaction();
 

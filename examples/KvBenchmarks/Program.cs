@@ -4,22 +4,23 @@ using System.Text.Json;
 using KvBenchmarks;
 using KvBenchmarks.Harness;
 
-Test.Run();
-
-return 0;
-
-// KvBenchmarks — benchmarks the internal NativeKvStore (BPlusTreeStorageEngine) against
-// ISortedIndex implementations built on SQLite, ZoneTree and Microsoft FASTER.
+// KvBenchmarks — benchmarks the internal NativeKvStore (BPlusTreeStorageEngine), in both its
+// sorted and its unordered hash layout, against ISortedIndex implementations built on SQLite,
+// ZoneTree and Microsoft FASTER.
 //
 //   dotnet run -c Release [-- options]
 //
 // Options:
 //   --n=xxxxx                          entries per scenario
-//   --engines=native,sqlite,zonetree,faster
+//   --engines=native,native-hash,sqlite,zonetree,faster
 //   --scenarios=int,long,string,guid,datetime
 //   --data=<dir>                        working directory for store files (default: %TEMP%)
 //   --no-verify                         skip the correctness verification pass
 //   --in-process                        run everything in this process (memory numbers get noisy)
+//   --scratch                           run Test.Run() instead (ad-hoc experiments)
+
+    Test.Run();
+    return 0;
 
 var options = Options.Parse(args);
 
@@ -43,7 +44,7 @@ if (options.ChildEngine is not null) {
     return 0;
 }
 
-Console.WriteLine($"KvBenchmarks — NativeKvStore vs SQLite vs ZoneTree vs FASTER");
+Console.WriteLine($"KvBenchmarks — NativeKvStore (B+Tree and hash layouts) vs SQLite vs ZoneTree vs FASTER");
 Console.WriteLine($"n={options.N:N0} per scenario | engines: {string.Join(", ", options.Engines)} | scenarios: {string.Join(", ", options.Scenarios)}");
 Console.WriteLine();
 
@@ -176,7 +177,13 @@ static void PrintNotes() {
     Console.WriteLine("""
         Notes
           - All engines implement the same ISortedIndex<T> contract and were verified against the
-            native engine on identical op streams before timing.
+            native engine on identical op streams before timing. NativeKv (hash) implements the
+            unordered subset of it and was verified on the same stream, comparing its enumerations
+            as sets — it has no order to compare.
+          - NativeKv (hash) is the same engine and the same file as NativeKv (B+Tree) with the index
+            in the unordered layout (OpenOrCreateIntHashIndex): one extendible-hash table instead of
+            an id tree plus a value tree. Ordered columns are blank because it has no ordering, and
+            GetIds is blank because without a value index it would be an O(n) scan per call.
           - Insert/Update/Remove run in transactions of 20k ops; Insert ends with one durable commit.
           - Read/s: point lookups by id (10% misses). Range rows/s: rows yielded by GetIdsInRange
             over windows of ~1k rows. DurTx/s: small durable (fsync) transactions of 10 ops.
@@ -218,6 +225,7 @@ sealed class Options {
                 case "--data": o.DataDir = kv[1]; break;
                 case "--no-verify": o.SkipVerify = true; break;
                 case "--in-process": o.InProcess = true; break;
+                case "--scratch": break; // handled before parsing
                 case "--child-engine": o.ChildEngine = kv[1]; break;
                 case "--child-scenario": o.ChildScenario = kv[1]; break;
                 case "--child-dir": o.ChildDir = kv[1]; break;

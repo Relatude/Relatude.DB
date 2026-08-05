@@ -8,6 +8,10 @@ namespace KvBenchmarks.Harness;
 /// reference) and a candidate engine, and compares the result of every ISortedIndex query
 /// after each commit (and occasionally mid-transaction). A benchmark of a wrong index is
 /// worthless, so this runs before any timing.
+/// <para>
+/// The unordered hash layout is held to the subset of that battery it promises: the id-keyed
+/// queries element by element, and the enumerations as sets, since it guarantees no order.
+/// </para>
 /// </summary>
 public static class Verifier
 {
@@ -25,8 +29,8 @@ public static class Verifier
         using var candidate = (IDisposable)Engines.Create(engineName, dir);
         var refEngine = (IStorageEngine)reference;
         var candEngine = (IStorageEngine)candidate;
-        var refIdx = refEngine.OpenOrCreateIntIndex<T>("bench");
-        var candIdx = candEngine.OpenOrCreateIntIndex<T>("bench");
+        var refIdx = refEngine.OpenOrCreateIntIndex<T>(Engines.IndexName);
+        IIntIndex<T> candIdx = Engines.OpenBenchIndex<T>(candEngine, engineName);
 
         long ts = 0;
         for (int round = 0; round < Rounds; round++)
@@ -61,10 +65,9 @@ public static class Verifier
         return null;
     }
 
-    private static string? Battery<T>(ISortedIntIndex<T> a, ISortedIntIndex<T> b, T[] pool, Random rnd, string where) where T : notnull
+    private static string? Battery<T>(ISortedIntIndex<T> a, IIntIndex<T> b, T[] pool, Random rnd, string where) where T : notnull
     {
         if (a.Count != b.Count) return $"{where}: Count {a.Count} vs {b.Count}";
-        if (a.DistinctValueCount != b.DistinctValueCount) return $"{where}: DistinctValueCount {a.DistinctValueCount} vs {b.DistinctValueCount}";
 
         for (int i = 0; i < 20; i++)
         {
@@ -76,12 +79,38 @@ public static class Verifier
             if (a.ContainsKey(id) != b.ContainsKey(id)) return $"{where}: ContainsKey({id}) mismatch";
         }
 
+        // An unordered index promises the same content, not the same sequence, so its output is
+        // sorted by id before the comparison — the reference already yields exactly that order.
+        if (b is not ISortedIntIndex<T> sortedB)
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                T v = pool[rnd.Next(pool.Length)];
+                string? e = CompareSeq($"{where}: GetIds({v}) (sorted)", a.GetIds(v), b.GetIds(v).OrderBy(id => id));
+                if (e != null) return e;
+            }
+            string? err = CompareSeq($"{where}: Keys (sorted)", a.Keys, b.Keys.OrderBy(id => id));
+            return err ?? CompareEntries($"{where}: Entries (sorted)", a.Entries, b.Entries.OrderBy(e => e.Key));
+        }
+
+        for (int i = 0; i < 10; i++)
+        {
+            T v = pool[rnd.Next(pool.Length)];
+            string? err = CompareSeq($"{where}: GetIds({v})", a.GetIds(v), sortedB.GetIds(v));
+            if (err != null) return err;
+        }
+        return SortedBattery(a, sortedB, pool, rnd, where);
+    }
+
+    /// <summary>The half of the battery that only an ordered index answers: values, ranges and ordered enumerations.</summary>
+    private static string? SortedBattery<T>(ISortedIntIndex<T> a, ISortedIntIndex<T> b, T[] pool, Random rnd, string where) where T : notnull
+    {
+        if (a.DistinctValueCount != b.DistinctValueCount) return $"{where}: DistinctValueCount {a.DistinctValueCount} vs {b.DistinctValueCount}";
+
         for (int i = 0; i < 10; i++)
         {
             T v = pool[rnd.Next(pool.Length)];
             if (a.ContainsValue(v) != b.ContainsValue(v)) return $"{where}: ContainsValue({v}) mismatch";
-            string? err = CompareSeq($"{where}: GetIds({v})", a.GetIds(v), b.GetIds(v));
-            if (err != null) return err;
         }
 
         if (a.Count > 0)

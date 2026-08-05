@@ -28,12 +28,18 @@ internal interface IValueCacheOwner
 }
 
 /// <summary>
-/// Storage engine built on a copy-on-write B+Tree with shadow paging.
+/// Storage engine built on copy-on-write pages with shadow paging.
 /// One writer at a time (a transaction), any number of concurrent readers: every
 /// commit publishes an immutable snapshot, so reads never take a lock and never
 /// block behind the writer. Commits with <c>durable: true</c> are power-loss
 /// safe (data pages are flushed before the checksummed meta page that references
 /// them); with <c>false</c> they are process-crash safe and much faster.
+/// <para>
+/// An index comes in one of two layouts, both living in the same file and the same transactions:
+/// sorted (a pair of B+Trees — <see cref="BPlusTreeIndex{TId,T}"/>) for anything that needs order,
+/// and hash (<see cref="HashIndex{TId,T}"/>) for pure lookup by id, which costs one page read per
+/// lookup and one page copy per write instead of a descent and a whole copied path.
+/// </para>
 /// <para>
 /// Pass a <c>null</c> path to the constructor for a memory-only engine: pages live
 /// in memory instead of a file, nothing is persisted, and durability flags are no-ops.
@@ -41,26 +47,35 @@ internal interface IValueCacheOwner
 /// </summary>
 public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 {
-    internal sealed record IndexState(byte TypeId, byte IdKind, uint ValueRoot, uint IdRoot, int IdCount, int ValueCount);
+    /// <summary>Sorted indexes are a pair of B+Trees; hash indexes are one extendible-hash table (see <see cref="HashIndex{TId,T}"/>) whose directory root lives in <c>IdRoot</c>.</summary>
+    internal const byte LayoutSorted = 0;
+    internal const byte LayoutHash = 1;
+
+    /// <summary><paramref name="Dir"/> is the hash layout's in-memory bucket directory: null for a sorted index, and null for a hash index whose catalog entry has been read but which has not been opened yet.</summary>
+    internal sealed record IndexState(byte TypeId, byte IdKind, byte Layout, uint ValueRoot, uint IdRoot, int IdCount, int ValueCount, HashDirectory? Dir);
 
     internal sealed class MutableIndexState
     {
         public byte TypeId;
         public byte IdKind;
+        public byte Layout;
         public uint ValueRoot;
         public uint IdRoot;
         public int IdCount;
         public int ValueCount;
+        public MutableHashDir? Dir;
         public bool Dirty;
         public List<int>? TouchedSlots; // value-cache slot hashes of the ids this txn mutated, for eviction at commit
         public bool TouchedOverflow;    // txn touched more ids than the cache holds: clear instead
 
         public static MutableIndexState From(IndexState s) => new()
         {
-            TypeId = s.TypeId, IdKind = s.IdKind, ValueRoot = s.ValueRoot, IdRoot = s.IdRoot, IdCount = s.IdCount, ValueCount = s.ValueCount,
+            TypeId = s.TypeId, IdKind = s.IdKind, Layout = s.Layout, ValueRoot = s.ValueRoot, IdRoot = s.IdRoot,
+            IdCount = s.IdCount, ValueCount = s.ValueCount,
+            Dir = s.Dir is null ? null : new MutableHashDir(s.Dir),
         };
 
-        public IndexState ToImmutable() => new(TypeId, IdKind, ValueRoot, IdRoot, IdCount, ValueCount);
+        public IndexState ToImmutable() => new(TypeId, IdKind, Layout, ValueRoot, IdRoot, IdCount, ValueCount, Dir?.ToImmutable());
     }
 
     internal sealed class EngineSnapshot(long txId, long timestamp, Dictionary<string, IndexState> indexes)
@@ -142,43 +157,75 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     // ---- IStorageEngine ----
 
     public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
-        => OpenOrCreateCore<ISortedIntIndex<T>, T>(name, IdCodec<int>.Kind,
+        => OpenOrCreateCore<ISortedIntIndex<T>, T>(name, IdCodec<int>.Kind, LayoutSorted,
             existed => new BPlusTreeIntIndex<T>(this, name, hasEngineTimestamp: existed));
 
     /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by ulong ids (<see cref="ISortedUlongIndex{T}"/>).</summary>
     public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
-        => OpenOrCreateCore<ISortedUlongIndex<T>, T>(name, IdCodec<ulong>.Kind,
+        => OpenOrCreateCore<ISortedUlongIndex<T>, T>(name, IdCodec<ulong>.Kind, LayoutSorted,
             existed => new BPlusTreeUlongIndex<T>(this, name, hasEngineTimestamp: existed));
 
     /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by Guid ids (<see cref="ISortedGuidIndex{T}"/>).</summary>
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
-        => OpenOrCreateCore<ISortedGuidIndex<T>, T>(name, IdCodec<Guid>.Kind,
+        => OpenOrCreateCore<ISortedGuidIndex<T>, T>(name, IdCodec<Guid>.Kind, LayoutSorted,
             existed => new BPlusTreeGuidIndex<T>(this, name, hasEngineTimestamp: existed));
 
-    private TIndex OpenOrCreateCore<TIndex, T>(string name, byte idKind, Func<bool, TIndex> create)
+    /// <summary>
+    /// Opens the unordered index named <paramref name="name"/>, creating it if absent: same file,
+    /// same transactions and same timestamp as <see cref="OpenOrCreateIntIndex{T}"/>, but stored as
+    /// one extendible-hash table instead of two B+Trees (see <see cref="HashIndex{TId,T}"/>) —
+    /// lookups by id cost a single page read and writes copy a single page. A name belongs to one
+    /// layout: opening a sorted index as a hash index or the reverse throws.
+    /// </summary>
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<IIntIndex<T>, T>(name, IdCodec<int>.Kind, LayoutHash,
+            existed => new HashIntIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by ulong ids (<see cref="IUlongIndex{T}"/>).</summary>
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<IUlongIndex<T>, T>(name, IdCodec<ulong>.Kind, LayoutHash,
+            existed => new HashUlongIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by Guid ids (<see cref="IGuidIndex{T}"/>).</summary>
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<IGuidIndex<T>, T>(name, IdCodec<Guid>.Kind, LayoutHash,
+            existed => new HashGuidIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    private TIndex OpenOrCreateCore<TIndex, T>(string name, byte idKind, byte layout, Func<bool, TIndex> create)
         where TIndex : class
         where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         lock (_writeLock)
         {
+            bool existed = _committed.Indexes.TryGetValue(name, out var state);
+            if (existed)
+            {
+                if (state!.TypeId != KeyCodec.GetTypeId<T>() || state.IdKind != idKind)
+                    throw new InvalidOperationException($"Index '{name}' exists with a different id or value type.");
+                // Checked before the open-index shortcut below: a sorted index also satisfies the
+                // unordered interfaces, so the cast alone would happily hand one out.
+                if (state.Layout != layout)
+                    throw new InvalidOperationException($"Index '{name}' exists as {(state.Layout == LayoutHash ? "a hash" : "a sorted")} index; a name cannot hold both layouts.");
+            }
+
             if (_openIndexes.TryGetValue(name, out object? open))
             {
                 return open as TIndex
                     ?? throw new InvalidOperationException($"Index '{name}' is already open with a different id or value type.");
             }
 
-            bool existed = _committed.Indexes.TryGetValue(name, out var state);
             if (existed)
             {
-                if (state!.TypeId != KeyCodec.GetTypeId<T>() || state.IdKind != idKind)
-                    throw new InvalidOperationException($"Index '{name}' exists with a different id or value type.");
+                // The catalog only names the directory root; the directory itself is read once,
+                // here, and from then on travels with the snapshot that published it.
+                if (layout == LayoutHash && state!.Dir is null)
+                    ReplaceCommittedState(name, state with { Dir = HashDirectoryStore.Load(_pager, state.IdRoot) });
             }
             else
             {
-                var fresh = new IndexState(KeyCodec.GetTypeId<T>(), idKind, 0, 0, 0, 0);
-                var indexes = new Dictionary<string, IndexState>(_committed.Indexes) { [name] = fresh };
-                _committed = new EngineSnapshot(_committed.TxId, _committed.Timestamp, indexes);
+                ReplaceCommittedState(name, new IndexState(KeyCodec.GetTypeId<T>(), idKind, layout, 0, 0, 0, 0,
+                    layout == LayoutHash ? HashDirectory.CreateEmpty() : null));
                 _uncataloged.Add(name);
             }
 
@@ -186,6 +233,13 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             _openIndexes[name] = index;
             return index;
         }
+    }
+
+    /// <summary>Publishes a new snapshot differing only in one index's state. Callers hold the write lock.</summary>
+    private void ReplaceCommittedState(string name, IndexState state)
+    {
+        var indexes = new Dictionary<string, IndexState>(_committed.Indexes) { [name] = state };
+        _committed = new EngineSnapshot(_committed.TxId, _committed.Timestamp, indexes);
     }
 
     public bool IsInTransaction => _activeTxn is not null;
@@ -212,6 +266,10 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             {
                 if (st.Dirty)
                 {
+                    // A hash index keeps its directory in memory during the transaction; the pages
+                    // it dirtied are written here, into this same commit.
+                    if (st.Layout == LayoutHash)
+                        st.IdRoot = HashDirectoryStore.Persist(txn, st.Dir!);
                     indexes[name] = st.ToImmutable();
                     _uncataloged.Add(name);
                 }
@@ -282,7 +340,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             foreach (var (name, open) in _openIndexes)
             {
                 IndexState old = _committed.Indexes[name];
-                indexes[name] = new IndexState(old.TypeId, old.IdKind, 0, 0, 0, 0);
+                indexes[name] = new IndexState(old.TypeId, old.IdKind, old.Layout, 0, 0, 0, 0,
+                    old.Layout == LayoutHash ? HashDirectory.CreateEmpty() : null);
                 _uncataloged.Add(name);
                 if (open is IValueCacheOwner owner)
                     owner.EvictCommittedSlots(null, overflow: true);
@@ -316,8 +375,15 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             foreach (string name in doomed)
             {
                 IndexState st = indexes[name];
-                FreeTree(txn, st.ValueRoot);
-                FreeTree(txn, st.IdRoot);
+                if (st.Layout == LayoutHash)
+                {
+                    HashDirectoryStore.FreeAll(txn, st.IdRoot);
+                }
+                else
+                {
+                    FreeTree(txn, st.ValueRoot);
+                    FreeTree(txn, st.IdRoot);
+                }
                 txn.CatalogRoot = BTree.Delete(txn, txn.CatalogRoot, Encoding.UTF8.GetBytes(name), out _);
                 indexes.Remove(name);
             }
@@ -405,11 +471,14 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 
     internal IndexState GetCommittedState(EngineSnapshot snapshot, string name) => snapshot.Indexes[name];
 
-    // ---- catalog: name -> [typeId:u8][valueRoot:u32][idRoot:u32][idCount:i32][valueCount:i32][idKind:u8] ----
-    // idKind was appended later: 17-byte records from files written before it exists are read as
-    // idKind 0 (int), which is what every index was back then.
+    // ---- catalog: name -> [typeId:u8][valueRoot:u32][idRoot:u32][idCount:i32][valueCount:i32][idKind:u8][layout:u8] ----
+    // idKind and layout were appended later, one at a time: a shorter record from a file written
+    // before a field existed reads as 0, which is what every index was back then (int ids, sorted).
+    // A hash index has no value tree; its directory root is stored in idRoot.
 
-    private const int CatalogRecordSize = 18;
+    private const int CatalogRecordSize = 19;
+    private const int CatalogIdKindOffset = 17;
+    private const int CatalogLayoutOffset = 18;
 
     private void WriteCatalogEntry(WriteTxn txn, string name, IndexState st)
     {
@@ -419,7 +488,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(record[5..], st.IdRoot);
         BinaryPrimitives.WriteInt32LittleEndian(record[9..], st.IdCount);
         BinaryPrimitives.WriteInt32LittleEndian(record[13..], st.ValueCount);
-        record[17] = st.IdKind;
+        record[CatalogIdKindOffset] = st.IdKind;
+        record[CatalogLayoutOffset] = st.Layout;
         txn.CatalogRoot = BTree.Insert(txn, txn.CatalogRoot, Encoding.UTF8.GetBytes(name), record, out _);
     }
 
@@ -435,11 +505,13 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             ReadOnlySpan<byte> r = cursor.Value;
             indexes[name] = new IndexState(
                 r[0],
-                r.Length >= CatalogRecordSize ? r[17] : (byte)0,
+                r.Length > CatalogIdKindOffset ? r[CatalogIdKindOffset] : (byte)0,
+                r.Length > CatalogLayoutOffset ? r[CatalogLayoutOffset] : (byte)0,
                 BinaryPrimitives.ReadUInt32LittleEndian(r[1..]),
                 BinaryPrimitives.ReadUInt32LittleEndian(r[5..]),
                 BinaryPrimitives.ReadInt32LittleEndian(r[9..]),
-                BinaryPrimitives.ReadInt32LittleEndian(r[13..]));
+                BinaryPrimitives.ReadInt32LittleEndian(r[13..]),
+                Dir: null); // loaded on first open, not for every index in the file
         } while (cursor.MoveNext());
         return indexes;
     }

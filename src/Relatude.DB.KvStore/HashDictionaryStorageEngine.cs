@@ -37,6 +37,15 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
         => OpenOrCreateCore<ISortedGuidIndex<T>>(name, () => new HashDictionaryGuidIndex<T>(this, name));
 
+    // Every index here is already a hash map with a sorted id list on the side, so the unordered
+    // variants are the very same index: its stronger guarantees satisfy the weaker contract.
+
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull => OpenOrCreateIntIndex<T>(name);
+
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull => OpenOrCreateUlongIndex<T>(name);
+
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull => OpenOrCreateGuidIndex<T>(name);
+
     private TIndex OpenOrCreateCore<TIndex>(string name, Func<TIndex> create) where TIndex : class
     {
         ArgumentException.ThrowIfNullOrEmpty(name);

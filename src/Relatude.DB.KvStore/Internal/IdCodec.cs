@@ -57,6 +57,35 @@ internal static class IdCodec<TId> where TId : unmanaged
     }
 
     /// <summary>
+    /// 64-bit hash used to place an id in a <see cref="HashIndex{TId,T}"/> bucket (low bits pick
+    /// the directory slot, high bits form the in-page tag), so every bit has to be well mixed.
+    /// The int and ulong paths are the SplitMix64 finalizer, a bijection on 64 bits: distinct
+    /// int/ulong ids can never collide, which is what guarantees a full bucket always splits.
+    /// Guid folds 128 bits into 64, where collisions are possible but vanishingly rare.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ulong Hash(TId id)
+    {
+        if (typeof(TId) == typeof(int))
+            return Mix(Unsafe.BitCast<TId, uint>(id));
+        if (typeof(TId) == typeof(ulong))
+            return Mix(Unsafe.BitCast<TId, ulong>(id));
+        Guid g = Unsafe.BitCast<TId, Guid>(id);
+        ref byte b = ref Unsafe.As<Guid, byte>(ref g);
+        return Mix(Unsafe.ReadUnaligned<ulong>(ref b) ^ Mix(Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref b, 8))));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong Mix(ulong x)
+    {
+        x ^= x >> 30;
+        x *= 0xbf58476d1ce4e5b9ul;
+        x ^= x >> 27;
+        x *= 0x94d049bb133111ebul;
+        return x ^ (x >> 31);
+    }
+
+    /// <summary>
     /// Hash used to address a <see cref="ValueCache{TId,T}"/> slot. For int it is the id itself
     /// (dense ids then map to distinct slots, as the cache always assumed); for the wider types it
     /// folds the bits so nearby ids still spread.

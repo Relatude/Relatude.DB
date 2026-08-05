@@ -5,16 +5,27 @@ namespace KvBenchmarks.Harness;
 
 public static class Engines
 {
-    public static readonly string[] All = ["sqlite", "zonetree", "faster", "native",];
+    public static readonly string[] All = ["sqlite", "zonetree", "faster", "native", "native-hash",];
+
+    /// <summary>The index every scenario benchmarks.</summary>
+    public const string IndexName = "bench";
 
     public static string DisplayName(string name) => name switch
     {
         "native" => "NativeKv (B+Tree)",
+        "native-hash" => "NativeKv (hash)",
         "sqlite" => "SQLite",
         "zonetree" => "ZoneTree (LSM)",
         "faster" => "FASTER (+mem idx)",
         _ => name,
     };
+
+    /// <summary>
+    /// True for the engine entry that stores its index in the unordered hash layout. It is the same
+    /// <see cref="BPlusTreeStorageEngine"/> and the same file as "native" — only the index layout
+    /// differs, which is exactly what the two rows are there to compare.
+    /// </summary>
+    public static bool IsHashLayout(string name) => name == "native-hash";
 
     /// <summary>Creates a file-backed engine of the given kind rooted in <paramref name="dir"/>.</summary>
     public static IStorageEngine Create(string name, string dir)
@@ -24,7 +35,7 @@ public static class Engines
         {
             // Same options the production NativeKvIndexStore uses; BENCH_NATIVE_VC overrides the
             // value-cache size for experiments (0 disables it), BENCH_NATIVE_MEM=1 runs memory-only.
-            "native" => new BPlusTreeStorageEngine(
+            "native" or "native-hash" => new BPlusTreeStorageEngine(
                 Environment.GetEnvironmentVariable("BENCH_NATIVE_MEM") == "1" ? null : Path.Combine(dir, "native.db"),
                 new BPlusTreeEngineOptions
                 {
@@ -37,6 +48,16 @@ public static class Engines
             _ => throw new ArgumentException($"Unknown engine '{name}'."),
         };
     }
+
+    /// <summary>
+    /// Opens the benchmark index in the layout the engine entry stands for. Ordered phases run
+    /// against the result only when it is an <see cref="ISortedIntIndex{T}"/>, which every entry
+    /// but the hash one is.
+    /// </summary>
+    public static IIntIndex<T> OpenBenchIndex<T>(IStorageEngine engine, string engineName) where T : notnull
+        => IsHashLayout(engineName)
+            ? engine.OpenOrCreateIntHashIndex<T>(IndexName)
+            : engine.OpenOrCreateIntIndex<T>(IndexName);
 
     /// <summary>A memory-only native engine, used as the reference in verification.</summary>
     public static IStorageEngine CreateReference() => new BPlusTreeStorageEngine(null);

@@ -92,6 +92,15 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("AppendLogStorageEngine only supports int-keyed indexes; its log format encodes int ids.");
 
+    // In-memory structures with a log behind them: there is no separate unordered layout to gain
+    // from here, so the sorted index serves the weaker contract as-is.
+
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull => OpenOrCreateIntIndex<T>(name);
+
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull => OpenOrCreateUlongIndex<T>(name);
+
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull => OpenOrCreateGuidIndex<T>(name);
+
     public bool IsInTransaction => _inTransaction;
 
     public void BeginTransaction()
