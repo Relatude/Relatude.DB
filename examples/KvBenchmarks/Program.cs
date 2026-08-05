@@ -1,7 +1,12 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using KvBenchmarks;
 using KvBenchmarks.Harness;
+
+Test.Run();
+
+return 0;
 
 // KvBenchmarks — benchmarks the internal NativeKvStore (BPlusTreeStorageEngine) against
 // ISortedIndex implementations built on SQLite, ZoneTree and Microsoft FASTER.
