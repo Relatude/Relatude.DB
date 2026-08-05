@@ -35,8 +35,8 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
         {
-            return open as ISortedIntIndex<T>
-                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+            return open as ZoneTreeIndex<T>
+                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type or layout.");
         }
         string dir = Path.Combine(_folder, name);
         bool existed = Directory.Exists(dir);
@@ -45,10 +45,38 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
         return index;
     }
 
+    /// <summary>
+    /// The unordered layout: the id → value tree alone, without the composite (value, id) tree
+    /// <see cref="OpenOrCreateIntIndex{T}"/> maintains beside it. Every write then touches one LSM
+    /// tree instead of two, and ordered queries are gone rather than slow.
+    /// </summary>
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (_openIndexes.TryGetValue(name, out object? open))
+        {
+            if (open is ZoneTreeIndex<T>)
+                throw new InvalidOperationException($"Index '{name}' is already open as a sorted index.");
+            return open as ZoneTreeHashIndex<T>
+                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+        }
+        string dir = Path.Combine(_folder, name);
+        bool existed = Directory.Exists(dir);
+        var index = new ZoneTreeHashIndex<T>(this, dir, hasEngineTimestamp: existed);
+        _openIndexes[name] = index;
+        return index;
+    }
+
     public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public bool IsInTransaction => _inTxn;
@@ -135,21 +163,25 @@ internal interface IZoneTreeIndexInternal
     void ClearData();
 }
 
-public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInternal, IDisposable where T : notnull
+/// <summary>
+/// The unordered layout: a single ZoneTree keyed by id. <see cref="ZoneTreeIndex{T}"/> derives from
+/// it and adds the composite (value, id) tree that ordered queries need, so the two rows of the
+/// benchmark differ by exactly that tree and the writes that maintain it.
+/// </summary>
+public class ZoneTreeHashIndex<T> : IIntIndex<T>, IZoneTreeIndexInternal, IDisposable where T : notnull
 {
     private readonly ZoneTreeEngine _engine;
-    private readonly IOrderedCodec<T> _codec = OrderedCodec.Get<T>();
-    private readonly IZoneTree<int, Memory<byte>> _byId;          // id -> encoded value
-    private readonly IZoneTree<Memory<byte>, byte> _byValue;      // composite (value, id) -> 0
+    protected readonly IOrderedCodec<T> Codec = OrderedCodec.Get<T>();
+    protected readonly IZoneTree<int, Memory<byte>> ById;         // id -> encoded value
     private int _count;
     private bool _hasEngineTimestamp;
 
-    internal ZoneTreeIndex(ZoneTreeEngine engine, string dir, bool hasEngineTimestamp)
+    internal ZoneTreeHashIndex(ZoneTreeEngine engine, string dir, bool hasEngineTimestamp)
     {
         _engine = engine;
         _hasEngineTimestamp = hasEngineTimestamp;
 
-        _byId = new ZoneTreeFactory<int, Memory<byte>>()
+        ById = new ZoneTreeFactory<int, Memory<byte>>()
             .SetDataDirectory(Path.Combine(dir, "byid"))
             .SetComparer(new Int32ComparerAscending())
             .SetKeySerializer(new Int32Serializer())
@@ -159,6 +191,146 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
             .ConfigureWriteAheadLogOptions(o => o.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
             .OpenOrCreate();
 
+        if (hasEngineTimestamp)
+            _count = checked((int)ById.Count());
+    }
+
+    public int Count => _count;
+
+    /// <summary>Hook for the ordered layout: the id tree has just taken <paramref name="newValue"/>, replacing <paramref name="old"/> when <paramref name="existed"/>.</summary>
+    protected virtual void OnSet(int id, Memory<byte> old, bool existed, byte[] newValue) { }
+
+    /// <summary>Hook for the ordered layout: (<paramref name="old"/>, <paramref name="id"/>) is about to leave the id tree.</summary>
+    protected virtual void OnRemoved(int id, Memory<byte> old) { }
+
+    protected byte[] EncodeValue(T value)
+    {
+        byte[] tmp = new byte[Codec.GetMaxSize(value)];
+        int n = Codec.Encode(tmp, value);
+        return n == tmp.Length ? tmp : tmp[..n];
+    }
+
+    public void Set(int id, T value)
+    {
+        RequireTxn();
+        bool existed = ById.TryGet(in id, out Memory<byte> old);
+        byte[] valueBytes = EncodeValue(value);
+        Memory<byte> valueMem = valueBytes;
+        ById.Upsert(in id, in valueMem);
+        OnSet(id, old, existed, valueBytes);
+        if (!existed) _count++;
+    }
+
+    public bool Remove(int id)
+    {
+        RequireTxn();
+        if (!ById.TryGet(in id, out Memory<byte> old)) return false;
+        OnRemoved(id, old);
+        ById.ForceDelete(in id);
+        _count--;
+        return true;
+    }
+
+    private void RequireTxn()
+    {
+        if (!_engine.IsInTransaction)
+            throw new InvalidOperationException("Mutations require an active transaction (call BeginTransaction first).");
+    }
+
+    public T GetValue(int id)
+        => TryGetValue(id, out T value) ? value : throw new KeyNotFoundException($"Id {id} not found.");
+
+    public bool TryGetValue(int id, out T value)
+    {
+        if (ById.TryGet(in id, out Memory<byte> bytes))
+        {
+            value = Codec.Decode(bytes.Span);
+            return true;
+        }
+        value = default!;
+        return false;
+    }
+
+    public bool ContainsKey(int id) => ById.ContainsKey(in id);
+
+    /// <summary>Without a value tree this is a full scan of the id tree, comparing encoded bytes.</summary>
+    public virtual IEnumerable<int> GetIds(T value)
+    {
+        byte[] valueBytes = EncodeValue(value);
+        using var it = ById.CreateIterator(IteratorType.NoRefresh, false, false);
+        while (it.Next())
+            if (it.CurrentValue.Span.SequenceEqual(valueBytes))
+                yield return it.CurrentKey;
+    }
+
+    public IEnumerable<KeyValuePair<int, T>> Entries
+    {
+        get
+        {
+            using var it = ById.CreateIterator(IteratorType.NoRefresh, false, false);
+            while (it.Next())
+                yield return new(it.CurrentKey, Codec.Decode(it.CurrentValue.Span));
+        }
+    }
+
+    public IEnumerable<int> Keys
+    {
+        get
+        {
+            using var it = ById.CreateIterator(IteratorType.NoRefresh, false, false);
+            while (it.Next())
+                yield return it.CurrentKey;
+        }
+    }
+
+    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
+
+    public void SetTimestamp(long timestamp)
+    {
+        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
+        if (timestamp != _engine.GetTimestamp())
+            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
+        _hasEngineTimestamp = true;
+    }
+
+    void IZoneTreeIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
+
+    public virtual void SaveMetaData() => ById.Maintenance.SaveMetaData();
+
+    public virtual void FlushToDisk() => Flush(ById);
+
+    protected static void Flush<TKey, TValue>(IZoneTree<TKey, TValue> tree)
+    {
+        tree.Maintenance.MoveMutableSegmentForward();
+        tree.Maintenance.StartMergeOperation()?.Join();
+        tree.Maintenance.SaveMetaData();
+    }
+
+    public void ClearData()
+    {
+        foreach (int id in Keys.ToArray())
+        {
+            if (!ById.TryGet(in id, out Memory<byte> old)) continue;
+            OnRemoved(id, old);
+            ById.ForceDelete(in id);
+        }
+        _count = 0;
+    }
+
+    public virtual void Dispose()
+    {
+        ById.Maintenance.SaveMetaData();
+        ById.Dispose();
+    }
+}
+
+public sealed class ZoneTreeIndex<T> : ZoneTreeHashIndex<T>, ISortedIntIndex<T> where T : notnull
+{
+    private readonly IZoneTree<Memory<byte>, byte> _byValue;      // composite (value, id) -> 0
+
+    internal ZoneTreeIndex(ZoneTreeEngine engine, string dir, bool hasEngineTimestamp)
+        : base(engine, dir, hasEngineTimestamp)
+    {
         _byValue = new ZoneTreeFactory<Memory<byte>, byte>()
             .SetDataDirectory(Path.Combine(dir, "byval"))
             .SetComparer(new ByteArrayComparerAscending())
@@ -168,12 +340,24 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
             .SetMarkValueDeletedDelegate((ref byte v) => v = 1)
             .ConfigureWriteAheadLogOptions(o => o.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
             .OpenOrCreate();
-
-        if (hasEngineTimestamp)
-            _count = checked((int)_byId.Count());
     }
 
-    public int Count => _count;
+    protected override void OnSet(int id, Memory<byte> old, bool existed, byte[] newValue)
+    {
+        if (existed)
+        {
+            Memory<byte> oldComposite = Composite(old.Span, id);
+            _byValue.ForceDelete(in oldComposite);
+        }
+        Memory<byte> composite = Composite(newValue, id);
+        _byValue.Upsert(in composite, 0);
+    }
+
+    protected override void OnRemoved(int id, Memory<byte> old)
+    {
+        Memory<byte> oldComposite = Composite(old.Span, id);
+        _byValue.ForceDelete(in oldComposite);
+    }
 
     public int DistinctValueCount
     {
@@ -196,13 +380,6 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
         }
     }
 
-    private byte[] EncodeValue(T value)
-    {
-        byte[] tmp = new byte[_codec.GetMaxSize(value)];
-        int n = _codec.Encode(tmp, value);
-        return n == tmp.Length ? tmp : tmp[..n];
-    }
-
     private static byte[] Composite(ReadOnlySpan<byte> valueBytes, int id)
     {
         byte[] c = new byte[valueBytes.Length + OrderedCodec.IdSize];
@@ -211,90 +388,18 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
         return c;
     }
 
-    public void Set(int id, T value)
-    {
-        RequireTxn();
-        Memory<byte> old = default;
-        bool existed = _byId.TryGet(in id, out old);
-        if (existed)
-        {
-            Memory<byte> oldComposite = Composite(old.Span, id);
-            _byValue.ForceDelete(in oldComposite);
-        }
-        byte[] valueBytes = EncodeValue(value);
-        Memory<byte> valueMem = valueBytes;
-        _byId.Upsert(in id, in valueMem);
-        Memory<byte> composite = Composite(valueBytes, id);
-        _byValue.Upsert(in composite, 0);
-        if (!existed) _count++;
-    }
-
-    public bool Remove(int id)
-    {
-        RequireTxn();
-        Memory<byte> old = default;
-        if (!_byId.TryGet(in id, out old)) return false;
-        Memory<byte> oldComposite = Composite(old.Span, id);
-        _byValue.ForceDelete(in oldComposite);
-        _byId.ForceDelete(in id);
-        _count--;
-        return true;
-    }
-
-    private void RequireTxn()
-    {
-        if (!_engine.IsInTransaction)
-            throw new InvalidOperationException("Mutations require an active transaction (call BeginTransaction first).");
-    }
-
-    public T GetValue(int id)
-        => TryGetValue(id, out T value) ? value : throw new KeyNotFoundException($"Id {id} not found.");
-
-    public bool TryGetValue(int id, out T value)
-    {
-        Memory<byte> bytes = default;
-        if (_byId.TryGet(in id, out bytes))
-        {
-            value = _codec.Decode(bytes.Span);
-            return true;
-        }
-        value = default!;
-        return false;
-    }
-
-    public bool ContainsKey(int id) => _byId.ContainsKey(in id);
-
     public bool ContainsValue(T value)
     {
         foreach (int _ in GetIds(value)) return true;
         return false;
     }
 
-    public IEnumerable<int> GetIds(T value)
+    /// <summary>A seek into the value tree here, rather than the base class's scan of the id tree.</summary>
+    public override IEnumerable<int> GetIds(T value)
     {
         byte[] valueBytes = EncodeValue(value);
         return ScanAscending(valueBytes, true, valueBytes, true, hasFrom: true, hasTo: true)
             .Select(k => OrderedCodec.IdOfComposite(k.Span));
-    }
-
-    public IEnumerable<KeyValuePair<int, T>> Entries
-    {
-        get
-        {
-            using var it = _byId.CreateIterator(IteratorType.NoRefresh, false, false);
-            while (it.Next())
-                yield return new(it.CurrentKey, _codec.Decode(it.CurrentValue.Span));
-        }
-    }
-
-    public IEnumerable<int> Keys
-    {
-        get
-        {
-            using var it = _byId.CreateIterator(IteratorType.NoRefresh, false, false);
-            while (it.Next())
-                yield return it.CurrentKey;
-        }
     }
 
     public IEnumerable<T> DistinctValues
@@ -309,7 +414,7 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
                 if (prev is null || !val.AsSpan().SequenceEqual(prev))
                 {
                     prev = val;
-                    yield return _codec.Decode(val);
+                    yield return Codec.Decode(val);
                 }
             }
         }
@@ -319,14 +424,14 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
     {
         using var it = _byValue.CreateIterator(IteratorType.NoRefresh, false, false);
         if (!it.Next()) throw new InvalidOperationException("The index is empty.");
-        return _codec.Decode(OrderedCodec.ValueOfComposite(it.CurrentKey.Span));
+        return Codec.Decode(OrderedCodec.ValueOfComposite(it.CurrentKey.Span));
     }
 
     public T GetMaxValue()
     {
         using var it = _byValue.CreateReverseIterator(IteratorType.NoRefresh, false, false);
         if (!it.Next()) throw new InvalidOperationException("The index is empty.");
-        return _codec.Decode(OrderedCodec.ValueOfComposite(it.CurrentKey.Span));
+        return Codec.Decode(OrderedCodec.ValueOfComposite(it.CurrentKey.Span));
     }
 
     // ---- ordered scans over the composite tree ----
@@ -389,7 +494,7 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
 
     public IEnumerable<KeyValuePair<int, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
         => Scan(EncodeValue(from), includeFrom, EncodeValue(to), includeTo, true, true, descending)
-            .Select(k => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(k.Span), _codec.Decode(OrderedCodec.ValueOfComposite(k.Span))));
+            .Select(k => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(k.Span), Codec.Decode(OrderedCodec.ValueOfComposite(k.Span))));
 
     public IEnumerable<int> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
         => Scan(EncodeValue(value), includeValue, null, true, true, false, descending)
@@ -408,58 +513,23 @@ public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInterna
     public int CountIdsSmallerThan(T value, bool includeValue = true)
         => ScanAscending(null, true, EncodeValue(value), includeValue, false, true).Count();
 
-    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
-
-    public void SetTimestamp(long timestamp)
+    public override void SaveMetaData()
     {
-        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
-        if (timestamp != _engine.GetTimestamp())
-            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
-        _hasEngineTimestamp = true;
-    }
-
-    void IZoneTreeIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
-
-    void IZoneTreeIndexInternal.SaveMetaData()
-    {
-        _byId.Maintenance.SaveMetaData();
+        base.SaveMetaData();
         _byValue.Maintenance.SaveMetaData();
     }
 
-    void IZoneTreeIndexInternal.FlushToDisk()
+    public override void FlushToDisk()
     {
-        Flush(_byId);
+        base.FlushToDisk();
         Flush(_byValue);
-
-        static void Flush<TKey, TValue>(IZoneTree<TKey, TValue> tree)
-        {
-            tree.Maintenance.MoveMutableSegmentForward();
-            tree.Maintenance.StartMergeOperation()?.Join();
-            tree.Maintenance.SaveMetaData();
-        }
     }
 
-    void IZoneTreeIndexInternal.ClearData()
+    public override void Dispose()
     {
-        foreach (int id in Keys.ToArray())
-        {
-            Memory<byte> old = default;
-            if (_byId.TryGet(in id, out old))
-            {
-                Memory<byte> composite = Composite(old.Span, id);
-                _byValue.ForceDelete(in composite);
-                _byId.ForceDelete(in id);
-            }
-        }
-        _count = 0;
-    }
-
-    public void Dispose()
-    {
-        _byId.Maintenance.SaveMetaData();
         _byValue.Maintenance.SaveMetaData();
-        _byId.Dispose();
         _byValue.Dispose();
+        base.Dispose();
     }
 }
 

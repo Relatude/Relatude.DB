@@ -5,7 +5,10 @@ namespace KvBenchmarks.Harness;
 
 public static class Engines
 {
-    public static readonly string[] All = ["sqlite", "zonetree", "faster", "native", "native-hash",];
+    /// <summary>Every engine in its ordered layout, and the same four in their unordered one.</summary>
+    public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
+    public static readonly string[] Hash = ["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
+    public static readonly string[] All = [.. Sorted, .. Hash];
 
     /// <summary>The index every scenario benchmarks.</summary>
     public const string IndexName = "bench";
@@ -14,32 +17,35 @@ public static class Engines
     {
         "native" => "NativeKv (B+Tree)",
         "native-hash" => "NativeKv (hash)",
-        "sqlite" => "SQLite",
+        "sqlite" => "SQLite (+v index)",
+        "sqlite-hash" => "SQLite (hash)",
         "zonetree" => "ZoneTree (LSM)",
+        "zonetree-hash" => "ZoneTree (hash)",
         "faster" => "FASTER (+mem idx)",
+        "faster-hash" => "FASTER (hash)",
         _ => name,
     };
 
     /// <summary>
-    /// True for the engine entry that stores its index in the unordered hash layout. It is the same
-    /// <see cref="BPlusTreeStorageEngine"/> and the same file as "native" — only the index layout
-    /// differs, which is exactly what the two rows are there to compare.
+    /// True for the entries that open their index in the unordered layout. Each is the same engine
+    /// and the same store as the entry it is named after, differing only in the index it opens —
+    /// which is exactly what the two rows are there to compare.
     /// </summary>
-    public static bool IsHashLayout(string name) => name == "native-hash";
+    public static bool IsHashLayout(string name) => name.EndsWith("-hash", StringComparison.Ordinal);
 
     /// <summary>Creates a file-backed engine of the given kind rooted in <paramref name="dir"/>.</summary>
     public static IStorageEngine Create(string name, string dir)
     {
         Directory.CreateDirectory(dir);
-        return name switch
+        return Kind(name) switch
         {
             // Same options the production NativeKvIndexStore uses; BENCH_NATIVE_VC overrides the
             // value-cache size for experiments (0 disables it), BENCH_NATIVE_MEM=1 runs memory-only.
-            "native" or "native-hash" => new BPlusTreeStorageEngine(
+            "native" => new BPlusTreeStorageEngine(
                 Environment.GetEnvironmentVariable("BENCH_NATIVE_MEM") == "1" ? null : Path.Combine(dir, "native.db"),
                 new BPlusTreeEngineOptions
                 {
-                    PageCacheBytes = 64L * 1024 * 1024,
+                    PageCacheBytes = 64L * 1024 * 1024, 
                     ValueCacheEntries = int.TryParse(Environment.GetEnvironmentVariable("BENCH_NATIVE_VC"), out int vc) ? vc : 1000,
                 }),
             "sqlite" => new SqliteEngine(dir),
@@ -49,10 +55,13 @@ public static class Engines
         };
     }
 
+    /// <summary>The engine behind an entry name, with any layout suffix removed.</summary>
+    private static string Kind(string name) => IsHashLayout(name) ? name[..^"-hash".Length] : name;
+
     /// <summary>
     /// Opens the benchmark index in the layout the engine entry stands for. Ordered phases run
-    /// against the result only when it is an <see cref="ISortedIntIndex{T}"/>, which every entry
-    /// but the hash one is.
+    /// against the result only when it is an <see cref="ISortedIntIndex{T}"/>, which the hash
+    /// entries deliberately are not.
     /// </summary>
     public static IIntIndex<T> OpenBenchIndex<T>(IStorageEngine engine, string engineName) where T : notnull
         => IsHashLayout(engineName)

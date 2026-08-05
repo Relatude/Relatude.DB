@@ -4,23 +4,26 @@ using System.Text.Json;
 using KvBenchmarks;
 using KvBenchmarks.Harness;
 
-// KvBenchmarks — benchmarks the internal NativeKvStore (BPlusTreeStorageEngine), in both its
-// sorted and its unordered hash layout, against ISortedIndex implementations built on SQLite,
-// ZoneTree and Microsoft FASTER.
+// KvBenchmarks — benchmarks the internal NativeKvStore (BPlusTreeStorageEngine) against
+// implementations built on SQLite, ZoneTree and Microsoft FASTER. Every engine appears twice:
+// once in its ordered layout (ISortedIndex) and once in its unordered, lookup-only one, which is
+// the same store minus whatever it keeps to answer ordered queries.
 //
 //   dotnet run -c Release [-- options]
 //
 // Options:
 //   --n=xxxxx                          entries per scenario
-//   --engines=native,native-hash,sqlite,zonetree,faster
+//   --engines=all|sorted|hash|<list>   e.g. native,native-hash,sqlite-hash
 //   --scenarios=int,long,string,guid,datetime
 //   --data=<dir>                        working directory for store files (default: %TEMP%)
 //   --no-verify                         skip the correctness verification pass
 //   --in-process                        run everything in this process (memory numbers get noisy)
 //   --scratch                           run Test.Run() instead (ad-hoc experiments)
 
+if (args.Contains("--scratch")) {
     Test.Run();
     return 0;
+}
 
 var options = Options.Parse(args);
 
@@ -44,7 +47,7 @@ if (options.ChildEngine is not null) {
     return 0;
 }
 
-Console.WriteLine($"KvBenchmarks — NativeKvStore (B+Tree and hash layouts) vs SQLite vs ZoneTree vs FASTER");
+Console.WriteLine($"KvBenchmarks — NativeKvStore vs SQLite vs ZoneTree vs FASTER, each in its ordered and unordered layout");
 Console.WriteLine($"n={options.N:N0} per scenario | engines: {string.Join(", ", options.Engines)} | scenarios: {string.Join(", ", options.Scenarios)}");
 Console.WriteLine();
 
@@ -61,7 +64,7 @@ try {
                 var scenario = Scenarios.Get(scenarioName);
                 string dir = Path.Combine(root, "verify", engine, scenarioName);
                 string? err = scenario.Verify(engine, dir);
-                Console.WriteLine($"  {engine,-9} {scenarioName,-9} {(err is null ? "OK" : "MISMATCH")}");
+                Console.WriteLine($"  {engine,-14} {scenarioName,-9} {(err is null ? "OK" : "MISMATCH")}");
                 if (err is not null) {
                     Console.WriteLine($"    {err}");
                     allOk = false;
@@ -128,65 +131,102 @@ static BenchResult RunChild(string engine, string scenarioName, Options options,
 }
 
 static void PrintTable(string scenarioName, List<BenchResult> rows) {
-    string[] header = ["Engine", "Insert/s", "Read/s", "GetIds/s", "Range rows/s", "RangeCnt/s", "Update/s", "DurTx/s", "Remove/s", "Mem MB", "WSet MB", "Disk MB"];
-    var table = new List<string[]> { header };
+    var columns = TableColumn.All;
+    var table = new List<string[]> { columns.Select(c => c.Header).ToArray() };
+    var values = new List<double?[]>(); // the numbers behind the cells, for ranking
+
     foreach (var r in rows) {
-        if (r.Error is not null && r.Phases.Count == 0) {
-            table.Add([Engines.DisplayName(r.Engine), "FAILED", "", "", "", "", "", "", "", "", "", ""]);
-            continue;
+        bool failed = r.Error is not null && r.Phases.Count == 0;
+        var cells = new string[columns.Length];
+        var vals = new double?[columns.Length];
+        cells[0] = Engines.DisplayName(r.Engine);
+        for (int c = 1; c < columns.Length; c++) {
+            vals[c] = failed ? null : columns[c].Value(r);
+            cells[c] = failed ? (c == 1 ? "FAILED" : "") : columns[c].Format(vals[c]);
         }
-        table.Add([
-            Engines.DisplayName(r.Engine),
-            Rate(r.Phase("Insert")), Rate(r.Phase("PointRead")), Rate(r.Phase("GetIds")),
-            Rate(r.Phase("RangeScan")), Rate(r.Phase("RangeCount")), Rate(r.Phase("Update")),
-            Rate(r.Phase("DurableTx")), Rate(r.Phase("Remove")),
-            r.ManagedMB.ToString("0.0"), r.WorkingSetMB.ToString("0.0"), r.DiskMB.ToString("0.0"),
-        ]);
+        table.Add(cells);
+        values.Add(vals);
     }
-    int[] widths = new int[header.Length];
+
+    int[] widths = new int[columns.Length];
     foreach (var row in table)
         for (int c = 0; c < row.Length; c++)
             widths[c] = Math.Max(widths[c], row[c].Length);
+    int[][] ranks = RankColumns(columns, values);
 
     Console.WriteLine($"— {scenarioName} —");
     for (int i = 0; i < table.Count; i++) {
-        var sb = new StringBuilder("  ");
+        Console.Write("  ");
         for (int c = 0; c < table[i].Length; c++) {
-            string cell = table[i][c];
-            sb.Append(c == 0 ? cell.PadRight(widths[c]) : cell.PadLeft(widths[c]));
-            if (c < table[i].Length - 1) sb.Append("  ");
+            string cell = c == 0 ? table[i][c].PadRight(widths[c]) : table[i][c].PadLeft(widths[c]);
+            TableColor.Write(cell, i == 0 ? TableColor.Plain : ranks[i - 1][c]);
+            if (c < table[i].Length - 1) Console.Write("  ");
         }
-        Console.WriteLine(sb.ToString());
+        Console.WriteLine();
         if (i == 0) Console.WriteLine("  " + string.Join("  ", widths.Select(w => new string('-', w))));
     }
     foreach (var r in rows.Where(r => r.Error is not null))
         Console.WriteLine($"  ! {Engines.DisplayName(r.Engine)}: {r.Error}");
 }
 
-static string Rate(PhaseResult? p) {
-    if (p is null) return "-";
-    double v = p.Rate;
-    return v >= 10_000_000 ? $"{v / 1e6:0.0}M"
-        : v >= 1_000_000 ? $"{v / 1e6:0.00}M"
-        : v >= 10_000 ? $"{v / 1e3:0}k"
-        : v >= 1_000 ? $"{v / 1e3:0.0}k"
-        : $"{v:0}";
+/// <summary>
+/// Per column: the best value, the runner-up, and everything else — so a reader can find the
+/// winner of a column without comparing every cell. Equal values share a place, absent ones take
+/// none, and a table with a single row is not ranked at all (nothing to win against).
+/// </summary>
+static int[][] RankColumns(TableColumn[] columns, List<double?[]> values) {
+    var ranks = new int[values.Count][];
+    for (int i = 0; i < values.Count; i++) {
+        ranks[i] = new int[columns.Length];
+        Array.Fill(ranks[i], TableColor.Rest);
+        ranks[i][0] = TableColor.Plain; // the engine name is a label, not a measurement
+    }
+    if (values.Count < 2) {
+        foreach (var row in ranks) Array.Fill(row, TableColor.Plain);
+        return ranks;
+    }
+
+    for (int c = 1; c < columns.Length; c++) {
+        var distinct = values.Select(v => v[c]).Where(v => v.HasValue).Select(v => v!.Value).Distinct().ToList();
+        if (distinct.Count == 0) continue;
+        distinct.Sort();
+        if (!columns[c].LowerIsBetter) distinct.Reverse();
+        double best = distinct[0];
+        double? second = distinct.Count > 1 ? distinct[1] : null;
+        for (int i = 0; i < values.Count; i++) {
+            double? v = values[i][c];
+            if (v is null) continue;
+            if (v.Value == best) ranks[i][c] = TableColor.Best;
+            else if (second is not null && v.Value == second.Value) ranks[i][c] = TableColor.Second;
+        }
+    }
+    return ranks;
 }
 
 static void PrintNotes() {
     Console.WriteLine("""
         Notes
-          - All engines implement the same ISortedIndex<T> contract and were verified against the
-            native engine on identical op streams before timing. NativeKv (hash) implements the
-            unordered subset of it and was verified on the same stream, comparing its enumerations
-            as sets — it has no order to compare.
-          - NativeKv (hash) is the same engine and the same file as NativeKv (B+Tree) with the index
-            in the unordered layout (OpenOrCreateIntHashIndex): one extendible-hash table instead of
-            an id tree plus a value tree. Ordered columns are blank because it has no ordering, and
-            GetIds is blank because without a value index it would be an O(n) scan per call.
+          - In every column the best value is light green and the runner-up light blue, the rest
+            dimmed; the three footprint columns rank low-to-high, the rest high-to-low. Piped or
+            redirected output (and NO_COLOR) stays plain text.
+          - Every engine was verified against the native engine on identical op streams before
+            timing. The (hash) rows implement the unordered subset of the contract and were verified
+            on the same stream, comparing their enumerations as sets — they have no order to compare.
+          - A (hash) row is the same engine and the same store as the row above it, opened through
+            OpenOrCreateIntHashIndex: the layout that keeps only what an id lookup needs. Ordered
+            columns are blank because there is no ordering, and GetIds is blank because without a
+            value index it degrades to an O(n) scan that no other column would be comparable to.
+            NativeKv: one extendible-hash table instead of an id tree plus a value tree.
+            SQLite: the table without the covering (v, id) index. ZoneTree: the id tree without the
+            composite one. FASTER: the store alone, without the in-memory sorted set beside it.
           - Insert/Update/Remove run in transactions of 20k ops; Insert ends with one durable commit.
           - Read/s: point lookups by id (10% misses). Range rows/s: rows yielded by GetIdsInRange
             over windows of ~1k rows. DurTx/s: small durable (fsync) transactions of 10 ops.
+          - Mixed/s: ops/sec over an interleaved insert / read / delete stream — every insert of a
+            previously unseen id is followed by 3 reads, and past a lag every other insert also
+            deletes an id written earlier in the phase, in transactions of 5k inserts. It is the one
+            phase where lookups run against a store that is churning rather than holding still. A
+            quarter of its reads target ids it inserted itself.
           - Mem MB: managed heap growth after load (full GC). WSet MB: working-set growth (includes
             native memory: SQLite page cache, FASTER log, ZoneTree segments). Disk MB: store size
             after the loaded state was durably committed.
@@ -205,6 +245,72 @@ static void TryDelete(string dir) {
     try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* still held by a child or AV scanner; the temp root is cleaned next run */ }
 }
 
+/// <summary>
+/// One column of a result table: its header, the number behind each cell, how that number reads,
+/// and which end of it wins — throughput columns want the largest value, footprint columns the
+/// smallest. The first entry is the engine label, which carries no number.
+/// </summary>
+sealed record TableColumn(string Header, Func<BenchResult, double?> Value, Func<double, string> Text, bool LowerIsBetter = false) {
+    public string Format(double? v) => v is null ? "-" : Text(v.Value);
+
+    private static TableColumn Rate(string header, string phase)
+        => new(header, r => r.Phase(phase)?.Rate, RateText);
+
+    private static string RateText(double v)
+        => v >= 10_000_000 ? $"{v / 1e6:0.0}M"
+            : v >= 1_000_000 ? $"{v / 1e6:0.00}M"
+            : v >= 10_000 ? $"{v / 1e3:0}k"
+            : v >= 1_000 ? $"{v / 1e3:0.0}k"
+            : $"{v:0}";
+
+    private static TableColumn Megabytes(string header, Func<BenchResult, double> value)
+        => new(header, r => value(r), v => v.ToString("0.0"), LowerIsBetter: true);
+
+    public static readonly TableColumn[] All = [
+        new("Engine", _ => null, _ => ""),
+        Rate("Insert/s", "Insert"),
+        Rate("Read/s", "PointRead"),
+        Rate("GetIds/s", "GetIds"),
+        Rate("Range rows/s", "RangeScan"),
+        Rate("RangeCnt/s", "RangeCount"),
+        Rate("Update/s", "Update"),
+        Rate("Mixed/s", "Mixed"),
+        Rate("DurTx/s", "DurableTx"),
+        Rate("Remove/s", "Remove"),
+        Megabytes("Mem MB", r => r.ManagedMB),
+        Megabytes("WSet MB", r => r.WorkingSetMB),
+        Megabytes("Disk MB", r => r.DiskMB),
+    ];
+}
+
+/// <summary>
+/// Result-table colouring: the best value in a column light green, the runner-up light blue,
+/// the rest dimmed so the two that matter stand out. Set through <see cref="Console.ForegroundColor"/>
+/// rather than escape codes, so it works the same in a Windows console and a POSIX terminal, and
+/// is skipped for redirected output (and when NO_COLOR is set) so piped tables stay plain text.
+/// </summary>
+static class TableColor {
+    public const int Best = 0, Second = 1, Rest = 2, Plain = 3;
+
+    private static readonly bool Enabled =
+        Environment.GetEnvironmentVariable("NO_COLOR") is null && !Console.IsOutputRedirected;
+
+    public static void Write(string text, int rank) {
+        if (!Enabled || rank == Plain) {
+            Console.Write(text);
+            return;
+        }
+        ConsoleColor previous = Console.ForegroundColor;
+        Console.ForegroundColor = rank switch {
+            Best => ConsoleColor.Green,
+            Second => ConsoleColor.Cyan,
+            _ => ConsoleColor.DarkGray,
+        };
+        Console.Write(text);
+        Console.ForegroundColor = previous;
+    }
+}
+
 sealed class Options {
     public int N = 500_000;
     public string[] Engines = KvBenchmarks.Harness.Engines.All;
@@ -220,7 +326,14 @@ sealed class Options {
             string[] kv = a.Split('=', 2);
             switch (kv[0]) {
                 case "--n": o.N = int.Parse(kv[1]); break;
-                case "--engines": o.Engines = kv[1] == "all" ? KvBenchmarks.Harness.Engines.All : kv[1].Split(','); break;
+                case "--engines":
+                    o.Engines = kv[1] switch {
+                        "all" => KvBenchmarks.Harness.Engines.All,
+                        "sorted" => KvBenchmarks.Harness.Engines.Sorted,
+                        "hash" => KvBenchmarks.Harness.Engines.Hash,
+                        _ => kv[1].Split(','),
+                    };
+                    break;
                 case "--scenarios": o.Scenarios = kv[1] == "all" ? ["int", "long", "string", "guid", "datetime"] : kv[1].Split(','); break;
                 case "--data": o.DataDir = kv[1]; break;
                 case "--no-verify": o.SkipVerify = true; break;

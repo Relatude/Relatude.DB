@@ -45,12 +45,45 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
 
     public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
     {
-        ArgumentException.ThrowIfNullOrEmpty(name);
-        if (_openIndexes.TryGetValue(name, out object? open))
+        if (Existing<T>(name) is object open)
         {
-            return open as ISortedIntIndex<T>
+            return open as SqliteIndex<T>
+                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type or layout.");
+        }
+        var index = new SqliteIndex<T>(this, name, hasEngineTimestamp: Register<T>(name));
+        _openIndexes[name] = index;
+        return index;
+    }
+
+    /// <summary>
+    /// The unordered layout: the same table, without the covering (v, id) index that
+    /// <see cref="OpenOrCreateIntIndex{T}"/> creates. SQLite then maintains one B-tree per write
+    /// instead of two, and value-side queries fall back to a table scan.
+    /// </summary>
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
+    {
+        if (Existing<T>(name) is object open)
+        {
+            if (open is SqliteIndex<T>)
+                throw new InvalidOperationException($"Index '{name}' is already open as a sorted index.");
+            return open as SqliteHashIndex<T>
                 ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
         }
+        var index = new SqliteHashIndex<T>(this, name, hasEngineTimestamp: Register<T>(name));
+        _openIndexes[name] = index;
+        return index;
+    }
+
+    /// <summary>The index already open under this name, or null when the name is free.</summary>
+    private object? Existing<T>(string name) where T : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        return _openIndexes.GetValueOrDefault(name);
+    }
+
+    /// <summary>Records the index in the catalog if new; returns whether it was already there.</summary>
+    private bool Register<T>(string name) where T : notnull
+    {
         string typeName = typeof(T).FullName!;
         bool existed;
         using (var cmd = _con.CreateCommand())
@@ -70,15 +103,19 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
             cmd.Parameters.AddWithValue("@t", typeName);
             cmd.ExecuteNonQuery();
         }
-        var index = new SqliteIndex<T>(this, name, hasEngineTimestamp: existed);
-        _openIndexes[name] = index;
-        return index;
+        return existed;
     }
 
     public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public bool IsInTransaction => _inTxn;
@@ -257,37 +294,48 @@ internal static class SqliteValueMap<T> where T : notnull
     }
 }
 
-public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, IDisposable where T : notnull
+/// <summary>
+/// The unordered layout: the table alone, keyed by id. <see cref="SqliteIndex{T}"/> derives from it
+/// and adds the covering (v, id) index, so the two rows of the benchmark differ by exactly that
+/// index — the writes that maintain it, the disk it occupies, and the queries it makes possible.
+/// </summary>
+public class SqliteHashIndex<T> : IIntIndex<T>, ISqliteIndexInternal, IDisposable where T : notnull
 {
     private readonly SqliteEngine _engine;
-    private readonly SqliteConnection _con;
-    private readonly string _table;
+    protected readonly SqliteConnection Con;
+    protected readonly string Table;
     private readonly Dictionary<string, SqliteCommand> _commands = new();
     private bool _hasEngineTimestamp;
 
-    internal SqliteIndex(SqliteEngine engine, string name, bool hasEngineTimestamp)
+    internal SqliteHashIndex(SqliteEngine engine, string name, bool hasEngineTimestamp)
     {
         _engine = engine;
-        _con = engine.Connection;
-        _table = $"\"t_{name}\"";
+        Con = engine.Connection;
+        Table = $"\"t_{name}\"";
         _hasEngineTimestamp = hasEngineTimestamp;
-        using var cmd = _con.CreateCommand();
+        using var cmd = Con.CreateCommand();
+        // The DROP matters: reopening a table that was created as sorted must not keep serving
+        // (and paying for) an index this layout claims not to have.
         cmd.CommandText =
-            $"CREATE TABLE IF NOT EXISTS {_table} (id INTEGER NOT NULL PRIMARY KEY, v {SqliteValueMap<T>.ColumnType} NOT NULL);" +
-            $"CREATE INDEX IF NOT EXISTS \"i_{name}\" ON {_table} (v, id);";
+            $"CREATE TABLE IF NOT EXISTS {Table} (id INTEGER NOT NULL PRIMARY KEY, v {SqliteValueMap<T>.ColumnType} NOT NULL);" +
+            (Ordered ? $"CREATE INDEX IF NOT EXISTS \"i_{name}\" ON {Table} (v, id);"
+                     : $"DROP INDEX IF EXISTS \"i_{name}\";");
         cmd.ExecuteNonQuery();
     }
 
-    private SqliteCommand Cmd(string key, string sql)
+    /// <summary>Whether this layout keeps the (v, id) index; read by the constructor, so it must not touch instance state.</summary>
+    protected virtual bool Ordered => false;
+
+    protected SqliteCommand Cmd(string key, string sql)
     {
         if (_commands.TryGetValue(key, out var cmd)) return cmd;
-        cmd = _con.CreateCommand();
+        cmd = Con.CreateCommand();
         cmd.CommandText = sql;
         _commands[key] = cmd;
         return cmd;
     }
 
-    private static SqliteParameter Par(SqliteCommand cmd, string name)
+    protected static SqliteParameter Par(SqliteCommand cmd, string name)
     {
         if (cmd.Parameters.Contains(name)) return cmd.Parameters[name];
         var p = cmd.CreateParameter();
@@ -300,23 +348,14 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
     {
         get
         {
-            var cmd = Cmd("count", $"SELECT COUNT(*) FROM {_table}");
-            return Convert.ToInt32(cmd.ExecuteScalar());
-        }
-    }
-
-    public int DistinctValueCount
-    {
-        get
-        {
-            var cmd = Cmd("dcount", $"SELECT COUNT(DISTINCT v) FROM {_table}");
+            var cmd = Cmd("count", $"SELECT COUNT(*) FROM {Table}");
             return Convert.ToInt32(cmd.ExecuteScalar());
         }
     }
 
     public void Set(int id, T value)
     {
-        var cmd = Cmd("set", $"INSERT INTO {_table}(id, v) VALUES(@id, @v) ON CONFLICT(id) DO UPDATE SET v=excluded.v");
+        var cmd = Cmd("set", $"INSERT INTO {Table}(id, v) VALUES(@id, @v) ON CONFLICT(id) DO UPDATE SET v=excluded.v");
         Par(cmd, "@id").Value = (long)id;
         Par(cmd, "@v").Value = SqliteValueMap<T>.ToDb(value);
         cmd.ExecuteNonQuery();
@@ -324,7 +363,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public bool Remove(int id)
     {
-        var cmd = Cmd("del", $"DELETE FROM {_table} WHERE id=@id");
+        var cmd = Cmd("del", $"DELETE FROM {Table} WHERE id=@id");
         Par(cmd, "@id").Value = (long)id;
         return cmd.ExecuteNonQuery() > 0;
     }
@@ -334,7 +373,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public bool TryGetValue(int id, out T value)
     {
-        var cmd = Cmd("get", $"SELECT v FROM {_table} WHERE id=@id");
+        var cmd = Cmd("get", $"SELECT v FROM {Table} WHERE id=@id");
         Par(cmd, "@id").Value = (long)id;
         using var r = cmd.ExecuteReader();
         if (r.Read())
@@ -348,21 +387,15 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public bool ContainsKey(int id)
     {
-        var cmd = Cmd("hasid", $"SELECT EXISTS(SELECT 1 FROM {_table} WHERE id=@id)");
+        var cmd = Cmd("hasid", $"SELECT EXISTS(SELECT 1 FROM {Table} WHERE id=@id)");
         Par(cmd, "@id").Value = (long)id;
         return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
     }
 
-    public bool ContainsValue(T value)
-    {
-        var cmd = Cmd("hasv", $"SELECT EXISTS(SELECT 1 FROM {_table} WHERE v=@v)");
-        Par(cmd, "@v").Value = SqliteValueMap<T>.ToDb(value);
-        return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
-    }
-
+    /// <summary>Without the (v, id) index this is a table scan — the query is the same, the plan is not.</summary>
     public IEnumerable<int> GetIds(T value)
     {
-        var cmd = Cmd("ids", $"SELECT id FROM {_table} WHERE v=@v ORDER BY id");
+        var cmd = Cmd("ids", $"SELECT id FROM {Table} WHERE v=@v ORDER BY id");
         Par(cmd, "@v").Value = SqliteValueMap<T>.ToDb(value);
         using var r = cmd.ExecuteReader();
         while (r.Read()) yield return (int)r.GetInt64(0);
@@ -372,7 +405,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
     {
         get
         {
-            var cmd = Cmd("entries", $"SELECT id, v FROM {_table} ORDER BY id");
+            var cmd = Cmd("entries", $"SELECT id, v FROM {Table} ORDER BY id");
             using var r = cmd.ExecuteReader();
             while (r.Read()) yield return new((int)r.GetInt64(0), SqliteValueMap<T>.FromDb(r, 1));
         }
@@ -382,17 +415,66 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
     {
         get
         {
-            var cmd = Cmd("keys", $"SELECT id FROM {_table} ORDER BY id");
+            var cmd = Cmd("keys", $"SELECT id FROM {Table} ORDER BY id");
             using var r = cmd.ExecuteReader();
             while (r.Read()) yield return (int)r.GetInt64(0);
         }
+    }
+
+    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
+
+    public void SetTimestamp(long timestamp)
+    {
+        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
+        if (timestamp != _engine.GetTimestamp())
+            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
+        _hasEngineTimestamp = true;
+    }
+
+    void ISqliteIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
+
+    void ISqliteIndexInternal.ClearData()
+    {
+        using var cmd = Con.CreateCommand();
+        cmd.CommandText = $"DELETE FROM {Table}";
+        cmd.ExecuteNonQuery();
+    }
+
+    public void Dispose()
+    {
+        foreach (var cmd in _commands.Values) cmd.Dispose();
+        _commands.Clear();
+    }
+}
+
+public sealed class SqliteIndex<T> : SqliteHashIndex<T>, ISortedIntIndex<T> where T : notnull
+{
+    internal SqliteIndex(SqliteEngine engine, string name, bool hasEngineTimestamp)
+        : base(engine, name, hasEngineTimestamp) { }
+
+    protected override bool Ordered => true;
+
+    public int DistinctValueCount
+    {
+        get
+        {
+            var cmd = Cmd("dcount", $"SELECT COUNT(DISTINCT v) FROM {Table}");
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+    }
+
+    public bool ContainsValue(T value)
+    {
+        var cmd = Cmd("hasv", $"SELECT EXISTS(SELECT 1 FROM {Table} WHERE v=@v)");
+        Par(cmd, "@v").Value = SqliteValueMap<T>.ToDb(value);
+        return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
     }
 
     public IEnumerable<T> DistinctValues
     {
         get
         {
-            var cmd = Cmd("dvalues", $"SELECT DISTINCT v FROM {_table} ORDER BY v");
+            var cmd = Cmd("dvalues", $"SELECT DISTINCT v FROM {Table} ORDER BY v");
             using var r = cmd.ExecuteReader();
             while (r.Read()) yield return SqliteValueMap<T>.FromDb(r, 0);
         }
@@ -400,7 +482,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public T GetMinValue()
     {
-        var cmd = Cmd("minv", $"SELECT v FROM {_table} ORDER BY v LIMIT 1");
+        var cmd = Cmd("minv", $"SELECT v FROM {Table} ORDER BY v LIMIT 1");
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new InvalidOperationException("The index is empty.");
         return SqliteValueMap<T>.FromDb(r, 0);
@@ -408,7 +490,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public T GetMaxValue()
     {
-        var cmd = Cmd("maxv", $"SELECT v FROM {_table} ORDER BY v DESC LIMIT 1");
+        var cmd = Cmd("maxv", $"SELECT v FROM {Table} ORDER BY v DESC LIMIT 1");
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new InvalidOperationException("The index is empty.");
         return SqliteValueMap<T>.FromDb(r, 0);
@@ -425,7 +507,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
             : "";
         string order = descending ? "ORDER BY v DESC, id DESC" : "ORDER BY v, id";
         string key = $"{what}|{where}|{descending}";
-        var cmd = Cmd(key, $"SELECT {select} FROM {_table} {where} {order}");
+        var cmd = Cmd(key, $"SELECT {select} FROM {Table} {where} {order}");
         if (hasFrom) Par(cmd, "@from").Value = SqliteValueMap<T>.ToDb(from);
         if (hasTo) Par(cmd, "@to").Value = SqliteValueMap<T>.ToDb(to);
         return cmd;
@@ -439,7 +521,7 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
             hasFrom && hasTo ? $"WHERE v {opFrom} @from AND v {opTo} @to"
             : hasFrom ? $"WHERE v {opFrom} @from"
             : $"WHERE v {opTo} @to";
-        var cmd = Cmd($"c|{where}", $"SELECT COUNT(*) FROM {_table} {where}");
+        var cmd = Cmd($"c|{where}", $"SELECT COUNT(*) FROM {Table} {where}");
         if (hasFrom) Par(cmd, "@from").Value = SqliteValueMap<T>.ToDb(from);
         if (hasTo) Par(cmd, "@to").Value = SqliteValueMap<T>.ToDb(to);
         return cmd;
@@ -481,29 +563,4 @@ public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, I
 
     public int CountIdsSmallerThan(T value, bool includeValue = true)
         => Convert.ToInt32(CountCmd(false, default!, true, value, true, includeValue).ExecuteScalar());
-
-    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
-
-    public void SetTimestamp(long timestamp)
-    {
-        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
-        if (timestamp != _engine.GetTimestamp())
-            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
-        _hasEngineTimestamp = true;
-    }
-
-    void ISqliteIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
-
-    void ISqliteIndexInternal.ClearData()
-    {
-        using var cmd = _con.CreateCommand();
-        cmd.CommandText = $"DELETE FROM {_table}";
-        cmd.ExecuteNonQuery();
-    }
-
-    public void Dispose()
-    {
-        foreach (var cmd in _commands.Values) cmd.Dispose();
-        _commands.Clear();
-    }
 }

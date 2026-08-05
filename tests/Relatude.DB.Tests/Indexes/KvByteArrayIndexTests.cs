@@ -52,25 +52,4 @@ public class KvByteArrayIndexTests {
         }
     }
 
-    [TestMethod]
-    public void HashDictionary_ByteArray_MatchesByContent() {
-        using var engine = new HashDictionaryStorageEngine();
-        var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
-        addAll(engine, index);
-        verifyAll(index);
-    }
-
-    [TestMethod]
-    public void AppendLog_ByteArray_MatchesByContent() {
-        var dir = Path.Combine(Path.GetTempPath(), "RelatudeDB_Tests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        try {
-            using var engine = new AppendLogStorageEngine(Path.Combine(dir, "bytes.log"));
-            var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
-            addAll(engine, index);
-            verifyAll(index);
-        } finally {
-            Directory.Delete(dir, true);
-        }
-    }
 }

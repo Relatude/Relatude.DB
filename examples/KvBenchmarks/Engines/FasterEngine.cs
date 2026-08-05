@@ -33,8 +33,8 @@ public sealed class FasterEngine : IStorageEngine, IDisposable
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
         {
-            return open as ISortedIntIndex<T>
-                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+            return open as FasterIndex<T>
+                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type or layout.");
         }
         string dir = Path.Combine(_folder, name);
         bool existed = Directory.Exists(dir);
@@ -43,10 +43,39 @@ public sealed class FasterEngine : IStorageEngine, IDisposable
         return index;
     }
 
+    /// <summary>
+    /// The unordered layout: the FasterKV store on its own. This is FASTER as it was designed —
+    /// a hash key-value store — without the in-memory sorted set of (value, id) keys that
+    /// <see cref="OpenOrCreateIntIndex{T}"/> has to maintain to answer ordered queries at all,
+    /// which is what the memory column of the sorted row is mostly paying for.
+    /// </summary>
+    public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (_openIndexes.TryGetValue(name, out object? open))
+        {
+            if (open is FasterIndex<T>)
+                throw new InvalidOperationException($"Index '{name}' is already open as a sorted index.");
+            return open as FasterHashIndex<T>
+                ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+        }
+        string dir = Path.Combine(_folder, name);
+        bool existed = Directory.Exists(dir);
+        var index = new FasterHashIndex<T>(this, dir, hasEngineTimestamp: existed);
+        _openIndexes[name] = index;
+        return index;
+    }
+
     public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public bool IsInTransaction => _inTxn;
@@ -125,19 +154,27 @@ internal interface IFasterIndexInternal
     void ClearData();
 }
 
-public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, IDisposable where T : notnull
+/// <summary>
+/// Everything both layouts share: the FasterKV store, point operations, and the log walk that
+/// stands in for any enumeration. <see cref="FasterHashIndex{T}"/> is this and nothing else —
+/// FASTER as it was designed, a hash key-value store — while <see cref="FasterIndex{T}"/> adds the
+/// in-memory sorted set of composite (value, id) keys that ordered queries need. The two leaves are
+/// sealed on purpose: an open leaf costs the read path its inlining, which would show up as a
+/// layout difference the storage engine never actually made.
+/// </summary>
+public abstract class FasterIndexBase<T> : IFasterIndexInternal, IDisposable where T : notnull
 {
     private readonly FasterEngine _engine;
-    private readonly IOrderedCodec<T> _codec = OrderedCodec.Get<T>();
+    protected readonly IOrderedCodec<T> Codec = OrderedCodec.Get<T>();
     private readonly FasterKVSettings<SpanByte, SpanByte> _settings;
     private readonly FasterKV<SpanByte, SpanByte> _store;
     private readonly ClientSession<SpanByte, SpanByte, SpanByte, byte[], Empty, SpanByteFunctions_ByteArrayOutput<Empty>> _session;
-    private readonly SortedSet<byte[]> _ordered = new(ByteArrayMemCmp.Instance); // composite (value, id)
     private readonly byte[] _keyBuf = GC.AllocateArray<byte>(4, pinned: true);
     private readonly byte[] _valBuf = GC.AllocateArray<byte>(64 * 1024, pinned: true);
+    private int _count;
     private bool _hasEngineTimestamp;
 
-    internal FasterIndex(FasterEngine engine, string dir, bool hasEngineTimestamp)
+    private protected FasterIndexBase(FasterEngine engine, string dir, bool hasEngineTimestamp)
     {
         _engine = engine;
         _hasEngineTimestamp = hasEngineTimestamp;
@@ -153,47 +190,38 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
         _session = _store.For(new SpanByteFunctions_ByteArrayOutput<Empty>())
             .NewSession<SpanByteFunctions_ByteArrayOutput<Empty>>();
         if (hasEngineTimestamp)
-            RebuildOrderedIndex();
+            Recover();
     }
 
-    private void RebuildOrderedIndex()
+    /// <summary>FASTER stores no count and no order, so a reopen walks the log to restore both.</summary>
+    private void Recover()
     {
         using var it = _session.Iterate();
         while (it.GetNext(out RecordInfo info))
         {
             if (info.Tombstone) continue;
             int id = BinaryPrimitives.ReadInt32LittleEndian(it.GetKey().AsReadOnlySpan());
-            _ordered.Add(Composite(it.GetValue().AsReadOnlySpan(), id));
+            _count++;
+            OnRecovered(id, it.GetValue().AsReadOnlySpan());
         }
     }
 
-    public int Count => _ordered.Count;
+    /// <summary>Hook for the ordered layout: one surviving record found while walking the log at open.</summary>
+    protected virtual void OnRecovered(int id, ReadOnlySpan<byte> value) { }
 
-    public int DistinctValueCount
-    {
-        get
-        {
-            int distinct = 0;
-            byte[]? prev = null;
-            foreach (byte[] c in _ordered)
-            {
-                var val = OrderedCodec.ValueOfComposite(c);
-                if (prev is null || !val.SequenceEqual(prev))
-                {
-                    distinct++;
-                    prev = val.ToArray();
-                }
-            }
-            return distinct;
-        }
-    }
+    /// <summary>Hook for the ordered layout: <paramref name="id"/> now maps to <paramref name="newValue"/>, replacing <paramref name="old"/> when <paramref name="existed"/>.</summary>
+    protected virtual void OnSet(int id, byte[] old, bool existed, ReadOnlySpan<byte> newValue) { }
 
-    private static byte[] Composite(ReadOnlySpan<byte> valueBytes, int id)
+    /// <summary>Hook for the ordered layout: (<paramref name="old"/>, <paramref name="id"/>) is about to leave the store.</summary>
+    protected virtual void OnRemoved(int id, byte[] old) { }
+
+    public int Count => _count;
+
+    protected byte[] EncodeValue(T value)
     {
-        byte[] c = new byte[valueBytes.Length + OrderedCodec.IdSize];
-        valueBytes.CopyTo(c);
-        OrderedCodec.WriteId(c.AsSpan(valueBytes.Length), id);
-        return c;
+        byte[] tmp = new byte[Codec.GetMaxSize(value)];
+        int n = Codec.Encode(tmp, value);
+        return n == tmp.Length ? tmp : tmp[..n];
     }
 
     private unsafe SpanByte StageKey(int id)
@@ -224,22 +252,23 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
     public void Set(int id, T value)
     {
         RequireTxn();
-        if (TryReadRaw(id, out byte[] old))
-            _ordered.Remove(Composite(old, id));
-        int n = _codec.Encode(_valBuf, value);
+        bool existed = TryReadRaw(id, out byte[] old);
+        int n = Codec.Encode(_valBuf, value);
         SpanByte key = StageKey(id);
         SpanByte val = SpanByte.FromFixedSpan(_valBuf.AsSpan(0, n));
         _session.Upsert(ref key, ref val);
-        _ordered.Add(Composite(_valBuf.AsSpan(0, n), id));
+        OnSet(id, old, existed, _valBuf.AsSpan(0, n));
+        if (!existed) _count++;
     }
 
     public bool Remove(int id)
     {
         RequireTxn();
         if (!TryReadRaw(id, out byte[] old)) return false;
-        _ordered.Remove(Composite(old, id));
+        OnRemoved(id, old);
         SpanByte key = StageKey(id);
         _session.Delete(ref key);
+        _count--;
         return true;
     }
 
@@ -256,7 +285,7 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
     {
         if (TryReadRaw(id, out byte[] bytes))
         {
-            value = _codec.Decode(bytes);
+            value = Codec.Decode(bytes);
             return true;
         }
         value = default!;
@@ -265,6 +294,125 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
 
     public bool ContainsKey(int id) => TryReadRaw(id, out _);
 
+    /// <summary>Records the store holds right now, in log order — the only enumeration FASTER offers on its own.</summary>
+    private IEnumerable<KeyValuePair<int, byte[]>> Live()
+    {
+        using var it = _session.Iterate();
+        while (it.GetNext(out RecordInfo info))
+        {
+            if (info.Tombstone) continue;
+            yield return new(BinaryPrimitives.ReadInt32LittleEndian(it.GetKey().AsReadOnlySpan()),
+                it.GetValue().AsReadOnlySpan().ToArray());
+        }
+    }
+
+    /// <summary>Without the ordered side this is a full log scan comparing encoded bytes.</summary>
+    public virtual IEnumerable<int> GetIds(T value)
+    {
+        byte[] v = EncodeValue(value);
+        return Live().Where(e => e.Value.AsSpan().SequenceEqual(v)).Select(e => e.Key);
+    }
+
+    public virtual IEnumerable<KeyValuePair<int, T>> Entries
+        => Live().Select(e => new KeyValuePair<int, T>(e.Key, Codec.Decode(e.Value)));
+
+    public virtual IEnumerable<int> Keys => Live().Select(e => e.Key);
+
+    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
+
+    public void SetTimestamp(long timestamp)
+    {
+        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
+        if (timestamp != _engine.GetTimestamp())
+            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
+        _hasEngineTimestamp = true;
+    }
+
+    void IFasterIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
+
+    void IFasterIndexInternal.Checkpoint()
+    {
+        _session.CompletePending(wait: true);
+        if (!_store.TryInitiateHybridLogCheckpoint(out _, CheckpointType.FoldOver))
+        {
+            // A checkpoint is already in flight; wait for it and take ours.
+            _store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
+            _store.TryInitiateHybridLogCheckpoint(out _, CheckpointType.FoldOver);
+        }
+        _store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    void IFasterIndexInternal.ClearData()
+    {
+        foreach (int id in Keys.ToArray())
+        {
+            if (!TryReadRaw(id, out byte[] old)) continue;
+            OnRemoved(id, old);
+            SpanByte key = StageKey(id);
+            _session.Delete(ref key);
+        }
+        _count = 0;
+    }
+
+    public void Dispose()
+    {
+        _session.Dispose();
+        _store.Dispose();
+        _settings.Dispose();
+    }
+}
+
+/// <summary>The unordered layout: the store on its own, with no ordered structure beside it.</summary>
+public sealed class FasterHashIndex<T> : FasterIndexBase<T>, IIntIndex<T> where T : notnull
+{
+    internal FasterHashIndex(FasterEngine engine, string dir, bool hasEngineTimestamp)
+        : base(engine, dir, hasEngineTimestamp) { }
+}
+
+public sealed class FasterIndex<T> : FasterIndexBase<T>, ISortedIntIndex<T> where T : notnull
+{
+    private readonly SortedSet<byte[]> _ordered = new(ByteArrayMemCmp.Instance); // composite (value, id)
+
+    internal FasterIndex(FasterEngine engine, string dir, bool hasEngineTimestamp)
+        : base(engine, dir, hasEngineTimestamp) { }
+
+    protected override void OnRecovered(int id, ReadOnlySpan<byte> value) => _ordered.Add(Composite(value, id));
+
+    protected override void OnSet(int id, byte[] old, bool existed, ReadOnlySpan<byte> newValue)
+    {
+        if (existed) _ordered.Remove(Composite(old, id));
+        _ordered.Add(Composite(newValue, id));
+    }
+
+    protected override void OnRemoved(int id, byte[] old) => _ordered.Remove(Composite(old, id));
+
+    public int DistinctValueCount
+    {
+        get
+        {
+            int distinct = 0;
+            byte[]? prev = null;
+            foreach (byte[] c in _ordered)
+            {
+                var val = OrderedCodec.ValueOfComposite(c);
+                if (prev is null || !val.SequenceEqual(prev))
+                {
+                    distinct++;
+                    prev = val.ToArray();
+                }
+            }
+            return distinct;
+        }
+    }
+
+    private static byte[] Composite(ReadOnlySpan<byte> valueBytes, int id)
+    {
+        byte[] c = new byte[valueBytes.Length + OrderedCodec.IdSize];
+        valueBytes.CopyTo(c);
+        OrderedCodec.WriteId(c.AsSpan(valueBytes.Length), id);
+        return c;
+    }
+
     public bool ContainsValue(T value)
     {
         foreach (byte[] _ in ScanComposites(EncodeValue(value), true, EncodeValue(value), true, true, true, descending: false))
@@ -272,26 +420,20 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
         return false;
     }
 
-    private byte[] EncodeValue(T value)
-    {
-        byte[] tmp = new byte[_codec.GetMaxSize(value)];
-        int n = _codec.Encode(tmp, value);
-        return n == tmp.Length ? tmp : tmp[..n];
-    }
-
-    public IEnumerable<int> GetIds(T value)
+    /// <summary>A range over the composite set here, rather than the base class's log scan.</summary>
+    public override IEnumerable<int> GetIds(T value)
     {
         byte[] v = EncodeValue(value);
         return ScanComposites(v, true, v, true, true, true, descending: false)
             .Select(c => OrderedCodec.IdOfComposite(c));
     }
 
-    public IEnumerable<KeyValuePair<int, T>> Entries
+    public override IEnumerable<KeyValuePair<int, T>> Entries
         => _ordered
-            .Select(c => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(c), _codec.Decode(OrderedCodec.ValueOfComposite(c))))
+            .Select(c => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(c), Codec.Decode(OrderedCodec.ValueOfComposite(c))))
             .OrderBy(e => e.Key);
 
-    public IEnumerable<int> Keys
+    public override IEnumerable<int> Keys
         => _ordered.Select(c => OrderedCodec.IdOfComposite(c)).Order();
 
     public IEnumerable<T> DistinctValues
@@ -305,7 +447,7 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
                 if (prev is null || !val.SequenceEqual(prev))
                 {
                     prev = val.ToArray();
-                    yield return _codec.Decode(prev);
+                    yield return Codec.Decode(prev);
                 }
             }
         }
@@ -314,13 +456,13 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
     public T GetMinValue()
     {
         if (_ordered.Count == 0) throw new InvalidOperationException("The index is empty.");
-        return _codec.Decode(OrderedCodec.ValueOfComposite(_ordered.Min!));
+        return Codec.Decode(OrderedCodec.ValueOfComposite(_ordered.Min!));
     }
 
     public T GetMaxValue()
     {
         if (_ordered.Count == 0) throw new InvalidOperationException("The index is empty.");
-        return _codec.Decode(OrderedCodec.ValueOfComposite(_ordered.Max!));
+        return Codec.Decode(OrderedCodec.ValueOfComposite(_ordered.Max!));
     }
 
     /// <summary>Ordered scan over the in-memory composite index; null bounds are unbounded.</summary>
@@ -354,7 +496,7 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
 
     public IEnumerable<KeyValuePair<int, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
         => ScanComposites(EncodeValue(from), includeFrom, EncodeValue(to), includeTo, true, true, descending)
-            .Select(c => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(c), _codec.Decode(OrderedCodec.ValueOfComposite(c))));
+            .Select(c => new KeyValuePair<int, T>(OrderedCodec.IdOfComposite(c), Codec.Decode(OrderedCodec.ValueOfComposite(c))));
 
     public IEnumerable<int> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
         => ScanComposites(EncodeValue(value), includeValue, null, true, true, false, descending)
@@ -373,44 +515,4 @@ public sealed class FasterIndex<T> : ISortedIntIndex<T>, IFasterIndexInternal, I
     public int CountIdsSmallerThan(T value, bool includeValue = true)
         => ScanComposites(null, true, EncodeValue(value), includeValue, false, true, false).Count();
 
-    public long GetTimestamp() => _hasEngineTimestamp ? _engine.GetTimestamp() : 0;
-
-    public void SetTimestamp(long timestamp)
-    {
-        if (timestamp == 0) { _hasEngineTimestamp = false; return; }
-        if (timestamp != _engine.GetTimestamp())
-            throw new InvalidOperationException("An index timestamp is always 0 or the engine's current timestamp.");
-        _hasEngineTimestamp = true;
-    }
-
-    void IFasterIndexInternal.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
-
-    void IFasterIndexInternal.Checkpoint()
-    {
-        _session.CompletePending(wait: true);
-        if (!_store.TryInitiateHybridLogCheckpoint(out _, CheckpointType.FoldOver))
-        {
-            // A checkpoint is already in flight; wait for it and take ours.
-            _store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
-            _store.TryInitiateHybridLogCheckpoint(out _, CheckpointType.FoldOver);
-        }
-        _store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
-    }
-
-    void IFasterIndexInternal.ClearData()
-    {
-        foreach (byte[] c in _ordered.ToArray())
-        {
-            SpanByte key = StageKey(OrderedCodec.IdOfComposite(c));
-            _session.Delete(ref key);
-        }
-        _ordered.Clear();
-    }
-
-    public void Dispose()
-    {
-        _session.Dispose();
-        _store.Dispose();
-        _settings.Dispose();
-    }
 }

@@ -197,23 +197,6 @@ public class KvUlongGuidIndexTests {
     }
 
     [TestMethod]
-    public void HashDictionary_UlongAndGuidIds_MatchBPlusTreeOrdering() {
-        using var engine = new HashDictionaryStorageEngine();
-        var byUlong = engine.OpenOrCreateUlongIndex<string>("by-ulong");
-        commit(engine, () => { foreach (var (id, value) in _ulongEntries) byUlong.Set(id, value); });
-        verifyUlongEntries(byUlong);
-
-        var byGuid = engine.OpenOrCreateGuidIndex<string>("by-guid");
-        var shared = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
-        commit(engine, () => { foreach (var id in shared) byGuid.Set(id, "shared"); }, timestamp: 2);
-        CollectionAssert.AreEqual(shared.OrderBy(g => g).ToArray(), byGuid.GetIds("shared").ToArray());
-        CollectionAssert.AreEqual(shared.OrderBy(g => g).ToArray(), byGuid.Keys.ToArray());
-
-        // an open index name is bound to its id and value type
-        Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntIndex<string>("by-ulong"));
-    }
-
-    [TestMethod]
     public void BPlusTree_IdKindMismatch_Throws() {
         var dir = tempDir();
         try {

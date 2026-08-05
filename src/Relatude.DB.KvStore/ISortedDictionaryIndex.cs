@@ -178,17 +178,17 @@ public interface IStorageEngine {
     /// writes markedly cheaper. A name belongs to one layout: opening a sorted index as a hash
     /// index (or the reverse) throws, as does a mismatched id or value type.
     /// <para>
-    /// The default implementation returns the sorted index, whose stronger guarantees satisfy this
-    /// contract; engines with a dedicated unordered layout override it.
+    /// An engine with no cheaper unordered layout may return its sorted index, whose stronger
+    /// guarantees satisfy this contract.
     /// </para>
     /// </summary>
-    IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull => OpenOrCreateIntIndex<T>(name);
+    IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull;
 
     /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by ulong ids.</summary>
-    IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull => OpenOrCreateUlongIndex<T>(name);
+    IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull;
 
     /// <summary>Same contract as <see cref="OpenOrCreateIntHashIndex{T}"/>, but the index is keyed by Guid ids.</summary>
-    IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull => OpenOrCreateGuidIndex<T>(name);
+    IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull;
 
     /// <summary>Begins the single writer transaction; mutations require one.</summary>
     void BeginTransaction();
