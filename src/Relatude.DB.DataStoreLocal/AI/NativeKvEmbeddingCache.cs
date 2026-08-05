@@ -6,8 +6,8 @@ namespace Relatude.DB.AI;
 public class NativeKvEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     readonly BPlusTreeStorageEngine _fileStorage;
-    readonly ISortedIndex<ulong> _hashes;
-    readonly ISortedIndex<byte[]> _embeddings;
+    readonly ISortedIntIndex<ulong> _hashes;
+    readonly ISortedIntIndex<byte[]> _embeddings;
     int _nextId;
     bool _disposed;
     public NativeKvEmbeddingCache(string filePath) {
@@ -16,8 +16,8 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             ValueCacheEntries = 10000,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
-        _hashes = _fileStorage.OpenOrCreateIndex<ulong>("embedding-hashes");
-        _embeddings = _fileStorage.OpenOrCreateIndex<byte[]>("embeddings");
+        _hashes = _fileStorage.OpenOrCreateIntIndex<ulong>("embedding-hashes");
+        _embeddings = _fileStorage.OpenOrCreateIntIndex<byte[]>("embeddings");
         _nextId = _hashes.Keys.DefaultIfEmpty(-1).Max() + 1;
     }
 

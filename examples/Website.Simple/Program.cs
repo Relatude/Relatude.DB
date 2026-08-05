@@ -95,7 +95,7 @@ app.MapGet("/Streams", (RelatudeDBContext ctx) => {
     return IOProviderDisk.GetAllOpenStreams();
 });
 app.MapGet("/T1est", (Database db) => {
-    return db.Query<DemoArticle>().Select(a => new { a.Title, a.File.Name }).Execute().ToArray();
+    return db.Query<DemoArticle>().WhereSearch("dddd").Select(a => new { a.Title, a.File.Name }).Execute().ToArray();
 });
 
 app.MapPost("/CancelConversion", async (RelatudeDBContext ctx, Guid conversionKey, bool permanently) => {

@@ -5,20 +5,33 @@ using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
-/// Bidirectional disk-based index backed by two B+Trees:
+/// Bidirectional disk-based index backed by two B+Trees, generic over the id type
+/// (int, ulong or Guid — see <see cref="IdCodec{TId}"/>; the sealed leaves below bind each
+/// id type to its public interface):
 /// an id tree (encoded id → encoded value) serving <see cref="GetValue"/> and <see cref="Entries"/>,
 /// and a value tree keyed by the composite (encoded value + encoded id) with empty payloads,
 /// serving <see cref="GetIds"/> and <see cref="GetIdsInRange"/> via prefix/range scans.
-/// Value encodings are order-preserving and prefix-free, so byte-wise key order equals
-/// logical (value, id) order and prefix scans can never bleed into a different value.
+/// Value encodings are order-preserving and prefix-free, and id encodings are order-preserving
+/// and fixed-size, so byte-wise key order equals logical (value, id) order and prefix scans can
+/// never bleed into a different value.
 /// Mutations cost one descent per tree: the previous value and duplicate-value presence
 /// (for <see cref="DistinctValueCount"/>) are resolved inside the tree operations themselves via
 /// <see cref="WriteExtras"/>, with a fallback lookup only when a leaf boundary is inconclusive.
 /// </summary>
 [SkipLocalsInit] // Set/Remove stackalloc ~1.5 KB of scratch per call; zeroing it is pure cost (every read is length-bounded to written bytes)
-internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp) : ISortedIndex<T>, IValueCacheOwner, IIndexTimestamp where T : notnull
+internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
+    : ISortedDictionaryIndex<TId, T>, IValueCacheOwner, IIndexTimestamp
+    where TId : unmanaged
+    where T : notnull
 {
     private const int StackBufferSize = 512;
+    private const int MaxIdSize = 16; // largest supported id encoding (Guid); stack buffers use this so their size stays a JIT constant
+
+    // A property forwarding to IdCodec<TId>, not a static field on this class: TId is always a
+    // value type, so IdCodec<TId> is an exact instantiation whose readonly Size JIT-folds to a
+    // constant even inside this class's canonically shared code (reference-type T) — a static
+    // field here would instead cost a shared-statics lookup per access.
+    private static int IdSize => IdCodec<TId>.Size;
 
     private readonly IKeyCodec<T> _codec = KeyCodec.Get<T>();
 
@@ -41,8 +54,8 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
     }
 
     void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
-    private readonly ValueCache<T>? _valueCache =
-        engine.ValueCacheEntries > 0 ? new ValueCache<T>(engine.ValueCacheEntries) : null;
+    private readonly ValueCache<TId, T>? _valueCache =
+        engine.ValueCacheEntries > 0 ? new ValueCache<TId, T>(engine.ValueCacheEntries) : null;
 
     public int Count
     {
@@ -66,26 +79,26 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         }
     }
 
-    public void Set(int id, T value)
+    public void Set(TId id, T value)
     {
         var txn = engine.RequireTxn();
         var st = engine.GetTxnState(txn, name);
 
-        int maxSize = _codec.GetMaxSize(value) + KeyCodec.IdSize;
+        int maxSize = _codec.GetMaxSize(value) + IdSize;
         byte[]? rented = maxSize > StackBufferSize ? ArrayPool<byte>.Shared.Rent(maxSize) : null;
         Span<byte> buf = rented ?? stackalloc byte[StackBufferSize];
-        Span<byte> oldBuf = stackalloc byte[NodePage.MaxValueSize + KeyCodec.IdSize];
+        Span<byte> oldBuf = stackalloc byte[NodePage.MaxValueSize + MaxIdSize];
         try
         {
             int valueLen = _codec.Encode(buf, value);
             // Validate the composite up front: failing on the second tree would leave the two trees inconsistent.
-            if (valueLen + KeyCodec.IdSize > NodePage.MaxKeySize)
-                throw new ArgumentException($"Encoded value is {valueLen} bytes; the maximum is {NodePage.MaxKeySize - KeyCodec.IdSize}.");
+            if (valueLen + IdSize > NodePage.MaxKeySize)
+                throw new ArgumentException($"Encoded value is {valueLen} bytes; the maximum is {NodePage.MaxKeySize - IdSize}.");
 
-            KeyCodec.EncodeId(buf[valueLen..], id);
-            Span<byte> composite = buf[..(valueLen + KeyCodec.IdSize)];
+            IdCodec<TId>.Encode(buf[valueLen..], id);
+            Span<byte> composite = buf[..(valueLen + IdSize)];
             Span<byte> valueBytes = buf[..valueLen];
-            Span<byte> idKey = buf.Slice(valueLen, KeyCodec.IdSize);
+            Span<byte> idKey = buf.Slice(valueLen, IdSize);
 
             var idExtras = new WriteExtras { OldValue = oldBuf };
             st.IdRoot = BTree.Insert(txn, st.IdRoot, idKey, valueBytes, ref idExtras);
@@ -97,7 +110,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
             {
                 // Unlink (oldValue, id) from the value tree.
                 idKey.CopyTo(oldBuf[idExtras.OldValueLength..]);
-                Span<byte> oldComposite = oldBuf[..(idExtras.OldValueLength + KeyCodec.IdSize)];
+                Span<byte> oldComposite = oldBuf[..(idExtras.OldValueLength + IdSize)];
                 var oldExtras = new WriteExtras { PrefixLength = idExtras.OldValueLength };
                 st.ValueRoot = BTree.Delete(txn, st.ValueRoot, oldComposite, out _, ref oldExtras);
                 if (oldExtras.Presence == PrefixPresence.No ||
@@ -127,14 +140,15 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         }
     }
 
-    public bool Remove(int id)
+    public bool Remove(TId id)
     {
         var txn = engine.RequireTxn();
         var st = engine.GetTxnState(txn, name);
 
-        Span<byte> idKey = stackalloc byte[KeyCodec.IdSize];
-        KeyCodec.EncodeId(idKey, id);
-        Span<byte> oldBuf = stackalloc byte[NodePage.MaxValueSize + KeyCodec.IdSize];
+        Span<byte> idKey = stackalloc byte[MaxIdSize];
+        idKey = idKey[..IdSize];
+        IdCodec<TId>.Encode(idKey, id);
+        Span<byte> oldBuf = stackalloc byte[NodePage.MaxValueSize + MaxIdSize];
 
         var idExtras = new WriteExtras { OldValue = oldBuf };
         st.IdRoot = BTree.Delete(txn, st.IdRoot, idKey, out bool removed, ref idExtras);
@@ -143,7 +157,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         RecordTouched(st, id);
 
         idKey.CopyTo(oldBuf[idExtras.OldValueLength..]);
-        Span<byte> composite = oldBuf[..(idExtras.OldValueLength + KeyCodec.IdSize)];
+        Span<byte> composite = oldBuf[..(idExtras.OldValueLength + IdSize)];
         var valExtras = new WriteExtras { PrefixLength = idExtras.OldValueLength };
         st.ValueRoot = BTree.Delete(txn, st.ValueRoot, composite, out _, ref valExtras);
 
@@ -169,17 +183,17 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         var cursor = new BTreeCursor(src);
         if (!cursor.Seek(valueRoot, valueBytes) || !cursor.Key.StartsWith(valueBytes))
             return false;
-        if (!cursor.Key[^KeyCodec.IdSize..].SequenceEqual(idKey))
+        if (!cursor.Key[^IdSize..].SequenceEqual(idKey))
             return true;
         return cursor.MoveNext() && cursor.Key.StartsWith(valueBytes);
     }
 
-    public T GetValue(int id)
+    public T GetValue(TId id)
         => TryGetValue(id, out T value)
             ? value
             : throw new KeyNotFoundException($"Id {id} is not present in index '{name}'.");
 
-    public bool TryGetValue(int id, out T value)
+    public bool TryGetValue(TId id, out T value)
     {
         using var read = engine.BeginRead();
         // The cache only ever serves committed snapshots; the writer inside its own
@@ -188,8 +202,9 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         if (cacheable && _valueCache!.TryGet(id, read.Snapshot!.TxId, out value!))
             return true;
 
-        Span<byte> idKey = stackalloc byte[KeyCodec.IdSize];
-        KeyCodec.EncodeId(idKey, id);
+        Span<byte> idKey = stackalloc byte[MaxIdSize];
+        idKey = idKey[..IdSize];
+        IdCodec<TId>.Encode(idKey, id);
         if (!BTree.TryGet(read.Source, RootsFor(read).IdRoot, idKey, out byte[] leaf, out int pos))
         {
             value = default!;
@@ -208,14 +223,15 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         return true;
     }
 
-    public bool ContainsKey(int id)
+    public bool ContainsKey(TId id)
     {
         using var read = engine.BeginRead();
         if (_valueCache is not null && read.Snapshot is not null && _valueCache.TryGet(id, read.Snapshot.TxId, out _))
             return true;
 
-        Span<byte> idKey = stackalloc byte[KeyCodec.IdSize];
-        KeyCodec.EncodeId(idKey, id);
+        Span<byte> idKey = stackalloc byte[MaxIdSize];
+        idKey = idKey[..IdSize];
+        IdCodec<TId>.Encode(idKey, id);
         return BTree.TryGet(read.Source, RootsFor(read).IdRoot, idKey, out _, out _);
     }
 
@@ -226,35 +242,35 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         return HasValue(read.Source, RootsFor(read).ValueRoot, prefix);
     }
 
-    void IValueCacheOwner.EvictCommittedIds(List<int>? touchedIds, bool overflow)
+    void IValueCacheOwner.EvictCommittedSlots(List<int>? touchedSlots, bool overflow)
     {
         if (_valueCache is null)
             return;
-        if (overflow || touchedIds is null)
+        if (overflow || touchedSlots is null)
         {
             _valueCache.Clear();
             return;
         }
-        foreach (int id in touchedIds)
-            _valueCache.Remove(id);
+        foreach (int slotHash in touchedSlots)
+            _valueCache.EvictSlot(slotHash);
     }
 
-    private void RecordTouched(BPlusTreeStorageEngine.MutableIndexState st, int id)
+    private void RecordTouched(BPlusTreeStorageEngine.MutableIndexState st, TId id)
     {
         if (_valueCache is null || st.TouchedOverflow)
             return;
-        var list = st.TouchedIds ??= new List<int>();
+        var list = st.TouchedSlots ??= new List<int>();
         if (list.Count >= engine.ValueCacheEntries)
         {
             // The txn touched more ids than the cache can hold: clearing at commit is cheaper.
-            st.TouchedIds = null;
+            st.TouchedSlots = null;
             st.TouchedOverflow = true;
             return;
         }
-        list.Add(id);
+        list.Add(IdCodec<TId>.SlotHash(id));
     }
 
-    public IEnumerable<int> GetIds(T value)
+    public IEnumerable<TId> GetIds(T value)
     {
         byte[] prefix = EncodeToArray(value);
         using var read = engine.BeginRead();
@@ -266,12 +282,12 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
             ReadOnlySpan<byte> key = cursor.Key;
             if (!key.StartsWith(prefix))
                 yield break;
-            int id = KeyCodec.DecodeId(key[^KeyCodec.IdSize..]);
+            TId id = IdCodec<TId>.Decode(key[^IdSize..]);
             yield return id;
         } while (cursor.MoveNext());
     }
 
-    public IEnumerable<KeyValuePair<int, T>> Entries
+    public IEnumerable<KeyValuePair<TId, T>> Entries
     {
         get
         {
@@ -281,14 +297,14 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 yield break;
             do
             {
-                int id = KeyCodec.DecodeId(cursor.Key);
+                TId id = IdCodec<TId>.Decode(cursor.Key);
                 T value = _codec.Decode(cursor.Value);
-                yield return new KeyValuePair<int, T>(id, value);
+                yield return new KeyValuePair<TId, T>(id, value);
             } while (cursor.MoveNext());
         }
     }
 
-    public IEnumerable<int> Keys
+    public IEnumerable<TId> Keys
     {
         get
         {
@@ -298,7 +314,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 yield break;
             do
             {
-                yield return KeyCodec.DecodeId(cursor.Key);
+                yield return IdCodec<TId>.Decode(cursor.Key);
             } while (cursor.MoveNext());
         }
     }
@@ -310,7 +326,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         var cursor = new BTreeCursor(read.Source);
         if (!cursor.SeekFirst(RootsFor(read).ValueRoot))
             throw new InvalidOperationException($"Index '{name}' is empty.");
-        return _codec.Decode(cursor.Key[..^KeyCodec.IdSize]);
+        return _codec.Decode(cursor.Key[..^IdSize]);
     }
 
     public T GetMaxValue()
@@ -319,7 +335,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         var cursor = new BTreeCursor(read.Source);
         if (!cursor.SeekLast(RootsFor(read).ValueRoot))
             throw new InvalidOperationException($"Index '{name}' is empty.");
-        return _codec.Decode(cursor.Key[..^KeyCodec.IdSize]);
+        return _codec.Decode(cursor.Key[..^IdSize]);
     }
 
     public IEnumerable<T> DistinctValues
@@ -333,19 +349,19 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 yield break;
             while (true)
             {
-                byte[] valueBytes = cursor.Key[..^KeyCodec.IdSize].ToArray(); // the key span dies when the cursor moves
+                byte[] valueBytes = cursor.Key[..^IdSize].ToArray(); // the key span dies when the cursor moves
                 yield return _codec.Decode(valueBytes);
                 // Skip-scan: same-value composites are contiguous, so seek directly past the largest
                 // possible (value, id) composite instead of stepping through every duplicate id.
                 // The codec is prefix-free, so no other value's composite can sort inside that range,
                 // making this O(distinct · log n) instead of O(n).
-                Span<byte> seekKey = new byte[valueBytes.Length + KeyCodec.IdSize];
+                Span<byte> seekKey = new byte[valueBytes.Length + IdSize];
                 valueBytes.CopyTo(seekKey);
                 seekKey[valueBytes.Length..].Fill(0xFF);
                 if (!cursor.Seek(root, seekKey))
                     yield break;
-                // 0xFF x 4 is the encoding of id int.MaxValue: if such an id exists the seek lands on it
-                if (cursor.Key[..^KeyCodec.IdSize].SequenceEqual(valueBytes) && !cursor.MoveNext())
+                // all-0xFF is the largest possible encoded id: if such an id exists the seek lands on it
+                if (cursor.Key[..^IdSize].SequenceEqual(valueBytes) && !cursor.MoveNext())
                     yield break;
             }
         }
@@ -358,15 +374,15 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
     private (byte[] StartKey, byte[] StopKey) BuildRangeKeys(T from, T to, bool includeFrom, bool includeTo)
         => (BuildStartKey(from, includeFrom), BuildStopKey(to, includeTo));
 
-    // Composite keys are (value, id); id spans 0x00000000..0xFFFFFFFF after encoding.
+    // Composite keys are (value, id); encoded ids span 0x00... to 0xFF... .
     private byte[] BuildStartKey(T from, bool includeFrom)
     {
         byte[] encFrom = EncodeToArray(from);
         if (includeFrom)
             return encFrom; // sorts before every (from, id) composite
-        byte[] startKey = new byte[encFrom.Length + KeyCodec.IdSize + 1];
+        byte[] startKey = new byte[encFrom.Length + IdSize + 1];
         encFrom.CopyTo(startKey, 0);
-        startKey.AsSpan(encFrom.Length, KeyCodec.IdSize).Fill(0xFF); // past the last (from, id) composite
+        startKey.AsSpan(encFrom.Length, IdSize).Fill(0xFF); // past the last (from, id) composite
         return startKey;
     }
 
@@ -376,13 +392,13 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         byte[] encTo = EncodeToArray(to);
         if (!includeTo)
             return encTo; // prefix-freedom: every smaller value's composite compares below this
-        byte[] stopKey = new byte[encTo.Length + KeyCodec.IdSize + 1];
+        byte[] stopKey = new byte[encTo.Length + IdSize + 1];
         encTo.CopyTo(stopKey, 0);
-        stopKey.AsSpan(encTo.Length, KeyCodec.IdSize).Fill(0xFF);
+        stopKey.AsSpan(encTo.Length, IdSize).Fill(0xFF);
         return stopKey;
     }
 
-    public IEnumerable<int> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
+    public IEnumerable<TId> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
     {
         var (startKey, stopKey) = BuildRangeKeys(from, to, includeFrom, includeTo);
 
@@ -399,7 +415,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 ReadOnlySpan<byte> key = cursor.Key;
                 if (key.SequenceCompareTo(startKey) < 0)
                     yield break;
-                int id = KeyCodec.DecodeId(key[^KeyCodec.IdSize..]);
+                TId id = IdCodec<TId>.Decode(key[^IdSize..]);
                 yield return id;
             } while (cursor.MovePrevious());
         }
@@ -412,13 +428,13 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 ReadOnlySpan<byte> key = cursor.Key;
                 if (key.SequenceCompareTo(stopKey) >= 0)
                     yield break;
-                int id = KeyCodec.DecodeId(key[^KeyCodec.IdSize..]);
+                TId id = IdCodec<TId>.Decode(key[^IdSize..]);
                 yield return id;
             } while (cursor.MoveNext());
         }
     }
 
-    public IEnumerable<KeyValuePair<int, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
+    public IEnumerable<KeyValuePair<TId, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
     {
         var (startKey, stopKey) = BuildRangeKeys(from, to, includeFrom, includeTo);
 
@@ -455,7 +471,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         }
     }
 
-    public IEnumerable<int> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
+    public IEnumerable<TId> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
     {
         byte[] startKey = BuildStartKey(value, includeValue);
         using var read = engine.BeginRead();
@@ -469,7 +485,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 ReadOnlySpan<byte> key = cursor.Key;
                 if (key.SequenceCompareTo(startKey) < 0)
                     yield break;
-                yield return KeyCodec.DecodeId(key[^KeyCodec.IdSize..]);
+                yield return IdCodec<TId>.Decode(key[^IdSize..]);
             } while (cursor.MovePrevious());
         }
         else
@@ -478,12 +494,12 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 yield break;
             do
             {
-                yield return KeyCodec.DecodeId(cursor.Key[^KeyCodec.IdSize..]);
+                yield return IdCodec<TId>.Decode(cursor.Key[^IdSize..]);
             } while (cursor.MoveNext());
         }
     }
 
-    public IEnumerable<int> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false)
+    public IEnumerable<TId> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false)
     {
         byte[] stopKey = BuildStopKey(value, includeValue);
         using var read = engine.BeginRead();
@@ -495,7 +511,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 yield break;
             do
             {
-                yield return KeyCodec.DecodeId(cursor.Key[^KeyCodec.IdSize..]);
+                yield return IdCodec<TId>.Decode(cursor.Key[^IdSize..]);
             } while (cursor.MovePrevious());
         }
         else
@@ -507,7 +523,7 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
                 ReadOnlySpan<byte> key = cursor.Key;
                 if (key.SequenceCompareTo(stopKey) >= 0)
                     yield break;
-                yield return KeyCodec.DecodeId(key[^KeyCodec.IdSize..]);
+                yield return IdCodec<TId>.Decode(key[^IdSize..]);
             } while (cursor.MoveNext());
         }
     }
@@ -543,15 +559,15 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
     }
 
     /// <summary>Splits a composite key into (id, decoded value), reusing the last decode for repeated values.</summary>
-    private KeyValuePair<int, T> DecodeEntry(ReadOnlySpan<byte> key, ref byte[]? lastValueBytes, ref T lastValue)
+    private KeyValuePair<TId, T> DecodeEntry(ReadOnlySpan<byte> key, ref byte[]? lastValueBytes, ref T lastValue)
     {
-        ReadOnlySpan<byte> valueBytes = key[..^KeyCodec.IdSize];
+        ReadOnlySpan<byte> valueBytes = key[..^IdSize];
         if (lastValueBytes is null || !valueBytes.SequenceEqual(lastValueBytes))
         {
             lastValueBytes = valueBytes.ToArray(); // the key span dies when the cursor moves
             lastValue = _codec.Decode(valueBytes);
         }
-        return new KeyValuePair<int, T>(KeyCodec.DecodeId(key[^KeyCodec.IdSize..]), lastValue);
+        return new KeyValuePair<TId, T>(IdCodec<TId>.Decode(key[^IdSize..]), lastValue);
     }
 
     private (uint ValueRoot, uint IdRoot) RootsFor(in BPlusTreeStorageEngine.ReadHandle read)
@@ -577,3 +593,12 @@ internal sealed class BPlusTreeIndex<T>(BPlusTreeStorageEngine engine, string na
         return result;
     }
 }
+
+internal sealed class BPlusTreeIntIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
+    : BPlusTreeIndex<int, T>(engine, name, hasEngineTimestamp), ISortedIntIndex<T> where T : notnull;
+
+internal sealed class BPlusTreeUlongIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
+    : BPlusTreeIndex<ulong, T>(engine, name, hasEngineTimestamp), ISortedUlongIndex<T> where T : notnull;
+
+internal sealed class BPlusTreeGuidIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
+    : BPlusTreeIndex<Guid, T>(engine, name, hasEngineTimestamp), ISortedGuidIndex<T> where T : notnull;

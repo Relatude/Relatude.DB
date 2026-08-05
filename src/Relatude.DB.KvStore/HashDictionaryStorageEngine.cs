@@ -5,10 +5,12 @@ namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 /// <summary>
 /// Memory-only comparison engine built on plain hash dictionaries:
 /// <c>Dictionary&lt;id, value&gt;</c> and <c>Dictionary&lt;value, List&lt;id&gt;&gt;</c> (id lists kept sorted).
-/// This is the upper bound for point operations — <see cref="ISortedIndex{T}.GetValue"/> and
-/// <see cref="ISortedIndex{T}.GetIds"/> are single hash lookups — and the lower bound for ordered
-/// ones: hash tables have no order, so <see cref="ISortedIndex{T}.GetIdsInRange"/> and
-/// <see cref="ISortedIndex{T}.Entries"/> must filter/sort on every call. Nothing is ever written to
+/// Indexes may be keyed by int, ulong or Guid ids; <see cref="Comparer{TId}.Default"/> for those
+/// types matches the byte-wise id order of the B+Tree engine, so results are comparable.
+/// This is the upper bound for point operations — <see cref="ISortedIntIndex{T}.GetValue"/> and
+/// <see cref="ISortedIntIndex{T}.GetIds"/> are single hash lookups — and the lower bound for ordered
+/// ones: hash tables have no order, so <see cref="ISortedIntIndex{T}.GetIdsInRange"/> and
+/// <see cref="ISortedIntIndex{T}.Entries"/> must filter/sort on every call. Nothing is ever written to
 /// disk: the path argument is ignored, commits only publish in memory, and all data is lost
 /// on dispose. Reads share the live structures under a reader/writer lock; cancel is an undo log.
 /// </summary>
@@ -26,17 +28,26 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         // path intentionally unused: this engine is memory-only by design.
     }
 
-    public ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedIntIndex<T>>(name, () => new HashDictionaryIntIndex<T>(this, name));
+
+    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedUlongIndex<T>>(name, () => new HashDictionaryUlongIndex<T>(this, name));
+
+    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedGuidIndex<T>>(name, () => new HashDictionaryGuidIndex<T>(this, name));
+
+    private TIndex OpenOrCreateCore<TIndex>(string name, Func<TIndex> create) where TIndex : class
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         lock (_open)
         {
             if (_open.TryGetValue(name, out object? open))
             {
-                return open as HashDictionaryIndex<T>
-                    ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+                return open as TIndex
+                    ?? throw new InvalidOperationException($"Index '{name}' is already open with a different id or value type.");
             }
-            var index = new HashDictionaryIndex<T>(this, name);
+            TIndex index = create();
             _open[name] = index;
             return index;
         }
@@ -149,7 +160,19 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
 
     public void Dispose() => Lock.Dispose();
 
-    private sealed class HashDictionaryIndex<T>(HashDictionaryStorageEngine engine, string name) : ISortedIndex<T>, IClearable, IIndexTimestamp where T : notnull
+    private sealed class HashDictionaryIntIndex<T>(HashDictionaryStorageEngine engine, string name)
+        : HashDictionaryIndex<int, T>(engine, name), ISortedIntIndex<T> where T : notnull;
+
+    private sealed class HashDictionaryUlongIndex<T>(HashDictionaryStorageEngine engine, string name)
+        : HashDictionaryIndex<ulong, T>(engine, name), ISortedUlongIndex<T> where T : notnull;
+
+    private sealed class HashDictionaryGuidIndex<T>(HashDictionaryStorageEngine engine, string name)
+        : HashDictionaryIndex<Guid, T>(engine, name), ISortedGuidIndex<T> where T : notnull;
+
+    private abstract class HashDictionaryIndex<TId, T>(HashDictionaryStorageEngine engine, string name)
+        : ISortedDictionaryIndex<TId, T>, IClearable, IIndexTimestamp
+        where TId : notnull
+        where T : notnull
     {
         void IClearable.ClearAll()
         {
@@ -177,8 +200,8 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
 
         void IIndexTimestamp.AdoptEngineTimestamp() => _hasEngineTimestamp = true;
 
-        private readonly Dictionary<int, T> _byId = new();
-        private readonly Dictionary<T, List<int>> _byValue = new(ValueComparers.GetEqualityComparer<T>());
+        private readonly Dictionary<TId, T> _byId = new();
+        private readonly Dictionary<T, List<TId>> _byValue = new(ValueComparers.GetEqualityComparer<T>());
         private readonly IComparer<T> _comparer = ValueComparers.GetComparer<T>();
         private readonly IEqualityComparer<T> _equality = ValueComparers.GetEqualityComparer<T>();
 
@@ -204,7 +227,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public void Set(int id, T value)
+        public void Set(TId id, T value)
         {
             engine.RequireTransaction();
             engine.Lock.EnterWriteLock();
@@ -224,7 +247,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public bool Remove(int id)
+        public bool Remove(TId id)
         {
             engine.RequireTransaction();
             engine.Lock.EnterWriteLock();
@@ -242,24 +265,24 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        private void ApplyAdd(int id, T value)
+        private void ApplyAdd(TId id, T value)
         {
             if (_byId.TryGetValue(id, out T? old))
                 RemoveFromValueList(old, id);
             _byId[id] = value;
             if (!_byValue.TryGetValue(value, out var ids))
-                _byValue[value] = ids = new List<int>();
+                _byValue[value] = ids = new List<TId>();
             int pos = ids.BinarySearch(id);
             ids.Insert(pos < 0 ? ~pos : pos, id); // keep ascending so GetIds needs no sort
         }
 
-        private void ApplyRemove(int id)
+        private void ApplyRemove(TId id)
         {
             if (_byId.Remove(id, out T? old))
                 RemoveFromValueList(old, id);
         }
 
-        private void RemoveFromValueList(T value, int id)
+        private void RemoveFromValueList(T value, TId id)
         {
             var ids = _byValue[value];
             ids.RemoveAt(ids.BinarySearch(id));
@@ -267,12 +290,12 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
                 _byValue.Remove(value);
         }
 
-        public T GetValue(int id)
+        public T GetValue(TId id)
             => TryGetValue(id, out T value)
                 ? value
                 : throw new KeyNotFoundException($"Id {id} is not present in index '{name}'.");
 
-        public bool TryGetValue(int id, out T value)
+        public bool TryGetValue(TId id, out T value)
         {
             engine.Lock.EnterReadLock();
             try
@@ -285,7 +308,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public bool ContainsKey(int id)
+        public bool ContainsKey(TId id)
         {
             engine.Lock.EnterReadLock();
             try
@@ -311,7 +334,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<int> GetIds(T value)
+        public IEnumerable<TId> GetIds(T value)
         {
             engine.Lock.EnterReadLock();
             try
@@ -324,17 +347,17 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<KeyValuePair<int, T>> Entries
+        public IEnumerable<KeyValuePair<TId, T>> Entries
         {
             get
             {
                 engine.Lock.EnterReadLock();
                 try
                 {
-                    var result = new List<KeyValuePair<int, T>>(_byId.Count);
+                    var result = new List<KeyValuePair<TId, T>>(_byId.Count);
                     foreach (var kv in _byId)
                         result.Add(kv);
-                    result.Sort(static (a, b) => a.Key.CompareTo(b.Key)); // hash order -> id order
+                    result.Sort(static (a, b) => Comparer<TId>.Default.Compare(a.Key, b.Key)); // hash order -> id order
                     return result;
                 }
                 finally
@@ -344,14 +367,14 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<int> Keys
+        public IEnumerable<TId> Keys
         {
             get
             {
                 engine.Lock.EnterReadLock();
                 try
                 {
-                    var result = new List<int>(_byId.Keys);
+                    var result = new List<TId>(_byId.Keys);
                     result.Sort(); // hash order -> id order
                     return result;
                 }
@@ -430,9 +453,9 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
         }
 
         /// <summary>Concatenates the matched values' id lists; per-value lists are ascending, reversed when descending. Caller holds the lock.</summary>
-        private List<int> CollectIds(List<T> matchedValues, bool descending)
+        private List<TId> CollectIds(List<T> matchedValues, bool descending)
         {
-            var result = new List<int>();
+            var result = new List<TId>();
             foreach (T value in matchedValues)
             {
                 var ids = _byValue[value];
@@ -464,7 +487,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             return matched;
         }
 
-        public IEnumerable<int> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
+        public IEnumerable<TId> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
         {
             engine.Lock.EnterReadLock();
             try
@@ -477,7 +500,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<int> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
+        public IEnumerable<TId> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false)
         {
             engine.Lock.EnterReadLock();
             try
@@ -493,7 +516,7 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<int> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false)
+        public IEnumerable<TId> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false)
         {
             engine.Lock.EnterReadLock();
             try
@@ -509,24 +532,24 @@ public sealed class HashDictionaryStorageEngine : IStorageEngine, IDisposable
             }
         }
 
-        public IEnumerable<KeyValuePair<int, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
+        public IEnumerable<KeyValuePair<TId, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false)
         {
             engine.Lock.EnterReadLock();
             try
             {
-                var result = new List<KeyValuePair<int, T>>();
+                var result = new List<KeyValuePair<TId, T>>();
                 foreach (T value in MatchedValues(from, to, includeFrom, includeTo, descending))
                 {
                     var ids = _byValue[value];
                     if (descending)
                     {
                         for (int i = ids.Count - 1; i >= 0; i--)
-                            result.Add(new KeyValuePair<int, T>(ids[i], value));
+                            result.Add(new KeyValuePair<TId, T>(ids[i], value));
                     }
                     else
                     {
-                        foreach (int id in ids)
-                            result.Add(new KeyValuePair<int, T>(id, value));
+                        foreach (TId id in ids)
+                            result.Add(new KeyValuePair<TId, T>(id, value));
                     }
                 }
                 return result;

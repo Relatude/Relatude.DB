@@ -75,17 +75,6 @@ internal static class KeyCodec
             "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], GeoCoordinate.");
     }
 
-    /// <summary>Encodes a signed 32-bit id so unsigned byte order equals signed numeric order.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void EncodeId(Span<byte> dst, int id)
-        => BinaryPrimitives.WriteUInt32BigEndian(dst, (uint)id ^ 0x8000_0000u);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int DecodeId(ReadOnlySpan<byte> src)
-        => (int)(BinaryPrimitives.ReadUInt32BigEndian(src) ^ 0x8000_0000u);
-
-    public const int IdSize = 4;
-
     private sealed class Int32Codec : IKeyCodec<int>
     {
         public int FixedSize => 4;

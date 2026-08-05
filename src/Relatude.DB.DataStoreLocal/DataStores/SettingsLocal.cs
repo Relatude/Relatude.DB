@@ -60,9 +60,6 @@ public class SettingsLocal {
     public double AutoPurgeCacheIntervalInMinutes { get; set; } = 5;
     public double AutoPurgeCacheLowerSizeLimitInMb { get; set; } = 1;
 
-    public double DefaultSemanticIndexWeight { get; set; } = 0.5;
-    public double DefaultSemanticSimilarityLimit { get; set; } = 0.4;
-
     public bool UsePersistedValueIndexesByDefault { get; set; } = false;
     public bool UsePersistedTextIndexesByDefault { get; set; } = false;
 

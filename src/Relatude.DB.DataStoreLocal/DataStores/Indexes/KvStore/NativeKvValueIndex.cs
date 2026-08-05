@@ -9,7 +9,7 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     static readonly Comparer<T> _comparer = Comparer<T>.Default;
     static readonly byte _typeTag = FacetSetsFile.TypeTag<T>(); // 0 when T cannot be persisted to the facet sidecar
     const long _idsCacheMaxSize = 32 * 1024 * 1024;
-    readonly ISortedIndex<T> _index;
+    readonly ISortedIntIndex<T> _index;
     readonly StateIdValueTracker<T> _stateId;
     readonly SetRegister _sets;
     readonly GapCacheKeyBuilder<T> _keyBuilder;
@@ -22,10 +22,10 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     // rewriting the sidecar when reads have added nothing since the last save (see UpdatePersistedCaches)
     bool _hasUnsavedCachedSets;
     public NativeKvValueIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName)
-        : base(store, engine.OpenOrCreateIndex<T>(uniqueKey).GetTimestamp() == 0) {
+        : base(store, engine.OpenOrCreateIntIndex<T>(uniqueKey).GetTimestamp() == 0) {
         UniqueKey = uniqueKey;
         _sets = sets;
-        _index = engine.OpenOrCreateIndex<T>(uniqueKey); // idempotent: returns the same open index as the base check above
+        _index = engine.OpenOrCreateIntIndex<T>(uniqueKey); // idempotent: returns the same open index as the base check above
         _stateId = new();
         FriendlyName = friendlyName;
         _keyBuilder = new GapCacheKeyBuilder<T>(this);

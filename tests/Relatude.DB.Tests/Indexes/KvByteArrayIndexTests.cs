@@ -18,12 +18,12 @@ public class KvByteArrayIndexTests {
         [0],
     ];
 
-    static void addAll(IStorageEngine engine, ISortedIndex<byte[]> index) {
+    static void addAll(IStorageEngine engine, ISortedIntIndex<byte[]> index) {
         engine.BeginTransaction();
         for (var id = 0; id < _values.Length; id++) index.Set(id, _values[id]);
         engine.CommitTransaction(1, true);
     }
-    static void verifyAll(ISortedIndex<byte[]> index) {
+    static void verifyAll(ISortedIntIndex<byte[]> index) {
         Assert.AreEqual(_values.Length, index.Count);
         for (var id = 0; id < _values.Length; id++) {
             CollectionAssert.AreEqual(_values[id], index.GetValue(id), $"id {id} did not round-trip");
@@ -40,12 +40,12 @@ public class KvByteArrayIndexTests {
         var filePath = Path.Combine(dir, "bytes.db");
         try {
             using (var engine = new BPlusTreeStorageEngine(filePath, new BPlusTreeEngineOptions())) {
-                var index = engine.OpenOrCreateIndex<byte[]>("bytes");
+                var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
                 addAll(engine, index);
                 verifyAll(index);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath, new BPlusTreeEngineOptions())) {
-                verifyAll(engine.OpenOrCreateIndex<byte[]>("bytes")); // decode path: read back from disk
+                verifyAll(engine.OpenOrCreateIntIndex<byte[]>("bytes")); // decode path: read back from disk
             }
         } finally {
             Directory.Delete(dir, true);
@@ -55,7 +55,7 @@ public class KvByteArrayIndexTests {
     [TestMethod]
     public void HashDictionary_ByteArray_MatchesByContent() {
         using var engine = new HashDictionaryStorageEngine();
-        var index = engine.OpenOrCreateIndex<byte[]>("bytes");
+        var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
         addAll(engine, index);
         verifyAll(index);
     }
@@ -66,7 +66,7 @@ public class KvByteArrayIndexTests {
         Directory.CreateDirectory(dir);
         try {
             using var engine = new AppendLogStorageEngine(Path.Combine(dir, "bytes.log"));
-            var index = engine.OpenOrCreateIndex<byte[]>("bytes");
+            var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
             addAll(engine, index);
             verifyAll(index);
         } finally {

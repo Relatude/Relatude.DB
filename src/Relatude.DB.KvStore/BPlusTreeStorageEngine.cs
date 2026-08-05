@@ -11,7 +11,7 @@ public sealed class BPlusTreeEngineOptions
     public long PageCacheBytes { get; init; } = 64L * 1024 * 1024;
 
     /// <summary>
-    /// Maximum number of decoded values cached per index to serve <see cref="ISortedIndex{T}.GetValue"/>
+    /// Maximum number of decoded values cached per index to serve <see cref="ISortedIntIndex{T}.GetValue"/>
     /// without a tree descent. 0 (the default) disables the cache. Snapshot-consistent: every
     /// commit evicts the ids it touched. The budget is entries, not bytes (rounded up to a power
     /// of two — the cache is a direct-mapped slot array) — size it to the hot id working set and
@@ -20,11 +20,11 @@ public sealed class BPlusTreeEngineOptions
     public int ValueCacheEntries { get; init; }
 }
 
-/// <summary>Commit-time hook for indexes that keep a value cache (see <see cref="ValueCache{T}"/>).</summary>
+/// <summary>Commit-time hook for indexes that keep a value cache (see <see cref="ValueCache{TId,T}"/>).</summary>
 internal interface IValueCacheOwner
 {
-    /// <summary>Called under the commit lock, after the new snapshot is published.</summary>
-    void EvictCommittedIds(List<int>? touchedIds, bool overflow);
+    /// <summary>Called under the commit lock, after the new snapshot is published. <paramref name="touchedSlots"/> holds cache slot hashes (see <see cref="IdCodec{TId}.SlotHash"/>), not ids.</summary>
+    void EvictCommittedSlots(List<int>? touchedSlots, bool overflow);
 }
 
 /// <summary>
@@ -41,25 +41,26 @@ internal interface IValueCacheOwner
 /// </summary>
 public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 {
-    internal sealed record IndexState(byte TypeId, uint ValueRoot, uint IdRoot, int IdCount, int ValueCount);
+    internal sealed record IndexState(byte TypeId, byte IdKind, uint ValueRoot, uint IdRoot, int IdCount, int ValueCount);
 
     internal sealed class MutableIndexState
     {
         public byte TypeId;
+        public byte IdKind;
         public uint ValueRoot;
         public uint IdRoot;
         public int IdCount;
         public int ValueCount;
         public bool Dirty;
-        public List<int>? TouchedIds;   // ids this txn mutated, for value-cache eviction at commit
+        public List<int>? TouchedSlots; // value-cache slot hashes of the ids this txn mutated, for eviction at commit
         public bool TouchedOverflow;    // txn touched more ids than the cache holds: clear instead
 
         public static MutableIndexState From(IndexState s) => new()
         {
-            TypeId = s.TypeId, ValueRoot = s.ValueRoot, IdRoot = s.IdRoot, IdCount = s.IdCount, ValueCount = s.ValueCount,
+            TypeId = s.TypeId, IdKind = s.IdKind, ValueRoot = s.ValueRoot, IdRoot = s.IdRoot, IdCount = s.IdCount, ValueCount = s.ValueCount,
         };
 
-        public IndexState ToImmutable() => new(TypeId, ValueRoot, IdRoot, IdCount, ValueCount);
+        public IndexState ToImmutable() => new(TypeId, IdKind, ValueRoot, IdRoot, IdCount, ValueCount);
     }
 
     internal sealed class EngineSnapshot(long txId, long timestamp, Dictionary<string, IndexState> indexes)
@@ -140,32 +141,48 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 
     // ---- IStorageEngine ----
 
-    public ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedIntIndex<T>, T>(name, IdCodec<int>.Kind,
+            existed => new BPlusTreeIntIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by ulong ids (<see cref="ISortedUlongIndex{T}"/>).</summary>
+    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedUlongIndex<T>, T>(name, IdCodec<ulong>.Kind,
+            existed => new BPlusTreeUlongIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by Guid ids (<see cref="ISortedGuidIndex{T}"/>).</summary>
+    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => OpenOrCreateCore<ISortedGuidIndex<T>, T>(name, IdCodec<Guid>.Kind,
+            existed => new BPlusTreeGuidIndex<T>(this, name, hasEngineTimestamp: existed));
+
+    private TIndex OpenOrCreateCore<TIndex, T>(string name, byte idKind, Func<bool, TIndex> create)
+        where TIndex : class
+        where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         lock (_writeLock)
         {
             if (_openIndexes.TryGetValue(name, out object? open))
             {
-                return open as ISortedIndex<T>
-                    ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
+                return open as TIndex
+                    ?? throw new InvalidOperationException($"Index '{name}' is already open with a different id or value type.");
             }
 
             bool existed = _committed.Indexes.TryGetValue(name, out var state);
             if (existed)
             {
-                if (state!.TypeId != KeyCodec.GetTypeId<T>())
-                    throw new InvalidOperationException($"Index '{name}' exists with a different value type.");
+                if (state!.TypeId != KeyCodec.GetTypeId<T>() || state.IdKind != idKind)
+                    throw new InvalidOperationException($"Index '{name}' exists with a different id or value type.");
             }
             else
             {
-                var fresh = new IndexState(KeyCodec.GetTypeId<T>(), 0, 0, 0, 0);
+                var fresh = new IndexState(KeyCodec.GetTypeId<T>(), idKind, 0, 0, 0, 0);
                 var indexes = new Dictionary<string, IndexState>(_committed.Indexes) { [name] = fresh };
                 _committed = new EngineSnapshot(_committed.TxId, _committed.Timestamp, indexes);
                 _uncataloged.Add(name);
             }
 
-            var index = new BPlusTreeIndex<T>(this, name, hasEngineTimestamp: existed);
+            TIndex index = create(existed);
             _openIndexes[name] = index;
             return index;
         }
@@ -215,7 +232,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                 foreach (var (name, st) in txn.States)
                 {
                     if (st.Dirty && _openIndexes.TryGetValue(name, out object? open) && open is IValueCacheOwner owner)
-                        owner.EvictCommittedIds(st.TouchedIds, st.TouchedOverflow);
+                        owner.EvictCommittedSlots(st.TouchedSlots, st.TouchedOverflow);
                 }
             }
             _activeTxn = null;
@@ -264,10 +281,11 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             _uncataloged.Clear();
             foreach (var (name, open) in _openIndexes)
             {
-                indexes[name] = new IndexState(_committed.Indexes[name].TypeId, 0, 0, 0, 0);
+                IndexState old = _committed.Indexes[name];
+                indexes[name] = new IndexState(old.TypeId, old.IdKind, 0, 0, 0, 0);
                 _uncataloged.Add(name);
                 if (open is IValueCacheOwner owner)
-                    owner.EvictCommittedIds(null, overflow: true);
+                    owner.EvictCommittedSlots(null, overflow: true);
             }
             _committed = new EngineSnapshot(_pager.CurrentMeta.TxId, 0, indexes);
         }
@@ -387,9 +405,11 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 
     internal IndexState GetCommittedState(EngineSnapshot snapshot, string name) => snapshot.Indexes[name];
 
-    // ---- catalog: name -> [typeId:u8][valueRoot:u32][idRoot:u32][idCount:i32][valueCount:i32] ----
+    // ---- catalog: name -> [typeId:u8][valueRoot:u32][idRoot:u32][idCount:i32][valueCount:i32][idKind:u8] ----
+    // idKind was appended later: 17-byte records from files written before it exists are read as
+    // idKind 0 (int), which is what every index was back then.
 
-    private const int CatalogRecordSize = 17;
+    private const int CatalogRecordSize = 18;
 
     private void WriteCatalogEntry(WriteTxn txn, string name, IndexState st)
     {
@@ -399,6 +419,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(record[5..], st.IdRoot);
         BinaryPrimitives.WriteInt32LittleEndian(record[9..], st.IdCount);
         BinaryPrimitives.WriteInt32LittleEndian(record[13..], st.ValueCount);
+        record[17] = st.IdKind;
         txn.CatalogRoot = BTree.Insert(txn, txn.CatalogRoot, Encoding.UTF8.GetBytes(name), record, out _);
     }
 
@@ -414,6 +435,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             ReadOnlySpan<byte> r = cursor.Value;
             indexes[name] = new IndexState(
                 r[0],
+                r.Length >= CatalogRecordSize ? r[17] : (byte)0,
                 BinaryPrimitives.ReadUInt32LittleEndian(r[1..]),
                 BinaryPrimitives.ReadUInt32LittleEndian(r[5..]),
                 BinaryPrimitives.ReadInt32LittleEndian(r[9..]),

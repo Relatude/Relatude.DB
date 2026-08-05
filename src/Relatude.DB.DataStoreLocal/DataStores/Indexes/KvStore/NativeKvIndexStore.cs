@@ -5,7 +5,7 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 public class NativeKvIndexStore : PersistedIndexStoreBase {
     readonly BPlusTreeStorageEngine _fileStorage;
-    readonly ISortedIndex<string> _settings;
+    readonly ISortedIntIndex<string> _settings;
     readonly string? _kvFolder;
     readonly Dictionary<string, byte[]>? _pendingFacetSets; // sidecar sections awaiting their index, see FacetSetsFile
     readonly Dictionary<string, IValueIdsCachePersistence> _cachePersistableIndexes = [];
@@ -35,7 +35,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
             ValueCacheEntries = 10000,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
-        _settings = _fileStorage.OpenOrCreateIndex<string>("settings");
+        _settings = _fileStorage.OpenOrCreateIntIndex<string>("settings");
         if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
     }
     // The native store's word indexes are always factory-supplied (Lucene). They use a near-real-time

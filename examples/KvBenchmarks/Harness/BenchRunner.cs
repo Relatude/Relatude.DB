@@ -72,7 +72,7 @@ public static class BenchRunner
 
         using var engineDisposable = (IDisposable)Engines.Create(engineName, dir);
         var engine = (IStorageEngine)engineDisposable;
-        var index = engine.OpenOrCreateIndex<T>("bench");
+        var index = engine.OpenOrCreateIntIndex<T>("bench");
         long ts = 0;
         var sw = new Stopwatch();
 

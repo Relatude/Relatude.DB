@@ -1,12 +1,11 @@
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 /// <summary>
-/// A bidirectional map between int ids and ordered values: point lookups in both directions
+/// A bidirectional map between ids and ordered values: point lookups in both directions
 /// plus ordered range scans over the values. Entries are kept sorted by (value, id), so every
 /// query returns a deterministic order. One value per id; many ids may share a value.
 /// </summary>
-public interface ISortedIndex<T> where T : notnull
-{
+public interface ISortedDictionaryIndex<K, T> where K : notnull where T : notnull {
     /// <summary>Number of entries (distinct ids).</summary>
     int Count { get; }
 
@@ -14,31 +13,31 @@ public interface ISortedIndex<T> where T : notnull
     int DistinctValueCount { get; }
 
     /// <summary>Maps <paramref name="id"/> to <paramref name="value"/>, replacing any existing mapping for that id.</summary>
-    void Set(int id, T value);
+    void Set(K id, T value);
 
     /// <summary>Removes the entry for <paramref name="id"/>; returns false if it was not present.</summary>
-    bool Remove(int id);
+    bool Remove(K id);
 
     /// <summary>The value mapped to <paramref name="id"/>; throws <see cref="KeyNotFoundException"/> if absent.</summary>
-    T GetValue(int id);
+    T GetValue(K id);
 
     /// <summary>Retrieves the value mapped to <paramref name="id"/>; returns false if absent.</summary>
-    bool TryGetValue(int id, out T value);
+    bool TryGetValue(K id, out T value);
 
     /// <summary>True if an entry exists for <paramref name="id"/>.</summary>
-    bool ContainsKey(int id);
+    bool ContainsKey(K id);
 
     /// <summary>True if at least one id is mapped to <paramref name="value"/>.</summary>
     bool ContainsValue(T value);
 
     /// <summary>All ids mapped to exactly <paramref name="value"/>, in ascending id order.</summary>
-    IEnumerable<int> GetIds(T value);
+    IEnumerable<K> GetIds(T value);
 
     /// <summary>Every (id, value) entry, ordered by id.</summary>
-    IEnumerable<KeyValuePair<int, T>> Entries { get; }
+    IEnumerable<KeyValuePair<K, T>> Entries { get; }
 
     /// <summary>Every id with an entry, in ascending id order.</summary>
-    IEnumerable<int> Keys { get; }
+    IEnumerable<K> Keys { get; }
 
     /// <summary>Every distinct value across all entries, in ascending value order.</summary>
     IEnumerable<T> DistinctValues { get; }
@@ -54,25 +53,25 @@ public interface ISortedIndex<T> where T : notnull
     /// ascending (value, id) order — or exactly reversed (descending value, then descending id)
     /// when <paramref name="descending"/> is true.
     /// </summary>
-    IEnumerable<int> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false);
+    IEnumerable<K> GetIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false);
 
     /// <summary>
     /// The same scan as <see cref="GetIdsInRange"/> with each id's value included. Values come
     /// out of the scan itself, never a per-id lookup, so this costs the same as ids alone.
     /// </summary>
-    IEnumerable<KeyValuePair<int, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false);
+    IEnumerable<KeyValuePair<K, T>> GetEntriesInRange(T from, T to, bool includeFrom = true, bool includeTo = true, bool descending = false);
 
     /// <summary>
     /// Ids whose value is greater than <paramref name="value"/> (or equal to it when
     /// <paramref name="includeValue"/>), in the same order contract as <see cref="GetIdsInRange"/>.
     /// </summary>
-    IEnumerable<int> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false);
+    IEnumerable<K> GetIdsGreaterThan(T value, bool includeValue = true, bool descending = false);
 
     /// <summary>
     /// Ids whose value is smaller than <paramref name="value"/> (or equal to it when
     /// <paramref name="includeValue"/>), in the same order contract as <see cref="GetIdsInRange"/>.
     /// </summary>
-    IEnumerable<int> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false);
+    IEnumerable<K> GetIdsSmallerThan(T value, bool includeValue = true, bool descending = false);
 
     /// <summary>Number of ids <see cref="GetIdsInRange"/> would yield for the same bounds.</summary>
     int CountIdsInRange(T from, T to, bool includeFrom = true, bool includeTo = true);
@@ -99,31 +98,41 @@ public interface ISortedIndex<T> where T : notnull
     void SetTimestamp(long timestamp);
 }
 
+public interface ISortedIntIndex<T> : ISortedDictionaryIndex<int, T> where T : notnull {
+}
+public interface ISortedUlongIndex<T> : ISortedDictionaryIndex<ulong, T> where T : notnull {
+}
+public interface ISortedGuidIndex<T> : ISortedDictionaryIndex<Guid, T> where T : notnull {
+}
+
 /// <summary>
 /// Engine-internal hook implemented by every index: flips the index to report the engine
 /// timestamp. Called by the engine on every commit and <see cref="IStorageEngine.SetTimestamp"/>,
 /// so an index timestamp is only ever 0 (new, unsynchronized) or the engine's current value.
 /// </summary>
-internal interface IIndexTimestamp
-{
+internal interface IIndexTimestamp {
     void AdoptEngineTimestamp();
 }
 
 /// <summary>
-/// A named collection of <see cref="ISortedIndex{T}"/> instances sharing one writer transaction
+/// A named collection of <see cref="ISortedIntIndex{T}"/> instances sharing one writer transaction
 /// and one engine-wide timestamp. A single writer at a time; reads are allowed from any thread
 /// at any time (the isolation readers get varies by engine — see each engine's docs).
 /// </summary>
-public interface IStorageEngine
-{
+public interface IStorageEngine {
     /// <summary>
     /// Opens the index named <paramref name="name"/>, creating it if absent.
-    /// Throws if the index already exists with a different value type.
+    /// Throws if the index already exists with a different id or value type.
     /// An opened existing index reports the engine's timestamp; a newly created one reports 0
-    /// until the next commit or <see cref="SetTimestamp"/> (see <see cref="ISortedIndex{T}.GetTimestamp"/>).
+    /// until the next commit or <see cref="SetTimestamp"/> (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>).
     /// </summary>
-    ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull;
+    ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull;
 
+    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by ulong ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
+    ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull;
+
+    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by Guid ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
+    ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull;
     /// <summary>Begins the single writer transaction; mutations require one.</summary>
     void BeginTransaction();
 
@@ -135,7 +144,7 @@ public interface IStorageEngine
 
     /// <summary>
     /// Publishes the transaction's changes and records <paramref name="timestamp"/>,
-    /// which every open index adopts (see <see cref="ISortedIndex{T}.GetTimestamp"/>).
+    /// which every open index adopts (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>).
     /// With <paramref name="durable"/> the commit is flushed to stable storage (power-loss
     /// safe where the engine supports it); without, it trades durability for speed —
     /// see each engine's docs for the exact guarantee.
@@ -150,7 +159,7 @@ public interface IStorageEngine
 
     /// <summary>
     /// Durably records <paramref name="timestamp"/>, which every open index adopts
-    /// (see <see cref="ISortedIndex{T}.GetTimestamp"/>); only allowed outside a transaction.
+    /// (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>); only allowed outside a transaction.
     /// </summary>
     void SetTimestamp(long timestamp);
 
@@ -167,10 +176,10 @@ public interface IStorageEngine
 
     /// <summary>
     /// Durably deletes every index present in the store that has not been opened in this session
-    /// (via <see cref="OpenOrCreateIndex{T}"/>), data and definition included; open indexes and the
+    /// (via <see cref="OpenOrCreateIntIndex{T}"/>), data and definition included; open indexes and the
     /// engine timestamp are untouched. Lets callers drop indexes that have left the schema, so a
     /// later re-add opens a fresh, empty index reporting timestamp 0 (see
-    /// <see cref="ISortedIndex{T}.GetTimestamp"/>) instead of stale data claiming to be current.
+    /// <see cref="ISortedIntIndex{T}.GetTimestamp"/>) instead of stale data claiming to be current.
     /// Only allowed outside a transaction.
     /// </summary>
     void DeleteUnopenedIndexes();

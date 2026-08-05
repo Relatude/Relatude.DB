@@ -52,7 +52,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
 
     // ---- IStorageEngine ----
 
-    public ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         Lock.EnterWriteLock();
@@ -83,6 +83,14 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
             Lock.ExitWriteLock();
         }
     }
+
+    /// <summary>Not supported: the append-only log format encodes int ids in its op frames. Use <see cref="BPlusTreeStorageEngine"/> for ulong-keyed indexes.</summary>
+    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("AppendLogStorageEngine only supports int-keyed indexes; its log format encodes int ids.");
+
+    /// <summary>Not supported: the append-only log format encodes int ids in its op frames. Use <see cref="BPlusTreeStorageEngine"/> for Guid-keyed indexes.</summary>
+    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("AppendLogStorageEngine only supports int-keyed indexes; its log format encodes int ids.");
 
     public bool IsInTransaction => _inTransaction;
 
@@ -392,7 +400,7 @@ public sealed class AppendLogStorageEngine : IStorageEngine, IDisposable
     }
 
     /// <summary>In-memory bidirectional index; see engine docs for the trade-offs.</summary>
-    private sealed class AppendLogIndex<T> : ISortedIndex<T>, IReplayTarget, IIndexTimestamp where T : notnull
+    private sealed class AppendLogIndex<T> : ISortedIntIndex<T>, IReplayTarget, IIndexTimestamp where T : notnull
     {
         private readonly AppendLogStorageEngine _engine;
         private readonly string _name;

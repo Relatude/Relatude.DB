@@ -43,12 +43,12 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    public ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
         {
-            return open as ISortedIndex<T>
+            return open as ISortedIntIndex<T>
                 ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
         }
         string typeName = typeof(T).FullName!;
@@ -74,6 +74,12 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
         _openIndexes[name] = index;
         return index;
     }
+
+    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public bool IsInTransaction => _inTxn;
 
@@ -251,7 +257,7 @@ internal static class SqliteValueMap<T> where T : notnull
     }
 }
 
-public sealed class SqliteIndex<T> : ISortedIndex<T>, ISqliteIndexInternal, IDisposable where T : notnull
+public sealed class SqliteIndex<T> : ISortedIntIndex<T>, ISqliteIndexInternal, IDisposable where T : notnull
 {
     private readonly SqliteEngine _engine;
     private readonly SqliteConnection _con;

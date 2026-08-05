@@ -30,12 +30,12 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
 
     private string TsFile => Path.Combine(_folder, "timestamp.txt");
 
-    public ISortedIndex<T> OpenOrCreateIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
         {
-            return open as ISortedIndex<T>
+            return open as ISortedIntIndex<T>
                 ?? throw new InvalidOperationException($"Index '{name}' is already open with a different value type.");
         }
         string dir = Path.Combine(_folder, name);
@@ -44,6 +44,12 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
         _openIndexes[name] = index;
         return index;
     }
+
+    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
+
+    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+        => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public bool IsInTransaction => _inTxn;
 
@@ -129,7 +135,7 @@ internal interface IZoneTreeIndexInternal
     void ClearData();
 }
 
-public sealed class ZoneTreeIndex<T> : ISortedIndex<T>, IZoneTreeIndexInternal, IDisposable where T : notnull
+public sealed class ZoneTreeIndex<T> : ISortedIntIndex<T>, IZoneTreeIndexInternal, IDisposable where T : notnull
 {
     private readonly ZoneTreeEngine _engine;
     private readonly IOrderedCodec<T> _codec = OrderedCodec.Get<T>();

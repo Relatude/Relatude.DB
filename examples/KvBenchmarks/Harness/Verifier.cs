@@ -25,8 +25,8 @@ public static class Verifier
         using var candidate = (IDisposable)Engines.Create(engineName, dir);
         var refEngine = (IStorageEngine)reference;
         var candEngine = (IStorageEngine)candidate;
-        var refIdx = refEngine.OpenOrCreateIndex<T>("bench");
-        var candIdx = candEngine.OpenOrCreateIndex<T>("bench");
+        var refIdx = refEngine.OpenOrCreateIntIndex<T>("bench");
+        var candIdx = candEngine.OpenOrCreateIntIndex<T>("bench");
 
         long ts = 0;
         for (int round = 0; round < Rounds; round++)
@@ -61,7 +61,7 @@ public static class Verifier
         return null;
     }
 
-    private static string? Battery<T>(ISortedIndex<T> a, ISortedIndex<T> b, T[] pool, Random rnd, string where) where T : notnull
+    private static string? Battery<T>(ISortedIntIndex<T> a, ISortedIntIndex<T> b, T[] pool, Random rnd, string where) where T : notnull
     {
         if (a.Count != b.Count) return $"{where}: Count {a.Count} vs {b.Count}";
         if (a.DistinctValueCount != b.DistinctValueCount) return $"{where}: DistinctValueCount {a.DistinctValueCount} vs {b.DistinctValueCount}";

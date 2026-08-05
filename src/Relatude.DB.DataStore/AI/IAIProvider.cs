@@ -30,13 +30,7 @@ public class AIProviderSettings {
     public string? EmbeddingModel { get; set; }
     public string? CompletionModel { get; set; }
     public Dictionary<string, string>? CompletionModelsByKey { get; set; }
-
-    /// <summary>
-    /// Optional provider level override of the search defaults. When left null the store settings
-    /// (SettingsLocal.DefaultSemanticIndexWeight and DefaultSemanticSimilarityLimit) decide.
-    /// </summary>
     public double? DefaultSemanticRatio { get; set; }
-    /// <inheritdoc cref="DefaultSemanticRatio"/>
     public double? DefaultMinimumSimilarity { get; set; }
 
     public int? MaxCharsInBatch { get; set; }
@@ -44,8 +38,6 @@ public class AIProviderSettings {
     public int? MaxCharsOfEach { get; set; }
     public int? ModelDimensions { get; set; }
 
-    public double GetDefaultSemanticRatio() => DefaultSemanticRatio ?? 0.5;
-    public double GetDefaultMinimumSimilarity() => DefaultMinimumSimilarity ?? 0.75;
     public int GetMaxCharsInBatch() => MaxCharsInBatch ?? 50000;
     public int GetMaxCountInBatch() => MaxCountInBatch ?? 500;
     public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;

@@ -43,36 +43,4 @@ public class SemanticSearchTests {
         store.Dispose();
     }
 
-    [TestMethod]
-    public void DefaultsFromStoreSettingsTest() {
-        // a search leaving the settings open must pick them up from the store settings:
-        Assert.AreEqual(1, countHitsUsingDefaults(1, 1, out var total)); // only the 100% match
-        Assert.AreEqual(total, countHitsUsingDefaults(1, -1, out _)); // no similarity limit, all match
-
-        // ... and the provider level setting still wins over the store setting when it is given:
-        Assert.AreEqual(1, countHitsUsingDefaults(1, -1, out _, providerSimilarityLimit: 1));
-    }
-
-    /// <summary>
-    /// Searches with the semantic weight and similarity limit left to the defaults, and returns the
-    /// number of hits. The search text is a full semantic extract of one of the articles, so at a
-    /// similarity limit of 1 exactly one article can match.
-    /// </summary>
-    static int countHitsUsingDefaults(double weight, double similarityLimit, out int totalArticles, double? providerSimilarityLimit = null) {
-        var settings = new SettingsLocal() {
-            EnableSemanticIndexByDefault = true,
-            DefaultSemanticIndexWeight = weight,
-            DefaultSemanticSimilarityLimit = similarityLimit,
-        };
-        var ai = AIEngine.CreateDummy();
-        ai.Settings.DefaultMinimumSimilarity = providerSimilarityLimit;
-        using var store = new NodeStore(DataStoreLocal.Open(Helper.GetDatamodel(), settings, null, null, null, null, ai));
-        var articles = Helper.GenerateArticles(100);
-        totalArticles = articles.Count;
-        store.Insert(articles);
-        while (store.Datastore.IsTaskQueueBusy()) Thread.Sleep(100);
-        var nodeData = store.Mapper.CreateNodeDataFromObject(articles[0], null, null);
-        var search = UtilsText.GetSemanticExtract((DataStoreLocal)store.Datastore, nodeData);
-        return store.Query<Article>().Search(search, null, null, false, 200, null).Execute().Count();
-    }
 }
