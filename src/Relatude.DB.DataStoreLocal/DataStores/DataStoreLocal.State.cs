@@ -272,11 +272,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                     }
                 }
                 if (PersistedIndexStore != null) {
-                    if (noActionsNotCommittedInPersistedIndexes > 10000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
+                    if (noActionsNotCommittedInPersistedIndexes > 20000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
                         PersistedIndexStore.CommitTransaction(transaction.Timestamp);
                         PersistedIndexStore.MakeDurable();
                         PersistedIndexStore.BeginTransaction();
-                        LogInfo("   - Persisted indexes at timestamp " + new DateTime( transaction.Timestamp, DateTimeKind.Utc));
+                        //LogInfo("   - Persisted indexes at timestamp " + new DateTime( transaction.Timestamp, DateTimeKind.Utc));
                         noActionsNotCommittedInPersistedIndexes = 0;
                     }
                 }
