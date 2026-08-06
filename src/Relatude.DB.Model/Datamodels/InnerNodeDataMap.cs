@@ -10,19 +10,33 @@ public interface IInnerNodeDataMap : IEnumerable<NodeData> {
     bool TryGetById(Guid nodeId, [MaybeNullWhen(false)] out NodeData nodeData);
     PropertyPath? PropertyPath { get; }
     IInnerNodeDataMap Copy();
+    bool IsReadOnly { get; }
+    void MakeReadOnly();
 }
 // Thread-safe for concurrent reads. Not writes.
+// Once stored, an instance is shared between the node cache, queued WAL writes and any mapped
+// objects, so it is frozen via MakeReadOnly when the owning node data is made read-only.
 public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
     public static Guid PropertyIdNodeGuidId = Guid.Empty;
     public static Guid PropertyIdNodeIntId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
     List<NodeData?> _nodes; // null means the node has been removed, but we keep the slot to avoid shifting indices of subsequent items
     Guid _keyPropertyId;
+    bool _readOnly;
     public InnerNodeDataMap(PropertyPath? propertyPath, Guid keyPropertyId, ICollection<NodeData> nodes) {
         PropertyPath = propertyPath;
         _keyPropertyId = keyPropertyId;
         _nodes = [.. nodes];
     }
     public PropertyPath? PropertyPath { get; }
+    public bool IsReadOnly => _readOnly;
+    public void MakeReadOnly() {
+        if (_readOnly) return;
+        _readOnly = true;
+        foreach (var node in _nodes) node?.EnsureReadOnly(); // also freezes any nested maps
+    }
+    void throwIfReadOnly() {
+        if (_readOnly) throw new InvalidOperationException("The embedded map is read-only because it has been stored and may be shared with the data store cache and queued log writes. Use Copy() to get a mutable copy. ");
+    }
     public void ValidateUniqueKeys() {
         getIdx();
     }
@@ -88,6 +102,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         return false;
     }
     public void AddToTop(NodeData node) {
+        throwIfReadOnly();
         var key = EvalKey(node);
         _nodes.Insert(0, node);
         var indexByKey = getIdx(); // Reduce calls to the property getter
@@ -98,12 +113,14 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         indexByKey[key] = 0;
     }
     public void Add(NodeData node) {
+        throwIfReadOnly();
         var key = EvalKey(node);
         var indexByKey = getIdx();
         indexByKey.Add(key, _nodes.Count);
         _nodes.Add(node);
     }
     public bool TryAdd(NodeData node) {
+        throwIfReadOnly();
         if (TryEvalKey(node, out var key)) {
             var indexByKey = getIdx(); // Reduce calls to the property getter
             if (indexByKey.ContainsKey(key)) return false;
@@ -123,6 +140,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         return false;
     }
     public bool Remove(TKey key) {
+        throwIfReadOnly();
         var indexByKey = getIdx();
         if (indexByKey.TryGetValue(key, out var index)) {
             _nodes[index] = null;
@@ -133,6 +151,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         }
     }
     public void Move(TKey key, int newIndex) {
+        throwIfReadOnly();
         var indexByKey = getIdx(); // Reduce calls to the property getter
         if (!indexByKey.TryGetValue(key, out int oldIndex)) throw new KeyNotFoundException($"The given key '{key}' was not present in the map. ");
         if ((uint)newIndex >= (uint)_nodes.Count) throw new ArgumentOutOfRangeException(nameof(newIndex));
@@ -160,7 +179,6 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         Move(key, (int)target);
     }
     public int Count => getIdx().Count;
-    public bool IsReadOnly => false;
     public NodeData this[TKey key] {
         get {
             if (getIdx().TryGetValue(key, out var index)) {
@@ -172,6 +190,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
             }
         }
         set {
+            throwIfReadOnly();
             var indexByKey = getIdx(); // Reduce calls to the property getter
             if (!EqualityComparer<TKey>.Default.Equals(EvalKey(value), key)) throw new ArgumentException("The provided key does not match the node key.", nameof(key));
             if (indexByKey.TryGetValue(key, out var index)) {
@@ -183,6 +202,7 @@ public class InnerNodeDataMap<TKey> : IInnerNodeDataMap where TKey : notnull {
         }
     }
     public void Clear() {
+        throwIfReadOnly();
         _nodes.Clear();
         __indexByKey?.Clear();
     }

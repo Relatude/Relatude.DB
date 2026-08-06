@@ -131,7 +131,11 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _values.TryGetValue(propertyId, out value);
     public bool Contains(Guid propertyId) => _values.ContainsKey(propertyId);
     public void EnsureReadOnly() {
-        if (!_readOnly) _readOnly = true;
+        if (_readOnly) return;
+        _readOnly = true;
+        // embedded maps are the only mutable values reachable from a read-only node,
+        // they must be frozen too as the node is shared with the cache and queued WAL writes:
+        foreach (var v in _values.Items) if (v.Value is IInnerNodeDataMap map) map.MakeReadOnly();
     }
     public IRelations Relations => emptyRelations;
     public NodeData CopyAndChangeNodeType(Guid nodeTypeId) {

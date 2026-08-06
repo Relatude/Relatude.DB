@@ -19,6 +19,7 @@ where TValue : notnull {
     InnerNodeDataMap<TKey>? _nodeDataMap;
     NodeMapper? _mapper;
     List<TValue>? _raw;
+    bool _ownsMap; // false when _nodeDataMap may be shared with the data store (cache and queued WAL writes)
     public EmbeddedMap() {
         _raw = [];
     }
@@ -26,6 +27,14 @@ where TValue : notnull {
     public EmbeddedMap(InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
         _nodeDataMap = nodeDataMap;
         _mapper = mapper;
+    }
+    void ensureWritableMap() {
+        // copy on first write: the wrapped map comes straight from the store's shared node data and
+        // must never be mutated through this wrapper (a background WAL flush may be serializing it)
+        if (_nodeDataMap != null && !_ownsMap) {
+            _nodeDataMap = (InnerNodeDataMap<TKey>)_nodeDataMap.Copy();
+            _ownsMap = true;
+        }
     }
     public TValue this[TKey key] {
         get {
@@ -43,6 +52,7 @@ where TValue : notnull {
                 var nodeData = _mapper.CreateNodeDataFromObject(value, null, _nodeDataMap.PropertyPath);
                 if (nodeData is not NodeData nd) throw new ArgumentException("The value must be of type NodeData.");
                 if (!EqualityComparer<TKey>.Default.Equals(_nodeDataMap.EvalKey(nd), key)) throw new ArgumentException("The provided key does not match the value key.", nameof(key));
+                ensureWritableMap();
                 _nodeDataMap[key] = nd;
             } else if (_raw != null) {
                 throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
@@ -60,6 +70,7 @@ where TValue : notnull {
         } else if (_nodeDataMap != null && _mapper != null) {
             var data = _mapper.CreateNodeDataFromObject(value, null, _nodeDataMap.PropertyPath);
             if (data is not NodeData nodeData) throw new ArgumentException("The value must be of type NodeData.");
+            ensureWritableMap();
             _nodeDataMap.Add(nodeData);
         } else {
             throw new InvalidOperationException("Embedded is not properly initialized. ");
@@ -69,6 +80,7 @@ where TValue : notnull {
         if (_raw != null) {
             _raw.Clear();
         } else if (_nodeDataMap != null) {
+            ensureWritableMap();
             _nodeDataMap.Clear();
         } else {
             throw new InvalidOperationException("Embedded is not properly initialized. ");
@@ -100,6 +112,7 @@ where TValue : notnull {
         if (_raw != null) {
             throw new InvalidOperationException("Cannot access Embedded by key until node is persisted to datastore. ");
         } else if (_nodeDataMap != null) {
+            ensureWritableMap();
             return _nodeDataMap.Remove(key);
         } else {
             throw new InvalidOperationException("Embedded is not properly initialized. ");
@@ -128,6 +141,7 @@ where TValue : notnull {
             }).ToList();
             return new InnerNodeDataMap<TKey>(propPath, keyPropertyId, nodeDatas);
         } else if (_nodeDataMap != null) {
+            _ownsMap = false; // the instance is handed to the data store and may now be shared, next mutation must copy first
             return _nodeDataMap;
         } else {
             throw new InvalidOperationException("Embedded is not properly initialized. ");
