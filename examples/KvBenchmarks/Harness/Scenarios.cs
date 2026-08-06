@@ -45,7 +45,7 @@ public static class Engines {
             "native" => new NativeBenchEngine(new BPlusTreeStorageEngine(
                 Environment.GetEnvironmentVariable("BENCH_NATIVE_MEM") == "1" ? null : Path.Combine(dir, "native.db"),
                 new BPlusTreeEngineOptions {
-                    PageCacheBytes = 64L * 1024 * 1024*20,
+                    PageCacheBytes = 16L * 1024 * 1024*20,
                     // Parked published pages share their arrays with the page cache, so this only
                     // bounds bookkeeping, not real memory — size it so bulk loads don't spill.
                     PendingWriteBytes = 512L * 1024 * 1024,
