@@ -35,6 +35,12 @@ internal interface IValueCacheOwner
 /// safe (data pages are flushed before the checksummed meta page that references
 /// them); with <c>false</c> they are process-crash safe and much faster.
 /// <para>
+/// Durability can be deferred: <see cref="PublishTransaction"/> commits to the live snapshot
+/// without writing the durable meta, and a later <see cref="MakeDurable"/> persists everything
+/// published — until then a crash rolls the engine back to the last durable point. This lets a
+/// caller sequence engine durability after an external write-ahead log flush.
+/// </para>
+/// <para>
 /// An index comes in one of two layouts, both living in the same file and the same transactions:
 /// sorted (a pair of B+Trees — <see cref="BPlusTreeIndex{TId,T}"/>) for anything that needs order,
 /// and hash (<see cref="HashIndex{TId,T}"/>) for pure lookup by id, which costs one page read per
@@ -259,42 +265,75 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     {
         lock (_writeLock)
         {
-            WriteTxn txn = _activeTxn ?? throw new InvalidOperationException("No active transaction.");
-            var indexes = new Dictionary<string, IndexState>(_committed.Indexes);
+            publishCore(timestamp);
+            _pager.MakeDurable(deepDiskFlush);
+        }
+    }
 
+    /// <summary>
+    /// Commits the active transaction to the live snapshot (readers see it immediately) without
+    /// writing the durable meta: after a crash the engine reopens at the last <see cref="MakeDurable"/>
+    /// (or durable <see cref="CommitTransaction"/>). Use when durability must be sequenced after an
+    /// external event — e.g. the data-store WAL flush — so the engine can never durably contain
+    /// state that outruns it.
+    /// </summary>
+    public void PublishTransaction(long timestamp)
+    {
+        lock (_writeLock)
+        {
+            publishCore(timestamp);
+        }
+    }
+
+    /// <summary>Durably persists everything published so far. No-op when nothing is pending or the
+    /// engine is memory-only. Not allowed while a transaction is active.</summary>
+    public void MakeDurable(bool deepDiskFlush)
+    {
+        lock (_writeLock)
+        {
+            if (_activeTxn is not null)
+                throw new InvalidOperationException("MakeDurable cannot run while a transaction is active.");
+            _pager.MakeDurable(deepDiskFlush);
+        }
+    }
+
+    private void publishCore(long timestamp)
+    {
+        WriteTxn txn = _activeTxn ?? throw new InvalidOperationException("No active transaction.");
+        var indexes = new Dictionary<string, IndexState>(_committed.Indexes);
+
+        foreach (var (name, st) in txn.States)
+        {
+            if (st.Dirty)
+            {
+                // A hash index keeps its directory in memory during the transaction; the pages
+                // it dirtied are written here, into this same commit.
+                if (st.Layout == LayoutHash)
+                    st.IdRoot = HashDirectoryStore.Persist(txn, st.Dir!);
+                indexes[name] = st.ToImmutable();
+                _uncataloged.Add(name);
+            }
+        }
+        foreach (string name in _uncataloged)
+            WriteCatalogEntry(txn, name, indexes[name]);
+        _uncataloged.Clear();
+
+        _pager.Publish(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty);
+        _committed = new EngineSnapshot(txn.TxId, timestamp, indexes);
+        foreach (object open in _openIndexes.Values)
+            ((IIndexTimestamp)open).AdoptEngineTimestamp();
+
+        // Evict AFTER publishing: a populate racing this window re-checks CommittedTxId and
+        // undoes itself, so no stale entry can outlive this method (see ValueCache docs).
+        if (ValueCacheEntries > 0)
+        {
             foreach (var (name, st) in txn.States)
             {
-                if (st.Dirty)
-                {
-                    // A hash index keeps its directory in memory during the transaction; the pages
-                    // it dirtied are written here, into this same commit.
-                    if (st.Layout == LayoutHash)
-                        st.IdRoot = HashDirectoryStore.Persist(txn, st.Dir!);
-                    indexes[name] = st.ToImmutable();
-                    _uncataloged.Add(name);
-                }
+                if (st.Dirty && _openIndexes.TryGetValue(name, out object? open) && open is IValueCacheOwner owner)
+                    owner.EvictCommittedSlots(st.TouchedSlots, st.TouchedOverflow);
             }
-            foreach (string name in _uncataloged)
-                WriteCatalogEntry(txn, name, indexes[name]);
-            _uncataloged.Clear();
-
-            _pager.Commit(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, deepDiskFlush);
-            _committed = new EngineSnapshot(txn.TxId, timestamp, indexes);
-            foreach (object open in _openIndexes.Values)
-                ((IIndexTimestamp)open).AdoptEngineTimestamp();
-
-            // Evict AFTER publishing: a populate racing this window re-checks CommittedTxId and
-            // undoes itself, so no stale entry can outlive this method (see ValueCache docs).
-            if (ValueCacheEntries > 0)
-            {
-                foreach (var (name, st) in txn.States)
-                {
-                    if (st.Dirty && _openIndexes.TryGetValue(name, out object? open) && open is IValueCacheOwner owner)
-                        owner.EvictCommittedSlots(st.TouchedSlots, st.TouchedOverflow);
-                }
-            }
-            _activeTxn = null;
         }
+        _activeTxn = null;
     }
 
     public void RollbackTransaction()

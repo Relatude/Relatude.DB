@@ -70,7 +70,12 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         return index;
     }
     protected override void BeginTransactionCore() => _fileStorage.BeginTransaction();
-    protected override void CommitTransactionCore(long timestamp) => _fileStorage.CommitTransaction(timestamp, _deepDiskFlush);
+    // Publish only: readers see the commit immediately, but the durable meta is written first in
+    // MakeDurableCore — which the data store calls right after a successful WAL flush. A crash
+    // between the two rolls the engine back to the last durable point, which is always at or behind
+    // the durable WAL, so the indexes can never durably contain transactions the log is missing.
+    protected override void CommitTransactionCore(long timestamp) => _fileStorage.PublishTransaction(timestamp);
+    protected override void MakeDurableCore() => _fileStorage.MakeDurable(_deepDiskFlush);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
     protected override Guid ReadWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s) && Guid.TryParse(s, out var walFileId)) return walFileId;

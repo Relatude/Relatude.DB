@@ -274,7 +274,33 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
+        // Divergence check: an index claiming a timestamp newer than anything the log contains holds
+        // transactions the durable log lost (e.g. a crash dropped a queued WAL batch after the indexes
+        // had committed). Replay cannot repair that — the phantom entries would survive — and the
+        // commit below would overwrite the too-new timestamp and mask the only evidence, so the check
+        // must run here, on the first startup after the damage. _wal.LastTimestamp is at this point
+        // max(state file, replayed transactions) = the newest timestamp the durable log covers.
+        var lastLogTimestamp = _wal.LastTimestamp;
+        string? aheadIndex = null;
+        if (PersistedIndexStore != null && PersistedIndexStore.GetTimestamp() > lastLogTimestamp) {
+            aheadIndex = "The persisted index store";
+        } else {
+            foreach (var indx in _definition.GetAllIndexes()) {
+                if (indx.PersistedTimestamp > lastLogTimestamp) {
+                    aheadIndex = "Index \"" + indx.FriendlyName + "\"";
+                    break;
+                }
+            }
+        }
+        if (aheadIndex != null) {
+            logError(aheadIndex + " contains transactions that are missing from the log file. "
+                + "This indicates that acknowledged writes were lost in an earlier unclean shutdown. "
+                + "All indexes will be reset and rebuilt from the log file. ");
+            PersistedIndexStore?.RollbackTransaction(); // the replay transaction cannot stay open across the reset and reload
+            throw new StateFileReadException(aheadIndex + " is ahead of the log file (its timestamp is newer than the last log timestamp). ", null);
+        }
         PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);
+        PersistedIndexStore?.MakeDurable(); // replay work must not stay pending until the first background flush
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);

@@ -26,6 +26,21 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, txt, prg);
             }, out transactionCount, out actionCount, out bytesWritten);
             TaskQueuePersisted?.FlushDisk();
+            if (PersistedIndexStore != null) {
+                // Persisted indexes commit only in memory at transaction execution and are made
+                // durable here, AFTER the WAL flush — so the durable indexes can never contain
+                // transactions the durable log is missing. The write lock (briefly, the lock
+                // supports recursion) excludes executes, and the final drain covers transactions
+                // that executed while the flush above was writing, so at the durable write the
+                // log provably contains every committed index transaction.
+                _lock.EnterWriteLock();
+                try {
+                    _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
+                    PersistedIndexStore.MakeDurable();
+                } finally {
+                    _lock.ExitWriteLock();
+                }
+            }
         } catch (Exception err) {
             _state = DataStoreState.Error;
             throw createCriticalErrorAndSetDbToErrorState("Critical error. Database left in unknown state. Restart required. ", err);

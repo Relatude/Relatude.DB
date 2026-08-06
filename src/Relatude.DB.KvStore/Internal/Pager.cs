@@ -10,8 +10,19 @@ internal readonly record struct Meta(long TxId, long Timestamp, uint CatalogRoot
 /// pages are never modified in place; a commit writes new pages first and then
 /// atomically switches between two checksummed meta pages. Pages freed by a
 /// transaction are recycled only once no active reader snapshot can reach them.
-/// The freelist itself is persisted as a page chain rewritten on each commit,
+/// The freelist itself is persisted as a page chain rewritten on each durable commit,
 /// always into freshly grown pages so it can never clobber live data.
+/// <para>
+/// Commits are split in two: <see cref="Publish"/> applies a transaction (pages written,
+/// in-memory meta advanced) without touching the durable meta pages, and <see cref="MakeDurable"/>
+/// persists the latest published state (freelist chain + meta page). <see cref="Commit"/> does both.
+/// After a crash the file reopens at the last durable meta: published-only transactions vanish
+/// cleanly, because pages they freed are still referenced by that meta (shadow paging) and pages
+/// they allocated are either beyond its page count or listed free in its freelist chain.
+/// The recycle gate below (<see cref="PromoteFreeBatches"/>) is what keeps that true: a page freed
+/// after the last durable meta must not be reused until the next durable meta lands, or a crash
+/// would leave the durable meta pointing at overwritten pages.
+/// </para>
 /// </summary>
 internal sealed class Pager : IPageSource, IDisposable
 {
@@ -29,10 +40,12 @@ internal sealed class Pager : IPageSource, IDisposable
     /// <summary>True when the pager has no backing file: all pages live in memory and nothing is persisted.</summary>
     public bool IsMemoryOnly => _mem is not null;
 
-    private Meta _meta;
+    private Meta _meta;                         // latest PUBLISHED state; the durable meta pages may lag behind it
+    private long _durableTxId;                  // TxId of the last durably written meta page
+    private int _durableSlot;                   // meta slot of the last durable write; toggled per durable write so the two newest durable metas never share a slot
     private uint _pageCount;                    // in-memory high-water mark (monotonic)
     private readonly Queue<uint> _recycled = new();          // reusable right now
-    private readonly List<(long TxId, List<uint> Pages)> _pendingFree = new(); // reusable once readers drain
+    private readonly List<(long TxId, List<uint> Pages)> _pendingFree = new(); // reusable once readers drain AND a durable meta no longer references them
     private List<uint> _freelistChainPages = new();
 
     public Meta CurrentMeta => _meta;
@@ -84,10 +97,11 @@ internal sealed class Pager : IPageSource, IDisposable
         }
         else
         {
-            _meta = LoadNewestValidMeta();
+            _meta = LoadNewestValidMeta(out _durableSlot);
             LoadFreelist(_meta.FreelistHead);
         }
         _pageCount = _meta.PageCount;
+        _durableTxId = _meta.TxId;
     }
 
     private void InitializeEmptyFile()
@@ -96,6 +110,7 @@ internal sealed class Pager : IPageSource, IDisposable
         WriteMetaSlot(0, _meta);
         WriteMetaSlot(1, _meta);
         _flushStream!.Flush(true);
+        _durableTxId = _meta.TxId;
     }
 
     /// <summary>True when either meta slot is a checksum-valid meta page of a superseded format version.</summary>
@@ -144,13 +159,19 @@ internal sealed class Pager : IPageSource, IDisposable
 
     // ---- allocation ----
 
-    /// <summary>Makes pages freed by transactions no active reader can still see reusable.</summary>
+    /// <summary>
+    /// Makes pages freed by transactions no active reader can still see reusable.
+    /// Also gated on the last durable meta: a page freed by a published-but-not-yet-durable
+    /// transaction is still referenced by the durable meta, and reusing it would corrupt the
+    /// state a crash falls back to. (Memory-only engines have no durable meta to protect.)
+    /// </summary>
     public void PromoteFreeBatches(long minActiveReaderTxId)
     {
+        long gate = _mem is not null ? minActiveReaderTxId : Math.Min(minActiveReaderTxId, _durableTxId);
         int i = 0;
         while (i < _pendingFree.Count)
         {
-            if (_pendingFree[i].TxId <= minActiveReaderTxId)
+            if (_pendingFree[i].TxId <= gate)
             {
                 foreach (uint p in _pendingFree[i].Pages)
                     _recycled.Enqueue(p);
@@ -185,19 +206,25 @@ internal sealed class Pager : IPageSource, IDisposable
     public void Commit(long newTxId, long timestamp, uint catalogRoot,
         List<uint> freedByTxn, Dictionary<uint, byte[]> dirtyPages, bool deepDiskFlush)
     {
-        // The previous freelist chain becomes garbage once the new meta lands.
-        freedByTxn.AddRange(_freelistChainPages);
+        Publish(newTxId, timestamp, catalogRoot, freedByTxn, dirtyPages);
+        MakeDurable(deepDiskFlush);
+    }
 
-        uint freelistHead = WriteFreelistChain(newTxId, freedByTxn, dirtyPages);
+    /// <summary>
+    /// Applies a transaction without writing the durable meta: pages land in the file (or memory),
+    /// the in-memory meta advances, but a crash rolls back to the last <see cref="MakeDurable"/>.
+    /// Pages freed here stay quarantined (see <see cref="PromoteFreeBatches"/>) until the next
+    /// durable meta no longer references them.
+    /// </summary>
+    public void Publish(long newTxId, long timestamp, uint catalogRoot,
+        List<uint> freedByTxn, Dictionary<uint, byte[]> dirtyPages)
+    {
         if (freedByTxn.Count > 0)
             _pendingFree.Add((newTxId, freedByTxn));
 
-        WriteDirtyPages(dirtyPages);
-        _flushStream?.Flush(deepDiskFlush); // data must be durable before the meta that references it
+        WriteDirtyPages(dirtyPages); // unflushed: MakeDurable flushes before the meta that references them
 
-        _meta = new Meta(newTxId, timestamp, catalogRoot, freelistHead, _pageCount);
-        WriteMetaSlot((int)(newTxId & 1), _meta);
-        _flushStream?.Flush(deepDiskFlush);
+        _meta = new Meta(newTxId, timestamp, catalogRoot, _meta.FreelistHead, _pageCount);
 
         // Populate the cache with the (hot) just-written pages — unless the batch is large
         // relative to the cache, where doing so would evict everything a reader has warm
@@ -207,6 +234,36 @@ internal sealed class Pager : IPageSource, IDisposable
             foreach (var (id, page) in dirtyPages)
                 Cache.Add(id, page);
         }
+    }
+
+    /// <summary>
+    /// Persists the latest published state: writes a fresh freelist chain covering everything
+    /// pending, flushes all pages written since the last durable meta, then writes the meta page.
+    /// No-op when nothing was published since the last durable write (and for memory-only pagers).
+    /// </summary>
+    public void MakeDurable(bool deepDiskFlush)
+    {
+        if (_mem is not null)
+            return;
+        if (_meta.TxId == _durableTxId)
+            return;
+
+        // The previous durable freelist chain becomes garbage once the new meta lands, but the
+        // current durable meta still references it — quarantine it like any published free.
+        var freedNow = new List<uint>(_freelistChainPages);
+        var chainPages = new Dictionary<uint, byte[]>();
+        uint freelistHead = WriteFreelistChain(_meta.TxId, freedNow, chainPages);
+        if (freedNow.Count > 0)
+            _pendingFree.Add((_meta.TxId, freedNow));
+
+        WriteDirtyPages(chainPages);
+        _flushStream!.Flush(deepDiskFlush); // data must be durable before the meta that references it
+
+        _meta = _meta with { FreelistHead = freelistHead, PageCount = _pageCount };
+        _durableSlot ^= 1;
+        WriteMetaSlot(_durableSlot, _meta);
+        _flushStream!.Flush(deepDiskFlush);
+        _durableTxId = _meta.TxId;
     }
 
     /// <summary>Bytes currently used by the database file (logical page span when memory-only).</summary>
@@ -226,6 +283,7 @@ internal sealed class Pager : IPageSource, IDisposable
         Cache.Clear();
 
         _meta = new Meta(_meta.TxId + 1, Timestamp: 0, CatalogRoot: 0, FreelistHead: 0, PageCount: 2);
+        _durableTxId = _meta.TxId;
         if (_mem is not null)
         {
             _mem.Clear();
@@ -240,13 +298,12 @@ internal sealed class Pager : IPageSource, IDisposable
         _flushStream.Flush(true);
     }
 
-    /// <summary>Meta-only commit used by <c>SetTimestamp</c>; keeps roots and freelist unchanged.</summary>
+    /// <summary>Timestamp-only commit used by <c>SetTimestamp</c>; keeps roots unchanged. Routed
+    /// through <see cref="MakeDurable"/> so any published-but-not-durable state lands with it.</summary>
     public void CommitMetaOnly(long newTxId, long timestamp, bool deepDiskFlush)
     {
         _meta = _meta with { TxId = newTxId, Timestamp = timestamp, PageCount = _pageCount };
-        WriteMetaSlot((int)(newTxId & 1), _meta);
-        if (deepDiskFlush)
-            _flushStream?.Flush(true);
+        MakeDurable(deepDiskFlush);
     }
 
     private void WriteDirtyPages(Dictionary<uint, byte[]> dirty)
@@ -394,9 +451,10 @@ internal sealed class Pager : IPageSource, IDisposable
             RandomAccess.Write(_handle!, buf, (long)slot * PageSize);
     }
 
-    private Meta LoadNewestValidMeta()
+    private Meta LoadNewestValidMeta(out int bestSlot)
     {
         Meta? best = null;
+        bestSlot = 0;
         Span<byte> buf = stackalloc byte[PageSize];
         for (int slot = 0; slot < 2; slot++)
         {
@@ -415,7 +473,10 @@ internal sealed class Pager : IPageSource, IDisposable
                 BinaryPrimitives.ReadUInt32LittleEndian(buf[28..]),
                 BinaryPrimitives.ReadUInt32LittleEndian(buf[32..]));
             if (best is null || m.TxId > best.Value.TxId)
+            {
                 best = m;
+                bestSlot = slot;
+            }
         }
         return best ?? throw new InvalidDataException("No valid meta page found. The file is not a Index database or is corrupt.");
     }

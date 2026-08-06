@@ -35,6 +35,15 @@ public interface IPersistedIndexStore : IDisposable {
     void RollbackTransaction();
     void CleanUpOnUnknownTransactionError();
     void CommitTransaction(long timestamp);
+    /// <summary>
+    /// Durably persists every transaction committed so far. Backends that defer durability
+    /// (see <see cref="PersistedIndexStoreBase.CommitTransactionCore"/>) write their durable
+    /// checkpoint here; backends that are durable per commit treat this as a no-op.
+    /// The data store calls this right after a successful WAL flush, under the store write lock,
+    /// so the durable indexes can never contain transactions the durable log is missing.
+    /// Only allowed outside a transaction.
+    /// </summary>
+    void MakeDurable();
     long GetTimestamp();
     long GetTotalDiskSpace();
     void OptimizeDisk();

@@ -175,6 +175,11 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
         _inTransaction = false;
     }
 
+    public void MakeDurable() {
+        if (_inTransaction) throw new InvalidOperationException("MakeDurable cannot run while a transaction is active.");
+        MakeDurableCore();
+    }
+
     // ---- WAL id / timestamp ----------------------------------------------------------------
 
     public Guid GetWalFileId() => ReadWalFileId();
@@ -254,9 +259,19 @@ public abstract class PersistedIndexStoreBase : IPersistedIndexStore {
     /// <summary>Begin the backend's single write transaction. The base has already verified none is active.</summary>
     protected abstract void BeginTransactionCore();
 
-    /// <summary>Atomically persist the transaction's index data together with <paramref name="timestamp"/>
-    /// as the store's timestamp (see <see cref="GetTimestamp"/>). Durable.</summary>
+    /// <summary>
+    /// Atomically persist the transaction's index data together with <paramref name="timestamp"/>
+    /// as the store's timestamp (see <see cref="GetTimestamp"/>). A backend may defer durability to
+    /// <see cref="MakeDurableCore"/> (the commit must still be atomic and immediately visible to
+    /// readers) — until the durable checkpoint, a crash rolls the backend back to the previous one.
+    /// Deferring is only safe when the committed data can be reproduced from the data-store WAL,
+    /// which holds for the index data this store manages.
+    /// </summary>
     protected abstract void CommitTransactionCore(long timestamp);
+
+    /// <summary>Durably persist everything committed so far. No-op (the default) for backends that
+    /// are durable per commit. The base has already verified no transaction is active.</summary>
+    protected virtual void MakeDurableCore() { }
 
     /// <summary>Discard the active transaction's changes. The base has already verified one is active.</summary>
     protected abstract void RollbackTransactionCore();
