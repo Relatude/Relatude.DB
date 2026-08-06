@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
@@ -133,16 +134,31 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
         if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
         return new SqliteIntArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
     }
+    /// <summary>
+    /// The declared type of the value column for a value-index property type. Sqlite is
+    /// dynamically typed, so this only sets the column affinity; what actually matters is that
+    /// <see cref="CastToDb"/> / <see cref="CastFromDb{T}"/> produce a representation that both
+    /// round-trips exactly and whose sqlite ordering matches <c>Comparer&lt;T&gt;.Default</c> —
+    /// range queries, MIN/MAX and the gap cache all compare inside the database.
+    /// Only the types backed by <c>ValueProperty&lt;T&gt;</c> reach this method; array-, file-,
+    /// embedded- and relation-typed properties use their own tables (see the "A"/"W" prefixes).
+    /// </summary>
     string getSqlType(PropertyType type) {
         return type switch {
-            PropertyType.Boolean => "INTEGER",
+            PropertyType.Boolean => "INTEGER",       // 0 / 1
             PropertyType.Integer => "INTEGER",
+            PropertyType.Long => "INTEGER",
             PropertyType.Float => "REAL",
             PropertyType.Double => "REAL",
+            PropertyType.Decimal => "TEXT",          // sortable fixed-point text, see decimalToDb
             PropertyType.String => "TEXT",
-            PropertyType.DateTime => "INTEGER",
+            PropertyType.DateTime => "TEXT",         // round-trip ("O") text: fixed width, so binary order is chronological
+            PropertyType.DateTimeOffset => "TEXT",   // utc-first sortable text, see dateTimeOffsetToDb
+            PropertyType.TimeSpan => "INTEGER",      // ticks
+            PropertyType.Guid => "TEXT",             // "D" format
+            PropertyType.Reference => "TEXT",        // a reference is the guid of the referenced node
             PropertyType.GeoCoordinate => "INTEGER", // the 62-bit storage code fits a signed sqlite INTEGER and preserves order
-            _ => throw new NotImplementedException()
+            _ => throw new NotSupportedException("The property type '" + type + "' has no sqlite value index representation.")
         };
     }
 
@@ -161,22 +177,81 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
     }
 
     public T CastFromDb<T>(object? value) {
-        if (value == null) return default!;
+        if (value == null || value is DBNull) return default!;
         if (value is T t) return t;
-        if (typeof(T) == typeof(DateTime)) return (T)(object)DateTime.Parse((string)value);
-        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)DateTimeOffset.Parse((string)value);
-        if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value);
-        if (value is long && typeof(T) == typeof(int)) return (T)(object)(int)(long)value;
-        if (value is long && typeof(T) == typeof(bool)) return (T)(object)((long)value != 0);
-        if (value is long && typeof(T) == typeof(GeoCoordinate)) return (T)(object)GeoCoordinate.FromStorageValue((ulong)(long)value);
-        if (value is double && typeof(T) == typeof(float)) return (T)(object)(float)(double)value;
+        // TEXT-backed types: the encodings are canonical, so CastToDb(CastFromDb(x)) == x, which
+        // the range/gap logic in SqliteValueIndex relies on when it feeds a MIN/MAX back as a bound
+        if (typeof(T) == typeof(DateTime)) return (T)(object)DateTime.Parse((string)value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)dateTimeOffsetFromDb((string)value);
+        if (typeof(T) == typeof(decimal)) return (T)(object)decimalFromDb((string)value);
+        if (typeof(T) == typeof(Guid)) return (T)(object)Guid.Parse((string)value); // guid and reference properties
+        if (typeof(T) == typeof(double)) return (T)(object)double.Parse((string)value, CultureInfo.InvariantCulture);
+        if (value is long l) {
+            if (typeof(T) == typeof(int)) return (T)(object)(int)l;
+            if (typeof(T) == typeof(bool)) return (T)(object)(l != 0);
+            if (typeof(T) == typeof(TimeSpan)) return (T)(object)TimeSpan.FromTicks(l);
+            if (typeof(T) == typeof(GeoCoordinate)) return (T)(object)GeoCoordinate.FromStorageValue((ulong)l);
+        }
+        if (value is double d && typeof(T) == typeof(float)) return (T)(object)(float)d;
         return (T)value;
     }
     public object? CastToDb(object value) {
-        if (value is DateTime dt) return dt.ToString("O");
-        if (value is DateTimeOffset dto) return dto.ToString("O");
+        if (value is DateTime dt) return dt.ToString("O"); // fixed-width and chronological within a DateTimeKind, matching Comparer<DateTime>
+        if (value is DateTimeOffset dto) return dateTimeOffsetToDb(dto);
+        if (value is decimal dec) return decimalToDb(dec);
+        if (value is Guid guid) return guid.ToString("D"); // guid and reference properties
+        if (value is TimeSpan ts) return ts.Ticks;
         if (value is GeoCoordinate geo) return (long)geo.StorageValue; // 62-bit code: always non-negative as signed
         return value;
+    }
+
+    // ---- order-preserving text encodings -----------------------------------------------------
+    // Both encodings below are fixed width and canonical, so sqlite's default BINARY collation
+    // (a memcmp of the utf-8 bytes) orders them exactly as Comparer<T>.Default orders the values.
+
+    // A DateTimeOffset is both compared and equated by its instant alone (12:00+02:00 == 10:00Z),
+    // so only the utc timestamp is stored: keeping the offset would give one logical value two
+    // different keys, splitting its rows across two facet buckets and breaking equality lookups.
+    // A value therefore reads back at offset zero - equal to, and ordered with, what was written.
+    const string _utcFormat = "yyyy-MM-ddTHH:mm:ss.fffffff"; // 27 chars, always
+    static string dateTimeOffsetToDb(DateTimeOffset v) => v.UtcDateTime.ToString(_utcFormat, CultureInfo.InvariantCulture);
+    static DateTimeOffset dateTimeOffsetFromDb(string s) {
+        var utc = DateTime.ParseExact(s, _utcFormat, CultureInfo.InvariantCulture, DateTimeStyles.None);
+        return new DateTimeOffset(utc, TimeSpan.Zero);
+    }
+
+    // Sqlite has no exact decimal type (REAL would lose equality), so a decimal is stored as a
+    // sign digit followed by the full fixed-point digit string: '1' for >= 0 and '0' for negative,
+    // so that negatives sort first, and for negatives the nine's complement of every digit, which
+    // reverses their order within that half. The padding means the scale is not preserved:
+    // 1.50m reads back as 1.5m. Values compare equal either way, and the encoding stays canonical.
+    const int _decIntDigits = 29;  // decimal.MaxValue has 29 integer digits
+    const int _decFracDigits = 28; // and at most 28 decimals
+    static string decimalToDb(decimal v) {
+        var negative = v < 0;
+        var abs = negative ? -v : v; // decimal is sign-magnitude: negating MinValue does not overflow
+        var s = abs.ToString("F" + _decFracDigits, CultureInfo.InvariantCulture);
+        var digits = s.Remove(s.IndexOf('.'), 1).PadLeft(_decIntDigits + _decFracDigits, '0');
+        if (!negative) return "1" + digits;
+        var complement = new char[digits.Length + 1];
+        complement[0] = '0';
+        for (var i = 0; i < digits.Length; i++) complement[i + 1] = (char)('9' - (digits[i] - '0'));
+        return new string(complement);
+    }
+    static decimal decimalFromDb(string s) {
+        var negative = s[0] == '0';
+        var digits = new char[_decIntDigits + _decFracDigits];
+        for (var i = 0; i < digits.Length; i++) {
+            var c = s[i + 1];
+            digits[i] = negative ? (char)('9' - (c - '0')) : c;
+        }
+        // trim the padding before parsing: the padded form has more digits than a decimal can hold
+        var intPart = new string(digits, 0, _decIntDigits).TrimStart('0');
+        var fracPart = new string(digits, _decIntDigits, _decFracDigits).TrimEnd('0');
+        if (intPart.Length == 0) intPart = "0";
+        var text = fracPart.Length == 0 ? intPart : intPart + "." + fracPart;
+        var value = decimal.Parse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+        return negative ? -value : value;
     }
 
     // ---- transactions (backend primitives; the base owns the guard + first-commit protocol) ----

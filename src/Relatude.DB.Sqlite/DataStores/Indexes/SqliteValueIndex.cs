@@ -105,9 +105,9 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
     // provided through IGapSource below. See GapCacheKeyBuilder for the full explanation.
     public object[] GetCacheKey(T queryValue, QueryType queryType) => _keyBuilder.GetCacheKey(queryValue, queryType);
 
-    // Bounds are kept as their raw db representation (string for TEXT columns, else T) and never
-    // parsed back to T: CastFromDb's DateTime.Parse converts "Z" values to local time, so a
-    // round-tripped bound would re-serialize to a different string than the one the db ordered by.
+    // Bounds are kept as their raw db representation (string for TEXT columns, else T) rather than
+    // parsed back to T, so that the comparison below is guaranteed to see exactly the bytes the db
+    // ordered by, without depending on the encoding round-trip being canonical.
     GapCacheKeyBuilder<T>.Gap GapCacheKeyBuilder<T>.IGapSource.BuildGap(T value) { // value is known not to be in the index
         var (lower, countBelow) = boundAndCount(value, "MAX", "<");
         var (upper, countAbove) = boundAndCount(value, "MIN", ">");
@@ -133,12 +133,19 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
     // collation, a memcmp of the UTF-8 bytes; the remaining supported types are stored
     // numerically and match Comparer<T>.Default
     int compareDbOrder(T value, object bound) {
-        if (bound is string sb) {
-            var sv = (string)_store.CastToDb(value)!;
-            return Encoding.UTF8.GetBytes(sv).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(sb));
-        }
+        if (bound is string sb) return compareText((string)_store.CastToDb(value)!, sb);
         return comparer.Compare(value, (T)bound);
     }
+    // same comparison, for two values that are both still T (e.g. an index MIN/MAX). Comparer<T>
+    // is not usable on its own here: Comparer<string> is culture-sensitive, so it puts "B" before
+    // "a" while sqlite's BINARY collation puts it after, and a MIN/MAX bound compared the wrong
+    // way makes MaxCount report that a value which is in the index cannot be there.
+    int compareDbOrder(T value, T other) {
+        var db = _store.CastToDb(value);
+        if (db is string sv) return compareText(sv, (string)_store.CastToDb(other)!);
+        return comparer.Compare(value, other);
+    }
+    static int compareText(string a, string b) => Encoding.UTF8.GetBytes(a).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(b));
     public ICollection<int> GetIds(T value) {
         using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value = @value");
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
@@ -185,8 +192,8 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
     public int MaxCount(IndexOperator op, T value) {
         // optimized for fastest speed, not accuracy, important for performance of query engine
         if (IdCount == 0) return 0;
-        if (comparer.Compare(value, MaxValue()) > 0) return 0; // value is larger than max value in index
-        if (comparer.Compare(value, MinValue()) < 0) return 0; // value is smaller than min value in index
+        if (compareDbOrder(value, MaxValue()!) > 0) return 0; // value is larger than max value in index
+        if (compareDbOrder(value, MinValue()!) < 0) return 0; // value is smaller than min value in index
         return op switch {
             IndexOperator.Equal => countEqual(value),
             IndexOperator.NotEqual => ValueCount - countEqual(value),
