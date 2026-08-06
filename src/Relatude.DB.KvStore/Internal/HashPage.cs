@@ -1,5 +1,8 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
@@ -43,7 +46,7 @@ internal static class HashPage
     private static void SetCount(byte[] p, int v) => BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(2), (ushort)v);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int CellStart(byte[] p) => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4));
+    public static int CellStart(byte[] p) => BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(4));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SetCellStart(byte[] p, int v) => BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(4), (ushort)v);
@@ -86,16 +89,47 @@ internal static class HashPage
         return CellSize(idSize, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off)));
     }
 
-    /// <summary>Slot index holding <paramref name="key"/>, or -1. <paramref name="tag"/> rejects almost every mismatch without reading a cell.</summary>
+    /// <summary>
+    /// Slot index holding <paramref name="key"/>, or -1. <paramref name="tag"/> rejects almost
+    /// every mismatch without reading a cell. The slot array is scanned vectorized where the
+    /// hardware allows: tags sit in the even 16-bit lanes of the slot array, so one 256-bit
+    /// compare filters 8 slots (their odd lanes — cell offsets — are masked out of the match
+    /// bits), which matters because a full bucket holds a few hundred slots and this scan runs
+    /// on every lookup and every write.
+    /// </summary>
     public static int Find(byte[] p, ushort tag, ReadOnlySpan<byte> key)
     {
         int count = Count(p);
-        for (int i = 0; i < count; i++)
+        int i = 0;
+        ref byte page = ref MemoryMarshal.GetArrayDataReference(p);
+
+        if (Vector256.IsHardwareAccelerated && count >= 16)
         {
-            int slot = HeaderSize + SlotSize * i;
-            if (BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(slot)) != tag)
+            var target = Vector256.Create(tag);
+            for (int last = count - 16; i <= last; i += 16)
+            {
+                // 16 slots = 64 bytes = two 256-bit loads; even lanes are tags.
+                ref ushort lanes = ref Unsafe.As<byte, ushort>(ref Unsafe.Add(ref page, HeaderSize + SlotSize * i));
+                uint m0 = Vector256.Equals(Vector256.LoadUnsafe(ref lanes), target).ExtractMostSignificantBits();
+                uint m1 = Vector256.Equals(Vector256.LoadUnsafe(ref lanes, 16), target).ExtractMostSignificantBits();
+                uint m = (m0 | m1 << 16) & 0x5555_5555u;
+                while (m != 0)
+                {
+                    int slot = i + (BitOperations.TrailingZeroCount(m) >> 1);
+                    int off = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(HeaderSize + SlotSize * slot + 2));
+                    if (p.AsSpan(off + 2, key.Length).SequenceEqual(key))
+                        return slot;
+                    m &= m - 1;
+                }
+            }
+        }
+
+        for (; i < count; i++)
+        {
+            uint slot = Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref page, HeaderSize + SlotSize * i));
+            if ((ushort)slot != tag) // little-endian: low 16 bits are the tag, high 16 the offset
                 continue;
-            int off = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(slot + 2));
+            int off = (int)(slot >> 16);
             if (p.AsSpan(off + 2, key.Length).SequenceEqual(key))
                 return i;
         }

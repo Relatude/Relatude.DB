@@ -10,8 +10,9 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
     bool _disposed;
     public NativeKvEmbeddingCache(string filePath) {
         var options = new BPlusTreeEngineOptions() {
-            //PageCacheBytes = 64L * 1024 * 1024 * 100, // 64 MB
-            //ValueCacheEntries = 10000,
+            PageCacheBytes = 2L * 1024 * 1024 * 100, // 2 MB
+            PendingWriteBytes = 4L * 1024 * 1024, // 4 MB
+            ValueCacheEntries = 0,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         try {

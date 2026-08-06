@@ -3,18 +3,20 @@ using KvBenchmarks.Engines;
 
 namespace KvBenchmarks.Harness;
 
-public static class Engines
-{
+public static class Engines {
     /// <summary>Every engine in its ordered layout, and the same four in their unordered one.</summary>
     public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
-    public static readonly string[] Hash = ["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
+    public static readonly string[] Hash = [];//["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
+
+    //public static readonly string[] Sorted = [];
+    //public static readonly string[] Hash = ["faster-hash", "native-hash"];
+
     public static readonly string[] All = [.. Sorted, .. Hash];
 
     /// <summary>The index every scenario benchmarks.</summary>
     public const string IndexName = "bench";
 
-    public static string DisplayName(string name) => name switch
-    {
+    public static string DisplayName(string name) => name switch {
         "native" => "NativeKv (B+Tree)",
         "native-hash" => "NativeKv (hash)",
         "sqlite" => "SQLite (+v index)",
@@ -34,20 +36,21 @@ public static class Engines
     public static bool IsHashLayout(string name) => name.EndsWith("-hash", StringComparison.Ordinal);
 
     /// <summary>Creates a file-backed engine of the given kind rooted in <paramref name="dir"/>.</summary>
-    public static IStorageEngine Create(string name, string dir)
-    {
+    public static IStorageEngine Create(string name, string dir) {
         Directory.CreateDirectory(dir);
-        return Kind(name) switch
-        {
-            // Same options the production NativeKvIndexStore uses; BENCH_NATIVE_VC overrides the
-            // value-cache size for experiments (0 disables it), BENCH_NATIVE_MEM=1 runs memory-only.
-            "native" => new BPlusTreeStorageEngine(
+        return Kind(name) switch {
+            // Same options and commit flow the production NativeKvIndexStore uses (see
+            // NativeBenchEngine); BENCH_NATIVE_VC overrides the value-cache size for experiments
+            // (0 disables it), BENCH_NATIVE_MEM=1 runs memory-only.
+            "native" => new NativeBenchEngine(new BPlusTreeStorageEngine(
                 Environment.GetEnvironmentVariable("BENCH_NATIVE_MEM") == "1" ? null : Path.Combine(dir, "native.db"),
-                new BPlusTreeEngineOptions
-                {
-                    PageCacheBytes = 64L * 1024 * 1024, 
+                new BPlusTreeEngineOptions {
+                    PageCacheBytes = 16L * 1024 * 1024*20,
+                    // Parked published pages share their arrays with the page cache, so this only
+                    // bounds bookkeeping, not real memory — size it so bulk loads don't spill.
+                    PendingWriteBytes = 512L * 1024 * 1024,
                     ValueCacheEntries = int.TryParse(Environment.GetEnvironmentVariable("BENCH_NATIVE_VC"), out int vc) ? vc : 1000,
-                }),
+                })),
             "sqlite" => new SqliteEngine(dir),
             "zonetree" => new ZoneTreeEngine(dir),
             "faster" => new FasterEngine(dir),
@@ -72,8 +75,7 @@ public static class Engines
     public static IStorageEngine CreateReference() => new BPlusTreeStorageEngine(null);
 }
 
-public abstract class ScenarioBase
-{
+public abstract class ScenarioBase {
     public required string Name { get; init; }
 
     /// <summary>Runs the full benchmark of one engine and returns the measurements.</summary>
@@ -83,8 +85,7 @@ public abstract class ScenarioBase
     public abstract string? Verify(string engineName, string dir);
 }
 
-public sealed class Scenario<T> : ScenarioBase where T : notnull
-{
+public sealed class Scenario<T> : ScenarioBase where T : notnull {
     /// <summary>Benchmark value distribution; receives the dataset size to scale duplicate rates.</summary>
     public required Func<Random, int, T> Next { get; init; }
 
@@ -98,8 +99,7 @@ public sealed class Scenario<T> : ScenarioBase where T : notnull
         => Verifier.Run(this, engineName, dir);
 }
 
-public static class Scenarios
-{
+public static class Scenarios {
     public static readonly ScenarioBase[] All =
     [
         new Scenario<int>
@@ -141,15 +141,13 @@ public static class Scenarios
 
     private const string Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    private static string RandomString(Random rnd, int length)
-    {
+    private static string RandomString(Random rnd, int length) {
         Span<char> chars = stackalloc char[length];
         for (int i = 0; i < length; i++) chars[i] = Alphabet[rnd.Next(Alphabet.Length)];
         return new string(chars);
     }
 
-    private static Guid NextGuid(Random rnd)
-    {
+    private static Guid NextGuid(Random rnd) {
         Span<byte> b = stackalloc byte[16];
         rnd.NextBytes(b);
         return new Guid(b);

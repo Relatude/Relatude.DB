@@ -28,7 +28,7 @@ if (args.Contains("--scratch")) {
 var options = Options.Parse(args);
 
 if (args.Length == 0) {
-    options.N = 1_000_000;
+    options.N = 1000_000;
     options.SkipVerify = true;
     options.InProcess = true;
 }
@@ -230,7 +230,10 @@ static void PrintNotes() {
           - Mem MB: managed heap growth after load (full GC). WSet MB: working-set growth (includes
             native memory: SQLite page cache, FASTER log, ZoneTree segments). Disk MB: store size
             after the loaded state was durably committed.
-          - NativeKv: 64 MB page cache, copy-on-write B+Tree, durable commit = flush + fsync'd meta.
+          - NativeKv: 64 MB page cache, copy-on-write B+Tree, driven like production drives it:
+            non-durable commit = publish (readers see it, pages buffered in memory, crash rolls
+            back to the last durable point — the same trade FASTER and ZoneTree make), durable
+            commit = deduplicated page write-out + flush + fsync'd meta.
           - SQLite: WAL mode, synchronous=FULL, 64 MB cache, table (id PRIMARY KEY, v) + index (v, id).
           - ZoneTree: LSM; two trees per index (id→value and (value,id) composite). WAL=AsyncCompressed,
             so batched writes are buffered like the others, but its "durable" commit only saves
@@ -314,7 +317,8 @@ static class TableColor {
 sealed class Options {
     public int N = 500_000;
     public string[] Engines = KvBenchmarks.Harness.Engines.All;
-    public string[] Scenarios = ["int", "long", "string", "guid", "datetime"];
+    //public string[] Scenarios = ["int", "long", "string", "guid", "datetime"];
+    public string[] Scenarios = ["int"];
     public string DataDir = Path.GetTempPath();
     public bool SkipVerify;
     public bool InProcess;

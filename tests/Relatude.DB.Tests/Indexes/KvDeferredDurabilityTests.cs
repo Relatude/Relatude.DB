@@ -25,6 +25,42 @@ public class KvDeferredDurabilityTests {
     }
 
     [TestMethod]
+    public void OversizedFile_ReopensAndStaysWritable() {
+        // A process that dies without Dispose leaves the file with mapped-write growth padding
+        // beyond its logical page span (and a crash can leave pages written beyond the durable
+        // meta). A reopen must map the whole physical file — a mapping's capacity may never be
+        // smaller than the file — and work normally from there.
+        var dir = tempDir();
+        try {
+            var filePath = Path.Combine(dir, "kv.db");
+            using (var engine = new BPlusTreeStorageEngine(filePath)) {
+                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                engine.BeginTransaction();
+                for (int i = 0; i < 100; i++) index.Set(i, "v" + i);
+                engine.CommitTransaction(10, true);
+            }
+            // Simulate the leftover padding: physically larger than any size the reopen computes,
+            // and deliberately not page-aligned.
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite))
+                fs.SetLength(48 * 1024 * 1024 + 123);
+            using (var engine = new BPlusTreeStorageEngine(filePath)) {
+                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                for (int i = 0; i < 100; i++) Assert.AreEqual("v" + i, index.GetValue(i));
+                engine.BeginTransaction();
+                for (int i = 0; i < 100; i++) index.Set(i, "w" + i);
+                engine.CommitTransaction(20, true);
+            }
+            using (var engine = new BPlusTreeStorageEngine(filePath)) {
+                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                Assert.AreEqual(20, engine.GetTimestamp());
+                for (int i = 0; i < 100; i++) Assert.AreEqual("w" + i, index.GetValue(i));
+            }
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [TestMethod]
     public void Publish_WithoutMakeDurable_RollsBackOnReopen() {
         var dir = tempDir();
         try {
