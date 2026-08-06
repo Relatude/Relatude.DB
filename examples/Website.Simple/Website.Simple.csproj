@@ -29,4 +29,8 @@
     <ProjectReference Include="..\..\src\Relatude.DB.Skia\Relatude.DB.Skia.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="relatude.db\indexes\" />
+  </ItemGroup>
+
 </Project>

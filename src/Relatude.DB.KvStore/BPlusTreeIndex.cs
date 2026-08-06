@@ -57,14 +57,50 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
     private readonly ValueCache<TId, T>? _valueCache =
         engine.ValueCacheEntries > 0 ? new ValueCache<TId, T>(engine.ValueCacheEntries) : null;
 
+    // Per-op state lookups memoized, same as HashIndex: one MutableIndexState per (txn, index)
+    // and one IndexState per (snapshot, index), both stable for that txn/snapshot, so the
+    // string-keyed dictionary probe happens once per txn/snapshot instead of once per operation.
+    // _lastTxn/_lastTxnState: txn-owner thread only (consecutive txns synchronize through the
+    // engine's write lock). _snapState: any thread; the immutable holder makes a stale read a
+    // miss, never a mixed pair.
+    private BPlusTreeStorageEngine.WriteTxn? _lastTxn;
+    private BPlusTreeStorageEngine.MutableIndexState? _lastTxnState;
+    private SnapState? _snapState;
+
+    private sealed class SnapState(BPlusTreeStorageEngine.EngineSnapshot snap, BPlusTreeStorageEngine.IndexState state)
+    {
+        public readonly BPlusTreeStorageEngine.EngineSnapshot Snap = snap;
+        public readonly BPlusTreeStorageEngine.IndexState State = state;
+    }
+
+    private BPlusTreeStorageEngine.MutableIndexState TxnState(BPlusTreeStorageEngine.WriteTxn txn)
+    {
+        if (ReferenceEquals(_lastTxn, txn))
+            return _lastTxnState!;
+        var st = engine.GetTxnState(txn, name);
+        _lastTxn = txn;
+        _lastTxnState = st;
+        return st;
+    }
+
+    private BPlusTreeStorageEngine.IndexState CommittedState(BPlusTreeStorageEngine.EngineSnapshot snap)
+    {
+        SnapState? c = _snapState;
+        if (c is not null && ReferenceEquals(c.Snap, snap))
+            return c.State;
+        var st = engine.GetCommittedState(snap, name);
+        _snapState = new SnapState(snap, st);
+        return st;
+    }
+
     public int Count
     {
         get
         {
             using var read = engine.BeginRead();
             return read.Txn is not null
-                ? engine.GetTxnState(read.Txn, name).IdCount
-                : engine.GetCommittedState(read.Snapshot!, name).IdCount;
+                ? TxnState(read.Txn).IdCount
+                : CommittedState(read.Snapshot!).IdCount;
         }
     }
 
@@ -74,15 +110,15 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
         {
             using var read = engine.BeginRead();
             return read.Txn is not null
-                ? engine.GetTxnState(read.Txn, name).ValueCount
-                : engine.GetCommittedState(read.Snapshot!, name).ValueCount;
+                ? TxnState(read.Txn).ValueCount
+                : CommittedState(read.Snapshot!).ValueCount;
         }
     }
 
     public void Set(TId id, T value)
     {
         var txn = engine.RequireTxn();
-        var st = engine.GetTxnState(txn, name);
+        var st = TxnState(txn);
 
         int maxSize = _codec.GetMaxSize(value) + IdSize;
         byte[]? rented = maxSize > StackBufferSize ? ArrayPool<byte>.Shared.Rent(maxSize) : null;
@@ -143,7 +179,7 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
     public bool Remove(TId id)
     {
         var txn = engine.RequireTxn();
-        var st = engine.GetTxnState(txn, name);
+        var st = TxnState(txn);
 
         Span<byte> idKey = stackalloc byte[MaxIdSize];
         idKey = idKey[..IdSize];
@@ -546,8 +582,8 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
         byte[] startKey = BuildStartKey(value, includeValue);
         using var read = engine.BeginRead();
         int total = read.Txn is not null
-            ? engine.GetTxnState(read.Txn, name).IdCount
-            : engine.GetCommittedState(read.Snapshot!, name).IdCount;
+            ? TxnState(read.Txn).IdCount
+            : CommittedState(read.Snapshot!).IdCount;
         return total - BTree.CountLessThan(read.Source, RootsFor(read).ValueRoot, startKey);
     }
 
@@ -574,10 +610,10 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
     {
         if (read.Txn is not null)
         {
-            var st = engine.GetTxnState(read.Txn, name);
+            var st = TxnState(read.Txn);
             return (st.ValueRoot, st.IdRoot);
         }
-        var committed = engine.GetCommittedState(read.Snapshot!, name);
+        var committed = CommittedState(read.Snapshot!);
         return (committed.ValueRoot, committed.IdRoot);
     }
 

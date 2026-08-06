@@ -1,6 +1,7 @@
 ﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -207,6 +208,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         idValidator.Seed(nodeSnapshot.Select(n => n.nodeId)); // ids loaded from the state file snapshot; validation below only runs for actions newer than the snapshot
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
+            var noActionsNotCommittedInPersistedIndexes = 0;
             double progressBarFactor = 1 - readLogFileFom / (double)logReader.FileSize;
             sw.Restart();
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
@@ -243,7 +245,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             if (a is PrimitiveNodeAction na) {
                                 _nodes.RegisterAction_NotThreadsafe(na);
                                 _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
-                            _addresses.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
+                                _addresses.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                             } else if (a is PrimitiveRelationAction ra) {
                                 _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                             } else if (a is PrimitiveRelationReorderAction rra) {
@@ -252,6 +254,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
                         }
                         if (isTransactionRelevantForIndexes) {
+                            noActionsNotCommittedInPersistedIndexes++;
                             _index.RegisterActionDuringStateLoad(transaction.Timestamp, a, throwOnErrors, logError);
                         }
                         if (isTransactionRelevantForStateStores) {
@@ -266,6 +269,15 @@ public sealed partial class DataStoreLocal : IDataStore {
                         } else {
                             logError("Error processing action in transaction at timestamp " + transaction.Timestamp + ". ", err);
                         }
+                    }
+                }
+                if (PersistedIndexStore != null) {
+                    if (noActionsNotCommittedInPersistedIndexes > 10000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
+                        PersistedIndexStore.CommitTransaction(transaction.Timestamp);
+                        PersistedIndexStore.MakeDurable();
+                        PersistedIndexStore.BeginTransaction();
+                        LogInfo("   - Persisted indexes at timestamp " + new DateTime( transaction.Timestamp, DateTimeKind.Utc));
+                        noActionsNotCommittedInPersistedIndexes = 0;
                     }
                 }
                 if (isTransactionRelevantForStateStores) {
@@ -369,7 +381,7 @@ class IdValidator(DataStoreLocal store, bool throwOnErrors) {
     }
     public List<string> errors = [];
     public IEnumerable<string> GetErrors() {
-        if(maxErrorCount <= errorCount) {
+        if (maxErrorCount <= errorCount) {
             yield return errorCount + " ID errors found! Listing first " + maxErrorCount + ":";
         }
         foreach (var e in errors) {

@@ -1,4 +1,7 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
@@ -40,6 +43,61 @@ internal sealed class Pager : IPageSource, IDisposable
     /// <summary>True when the pager has no backing file: all pages live in memory and nothing is persisted.</summary>
     public bool IsMemoryOnly => _mem is not null;
 
+    // ---- memory-mapped IO ----
+    // Page writes go through a mapped view of the file: a 4 KiB buffered WriteFile costs ~2 µs of
+    // kernel filter stack per call, a memcpy into the map a third of that — and a non-durable
+    // commit of a large transaction writes tens of thousands of scattered pages. Reads on a cache
+    // miss use the map too. Coherence is free on Windows: mapped views and regular read/write IO
+    // of the same file share the cache manager's pages, so the striped read handles, the meta
+    // writes (which stay on the plain handle) and the map always see each other's bytes.
+    // Durability is unchanged: a deep flush does FlushViewOfFile + FlushFileBuffers before the
+    // meta page that references the data, and dirty mapped pages survive a process crash exactly
+    // like buffered WriteFile ones (the memory manager writes them back).
+    //
+    // Only the writer (under the engine's write lock) grows the map. Readers take the current
+    // MapState with one volatile read; superseded views are parked in _oldMaps until Dispose, so
+    // a reader holding a stale MapState still reads through a valid view — of the same coherent
+    // cache pages — with no lock anywhere.
+    private sealed unsafe class MapState(MemoryMappedFile mmf, MemoryMappedViewAccessor view, byte* ptr, long pages)
+    {
+        public readonly MemoryMappedFile Mmf = mmf;
+        public readonly MemoryMappedViewAccessor View = view;
+        public readonly byte* Ptr = ptr;
+        public readonly long Pages = pages;
+
+        public void Release()
+        {
+            View.SafeMemoryMappedViewHandle.ReleasePointer();
+            View.Dispose();
+            Mmf.Dispose();
+        }
+    }
+
+    private MapState? _map;
+    private readonly List<MapState> _oldMaps = new();
+    private const long MinMapPages = 512; // 2 MiB floor: below this, mapping churn outweighs the wins
+
+    // ---- deferred page writes ----
+    // A publish does not write its pages to the file: they are parked here (and in the page
+    // cache) and written when the state is made durable — or earlier, when the parked set
+    // exceeds its budget. This is exactly the published-but-not-durable window the shadow-paging
+    // contract already defines: the durable meta never references these pages (the recycle gate
+    // guarantees it), so a crash before MakeDurable rolls back to it whether the bytes reached
+    // the file or not. What deferral buys is coalescing — a page rewritten by five batches is
+    // written once, not five times, and a page freed again before durability is written harmlessly
+    // at most once. Readers that miss the page cache consult this map before the file, so a
+    // parked page is always reachable. Entries are immutable committed pages; the writer mutates
+    // the map only under the engine's write lock, readers only look up.
+    private readonly ConcurrentDictionary<uint, byte[]> _pendingWrites = new();
+    private readonly int _spillPages;
+
+    // Pages written through the map since the last deep flush, so FlushViewOfFile can be asked
+    // for exactly those ranges instead of scanning the whole view's PTEs (which turns a 10-page
+    // durable commit into a multi-millisecond walk). Overflow falls back to a whole-view flush.
+    private List<uint> _unflushedMapPages = new();
+    private bool _unflushedOverflow;
+    private const int UnflushedTrackingLimit = 262_144; // 1 GiB of 4 KiB pages: past this, one full flush is cheaper than the bookkeeping
+
     private Meta _meta;                         // latest PUBLISHED state; the durable meta pages may lag behind it
     private long _durableTxId;                  // TxId of the last durably written meta page
     private int _durableSlot;                   // meta slot of the last durable write; toggled per durable write so the two newest durable metas never share a slot
@@ -48,15 +106,27 @@ internal sealed class Pager : IPageSource, IDisposable
     private readonly List<(long TxId, List<uint> Pages)> _pendingFree = new(); // reusable once readers drain AND a durable meta no longer references them
     private List<uint> _freelistChainPages = new();
 
+    // Pages allocated since the last durable meta, and freed pages that are such "young" pages.
+    // The durable-meta half of the recycle gate exists to protect pages the durable meta still
+    // references — but a page allocated after that meta was written is invisible to it (its id is
+    // beyond the meta's page count, or listed free in its freelist chain, whose content recovery
+    // never reads). Young pages therefore recycle on the reader gate alone, which is what keeps a
+    // long run of published-but-not-yet-durable transactions — the normal state between WAL
+    // flushes — from growing the file with every copy-on-write instead of reusing its own pages.
+    private readonly HashSet<uint> _allocatedSinceDurable = new();
+    private readonly List<(long TxId, List<uint> Pages)> _pendingFreeYoung = new();
+
     public Meta CurrentMeta => _meta;
 
     /// <param name="path">
     /// Backing file for the database, or <c>null</c> for a memory-only engine that persists nothing
     /// and always starts empty (identical semantics to a freshly created file).
     /// </param>
-    public Pager(string? path, long cacheBytes)
+    /// <param name="pendingWriteBytes">Budget for published-but-unwritten pages; past it they are written out early (without becoming durable).</param>
+    public Pager(string? path, long cacheBytes, long pendingWriteBytes = 128L * 1024 * 1024)
     {
         Cache = new PageCache(cacheBytes, PageSize);
+        _spillPages = (int)Math.Max(64, pendingWriteBytes / PageSize);
 
         if (path is null)
         {
@@ -102,6 +172,71 @@ internal sealed class Pager : IPageSource, IDisposable
         }
         _pageCount = _meta.PageCount;
         _durableTxId = _meta.TxId;
+        EnsureMapped(_pageCount); // eager: reads of an existing file go through the map from the start
+    }
+
+    /// <summary>
+    /// Guarantees the mapped view covers at least <paramref name="pagesNeeded"/> pages, growing
+    /// the file geometrically so remaps stay rare. Writer-thread only. On any failure (32-bit
+    /// address space, exotic file systems) the pager silently stays on plain read/write IO.
+    /// </summary>
+    private void EnsureMapped(long pagesNeeded)
+    {
+        if (_mem is not null || Environment.Is64BitProcess == false)
+            return;
+        MapState? current = _map;
+        if (current is not null && current.Pages >= pagesNeeded)
+            return;
+        try
+        {
+            // Pad modestly (~12.5%, at least 1 MiB) beyond what is needed: enough that steady
+            // growth remaps a handful of times per size doubling — a remap costs tens of
+            // microseconds — without inflating the file the way a capacity-doubling policy
+            // would. The padding is visible file size until the next clean close trims it.
+            long newPages = Math.Max(pagesNeeded + Math.Max(pagesNeeded >> 3, 256), MinMapPages);
+            long newLength = newPages * PageSize;
+
+            // A mapping's capacity must cover the entire file, and the physical file can exceed
+            // the logical page span: growth padding left behind by a process that never reached
+            // the Dispose trim, or pages written beyond the durable meta before a crash. Map all
+            // of it (rounded up to a page boundary — extending is always safe, shrinking never is).
+            long fileLength = RandomAccess.GetLength(_handle!);
+            if (fileLength > newLength)
+            {
+                newLength = (fileLength + PageSize - 1) / PageSize * PageSize;
+                newPages = newLength / PageSize;
+            }
+            if (fileLength < newLength)
+                _flushStream!.SetLength(newLength);
+
+            var mmf = MemoryMappedFile.CreateFromFile(_flushStream!, mapName: null, newLength,
+                MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
+            var view = mmf.CreateViewAccessor(0, newLength, MemoryMappedFileAccess.ReadWrite);
+            unsafe
+            {
+                byte* ptr = null;
+                view.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
+                if (current is not null)
+                    _oldMaps.Add(current); // readers may still hold it; parked until Dispose
+                Volatile.Write(ref _map, new MapState(mmf, view, ptr, newPages));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or OutOfMemoryException)
+        {
+            // No map: WriteDirtyPages and ReadPageFromDisk fall back to plain IO.
+        }
+    }
+
+    private void ReleaseAllMaps()
+    {
+        if (_map is not null)
+        {
+            _map.Release();
+            _map = null;
+        }
+        foreach (MapState old in _oldMaps)
+            old.Release();
+        _oldMaps.Clear();
     }
 
     private void InitializeEmptyFile()
@@ -149,7 +284,27 @@ internal sealed class Pager : IPageSource, IDisposable
                 throw new InvalidDataException($"Page {pageId} is not present in the in-memory store.");
             return mp;
         }
-        var buf = GC.AllocateUninitializedArray<byte>(PageSize); // fully overwritten by the read below
+
+        // Published but not yet written to the file: the pending map is the source of truth.
+        // Committed pages are immutable, so handing out the parked array itself is safe.
+        if (_pendingWrites.TryGetValue(pageId, out var pending))
+            return pending;
+
+        var buf = GC.AllocateUninitializedArray<byte>(PageSize); // fully overwritten by the copy/read below
+
+        // The map covers every committed page (writes grow it first), so this is the normal path;
+        // a stale MapState read here is still a valid view of the same cache pages. The syscall
+        // fallback only runs when mapping failed or is not yet established.
+        MapState? map = Volatile.Read(ref _map);
+        if (map is not null && pageId < map.Pages)
+        {
+            unsafe
+            {
+                new ReadOnlySpan<byte>(map.Ptr + (long)pageId * PageSize, PageSize).CopyTo(buf);
+            }
+            return buf;
+        }
+
         var handle = _readHandles![(uint)Environment.CurrentManagedThreadId % (uint)_readHandles.Length];
         int read = RandomAccess.Read(handle, buf, (long)pageId * PageSize);
         if (read != PageSize)
@@ -168,14 +323,26 @@ internal sealed class Pager : IPageSource, IDisposable
     public void PromoteFreeBatches(long minActiveReaderTxId)
     {
         long gate = _mem is not null ? minActiveReaderTxId : Math.Min(minActiveReaderTxId, _durableTxId);
+        Promote(_pendingFree, gate);
+        Promote(_pendingFreeYoung, minActiveReaderTxId); // young pages: the durable meta never saw them
+    }
+
+    private void Promote(List<(long TxId, List<uint> Pages)> batches, long gate)
+    {
         int i = 0;
-        while (i < _pendingFree.Count)
+        while (i < batches.Count)
         {
-            if (_pendingFree[i].TxId <= gate)
+            if (batches[i].TxId <= gate)
             {
-                foreach (uint p in _pendingFree[i].Pages)
+                foreach (uint p in batches[i].Pages)
+                {
                     _recycled.Enqueue(p);
-                _pendingFree.RemoveAt(i);
+                    // A promoted page is free in every state anyone can still reach, so parked
+                    // content for it would be written for nothing — drop it. Transient pages
+                    // (freed again before a durable point) thus never touch the file at all.
+                    _pendingWrites.TryRemove(p, out _);
+                }
+                batches.RemoveAt(i);
             }
             else
             {
@@ -184,13 +351,34 @@ internal sealed class Pager : IPageSource, IDisposable
         }
     }
 
-    public uint AllocatePage()
+    public uint AllocatePage() => AllocatePage(out _);
+
+    /// <summary>
+    /// Allocates a page id. When recycling evicts the old incarnation from the page cache,
+    /// <paramref name="reusableBuffer"/> hands its array to the caller: the recycle gate has
+    /// already proven no reader can reach it, so reusing it saves both the fresh 4 KiB allocation
+    /// and the GC churn of the discarded one. (Memory-only pagers never hand buffers out — there
+    /// the cached array IS the store's copy of the old page.)
+    /// </summary>
+    public uint AllocatePage(out byte[]? reusableBuffer)
     {
         if (_recycled.TryDequeue(out uint id))
         {
-            Cache.Invalidate(id); // stale committed content must not be served for the new incarnation
+            byte[]? evicted = Cache.Invalidate(id); // stale committed content must not be served for the new incarnation
+            if (_mem is null)
+            {
+                _allocatedSinceDurable.Add(id);
+                reusableBuffer = evicted;
+            }
+            else
+            {
+                reusableBuffer = null;
+            }
             return id;
         }
+        if (_mem is null)
+            _allocatedSinceDurable.Add(_pageCount);
+        reusableBuffer = null;
         return _pageCount++;
     }
 
@@ -204,7 +392,7 @@ internal sealed class Pager : IPageSource, IDisposable
     // ---- commit ----
 
     public void Commit(long newTxId, long timestamp, uint catalogRoot,
-        List<uint> freedByTxn, Dictionary<uint, byte[]> dirtyPages, bool deepDiskFlush)
+        List<uint> freedByTxn, KeyValuePair<uint, byte[]>[] dirtyPages, bool deepDiskFlush)
     {
         Publish(newTxId, timestamp, catalogRoot, freedByTxn, dirtyPages);
         MakeDurable(deepDiskFlush);
@@ -217,23 +405,57 @@ internal sealed class Pager : IPageSource, IDisposable
     /// durable meta no longer references them.
     /// </summary>
     public void Publish(long newTxId, long timestamp, uint catalogRoot,
-        List<uint> freedByTxn, Dictionary<uint, byte[]> dirtyPages)
+        List<uint> freedByTxn, KeyValuePair<uint, byte[]>[] dirtyPages)
     {
         if (freedByTxn.Count > 0)
-            _pendingFree.Add((newTxId, freedByTxn));
+        {
+            if (_mem is not null || _allocatedSinceDurable.Count == 0)
+            {
+                _pendingFree.Add((newTxId, freedByTxn));
+            }
+            else
+            {
+                // Freed pages the last durable meta has never referenced recycle on the reader
+                // gate alone; the rest must additionally outlive that meta.
+                List<uint>? young = null, old = null;
+                foreach (uint p in freedByTxn)
+                    ((_allocatedSinceDurable.Contains(p) ? young ??= new() : old ??= new())).Add(p);
+                if (young is not null)
+                    _pendingFreeYoung.Add((newTxId, young));
+                if (old is not null)
+                    _pendingFree.Add((newTxId, old));
+            }
+        }
 
-        WriteDirtyPages(dirtyPages); // unflushed: MakeDurable flushes before the meta that references them
+        if (_mem is not null)
+        {
+            // Committed pages are immutable until freed and reallocated (which writes a fresh
+            // array), so storing the reference is safe — no copy needed.
+            foreach (var (id, page) in dirtyPages)
+                _mem[id] = page;
+        }
+        else
+        {
+            // Deferred: pages are parked and written at MakeDurable (or at the spill below),
+            // deduplicating every page that is rewritten before then. Readers reach parked
+            // pages through the page cache or the pending map.
+            foreach (var (id, page) in dirtyPages)
+                _pendingWrites[id] = page;
+        }
 
         _meta = new Meta(newTxId, timestamp, catalogRoot, _meta.FreelistHead, _pageCount);
 
         // Populate the cache with the (hot) just-written pages — unless the batch is large
         // relative to the cache, where doing so would evict everything a reader has warm
         // and spend the whole commit thrashing the eviction sweep.
-        if (dirtyPages.Count <= Cache.Capacity / 2)
+        if (dirtyPages.Length <= Cache.Capacity / 2)
         {
             foreach (var (id, page) in dirtyPages)
                 Cache.Add(id, page);
         }
+
+        if (_mem is null && _pendingWrites.Count > _spillPages)
+            WritePendingPages(); // early persistence, not durability: the meta still lags
     }
 
     /// <summary>
@@ -248,6 +470,8 @@ internal sealed class Pager : IPageSource, IDisposable
         if (_meta.TxId == _durableTxId)
             return;
 
+        WritePendingPages(); // everything published since the last durable point, deduplicated
+
         // The previous durable freelist chain becomes garbage once the new meta lands, but the
         // current durable meta still references it — quarantine it like any published free.
         var freedNow = new List<uint>(_freelistChainPages);
@@ -257,6 +481,8 @@ internal sealed class Pager : IPageSource, IDisposable
             _pendingFree.Add((_meta.TxId, freedNow));
 
         WriteDirtyPages(chainPages);
+        if (deepDiskFlush)
+            FlushMapRanges(); // dirty mapped pages must reach the file system before FlushFileBuffers can order them to media
         _flushStream!.Flush(deepDiskFlush); // data must be durable before the meta that references it
 
         _meta = _meta with { FreelistHead = freelistHead, PageCount = _pageCount };
@@ -264,10 +490,15 @@ internal sealed class Pager : IPageSource, IDisposable
         WriteMetaSlot(_durableSlot, _meta);
         _flushStream!.Flush(deepDiskFlush);
         _durableTxId = _meta.TxId;
+        _allocatedSinceDurable.Clear(); // everything is now referenced (or listed free) by the new durable meta
     }
 
-    /// <summary>Bytes currently used by the database file (logical page span when memory-only).</summary>
-    public long FileLength => _mem is not null ? (long)_pageCount * PageSize : RandomAccess.GetLength(_handle!);
+    /// <summary>
+    /// Bytes the database logically occupies (its page high-water mark). The physical file may be
+    /// padded beyond this while open — mapped-write capacity is grown in large steps — and is
+    /// trimmed back to this size on <see cref="Dispose"/>.
+    /// </summary>
+    public long FileLength => (long)_pageCount * PageSize;
 
     /// <summary>
     /// Wipes the database back to a freshly created state: empty catalog, empty freelist,
@@ -278,6 +509,11 @@ internal sealed class Pager : IPageSource, IDisposable
     {
         _recycled.Clear();
         _pendingFree.Clear();
+        _pendingFreeYoung.Clear();
+        _allocatedSinceDurable.Clear();
+        _pendingWrites.Clear();
+        _unflushedMapPages.Clear();
+        _unflushedOverflow = false;
         _freelistChainPages = new List<uint>();
         _pageCount = 2;
         Cache.Clear();
@@ -291,6 +527,7 @@ internal sealed class Pager : IPageSource, IDisposable
             WriteMetaSlot(1, _meta);
             return;
         }
+        ReleaseAllMaps(); // a mapped region cannot be truncated away; caller guarantees no active readers
         WriteMetaSlot(0, _meta);
         WriteMetaSlot(1, _meta); // both slots: the newest-valid scan must not resurrect old state
         _flushStream!.Flush(true);
@@ -318,12 +555,64 @@ internal sealed class Pager : IPageSource, IDisposable
                 _mem[id] = page;
             return;
         }
-        // One enumeration of the dictionary instead of two lookups per page while building runs.
         var pages = new KeyValuePair<uint, byte[]>[dirty.Count];
         ((ICollection<KeyValuePair<uint, byte[]>>)dirty).CopyTo(pages, 0);
-        Array.Sort(pages, static (a, b) => a.Key.CompareTo(b.Key));
+        WritePages(pages);
+    }
 
-        // Coalesce contiguous page runs into single vectored writes.
+    /// <summary>Writes the parked published pages to the file and empties the pending map. Not a durability point.</summary>
+    private void WritePendingPages()
+    {
+        if (_pendingWrites.IsEmpty)
+            return;
+        // The writer (who holds the engine's write lock) is the only mutator, so this snapshot is
+        // exact. Clearing afterwards is safe for concurrent readers: the file already holds the
+        // same bytes, and the map writes happen-before the clear they would have to miss on.
+        WritePages(_pendingWrites.ToArray());
+        _pendingWrites.Clear();
+    }
+
+    /// <summary>Small batches take this many pages at most through plain buffered writes: a later
+    /// deep flush then needs no FlushViewOfFile at all (FlushFileBuffers covers WriteFile-dirtied
+    /// cache pages by itself), and below this size the syscalls cost less than the view flush.</summary>
+    private const int SmallBatchPages = 512;
+
+    /// <summary>Disk-mode page write: one memcpy per page through the mapped view — a third of the
+    /// cost of a buffered WriteFile per page — for bulk batches; plain buffered IO for small ones
+    /// (cheaper to make durable, see <see cref="SmallBatchPages"/>) and for when mapping failed.</summary>
+    private void WritePages(KeyValuePair<uint, byte[]>[] pages)
+    {
+        if (pages.Length == 0)
+            return;
+        if (pages.Length > SmallBatchPages)
+            EnsureMapped(_pageCount);
+        MapState? map = _map;
+        if (pages.Length > SmallBatchPages && map is not null && _pageCount <= map.Pages)
+        {
+            unsafe
+            {
+                foreach (var (id, page) in pages)
+                    page.CopyTo(new Span<byte>(map.Ptr + (long)id * PageSize, PageSize));
+            }
+            if (!_unflushedOverflow)
+            {
+                if (_unflushedMapPages.Count + pages.Length > UnflushedTrackingLimit)
+                {
+                    _unflushedOverflow = true;
+                    _unflushedMapPages.Clear();
+                }
+                else
+                {
+                    foreach (var (id, _) in pages)
+                        _unflushedMapPages.Add(id);
+                }
+            }
+            return;
+        }
+
+        // Small batches and the no-mapping fallback: sorted, with contiguous runs as single
+        // vectored writes.
+        Array.Sort(pages, static (a, b) => a.Key.CompareTo(b.Key));
         var run = new List<ReadOnlyMemory<byte>>();
         int i = 0;
         while (i < pages.Length)
@@ -341,6 +630,71 @@ internal sealed class Pager : IPageSource, IDisposable
         }
     }
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern unsafe bool FlushViewOfFile(byte* lpBaseAddress, nuint dwNumberOfBytesToFlush);
+
+    /// <summary>
+    /// Pushes every page written through the map since the last deep flush to the file system —
+    /// by exact ranges where the bookkeeping allows, so a small durable commit flushes its dozen
+    /// pages instead of walking the PTEs of the entire view. Ranges are flushed through the
+    /// current (largest) view, which covers every page any earlier view could have written.
+    /// </summary>
+    private void FlushMapRanges()
+    {
+        MapState? map = _map;
+        if (map is null)
+            return; // no mapped writes ever happened; plain IO needs no view flush
+        if (_unflushedOverflow || !OperatingSystem.IsWindows())
+        {
+            map.View.Flush();
+            _unflushedOverflow = false;
+            _unflushedMapPages.Clear();
+            return;
+        }
+        if (_unflushedMapPages.Count == 0)
+            return;
+
+        // Ranges are merged across gaps: flushing a clean page costs a PTE visit and nothing
+        // else, so a handful of wide ranges beats hundreds of exact ones (each FlushViewOfFile
+        // is a syscall). If the writes are scattered beyond what merging can absorb, one
+        // whole-view flush is the cheaper walk.
+        const uint MergeGapPages = 2048; // 8 MiB of clean pages is cheaper to walk than one extra syscall
+        const int MaxRanges = 64;
+
+        _unflushedMapPages.Sort();
+        int ranges = 1;
+        for (int i = 1; i < _unflushedMapPages.Count && ranges <= MaxRanges; i++)
+        {
+            if (_unflushedMapPages[i] > _unflushedMapPages[i - 1] + MergeGapPages)
+                ranges++;
+        }
+        unsafe
+        {
+            if (ranges > MaxRanges)
+            {
+                map.View.Flush();
+            }
+            else
+            {
+                int i = 0;
+                while (i < _unflushedMapPages.Count)
+                {
+                    uint first = _unflushedMapPages[i];
+                    uint last = first;
+                    while (i + 1 < _unflushedMapPages.Count && _unflushedMapPages[i + 1] <= last + MergeGapPages)
+                    {
+                        last = Math.Max(last, _unflushedMapPages[i + 1]);
+                        i++;
+                    }
+                    if (!FlushViewOfFile(map.Ptr + (long)first * PageSize, (nuint)((long)(last - first + 1) * PageSize)))
+                        throw new IOException($"FlushViewOfFile failed (error {Marshal.GetLastWin32Error()}).");
+                    i++;
+                }
+            }
+        }
+        _unflushedMapPages.Clear();
+    }
+
     // ---- freelist persistence ----
     // Chain page: [next:u32][count:u32][(txId:i64, pageId:u32) * count]
     private const int FreelistHeader = 8;
@@ -351,6 +705,8 @@ internal sealed class Pager : IPageSource, IDisposable
     {
         int estimate = _recycled.Count + freedByTxn.Count;
         foreach (var b in _pendingFree)
+            estimate += b.Pages.Count;
+        foreach (var b in _pendingFreeYoung)
             estimate += b.Pages.Count;
         if (estimate == 0)
         {
@@ -365,12 +721,18 @@ internal sealed class Pager : IPageSource, IDisposable
         // the file grow exponentially with commit count.
         int pageCountNeeded = (estimate + EntriesPerPage - 1) / EntriesPerPage;
         var chain = new List<uint>(pageCountNeeded);
+        var buffers = new byte[pageCountNeeded][];
         for (int i = 0; i < pageCountNeeded; i++)
-            chain.Add(AllocatePage());
+        {
+            chain.Add(AllocatePage(out byte[]? reusable));
+            buffers[i] = reusable!; // may be null: filled below
+        }
 
         // Consuming recycled ids above may have shrunk the list: total <= estimate always fits.
         int total = _recycled.Count + freedByTxn.Count;
         foreach (var b in _pendingFree)
+            total += b.Pages.Count;
+        foreach (var b in _pendingFreeYoung)
             total += b.Pages.Count;
         var entries = new (long TxId, uint Page)[total];
         int w = 0;
@@ -379,13 +741,16 @@ internal sealed class Pager : IPageSource, IDisposable
         foreach (var b in _pendingFree)
             foreach (uint p in b.Pages)
                 entries[w++] = (b.TxId, p);
+        foreach (var b in _pendingFreeYoung)
+            foreach (uint p in b.Pages)
+                entries[w++] = (b.TxId, p); // young only relative to the outgoing meta; ordinary frees to the one being written
         foreach (uint p in freedByTxn)
             entries[w++] = (newTxId, p);
 
         int e = 0;
         for (int i = 0; i < pageCountNeeded; i++)
         {
-            var buf = GC.AllocateUninitializedArray<byte>(PageSize); // the gap after the last entry is never read
+            var buf = buffers[i] ?? GC.AllocateUninitializedArray<byte>(PageSize); // the gap after the last entry is never read
             uint next = i + 1 < pageCountNeeded ? chain[i + 1] : 0;
             BinaryPrimitives.WriteUInt32LittleEndian(buf, next);
             int inPage = Math.Clamp(total - e, 0, EntriesPerPage);
@@ -491,7 +856,18 @@ internal sealed class Pager : IPageSource, IDisposable
 
     public void Dispose()
     {
-        _flushStream?.Dispose();
+        ReleaseAllMaps();
+        if (_flushStream is not null)
+        {
+            try
+            {
+                // Trim the mapped-write growth padding so the file on disk is its logical size.
+                if (RandomAccess.GetLength(_handle!) > (long)_pageCount * PageSize)
+                    _flushStream.SetLength((long)_pageCount * PageSize);
+            }
+            catch (IOException) { /* trimming is cosmetic; never fail a dispose over it */ }
+            _flushStream.Dispose();
+        }
         if (_readHandles is not null)
             foreach (var h in _readHandles)
                 h.Dispose();

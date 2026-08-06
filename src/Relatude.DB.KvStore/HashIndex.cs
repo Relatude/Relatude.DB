@@ -41,6 +41,44 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     private readonly ValueCache<TId, T>? _valueCache =
         engine.ValueCacheEntries > 0 ? new ValueCache<TId, T>(engine.ValueCacheEntries) : null;
 
+    // Per-op state lookups memoized: the engine hands out one MutableIndexState per (txn, index)
+    // and one IndexState per (snapshot, index), both stable for that txn/snapshot, so the last
+    // pair is remembered and the name lookup (a string-keyed dictionary probe on every single
+    // operation) only happens again when the txn or snapshot object changes.
+    // _lastTxn/_lastTxnState are touched only by the transaction's owner thread (enforced by
+    // RequireTxn; consecutive txns on different threads synchronize through the engine's write
+    // lock). _snapState is read by any thread: the pair travels in one immutable holder, so a
+    // stale read can only miss, never mix a snapshot with another snapshot's state.
+    private BPlusTreeStorageEngine.WriteTxn? _lastTxn;
+    private BPlusTreeStorageEngine.MutableIndexState? _lastTxnState;
+    private SnapState? _snapState;
+
+    private sealed class SnapState(BPlusTreeStorageEngine.EngineSnapshot snap, BPlusTreeStorageEngine.IndexState state)
+    {
+        public readonly BPlusTreeStorageEngine.EngineSnapshot Snap = snap;
+        public readonly BPlusTreeStorageEngine.IndexState State = state;
+    }
+
+    private BPlusTreeStorageEngine.MutableIndexState TxnState(BPlusTreeStorageEngine.WriteTxn txn)
+    {
+        if (ReferenceEquals(_lastTxn, txn))
+            return _lastTxnState!;
+        var st = engine.GetTxnState(txn, name);
+        _lastTxn = txn;
+        _lastTxnState = st;
+        return st;
+    }
+
+    private BPlusTreeStorageEngine.IndexState CommittedState(BPlusTreeStorageEngine.EngineSnapshot snap)
+    {
+        SnapState? c = _snapState;
+        if (c is not null && ReferenceEquals(c.Snap, snap))
+            return c.State;
+        var st = engine.GetCommittedState(snap, name);
+        _snapState = new SnapState(snap, st);
+        return st;
+    }
+
     // true when this index is synchronized with the engine timestamp: set for an opened existing
     // index and after every commit/SetTimestamp on the engine; a newly created index reports 0
     private volatile bool _hasEngineTimestamp = hasEngineTimestamp;
@@ -67,8 +105,8 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
         {
             using var read = engine.BeginRead();
             return read.Txn is not null
-                ? engine.GetTxnState(read.Txn, name).IdCount
-                : engine.GetCommittedState(read.Snapshot!, name).IdCount;
+                ? TxnState(read.Txn).IdCount
+                : CommittedState(read.Snapshot!).IdCount;
         }
     }
 
@@ -77,7 +115,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     public void Set(TId id, T value)
     {
         var txn = engine.RequireTxn();
-        var st = engine.GetTxnState(txn, name);
+        var st = TxnState(txn);
         MutableHashDir dir = st.Dir!;
 
         int maxSize = _codec.GetMaxSize(value);
@@ -125,7 +163,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                     if (HashPage.CanFit(page, cellSize, freedCells: 1, freedBytes: HashPage.CellSizeAt(page, cell, IdSize)))
                     {
                         // A copy is byte-identical, so the cell keeps its index.
-                        page = CowBucket(txn, dir, slot, pageId).Page;
+                        page = CowBucket(txn, dir, slot, pageId, page).Page;
                         HashPage.RemoveAt(page, cell, IdSize);
                         Insert(page, tag, key, valueBytes);
                         MarkWritten(st, id);
@@ -134,7 +172,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                 }
                 else if (HashPage.CanFit(page, cellSize))
                 {
-                    page = CowBucket(txn, dir, slot, pageId).Page;
+                    page = CowBucket(txn, dir, slot, pageId, page).Page;
                     Insert(page, tag, key, valueBytes);
                     MarkAdded(st, id);
                     return;
@@ -154,7 +192,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     public bool Remove(TId id)
     {
         var txn = engine.RequireTxn();
-        var st = engine.GetTxnState(txn, name);
+        var st = TxnState(txn);
         MutableHashDir dir = st.Dir!;
 
         Span<byte> key = stackalloc byte[MaxIdSize];
@@ -173,7 +211,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
             return false;
 
         int localDepth = HashPage.LocalDepth(page);
-        (uint cowId, page) = CowBucket(txn, dir, slot, pageId);
+        (uint cowId, page) = CowBucket(txn, dir, slot, pageId, page);
         HashPage.RemoveAt(page, cell, IdSize);
         if (HashPage.Count(page) == 0)
         {
@@ -205,10 +243,15 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
             throw new InvalidOperationException("Internal error: a cell that was measured to fit must always insert.");
     }
 
-    /// <summary>Makes the bucket writable; a copy lands on a new page, which every slot naming that bucket has to follow.</summary>
-    private static (uint Id, byte[] Page) CowBucket(BPlusTreeStorageEngine.WriteTxn txn, MutableHashDir dir, int slot, uint pageId)
+    /// <summary>
+    /// Makes the bucket writable; a copy lands on a new page, which every slot naming that bucket
+    /// has to follow. Only the bucket's live extent is copied (slot array from the front, cell
+    /// heap from the back) — the dead middle of a page is often most of it.
+    /// </summary>
+    private static (uint Id, byte[] Page) CowBucket(BPlusTreeStorageEngine.WriteTxn txn, MutableHashDir dir, int slot, uint pageId, byte[] current)
     {
-        var (cowId, page) = txn.Cow(pageId);
+        var (cowId, page) = txn.CowFrom(pageId, current,
+            HashPage.HeaderSize + HashPage.SlotSize * HashPage.Count(current), HashPage.CellStart(current));
         if (cowId != pageId)
             dir.Repoint(slot, HashPage.LocalDepth(page), cowId);
         return (cowId, page);
@@ -382,8 +425,8 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
 
     private DirView DirFor(in BPlusTreeStorageEngine.ReadHandle read)
         => read.Txn is not null
-            ? engine.GetTxnState(read.Txn, name).Dir!.View
-            : engine.GetCommittedState(read.Snapshot!, name).Dir!.View;
+            ? TxnState(read.Txn).Dir!.View
+            : CommittedState(read.Snapshot!).Dir!.View;
 
     private byte[] EncodeToArray(T value)
     {

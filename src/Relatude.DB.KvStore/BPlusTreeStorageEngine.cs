@@ -18,6 +18,15 @@ public sealed class BPlusTreeEngineOptions
     /// remember each entry holds one decoded value alive.
     /// </summary>
     public int ValueCacheEntries { get; init; }
+
+    /// <summary>
+    /// Memory budget for published-but-not-yet-durable pages. <see cref="BPlusTreeStorageEngine.PublishTransaction"/>
+    /// parks its pages in memory and <see cref="BPlusTreeStorageEngine.MakeDurable"/> writes them out
+    /// deduplicated — a page rewritten by several published transactions hits the disk once. Past
+    /// this budget pages are written out early (they still only become durable at the next durable
+    /// point). Default 128 MiB.
+    /// </summary>
+    public long PendingWriteBytes { get; init; } = 128L * 1024 * 1024;
 }
 
 /// <summary>Commit-time hook for indexes that keep a value cache (see <see cref="ValueCache{TId,T}"/>).</summary>
@@ -96,7 +105,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         private readonly Pager _pager = pager;
         public readonly long TxId = txId;
         public readonly int OwnerThreadId = Environment.CurrentManagedThreadId;
-        public readonly Dictionary<uint, byte[]> Dirty = new();
+        public readonly PageMap Dirty = new();
         public readonly List<uint> Freed = new();
         public uint CatalogRoot = catalogRoot;
         public readonly Dictionary<string, MutableIndexState> States = new();
@@ -106,12 +115,13 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
 
         public (uint Id, byte[] Page) Allocate()
         {
-            uint id = _pager.AllocatePage();
-            // Uninitialized on purpose: a Cow overwrites all of it, and Init/insert paths write
-            // the header and cells while the heap gap in between is never read back. Zeroing
-            // fresh pages was a top CPU cost of write transactions.
-            var page = GC.AllocateUninitializedArray<byte>(Pager.PageSize);
-            Dirty[id] = page;
+            uint id = _pager.AllocatePage(out byte[]? reusable);
+            // Uninitialized (or a reclaimed buffer with stale bytes) on purpose: a Cow overwrites
+            // what matters, and Init/insert paths write the header and cells while the heap gap
+            // in between is never read back. Zeroing fresh pages was a top CPU cost of write
+            // transactions; allocating them at all was another (see AllocatePage).
+            var page = reusable ?? GC.AllocateUninitializedArray<byte>(Pager.PageSize);
+            Dirty.Set(id, page);
             return (id, page);
         }
 
@@ -121,6 +131,25 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                 return (pageId, owned);
             var (id, page) = Allocate();
             _pager.GetPage(pageId).CopyTo(page, 0);
+            Freed.Add(pageId);
+            return (id, page);
+        }
+
+        /// <summary>
+        /// <see cref="Cow"/> for a page the caller already read and knows the live extent of:
+        /// copies only <paramref name="src"/>'s first <paramref name="headBytes"/> and its tail
+        /// from <paramref name="tailStart"/> on. The gap in between lands uninitialized, exactly
+        /// like the heap gap of a freshly built page — nothing ever reads it. Slotted pages keep
+        /// their slot array at the front and their cell heap at the back, so this skips the dead
+        /// middle a full-page copy would move for no reason.
+        /// </summary>
+        public (uint Id, byte[] Page) CowFrom(uint pageId, byte[] src, int headBytes, int tailStart)
+        {
+            if (Dirty.TryGetValue(pageId, out var owned))
+                return (pageId, owned);
+            var (id, page) = Allocate();
+            Buffer.BlockCopy(src, 0, page, 0, headBytes);
+            Buffer.BlockCopy(src, tailStart, page, tailStart, Pager.PageSize - tailStart);
             Freed.Add(pageId);
             return (id, page);
         }
@@ -155,7 +184,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     {
         options ??= new BPlusTreeEngineOptions();
         ValueCacheEntries = options.ValueCacheEntries;
-        _pager = new Pager(path, options.PageCacheBytes);
+        _pager = new Pager(path, options.PageCacheBytes, options.PendingWriteBytes);
         Meta meta = _pager.CurrentMeta;
         _committed = new EngineSnapshot(meta.TxId, meta.Timestamp, LoadCatalog(meta.CatalogRoot));
     }
@@ -318,7 +347,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             WriteCatalogEntry(txn, name, indexes[name]);
         _uncataloged.Clear();
 
-        _pager.Publish(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty);
+        _pager.Publish(txn.TxId, timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty.ToArray());
         _committed = new EngineSnapshot(txn.TxId, timestamp, indexes);
         foreach (object open in _openIndexes.Values)
             ((IIndexTimestamp)open).AdoptEngineTimestamp();
@@ -426,7 +455,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
                 txn.CatalogRoot = BTree.Delete(txn, txn.CatalogRoot, Encoding.UTF8.GetBytes(name), out _);
                 indexes.Remove(name);
             }
-            _pager.Commit(txn.TxId, _committed.Timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty, deepDiskFlush: true);
+            _pager.Commit(txn.TxId, _committed.Timestamp, txn.CatalogRoot, txn.Freed, txn.Dirty.ToArray(), deepDiskFlush: true);
             _committed = new EngineSnapshot(txn.TxId, _committed.Timestamp, indexes);
         }
     }
@@ -446,6 +475,9 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         txn.Free(root);
     }
 
+    // Published-but-not-durable state is dropped here on purpose: a dispose without MakeDurable
+    // behaves like a crash (rolls back to the last durable point), which is what lets callers
+    // sequence engine durability strictly after an external WAL flush.
     public void Dispose() => _pager.Dispose();
 
     // ---- read/write access for indexes ----
