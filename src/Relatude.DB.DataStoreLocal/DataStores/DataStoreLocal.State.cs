@@ -183,20 +183,20 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         // figuring out from where to read the log file to reach latest state, building on current read state
 
-        long readLogFileFom = stateFilePositionOfLastTransactionSaved;
-        if (readLogFileFom > walFileSize) {
+        long readLogFileFrom = stateFilePositionOfLastTransactionSaved;
+        if (readLogFileFrom > walFileSize) {
             throw new Exception("   Warning: State file position beyond log file size. Cannot use state file. ");
         }
         var oldestPersistedIndexTimestamp = _index.GetOldestPersistedTimestamp();
         if (stateFileTimestamp > oldestPersistedIndexTimestamp) {
-            readLogFileFom = 0; // need to read all to build indexes correctly ( this could be optimized later, to search from timestamp in log file )
+            readLogFileFrom = 0; // need to read all to build indexes correctly ( this could be optimized later, to search from timestamp in log file )
         }
 
         int transactionCount = 0;
         int actionCount = 0;
         var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : "the beginning.";
-        int positionInPercentage = (int)Math.Round(readLogFileFom * 100d / (walFileSize + 1d));
-        long bytesToRead = walFileSize - readLogFileFom;
+        int positionInPercentage = (int)Math.Round(readLogFileFrom * 100d / (walFileSize + 1d));
+        long bytesToRead = walFileSize - readLogFileFrom;
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString() + " to read)");
         UpdateActivity(activityId, "Reading log file", 0);
         var lastProgress = 0D;
@@ -206,10 +206,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         PersistedIndexStore?.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors);
         idValidator.Seed(nodeSnapshot.Select(n => n.nodeId)); // ids loaded from the state file snapshot; validation below only runs for actions newer than the snapshot
-        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFom, stateFileTimestamp)) {
+        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             var noActionsNotCommittedInPersistedIndexes = 0;
-            double progressBarFactor = 1 - readLogFileFom / (double)logReader.FileSize;
+            double progressBarFactor = 1 - readLogFileFrom / (double)logReader.FileSize;
             sw.Restart();
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
@@ -234,7 +234,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                             var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
                             lastProgress = (int)sw.ElapsedMilliseconds;
                             var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
-                            LogInfo(desc, null, true);
+                            LogInfo(desc + (isTransactionRelevantForIndexes?" - i":"") + (isTransactionRelevantForStateStores?" - m":""), null, true);
                             var progressBar = progressBarFactor > 0 ? Math.Clamp((int)((estimatedTotalProgress - positionInPercentage) / progressBarFactor), 0, 100) : 100;
                             UpdateActivity(activityId, desc.Trim(), progressBar);
                             setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
@@ -272,7 +272,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     }
                 }
                 if (PersistedIndexStore != null) {
-                    if (noActionsNotCommittedInPersistedIndexes > 20000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
+                    if (noActionsNotCommittedInPersistedIndexes > 30000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
                         PersistedIndexStore.CommitTransaction(transaction.Timestamp);
                         PersistedIndexStore.MakeDurable();
                         PersistedIndexStore.BeginTransaction();
