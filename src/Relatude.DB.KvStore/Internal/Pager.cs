@@ -44,20 +44,22 @@ internal sealed class Pager : IPageSource, IDisposable
     public bool IsMemoryOnly => _mem is not null;
 
     // ---- memory-mapped IO ----
-    // Page writes go through a mapped view of the file: a 4 KiB buffered WriteFile costs ~2 µs of
-    // kernel filter stack per call, a memcpy into the map a third of that — and a non-durable
-    // commit of a large transaction writes tens of thousands of scattered pages. Reads on a cache
-    // miss use the map too. Coherence is free on Windows: mapped views and regular read/write IO
-    // of the same file share the cache manager's pages, so the striped read handles, the meta
-    // writes (which stay on the plain handle) and the map always see each other's bytes.
-    // Durability is unchanged: a deep flush does FlushViewOfFile + FlushFileBuffers before the
-    // meta page that references the data, and dirty mapped pages survive a process crash exactly
-    // like buffered WriteFile ones (the memory manager writes them back).
+    // Bulk page write-outs go through a mapped view of the file: a 4 KiB buffered WriteFile costs
+    // ~2 µs of kernel filter stack per call, a memcpy into the map a third of that — and a spill
+    // or durable point can write tens of thousands of scattered pages. Coherence is free on
+    // Windows: mapped views and regular read/write IO of the same file share the cache manager's
+    // pages, so the striped read handles, the meta writes (which stay on the plain handle) and
+    // the map always see each other's bytes. Durability is unchanged: a deep flush does
+    // FlushViewOfFile + FlushFileBuffers before the meta page that references the data, and dirty
+    // mapped pages survive a process crash exactly like buffered WriteFile ones (the memory
+    // manager writes them back).
     //
-    // Only the writer (under the engine's write lock) grows the map. Readers take the current
-    // MapState with one volatile read; superseded views are parked in _oldMaps until Dispose, so
-    // a reader holding a stale MapState still reads through a valid view — of the same coherent
-    // cache pages — with no lock anywhere.
+    // The map is WRITER-ONLY (used under the engine's write lock): cache-miss reads use pread on
+    // the striped handles, whose pages are charged to the system cache instead of this process.
+    // Written map pages are trimmed out of the working set right after each write-out (see
+    // WritePages) for the same reason — a persistent index engine exists to keep memory low, so
+    // the process footprint must not scale with the file. Writer-only also means a superseded
+    // view can be released the moment the map grows; nothing else can hold it.
     private sealed unsafe class MapState(MemoryMappedFile mmf, MemoryMappedViewAccessor view, byte* ptr, long pages)
     {
         public readonly MemoryMappedFile Mmf = mmf;
@@ -74,7 +76,6 @@ internal sealed class Pager : IPageSource, IDisposable
     }
 
     private MapState? _map;
-    private readonly List<MapState> _oldMaps = new();
     private const long MinMapPages = 512; // 2 MiB floor: below this, mapping churn outweighs the wins
 
     // ---- deferred page writes ----
@@ -172,7 +173,8 @@ internal sealed class Pager : IPageSource, IDisposable
         }
         _pageCount = _meta.PageCount;
         _durableTxId = _meta.TxId;
-        EnsureMapped(_pageCount); // eager: reads of an existing file go through the map from the start
+        // No eager mapping: the map exists for bulk write-outs and is created by the first one.
+        // Read-mostly and small-write sessions never map (and never pad) the file at all.
     }
 
     /// <summary>
@@ -216,27 +218,23 @@ internal sealed class Pager : IPageSource, IDisposable
             {
                 byte* ptr = null;
                 view.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
-                if (current is not null)
-                    _oldMaps.Add(current); // readers may still hold it; parked until Dispose
-                Volatile.Write(ref _map, new MapState(mmf, view, ptr, newPages));
+                current?.Release(); // writer-only: nothing else can hold the superseded view
+                _map = new MapState(mmf, view, ptr, newPages);
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or OutOfMemoryException)
         {
-            // No map: WriteDirtyPages and ReadPageFromDisk fall back to plain IO.
+            // No map: WritePages falls back to plain IO.
         }
     }
 
-    private void ReleaseAllMaps()
+    private void ReleaseMap()
     {
         if (_map is not null)
         {
             _map.Release();
             _map = null;
         }
-        foreach (MapState old in _oldMaps)
-            old.Release();
-        _oldMaps.Clear();
     }
 
     private void InitializeEmptyFile()
@@ -290,21 +288,9 @@ internal sealed class Pager : IPageSource, IDisposable
         if (_pendingWrites.TryGetValue(pageId, out var pending))
             return pending;
 
-        var buf = GC.AllocateUninitializedArray<byte>(PageSize); // fully overwritten by the copy/read below
-
-        // The map covers every committed page (writes grow it first), so this is the normal path;
-        // a stale MapState read here is still a valid view of the same cache pages. The syscall
-        // fallback only runs when mapping failed or is not yet established.
-        MapState? map = Volatile.Read(ref _map);
-        if (map is not null && pageId < map.Pages)
-        {
-            unsafe
-            {
-                new ReadOnlySpan<byte>(map.Ptr + (long)pageId * PageSize, PageSize).CopyTo(buf);
-            }
-            return buf;
-        }
-
+        // pread, deliberately not the map: these pages land in the system file cache (shared,
+        // evictable, not attributed to this process) instead of growing our working set.
+        var buf = GC.AllocateUninitializedArray<byte>(PageSize); // fully overwritten by the read below
         var handle = _readHandles![(uint)Environment.CurrentManagedThreadId % (uint)_readHandles.Length];
         int read = RandomAccess.Read(handle, buf, (long)pageId * PageSize);
         if (read != PageSize)
@@ -527,7 +513,7 @@ internal sealed class Pager : IPageSource, IDisposable
             WriteMetaSlot(1, _meta);
             return;
         }
-        ReleaseAllMaps(); // a mapped region cannot be truncated away; caller guarantees no active readers
+        ReleaseMap(); // a mapped region cannot be truncated away
         WriteMetaSlot(0, _meta);
         WriteMetaSlot(1, _meta); // both slots: the newest-valid scan must not resurrect old state
         _flushStream!.Flush(true);
@@ -589,10 +575,23 @@ internal sealed class Pager : IPageSource, IDisposable
         MapState? map = _map;
         if (pages.Length > SmallBatchPages && map is not null && _pageCount <= map.Pages)
         {
+            uint minId = uint.MaxValue, maxId = 0;
             unsafe
             {
                 foreach (var (id, page) in pages)
+                {
                     page.CopyTo(new Span<byte>(map.Ptr + (long)id * PageSize, PageSize));
+                    if (id < minId) minId = id;
+                    if (id > maxId) maxId = id;
+                }
+
+                // Trim the written span out of the working set: the pages stay dirty in the OS
+                // cache and are written back exactly as before, but the process footprint no
+                // longer grows with every bulk write-out (a bulk load would otherwise appear to
+                // hold the whole file). VirtualUnlock on unlocked pages does exactly this trim
+                // and "fails" with ERROR_NOT_LOCKED by design — the return value is meaningless.
+                if (OperatingSystem.IsWindows())
+                    VirtualUnlock(map.Ptr + (long)minId * PageSize, (nuint)((long)(maxId - minId + 1) * PageSize));
             }
             if (!_unflushedOverflow)
             {
@@ -632,6 +631,9 @@ internal sealed class Pager : IPageSource, IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern unsafe bool FlushViewOfFile(byte* lpBaseAddress, nuint dwNumberOfBytesToFlush);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern unsafe bool VirtualUnlock(byte* lpAddress, nuint dwSize);
 
     /// <summary>
     /// Pushes every page written through the map since the last deep flush to the file system —
@@ -856,7 +858,7 @@ internal sealed class Pager : IPageSource, IDisposable
 
     public void Dispose()
     {
-        ReleaseAllMaps();
+        ReleaseMap();
         if (_flushStream is not null)
         {
             try

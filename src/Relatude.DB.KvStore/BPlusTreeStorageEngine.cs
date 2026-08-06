@@ -24,9 +24,11 @@ public sealed class BPlusTreeEngineOptions
     /// parks its pages in memory and <see cref="BPlusTreeStorageEngine.MakeDurable"/> writes them out
     /// deduplicated — a page rewritten by several published transactions hits the disk once. Past
     /// this budget pages are written out early (they still only become durable at the next durable
-    /// point). Default 128 MiB.
+    /// point). Parked pages are pinned — the page cache cannot evict them — so this is a real
+    /// memory floor, not a soft target: the default is kept small (32 MiB) and bulk-load heavy
+    /// callers can raise it to trade memory for less write amplification.
     /// </summary>
-    public long PendingWriteBytes { get; init; } = 128L * 1024 * 1024;
+    public long PendingWriteBytes { get; init; } = 32L * 1024 * 1024;
 }
 
 /// <summary>Commit-time hook for indexes that keep a value cache (see <see cref="ValueCache{TId,T}"/>).</summary>
