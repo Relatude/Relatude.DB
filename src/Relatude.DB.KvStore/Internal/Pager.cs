@@ -107,14 +107,17 @@ internal sealed class Pager : IPageSource, IDisposable
     private readonly List<(long TxId, List<uint> Pages)> _pendingFree = new(); // reusable once readers drain AND a durable meta no longer references them
     private List<uint> _freelistChainPages = new();
 
-    // Pages allocated since the last durable meta, and freed pages that are such "young" pages.
-    // The durable-meta half of the recycle gate exists to protect pages the durable meta still
-    // references — but a page allocated after that meta was written is invisible to it (its id is
-    // beyond the meta's page count, or listed free in its freelist chain, whose content recovery
-    // never reads). Young pages therefore recycle on the reader gate alone, which is what keeps a
-    // long run of published-but-not-yet-durable transactions — the normal state between WAL
-    // flushes — from growing the file with every copy-on-write instead of reusing its own pages.
-    private readonly HashSet<uint> _allocatedSinceDurable = new();
+    // "Young" pages — allocated after the last durable meta — are invisible to that meta (their
+    // id is beyond its file span, or listed free in its freelist chain, whose content recovery
+    // never reads), so the durable-meta half of the recycle gate does not apply and they recycle
+    // on the reader gate alone. That is what keeps a long run of published-but-not-yet-durable
+    // transactions — the normal state between WAL flushes — from reusing nothing and growing the
+    // file with every copy-on-write. Youth is decided two ways: ids at or beyond the durable
+    // meta's page count are young by comparison (so bulk loads track nothing at all), and a
+    // recycled id below it is young when it is in _reusedBelowDurable — a set bounded by the
+    // durable-era page pool, i.e. by store size, never by how long the publish-only run gets.
+    private uint _durablePageCount;
+    private readonly HashSet<uint> _reusedBelowDurable = new();
     private readonly List<(long TxId, List<uint> Pages)> _pendingFreeYoung = new();
 
     public Meta CurrentMeta => _meta;
@@ -173,6 +176,7 @@ internal sealed class Pager : IPageSource, IDisposable
         }
         _pageCount = _meta.PageCount;
         _durableTxId = _meta.TxId;
+        _durablePageCount = _meta.PageCount;
         // No eager mapping: the map exists for bulk write-outs and is created by the first one.
         // Read-mostly and small-write sessions never map (and never pad) the file at all.
     }
@@ -353,7 +357,8 @@ internal sealed class Pager : IPageSource, IDisposable
             byte[]? evicted = Cache.Invalidate(id); // stale committed content must not be served for the new incarnation
             if (_mem is null)
             {
-                _allocatedSinceDurable.Add(id);
+                if (id < _durablePageCount)
+                    _reusedBelowDurable.Add(id); // free in the durable meta, reused after it: young despite its low id
                 reusableBuffer = evicted;
             }
             else
@@ -362,8 +367,6 @@ internal sealed class Pager : IPageSource, IDisposable
             }
             return id;
         }
-        if (_mem is null)
-            _allocatedSinceDurable.Add(_pageCount);
         reusableBuffer = null;
         return _pageCount++;
     }
@@ -395,7 +398,7 @@ internal sealed class Pager : IPageSource, IDisposable
     {
         if (freedByTxn.Count > 0)
         {
-            if (_mem is not null || _allocatedSinceDurable.Count == 0)
+            if (_mem is not null)
             {
                 _pendingFree.Add((newTxId, freedByTxn));
             }
@@ -405,7 +408,7 @@ internal sealed class Pager : IPageSource, IDisposable
                 // gate alone; the rest must additionally outlive that meta.
                 List<uint>? young = null, old = null;
                 foreach (uint p in freedByTxn)
-                    ((_allocatedSinceDurable.Contains(p) ? young ??= new() : old ??= new())).Add(p);
+                    ((p >= _durablePageCount || _reusedBelowDurable.Contains(p) ? young ??= new() : old ??= new())).Add(p);
                 if (young is not null)
                     _pendingFreeYoung.Add((newTxId, young));
                 if (old is not null)
@@ -476,7 +479,8 @@ internal sealed class Pager : IPageSource, IDisposable
         WriteMetaSlot(_durableSlot, _meta);
         _flushStream!.Flush(deepDiskFlush);
         _durableTxId = _meta.TxId;
-        _allocatedSinceDurable.Clear(); // everything is now referenced (or listed free) by the new durable meta
+        _durablePageCount = _meta.PageCount; // everything below is now referenced (or listed free) by the new durable meta
+        _reusedBelowDurable.Clear();
     }
 
     /// <summary>
@@ -496,7 +500,8 @@ internal sealed class Pager : IPageSource, IDisposable
         _recycled.Clear();
         _pendingFree.Clear();
         _pendingFreeYoung.Clear();
-        _allocatedSinceDurable.Clear();
+        _durablePageCount = 2;
+        _reusedBelowDurable.Clear();
         _pendingWrites.Clear();
         _unflushedMapPages.Clear();
         _unflushedOverflow = false;
