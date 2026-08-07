@@ -227,6 +227,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
         if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) SaveIndexCaches(true);
+        // caches gone: rebuild the mirror and facet warm state in the background, so the next
+        // filtered facet query does not pay the cold rebuild inline
+        if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
     }
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);

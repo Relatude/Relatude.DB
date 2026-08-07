@@ -152,6 +152,27 @@ namespace Relatude.DB.DataStores.Definitions {
                 facets.MaxValue = Convert.ToDouble(max);
             } catch { } // not double-representable (DateTime/TimeSpan)
         }
+        // Builds the caches the first FILTERED facet query would otherwise build inline: the
+        // per-value id sets of the equality buckets and the default range-bucket sets. Unfiltered
+        // queries never need them (they count from the index's own maintained counts, see
+        // CountFacets), so on a persisted index the user's first facet selection pays a full
+        // value-tree read per facet property - hundreds of ms at millions of nodes - unless these
+        // sets are built here first (see DataStoreLocal.warmIndexesInBackground).
+        const int _maxWarmBuckets = 256; // above any realistic facet UI; caps warm cost and cache churn
+        internal override void WarmFacetCaches(QueryContext ctx) {
+            if (!CanBeFacet()) return;
+            if (!TryValueGetIndex(ctx, out var index)) return;
+            if (index.HasFastPointLookup) return; // memory-backed: facet counting never reads a tree
+            if (index.ValueCount == 0) return;
+            // a high-cardinality property without a range generator would need one cached set per
+            // distinct value; no realistic facet UI shows those, so leave it cold:
+            if (_rangeGenerator == null && index.ValueCount > _maxWarmBuckets) return;
+            var facets = GetDefaultFacets(null, ctx);
+            if (facets.Values.Count > _maxWarmBuckets) return;
+            var nodeIds = Definition.GetAllIdsForType(Model.NodeType, ctx);
+            if (nodeIds.Count == 0) return;
+            CountFacets(nodeIds, facets, ctx, nodeIdsCoverIndex: false);
+        }
         public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) {
             var index = GetValueIndex(ctx);
             // the optimized wrapper re-checks its write-behind queue under a lock on EVERY call;
@@ -370,6 +391,9 @@ namespace Relatude.DB.DataStores.Definitions {
         // long.MaxValue = no cheap estimate available; such properties filter last.
         public virtual long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) => long.MaxValue;
         public virtual void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) => throw new NotSupportedException();
+        // Builds whatever caches the first filtered facet query on this property would otherwise
+        // build inline (see DataStoreLocal.warmIndexesInBackground). Default: nothing to warm.
+        internal virtual void WarmFacetCaches(QueryContext ctx) { }
         // true when every id this property's index can contain is of the query type or one of its
         // descendants (the property's declaring type lies within the query type's subtree), so a
         // count over the whole index equals a count against the full type set

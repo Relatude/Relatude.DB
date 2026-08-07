@@ -266,11 +266,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     // persisted array-index mirrors load lazily on first use; loading them right after open moves
     // that read off the first user query. Queries arriving before it finishes simply block on the
-    // same load lock they would have taken anyway.
-    void warmIndexMirrorsInBackground() {
+    // same load lock they would have taken anyway. Facet caches warm afterwards for the same
+    // reason: the first FILTERED facet query builds per-bucket id sets from the persisted value
+    // indexes (full value-tree reads, hundreds of ms at millions of nodes) unless they are built
+    // here first. Everything below is read-only work through the same paths a query takes.
+    void warmIndexesInBackground() {
         var mirrors = _definition.GetAllIndexes().OfType<IIndexMirror>().ToArray();
-        if (mirrors.Length == 0) return;
+        var facetProps = _definition.Properties.Values.Where(p => p.CanBeFacet()).ToArray();
+        if (mirrors.Length == 0 && facetProps.Length == 0) return;
         Task.Run(() => {
+            var sw = Stopwatch.StartNew();
+            LogInfo("Background warm-up of " + mirrors.Length + " indexes mirrors and " + facetProps.Length + " started");
             foreach (var mirror in mirrors) {
                 try {
                     if (_state != DataStoreState.Open) return;
@@ -279,6 +285,28 @@ public sealed partial class DataStoreLocal : IDataStore {
                     LogInfo("Background load of index mirror " + mirror.FriendlyName + " failed: " + e.Message);
                 }
             }
+            // each property warms under its own short read lock (the lock queries count under),
+            // so pending writers wait for at most one property, not the whole warm-up:
+            foreach (var prop in facetProps) {
+                if (_state != DataStoreState.Open) return;
+                _lock.EnterReadLock();
+                try {
+                    if (_state == DataStoreState.Open) prop.WarmFacetCaches(QueryContext.Default);
+                } catch (Exception e) {
+                    LogInfo("Background facet cache warm-up of " + prop.CodeName + " failed: " + e.Message);
+                } finally {
+                    _lock.ExitReadLock();
+                }
+            }
+            // persist the freshly built sets right away (a no-op when nothing new was built), so
+            // even a process killed before a scheduled save or clean dispose reopens warm:
+            try {
+                if (_state == DataStoreState.Open) SaveIndexCaches(false);
+            } catch (Exception e) {
+                LogInfo("Saving index caches after warm-up failed: " + e.Message);
+            }
+            LogInfo("Background warm-up of index mirrors finished in " + sw.ElapsedMilliseconds.To1000N() + "ms");
+            sw.Restart();
         });
     }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
@@ -335,7 +363,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_state == DataStoreState.Open) {
             _fileConversionEngine.ClearTempFolder();
             _scheduler.Start();
-            warmIndexMirrorsInBackground();
+            warmIndexesInBackground();
         }
     }
     public void Close() {

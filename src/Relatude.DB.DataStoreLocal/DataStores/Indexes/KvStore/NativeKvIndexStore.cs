@@ -31,8 +31,8 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
             filePath = null;// memory only
         }
         var options = new BPlusTreeEngineOptions() {
-            PageCacheBytes = 2L * 1024 * 1024, // 2 MB
-            PendingWriteBytes = 4L * 1024 * 1024, // 4 MB
+            PageCacheBytes = 16L * 1024 * 1024, // 16 MB
+            PendingWriteBytes = 32L * 1024 * 1024, // 32 MB
             ValueCacheEntries = 0,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
@@ -130,10 +130,11 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
             var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
             try {
                 if (File.Exists(filePath)) File.Delete(filePath);
-                _lastPersistedCacheTimestamp = 0;
-                _cachePersistableIndexes.Clear();
-                _lastPersistedCacheTimestamp = 0;
             } catch { }
+            // NB: _cachePersistableIndexes stays as is - indexes register once at open
+            // (CreateValueIndex), so unregistering them here would silently disable every
+            // later sidecar save for the rest of the process lifetime
+            _lastPersistedCacheTimestamp = 0;
         }
     }
     protected override void DisposeCore() {

@@ -4,7 +4,7 @@ namespace Relatude.DB.DataStores.Indexes;
 
 /// <summary>
 /// Non-generic handle to a lazily loaded index mirror, so the store can warm every array-index
-/// mirror after open without knowing the element type (see DataStoreLocal.warmIndexMirrorsInBackground).
+/// mirror after open without knowing the element type (see DataStoreLocal.warmIndexesInBackground).
 /// </summary>
 internal interface IIndexMirror {
     void EnsureLoaded();
@@ -41,7 +41,7 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
     public string FriendlyName { get; }
 
     // also called in the background right after the store opens, so the first query
-    // does not pay the full backend read (see DataStoreLocal.warmIndexMirrorsInBackground)
+    // does not pay the full backend read (see DataStoreLocal.warmIndexesInBackground)
     void IIndexMirror.EnsureLoaded() => ensureLoaded();
     void ensureLoaded() {
         if (_loaded) return;
