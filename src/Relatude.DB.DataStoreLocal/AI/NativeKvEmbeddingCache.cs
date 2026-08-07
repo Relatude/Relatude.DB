@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 using System.Diagnostics.CodeAnalysis;
 
@@ -7,6 +8,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     readonly BPlusTreeStorageEngine _fileStorage;
     readonly ISortedUlongIndex<byte[]> _embeddings;
+    readonly Cache<ulong, float[]> _cache = new(1000);
     bool _disposed;
     public NativeKvEmbeddingCache(string filePath) {
         var options = new BPlusTreeEngineOptions() {
@@ -28,6 +30,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             throwIfDisposed();
             _fileStorage.DeleteAll();
+            _cache.ClearAll_NotSize0();
         }
     }
 
@@ -44,6 +47,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         lock (_lock) {
             throwIfDisposed();
             write(() => _embeddings.Set(hash, toBytes(embedding)));
+            _cache.Set(hash, embedding, 1);
         }
     }
 
@@ -53,18 +57,20 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             throwIfDisposed();
             write(() => {
                 foreach (var (hash, embedding) in values) {
-                    ArgumentNullException.ThrowIfNull(embedding);
                     _embeddings.Set(hash, toBytes(embedding));
                 }
             });
+            foreach (var (hash, embedding) in values) _cache.Set(hash, embedding, 1);
         }
     }
 
     public bool TryGet(ulong hash, [MaybeNullWhen(false)] out float[] embedding) {
         lock (_lock) {
             throwIfDisposed();
+            if (_cache.TryGet(hash, out embedding)) return true;
             if (_embeddings.TryGetValue(hash, out var value)) {
                 embedding = toFloats(value);
+                _cache.Set(hash, embedding, 1);
                 return true;
             }
         }
@@ -77,6 +83,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         try {
             action();
             _fileStorage.CommitTransaction(DateTime.UtcNow.Ticks, false);
+            _fileStorage.MakeDurable(true);
         } catch {
             if (_fileStorage.IsInTransaction) _fileStorage.RollbackTransaction();
             throw;
