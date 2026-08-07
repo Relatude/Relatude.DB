@@ -15,7 +15,15 @@ public static class RelatudeDBRuntime {
     static public NodeStore Database {
         get {
             var store = Server.DefaultContainer?.Store;
-            if (store == null) throw new InvalidOperationException("Default database store is not configured or not ready. ");
+            if (store == null) {
+                if (Server.DefaultContainer?.StartUpException != null) {
+                    var msg = $"Startup exception: {Server.DefaultContainer.StartUpException.Message} ";
+                    throw new InvalidOperationException(msg, Server.DefaultContainer.StartUpException);
+                } else {
+                    var msg = $"Default database store is not ready. ";
+                    throw new InvalidOperationException(msg);
+                }
+            }
             if (store.Datastore.QueryContext.UserId != NodeConstants.MasterAdminUserId) {
                 store = store.Context.Admin().Create();
             }

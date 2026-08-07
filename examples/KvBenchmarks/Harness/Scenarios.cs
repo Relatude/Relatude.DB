@@ -5,11 +5,11 @@ namespace KvBenchmarks.Harness;
 
 public static class Engines {
     /// <summary>Every engine in its ordered layout, and the same four in their unordered one.</summary>
-    public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
-    public static readonly string[] Hash = [];//["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
+    //public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
+    //public static readonly string[] Hash = ["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
 
-    //public static readonly string[] Sorted = [];
-    //public static readonly string[] Hash = ["faster-hash", "native-hash"];
+    public static readonly string[] Sorted = [];
+    public static readonly string[] Hash = ["faster-hash", "native-hash"];
 
     public static readonly string[] All = [.. Sorted, .. Hash];
 
@@ -45,11 +45,11 @@ public static class Engines {
             "native" => new NativeBenchEngine(new BPlusTreeStorageEngine(
                 Environment.GetEnvironmentVariable("BENCH_NATIVE_MEM") == "1" ? null : Path.Combine(dir, "native.db"),
                 new BPlusTreeEngineOptions {
-                    PageCacheBytes = 16L * 1024 * 1024*20,
+                    PageCacheBytes = 512L * 1024 * 1024,
                     // Parked published pages share their arrays with the page cache, so this only
                     // bounds bookkeeping, not real memory — size it so bulk loads don't spill.
-                    PendingWriteBytes = 512L * 1024 * 1024,
-                    ValueCacheEntries = int.TryParse(Environment.GetEnvironmentVariable("BENCH_NATIVE_VC"), out int vc) ? vc : 1000,
+                    PendingWriteBytes = 64*1024 * 1024,
+                    ValueCacheEntries = 0//int.TryParse(Environment.GetEnvironmentVariable("BENCH_NATIVE_VC"), out int vc) ? vc : 1000,
                 })),
             "sqlite" => new SqliteEngine(dir),
             "zonetree" => new ZoneTreeEngine(dir),
