@@ -28,7 +28,7 @@ if (args.Contains("--scratch")) {
 var options = Options.Parse(args);
 
 if (args.Length == 0) {
-    options.N = 1000_000;
+    options.N = 2000_000;
     options.SkipVerify = true;
     options.InProcess = true;
 }

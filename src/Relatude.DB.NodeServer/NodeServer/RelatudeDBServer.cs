@@ -186,7 +186,7 @@ public partial class RelatudeDBServer {
             container.StartUpException = err;
             container.StartUpExceptionDateTimeUTC = DateTime.UtcNow;
             Log("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
-            Console.WriteLine(err.Message); //
+            Console.WriteLine(err.Message);
             if (throwException) throw;
         } finally {
             Interlocked.Decrement(ref _remaingToAutoOpenCount);

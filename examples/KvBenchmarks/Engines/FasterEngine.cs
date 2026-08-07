@@ -181,7 +181,7 @@ public abstract class FasterIndexBase<T> : IFasterIndexInternal, IDisposable whe
         _settings = new FasterKVSettings<SpanByte, SpanByte>(dir)
         {
             IndexSize = 1L << 24,      // 16 MB hash index
-            MemorySize = 1L << 28,     // 256 MB hybrid log memory
+            MemorySize = 1L << 26,     // 64 MB hybrid log memory
             PageSize = 1L << 22,       // 4 MB pages
             SegmentSize = 1L << 24,    // 16 MB log segments (keeps reported disk size honest)
             TryRecoverLatest = hasEngineTimestamp,
