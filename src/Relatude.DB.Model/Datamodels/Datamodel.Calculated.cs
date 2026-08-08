@@ -100,6 +100,7 @@ public partial class Datamodel {
             switch (inp.EmbeddedValueType) {
                 case EmbeddedValueType.InnerNodeList:
                     inp.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
+                    inp.GetKeyTypeOfPropertyIfPossible(this); // caches the key type, required when deserializing inner nodes
                     break;
                 case EmbeddedValueType.InnerNodeMap:
                     var bestCommonBase = FindFirstCommonBase(inp.InnerNodeTypes);
