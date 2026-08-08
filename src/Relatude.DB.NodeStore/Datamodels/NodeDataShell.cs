@@ -19,11 +19,16 @@ public class NodeDataShell {
         _copyBeforeUpdate = copyBeforeUpdate;
     }
     public T? GetValue<T>(Guid propertyId) {
-        if (NodeData.TryGetValue(propertyId, out var value) && value is T typedValue) return typedValue;
+        if (NodeData.TryGetValue(propertyId, out var value)) {
+            if (value is T typedValue) return typedValue;
+            // enums are stored as boxed int, and "is T" is false for boxed int when T is an enum
+            if (typeof(T).IsEnum && value is int i) return (T)(object)i;
+        }
         var prop = _dm.Properties[propertyId];
         return (T?)prop.GetDefaultValue();
     }
     public void SetValue(Guid propertyId, object newValue) {
+        if (newValue is Enum e) newValue = Convert.ToInt32(e); // stored as int, like IntegerPropertyModel.ForceValueType
         if (_copyBeforeUpdate) {
             _copyBeforeUpdate = false;
             NodeData = NodeData.CopyExternal();
