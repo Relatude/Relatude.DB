@@ -276,37 +276,50 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (mirrors.Length == 0 && facetProps.Length == 0) return;
         Task.Run(() => {
             var sw = Stopwatch.StartNew();
-            LogInfo("Background warm-up of " + mirrors.Length + " indexes mirrors and " + facetProps.Length + " started");
-            foreach (var mirror in mirrors) {
-                try {
-                    if (_state != DataStoreState.Open) return;
-                    mirror.EnsureLoaded();
-                } catch (Exception e) {
-                    LogInfo("Background load of index mirror " + mirror.FriendlyName + " failed: " + e.Message);
-                }
-            }
-            // each property warms under its own short read lock (the lock queries count under),
-            // so pending writers wait for at most one property, not the whole warm-up:
-            foreach (var prop in facetProps) {
-                if (_state != DataStoreState.Open) return;
-                _lock.EnterReadLock();
-                try {
-                    if (_state == DataStoreState.Open) prop.WarmFacetCaches(QueryContext.Default);
-                } catch (Exception e) {
-                    LogInfo("Background facet cache warm-up of " + prop.CodeName + " failed: " + e.Message);
-                } finally {
-                    _lock.ExitReadLock();
-                }
-            }
-            // persist the freshly built sets right away (a no-op when nothing new was built), so
-            // even a process killed before a scheduled save or clean dispose reopens warm:
+            LogInfo("Background warm-up of indexes started");
+            var totalSteps = mirrors.Length + facetProps.Length + 1; // +1 for the cache save at the end
+            var completedSteps = 0;
+            var activityId = RegisterActvity(DataStoreActivityCategory.IndexWarmup,
+                "Warming indexes", 0);
             try {
-                if (_state == DataStoreState.Open) SaveIndexCaches(false);
-            } catch (Exception e) {
-                LogInfo("Saving index caches after warm-up failed: " + e.Message);
+                foreach (var mirror in mirrors) {
+                    try {
+                        if (_state != DataStoreState.Open) return;
+                        UpdateActivity(activityId, "Loading index " + mirror.FriendlyName, 100 * completedSteps / totalSteps);
+                        mirror.EnsureLoaded();
+                    } catch (Exception e) {
+                        LogInfo("Background load of index " + mirror.FriendlyName + " failed: " + e.Message);
+                    }
+                    completedSteps++;
+                }
+                // each property warms under its own short read lock (the lock queries count under),
+                // so pending writers wait for at most one property, not the whole warm-up:
+                foreach (var prop in facetProps) {
+                    if (_state != DataStoreState.Open) return;
+                    UpdateActivity(activityId, "Warming facet " + prop.CodeName, 100 * completedSteps / totalSteps);
+                    _lock.EnterReadLock();
+                    try {
+                        if (_state == DataStoreState.Open) prop.WarmFacetCaches(QueryContext.Default);
+                    } catch (Exception e) {
+                        LogInfo("Background facet warm-up of " + prop.CodeName + " failed: " + e.Message);
+                    } finally {
+                        _lock.ExitReadLock();
+                    }
+                    completedSteps++;
+                }
+                // persist the freshly built sets right away (a no-op when nothing new was built), so
+                // even a process killed before a scheduled save or clean dispose reopens warm:
+                try {
+                    UpdateActivity(activityId, "Saving index caches", 100 * completedSteps / totalSteps);
+                    if (_state == DataStoreState.Open) SaveIndexCaches(false);
+                } catch (Exception e) {
+                    LogInfo("Saving index caches after warm-up failed: " + e.Message);
+                }
+                LogInfo("Background warm-up of indexes finished in " + sw.ElapsedMilliseconds.To1000N() + "ms");
+                sw.Restart();
+            } finally {
+                DeRegisterActivity(activityId);
             }
-            LogInfo("Background warm-up of index mirrors finished in " + sw.ElapsedMilliseconds.To1000N() + "ms");
-            sw.Restart();
         });
     }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {

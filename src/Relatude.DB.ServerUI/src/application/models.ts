@@ -1,7 +1,7 @@
 export type AppStates = "splash" | "login" | "main" | "disconnected";
 export type StoreStates = "Closed" | "Open" | "Opening" | "Closing" | "Error" | "Unknown";
 export type StoreTypes = "SimpleStore" | "NodeStore";
-export type DataStoreActivityCategory = "None" | "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "Maintenance";
+export type DataStoreActivityCategory = "Opening" | "Closing" | "Querying" | "Executing" | "Flushing" | "Copying" | "Rewriting" | "SavingState" | "RunningTask" | "IndexWarmup";
 export type LogIntervalTypes = "Second" | "Minute" | "Hour" | "Day" | "Week" | "Month";
 export interface AnalysisEntry { from: string, to: string, value: number, hasData: boolean }
 export interface FileMeta {

@@ -10,6 +10,7 @@ public enum DataStoreActivityCategory {
     Rewriting,
     SavingState,
     RunningTask,
+    IndexWarmup,
 }
 public class DataStoreActivity {
     private DataStoreActivity(long id, long parentId, DataStoreActivityCategory cat, string? desc, int? prg) {
