@@ -138,13 +138,14 @@ public static class IIOProviderExtensions {
         using var toWriter = toIo.OpenAppend(toIoFileName);
         using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
+        var totalLength = readStream.Length;
         var buffer = new byte[4 * 1024 * 1024]; // 4 MB buffer
         long totalBytesCopied = 0;
         int bytesRead;
         while ((bytesRead = readStream.Read(buffer, 0, buffer.Length)) > 0) {
             writeStream.Write(buffer, 0, bytesRead);
             totalBytesCopied += bytesRead;
-            var progressPercent = (int)((totalBytesCopied * 100) / fromReader.Length);
+            var progressPercent = (int)((totalBytesCopied * 100) / totalLength);
             progress(progressPercent);
         }
     }
