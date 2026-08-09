@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
@@ -8,5 +8,9 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Version>0.2.0.131</Version>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
+	</ItemGroup>
 
 </Project>

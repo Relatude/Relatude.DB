@@ -151,6 +151,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ? (ITextIndexEngine)value! // dual role: one database, one connection, one transaction
                     : LateBindings.CreateSqliteTextIndexEngine(indexPath),
                 PersistedTextIndexEngine.Lucene => LateBindings.CreateLuceneTextIndexEngine(indexPath),
+                PersistedTextIndexEngine.Native => LateBindings.CreateNativeTextIndexEngine(indexPath),
                 _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngine),
             };
             return new IndexEngines(value, text);

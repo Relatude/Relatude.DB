@@ -47,6 +47,9 @@ public static class LateBindings {
     public static ITextIndexEngine CreateLuceneTextIndexEngine(string indexPath) {
         return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.LuceneTextIndexEngine", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
     }
+    public static ITextIndexEngine CreateNativeTextIndexEngine(string indexPath) {
+        return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.TextIndexEngine", "Relatude.DB.TextIndex", "Relatude.DB.Plugins.TextIndex", [indexPath]);
+    }
     /// <summary>
     /// A SQLite engine serving only the FTS5 word indexes, for a configuration whose value indexes
     /// use another engine. When the value indexes are SQLite too, do not call this: pass that

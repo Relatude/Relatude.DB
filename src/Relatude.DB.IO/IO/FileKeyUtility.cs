@@ -62,6 +62,8 @@ public class FileKeyUtility {
     const string indexEngineSqliteFile = "index.db";
     const string indexEngineLuceneFolder = "lucene";
     const string indexEngineLuceneWalIdFile = "engine.walid";
+    const string indexEngineTextIndexFolder = "textindex";
+    const string indexEngineTextIndexWalIdFile = "engine.walid";
     const string binaryExtension = ".bin";
     const string tempExtension = ".tmp";
 
@@ -205,6 +207,13 @@ public class FileKeyUtility {
     /// the index would look fresh (and be rebuilt) on the next open.
     /// </summary>
     public static string IndexEngine_LuceneIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
+    /// <summary>Folder of the built-in disk text index engine; each word index gets a subfolder below it.</summary>
+    public static string IndexEngine_TextIndexFolderKey => indexEngineTextIndexFolder;
+    /// <summary>The disk text index engine's WAL-file-id marker, inside <see cref="IndexEngine_TextIndexFolderKey"/>.</summary>
+    public static string IndexEngine_TextIndexWalIdFileKey => indexEngineTextIndexWalIdFile;
+    /// <summary>Folder of one disk text word index, below <see cref="IndexEngine_TextIndexFolderKey"/>.
+    /// Same naming rule as <see cref="IndexEngine_LuceneIndexFolderKey"/> and for the same reasons.</summary>
+    public static string IndexEngine_TextIndexIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
 
     /// <summary>
     /// The sibling name to write to before atomically replacing <paramref name="fileKey"/>, so a

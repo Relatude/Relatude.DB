@@ -29,7 +29,10 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     public string UniqueKey => _indexId;
     void add(int id, string value) {
         value = IndexUtil.Clean(value, MinWordLength, MaxWordLength);
-        using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
+        // OR REPLACE, so re-delivering an add the table already holds (a WAL replay after a crash)
+        // updates the row instead of failing on the rowid's uniqueness. One node has one text per
+        // word index, so replacing is what the contract means.
+        using var cmd = _store.CreateCommand("INSERT OR REPLACE INTO " + _tableName + " (rowid, value) VALUES (@id, @value)");
         cmd.Parameters.AddWithValue("@id", id);
         cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
         cmd.ExecuteNonQuery();
@@ -37,7 +40,9 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     }
     void remove(int id, string value) {
         value = IndexUtil.Clean(value, MinWordLength, MaxWordLength);
-        using var cmd = _store.CreateCommand("DELETE FROM " + _tableName + " WHERE id = @id");
+        // by rowid: an fts5 column is full-text indexed rather than key-indexed, so the node id has
+        // to be the rowid for this to be a lookup instead of a scan of the entire table
+        using var cmd = _store.CreateCommand("DELETE FROM " + _tableName + " WHERE rowid = @id");
         cmd.Parameters.AddWithValue("@id", id);
         cmd.ExecuteNonQuery();
         _stateId.RegisterRemoval(id, value);
@@ -52,7 +57,7 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
-            string sql = "SELECT id FROM " + _tableName + " WHERE value MATCH @value";
+            string sql = "SELECT rowid FROM " + _tableName + " WHERE value MATCH @value";
             using var cmd = _store.CreateCommand(sql);
             cmd.Parameters.AddWithValue("@value", getSearchValue(value, orSearch));
             cmd.Parameters.AddWithValue("@flag", 1);
@@ -98,7 +103,7 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
             totalHits = 0;
             return [];
         }
-        var sql = "SELECT id, rank FROM " + _tableName;
+        var sql = "SELECT rowid, rank FROM " + _tableName;
         sql += " WHERE value MATCH @query ORDER BY rank LIMIT @skip, @take";
         using var cmd = _store.CreateCommand(sql);
         cmd.Parameters.AddWithValue("@query", getSearchValue(value, orSearch));
@@ -113,7 +118,7 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
             hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
         }
 
-        var sql2 = "SELECT COUNT(id) FROM " + _tableName + " WHERE value MATCH @query";
+        var sql2 = "SELECT COUNT(*) FROM " + _tableName + " WHERE value MATCH @query";
         using var cmd2 = _store.CreateCommand(sql2);
         cmd2.Parameters.AddWithValue("@query", getSearchValue(value, orSearch));
         totalHits = (int)(long)cmd2.ExecuteScalar()!;

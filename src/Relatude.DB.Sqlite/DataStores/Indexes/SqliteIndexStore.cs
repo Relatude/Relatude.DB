@@ -166,6 +166,26 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         };
     }
 
+    /// <summary>
+    /// The word index table: the document text, keyed by the node id in the table's <c>rowid</c>.
+    /// The node id is deliberately not a column of the fts5 table — a column is full-text indexed,
+    /// not key-indexed, so looking a document up by it (which every delete and every update does)
+    /// would scan the whole table, and its digits would themselves be searchable text.
+    /// </summary>
+    static string createWordIndexTableSql(string tableName)
+        => "CREATE VIRTUAL TABLE " + tableName + " USING fts5(value, prefix ='2 3')";
+
+    /// <summary>True for a word index table from before the node id moved into the rowid, which is
+    /// recognisable by the <c>id</c> column it still declares.</summary>
+    bool isLegacyWordIndexTable(string tableName) {
+        using var cmd = CreateCommand("PRAGMA table_info(" + tableName + ")");
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            if (string.Equals(reader.GetString(1), "id", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     // The built-in FTS5 word index, used when this instance is also the text engine. The word
     // index shares the value store's connection and transaction, so it takes part in the base's
     // first-commit protocol and queue lifecycle like any value index.
@@ -173,9 +193,18 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         if (_wordIndexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var tableName = "W" + id.Replace("-", "_");
         var justCreated = !doesTableExist(tableName);
+        if (!justCreated && isLegacyWordIndexTable(tableName)) {
+            // A table in the pre-rowid layout cannot be migrated in place: the rowids the new
+            // layout keys on were never stored, so the node ids only exist as text in a column that
+            // is about to disappear. Dropping it and reporting the index as just created sets its
+            // persisted timestamp to 0, which is exactly the signal the startup loader rebuilds an
+            // index from the whole log on.
+            executeCommand("DROP TABLE " + tableName);
+            justCreated = true;
+        }
         _idxs.Add(id, new idxInfo(id, PropertyType.String, tableName)); // registered first: SqliteWordIndex resolves its table via GetTableName(id)
         if (justCreated) {
-            executeCommand("CREATE VIRTUAL TABLE " + tableName + " USING fts5(id, value, prefix ='2 3')");
+            executeCommand(createWordIndexTableSql(tableName));
         }
         var index = new SqliteWordIndex(sets, this, id, friendlyName, options.MinWordLength, options.MaxWordLength, options.PrefixSearch, options.InfixSearch, justCreated);
         RegisterManagedIndex(id, index, justCreated);
@@ -347,7 +376,7 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
                 cmd.CommandText = "CREATE INDEX " + i.Table + "_value ON " + i.Table + " (value)";
                 cmd.ExecuteNonQuery();
             } else if (i.Table.StartsWith("W")) { // FTS5 word index: only in _idxs when this instance is the text engine
-                cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
+                cmd.CommandText = createWordIndexTableSql(i.Table);
                 cmd.ExecuteNonQuery();
             } else if (i.Table.StartsWith("A")) { // array index (string or guid)
                 cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value TEXT)";

@@ -80,6 +80,7 @@ public enum PersistedTextIndexEngine {
     Memory = 0,
     Sqlite = 1,
     Lucene = 2,
+    Native = 3, // the built-in disk text index (Relatude.DB.TextIndex)
 }
 public enum PersistedValueIndexEngine {
     Memory = 0,

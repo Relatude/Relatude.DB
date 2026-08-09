@@ -16,5 +16,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Relatude.DB.Tests" />
+    <!-- benchmarks the internal WordIndexTrie as the reference implementation, see examples\TextIndexBenchmarks -->
+    <InternalsVisibleTo Include="TextIndexBenchmarks" />
   </ItemGroup>
 </Project>
