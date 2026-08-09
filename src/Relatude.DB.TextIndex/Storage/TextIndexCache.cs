@@ -19,6 +19,10 @@ internal sealed class TextIndexCache(long maxBytes) {
     readonly LinkedList<Entry> _lru = new(); // front = most recently used
     long _used;
     public long MaxBytes { get; } = maxBytes;
+    /// <summary>Bytes currently held, by the cache's own accounting. Diagnostics only.</summary>
+    public long UsedBytes { get { lock (_lock) return _used; } }
+    /// <summary>Entries currently held. Diagnostics only.</summary>
+    public int Count { get { lock (_lock) return _map.Count; } }
     public bool TryGet(CacheKey key, out object value) {
         lock (_lock) {
             if (_map.TryGetValue(key, out var node)) {
@@ -54,12 +58,25 @@ internal sealed class TextIndexCache(long maxBytes) {
         }
     }
     /// <summary>Drop every entry belonging to one index (owner), optionally only one kind.</summary>
-    public void Evict(int owner, byte? kind = null) {
+    public void Evict(int owner, byte? kind = null) => evict(e => e.Owner == owner && (kind == null || e.Kind == kind));
+
+    /// <summary>
+    /// Drop the entries of one kind whose source (the <see cref="CacheKey.A"/> component — the
+    /// segment id, for cached dictionary blocks) is in <paramref name="sourceIds"/>. Used when
+    /// segments are retired: their entries can never be read again, and holding them would keep
+    /// memory tied up in data that no longer exists on disk.
+    /// </summary>
+    public void Evict(int owner, byte kind, IReadOnlyCollection<long> sourceIds) {
+        if (sourceIds.Count == 0) return;
+        evict(e => e.Owner == owner && e.Kind == kind && sourceIds.Contains(e.A));
+    }
+
+    void evict(Func<CacheKey, bool> match) {
         lock (_lock) {
             var node = _lru.First;
             while (node != null) {
                 var next = node.Next;
-                if (node.Value.Key.Owner == owner && (kind == null || node.Value.Key.Kind == kind)) {
+                if (match(node.Value.Key)) {
                     _lru.Remove(node);
                     _map.Remove(node.Value.Key);
                     _used -= node.Value.Size;

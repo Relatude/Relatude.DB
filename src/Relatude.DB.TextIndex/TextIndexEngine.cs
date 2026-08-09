@@ -41,6 +41,14 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
     /// validate their manifest on open and stamp it on every flush.</summary>
     internal Guid WalFileId => _walFileId;
 
+    /// <summary>
+    /// What the shared read cache currently holds, against its budget. Everything else the engine
+    /// keeps in memory is O(documents) or O(segments), not O(text), so this is the number to watch
+    /// when the process footprint is bigger than expected — and the one
+    /// <see cref="TextIndexOptions.MaxCacheBytes"/> bounds.
+    /// </summary>
+    public (long UsedBytes, long MaxBytes, int Entries) GetCacheStats() => (_cache.UsedBytes, _cache.MaxBytes, _cache.Count);
+
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, WordIndexOptions options) {
         if (_indexes.TryGetValue(id, out var existing)) return existing.wrapped; // idempotent re-open
         var folder = Path.Combine(_folderPath, FileKeyUtility.IndexEngine_TextIndexIndexFolderKey(id));

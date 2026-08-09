@@ -256,6 +256,63 @@ public class TextIndexEngineTests {
     }
 
     [TestMethod]
+    public void RetiredSegments_ReleaseTheirCachedBlocks() {
+        // Cached dictionary blocks are keyed by segment id, and segment ids are never reused, so a
+        // block cached from a segment that has since been merged away can never be read again.
+        // Nothing but this eviction would drop it: it would sit in the shared cache until the byte
+        // budget pushed it out, which on a long import is most of the cache — memory held for data
+        // that no longer exists, and that no GC can reclaim.
+        var dir = tempDir();
+        try {
+            using var engine = new TextIndexEngine(dir);
+            engine.SetWalFileId(Guid.NewGuid());
+            var idx = openIndex(engine);
+            // equal-sized rounds, so the merge ladder retires segments as it goes
+            var id = 0;
+            for (var round = 0; round < 8; round++) {
+                inTransaction(engine, (round + 1) * 100, () => {
+                    for (var i = 0; i < 200; i++) idx.Add(++id, "shared token" + id);
+                });
+                unrankedIds(idx, "shared"); // reads the dictionary, so blocks land in the cache
+            }
+            var afterRounds = engine.GetCacheStats().Entries;
+            Assert.IsTrue(afterRounds > 0, "the searches should have cached something to begin with");
+            // what the segments that are still live actually need for that same search: anything
+            // the cache holds beyond it came from a segment that has since been merged away
+            idx.ClearCache();
+            unrankedIds(idx, "shared");
+            var live = engine.GetCacheStats().Entries;
+            Assert.IsTrue(afterRounds <= live + 2, $"cache holds {afterRounds} entries, the live segments need {live}");
+
+            // rounds of shrinking size never trigger the ladder, so several segments survive for
+            // the explicit full merge to retire in one go
+            for (var round = 0; round < 4; round++) {
+                var count = 400 >> round;
+                inTransaction(engine, 1000 + round * 100, () => {
+                    for (var i = 0; i < count; i++) idx.Add(++id, "shared token" + id);
+                });
+            }
+            Assert.AreEqual(id, unrankedIds(idx, "shared").Length);
+            Assert.IsTrue(Directory.GetFiles(Path.Combine(dir, "textindex"), "seg_*.bin", SearchOption.AllDirectories).Length > 1,
+                "the shrinking rounds should have left several segments to retire");
+            Assert.IsTrue(engine.GetCacheStats().Entries > 0);
+
+            engine.OptimizeDisk(); // merges everything into one segment, retiring the rest
+            Assert.AreEqual(0, engine.GetCacheStats().Entries, "every retired segment's entries must be gone");
+            Assert.AreEqual(0, engine.GetCacheStats().UsedBytes, "and the byte accounting must go with them");
+
+            // still a working cache afterwards, reading the surviving segment
+            Assert.AreEqual(id, unrankedIds(idx, "shared").Length);
+            Assert.IsTrue(engine.GetCacheStats().Entries > 0);
+
+            idx.Dispose(); // the cache belongs to the engine and outlives one index
+            Assert.AreEqual(0, engine.GetCacheStats().Entries, "disposing an index must release its cache entries");
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [TestMethod]
     public void TinyCacheBudget_SearchesStayCorrect() {
         var dir = tempDir();
         try {

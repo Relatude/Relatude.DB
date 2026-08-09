@@ -369,12 +369,23 @@ public class TextIndex : IWordIndex {
         var replaced = mergeIfNeeded();
         bumpGeneration();
         writeManifest(timestamp, walFileId);
-        if (replaced != null) {
-            // only after the manifest swap: a crash in between leaves orphans, which open() deletes
-            foreach (var s in replaced) {
-                s.Dispose();
-                try { File.Delete(s.Path); } catch { } // a locked file is an orphan for the next open
-            }
+        // only after the manifest swap: a crash in between leaves orphans, which open() deletes
+        if (replaced != null) retireSegments(replaced);
+    }
+
+    /// <summary>
+    /// Retires the segments the manifest no longer references: closes the handles, deletes the
+    /// files, and drops the dictionary blocks cached from them. The eviction is the point — block
+    /// entries are keyed by segment id and segment ids are never reused, so entries from a merged
+    /// away segment can never be read again, and without this they would sit in the shared cache
+    /// until the byte budget pushed them out. In a long write-heavy run that is most of the cache:
+    /// memory held for data that no longer exists, and that no GC can reclaim.
+    /// </summary>
+    void retireSegments(List<Segment> retired) {
+        _cache.Evict(_ownerId, Segment.CacheKindBlock, retired.Select(s => s.Id).ToArray());
+        foreach (var s in retired) {
+            s.Dispose();
+            try { File.Delete(s.Path); } catch { } // a locked file is an orphan for the next open
         }
     }
     List<Segment>? mergeIfNeeded() {
@@ -481,6 +492,7 @@ public class TextIndex : IWordIndex {
         resetFiles();
     }
     void resetFiles() {
+        _cache.Evict(_ownerId); // the segments these entries came from are about to be deleted
         foreach (var s in _segments) s.Dispose();
         _segments.Clear();
         try { File.Delete(manifestPath); } catch { }
@@ -524,12 +536,7 @@ public class TextIndex : IWordIndex {
         mergeRun(0, _segments.Count, ref replaced);
         bumpGeneration();
         writeManifest(_persistedTimestamp, _persistedWalFileId);
-        if (replaced != null) {
-            foreach (var s in replaced) {
-                s.Dispose();
-                try { File.Delete(s.Path); } catch { }
-            }
-        }
+        if (replaced != null) retireSegments(replaced);
     }
 
     // ---- lifecycle -------------------------------------------------------------------------------
@@ -539,7 +546,10 @@ public class TextIndex : IWordIndex {
     public void Dispose() {
         // an un-flushed memtable is discarded by design: its ops are covered by the WAL and the
         // persisted timestamp still points at the last durable manifest, so the replay rebuilds them
+        _cache.Evict(_ownerId); // the cache belongs to the engine and can outlive this index
         foreach (var s in _segments) s.Dispose();
         _segments.Clear();
+        _mem = new MemTable();
+        _docs = new DocLengths();
     }
 }

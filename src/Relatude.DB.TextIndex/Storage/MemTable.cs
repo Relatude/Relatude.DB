@@ -9,11 +9,20 @@ namespace Relatude.DB.DataStores.Indexes.TextIndexing;
 /// </summary>
 internal sealed class MemTable {
     public const short Tombstone = -1;
+    // Rough per-entry heap costs, used only to decide when the buffer is big enough to flush.
+    // Deliberately on the generous side: the alternative to overestimating is a flush threshold
+    // that quietly permits several times the memory it names.
+    const int bytesPerTerm = 144;  // outer dictionary entry + string object + the inner dictionary
+    const int bytesPerOp = 40;     // inner dictionary entry, including the slack of its growth
+    const int bytesPerDocOp = 40;
+
     readonly Dictionary<string, Dictionary<int, short>> _terms = new(StringComparer.Ordinal);
     readonly Dictionary<int, int> _docOps = []; // word count, or -1 for document removed
     long _bytes;
     string[]? _sortedTerms;
     public bool IsEmpty => _terms.Count == 0 && _docOps.Count == 0;
+    /// <summary>Estimated heap held by the buffered ops. Drives
+    /// <see cref="TextIndexOptions.MemTableFlushThresholdBytes"/>, nothing else.</summary>
     public long ApproxBytes => _bytes;
     public IReadOnlyDictionary<int, int> DocOps => _docOps;
     public Dictionary<int, short>? GetOverlay(string word) => _terms.TryGetValue(word, out var d) ? d : null;
@@ -21,14 +30,14 @@ internal sealed class MemTable {
         if (!_terms.TryGetValue(word, out var d)) {
             d = [];
             _terms.Add(word, d);
-            _bytes += 64 + word.Length * 2;
+            _bytes += bytesPerTerm + word.Length * 2;
             _sortedTerms = null;
         }
-        if (!d.ContainsKey(nodeId)) _bytes += 24;
+        if (!d.ContainsKey(nodeId)) _bytes += bytesPerOp;
         d[nodeId] = op;
     }
     public void SetDocOp(int nodeId, int wordCountOrRemove) {
-        if (!_docOps.ContainsKey(nodeId)) _bytes += 24;
+        if (!_docOps.ContainsKey(nodeId)) _bytes += bytesPerDocOp;
         _docOps[nodeId] = wordCountOrRemove;
     }
     /// <summary>Words in ordinal order, cached between mutations (term scans need sorted input).</summary>
