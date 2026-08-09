@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Indexes;
 /// invariant is per engine: durable engine state never ahead of the durable log.</para>
 /// </summary>
 public sealed class IndexEngines : IDisposable {
-    public static IndexEngines Empty => new(null, null);
+    public static readonly IndexEngines Empty = new(null, null); // stateless, safe to share
     public IValueIndexEngine? Value { get; }
     public ITextIndexEngine? Text { get; }
     readonly IIndexEngine[] _distinct; // reference-deduped, fixed fan-out order
@@ -30,7 +30,6 @@ public sealed class IndexEngines : IDisposable {
     }
     /// <summary>True when at least one engine is configured; with none, every call is a no-op.</summary>
     public bool Any => _distinct.Length > 0;
-    public IReadOnlyList<IIndexEngine> Distinct => _distinct;
 
     // ---- transaction protocol ------------------------------------------------------------------
     public void BeginTransaction() { foreach (var e in _distinct) e.BeginTransaction(); }
@@ -43,7 +42,9 @@ public sealed class IndexEngines : IDisposable {
     /// <summary>
     /// Binds every engine to the log file at startup: a fresh engine (no WAL id yet) adopts the
     /// log's id; an engine bound to a different log file holds data that does not belong to this
-    /// log and is reset, so the replay that follows rebuilds it from scratch.
+    /// log and is reset, so the replay that follows rebuilds it from scratch. After the reset the
+    /// engine adopts the log's id, so the rebuild happens once — not on every startup. (A crash in
+    /// between leaves the old id with empty data, which simply resets again: idempotent.)
     /// </summary>
     public void BindToWalFile(Guid walFileId, Action<string> logInfo) {
         foreach (var e in _distinct) {
@@ -52,6 +53,7 @@ public sealed class IndexEngines : IDisposable {
                 logInfo(" - " + e.Name + " initialized with log file id.");
             } else if (e.GetWalFileId() != walFileId) {
                 e.ResetAll();
+                e.SetWalFileId(walFileId); // adopt the log the engine is about to be rebuilt against
                 logInfo(" - " + e.Name + " reset, log file id different.");
             }
         }
@@ -88,8 +90,9 @@ public sealed class IndexEngines : IDisposable {
     public void ResetAll() { foreach (var e in _distinct) e.ResetAll(); }
     public void OptimizeDisk() { foreach (var e in _distinct) e.OptimizeDisk(); }
     public long GetTotalDiskSpace() { return _distinct.Sum(e => e.GetTotalDiskSpace()); }
-    public void SaveIndexCaches(bool force) { foreach (var e in _distinct) e.SaveIndexCaches(force); }
-    public void ResetIndexCaches() { foreach (var e in _distinct) e.ResetIndexCaches(); }
+    // derived query caches (facet-set sidecar) are a value-engine concern, see IValueIndexEngine
+    public void SaveIndexCaches(bool force) { Value?.SaveIndexCaches(force); }
+    public void ResetIndexCaches() { Value?.ResetIndexCaches(); }
     public void Dispose() {
         foreach (var e in _distinct) {
             try { e.Dispose(); } catch { }

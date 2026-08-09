@@ -301,23 +301,9 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         foreach (var table in doomed) {
             try { executeCommand("DROP TABLE IF EXISTS " + table); } catch { }
         }
-        // remove the deleted indexes' persisted timestamps, so a re-added index starts at 0
-        List<string> timestampKeys = new();
-        using (var cmd = CreateCommand("SELECT key FROM " + _settingsTableName + " WHERE key LIKE 'Timestamp_%'")) {
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) timestampKeys.Add(reader.GetString(0));
-        }
-        var openIds = _idxs.Keys.ToHashSet();
-        foreach (var key in timestampKeys) {
-            var id = key.Substring("Timestamp_".Length);
-            if (openIds.Contains(id)) continue;
-            using var cmd = CreateCommand("DELETE FROM " + _settingsTableName + " WHERE key = @key");
-            cmd.Parameters.AddWithValue("@key", key);
-            cmd.ExecuteNonQuery();
-        }
     }
 
-    protected override void OptimizeDiskCore() {
+    public override void OptimizeDisk() {
         _connection.Close();
         _connection.Open();
         using var cmd = _connection.CreateCommand();

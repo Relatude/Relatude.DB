@@ -9,7 +9,6 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     readonly string? _kvFolder;
     readonly Dictionary<string, byte[]>? _pendingFacetSets; // sidecar sections awaiting their index, see FacetSetsFile
     readonly Dictionary<string, IValueIdsCachePersistence> _cachePersistableIndexes = [];
-    bool _deepDiskFlush = false;
     long _lastPersistedCacheTimestamp = 0;
     enum SettingKey : int {
         WalId = 1,
@@ -69,7 +68,9 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     // between the two rolls the engine back to the last durable point, which is always at or behind
     // the durable WAL, so the indexes can never durably contain transactions the log is missing.
     protected override void CommitTransactionCore(long timestamp) => _fileStorage.PublishTransaction(timestamp);
-    protected override void MakeDurableCore() => _fileStorage.MakeDurable(_deepDiskFlush);
+    // deepFlush false: the engine's fsync-based durability suffices; a deep (FlushFileBuffers-style)
+    // flush could be wired from SettingsLocal.DeepFlushDisk via the constructor if ever needed
+    protected override void MakeDurableCore() => _fileStorage.MakeDurable(deepDiskFlush: false);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
     protected override Guid ReadWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s) && Guid.TryParse(s, out var walFileId)) return walFileId;
@@ -80,7 +81,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         _fileStorage.BeginTransaction();
         try {
             _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), _deepDiskFlush);
+            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), deepDiskFlush: false);
         } catch {
             // roll back so the engine transaction is not left open, which would make every later
             // BeginTransaction fail and wedge the store
@@ -90,7 +91,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     }
     public override long GetTimestamp() => _fileStorage.GetTimestamp();
     public override long GetTotalDiskSpace() => _fileStorage.GetTotalDiskSpace();
-    protected override void OptimizeDiskCore() {
+    public override void OptimizeDisk() {
         // The KV engine has no separate compaction step.
     }
     protected override void DeleteUnopenedIndexesCore() {

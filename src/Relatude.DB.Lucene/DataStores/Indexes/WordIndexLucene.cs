@@ -32,6 +32,7 @@ public class WordIndexLucene : IWordIndex {
     internal const string TimestampCommitKey = "relatude.timestamp";
     internal const string WalFileIdCommitKey = "relatude.walfileid";
     readonly string _indexId;
+    readonly LuceneTextIndexEngine _engine; // owns this index; single source of the current WAL file id
     readonly StateIdValueTracker<string> _stateId;
     readonly SetRegister _sets;
     readonly string _path;
@@ -45,9 +46,10 @@ public class WordIndexLucene : IWordIndex {
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
     internal static string GetFolderName(string indexId) => indexId.ToLower().Replace("wordindex", "");
-    internal WordIndexLucene(SetRegister sets, string indexId, string friendlyName, string folderPath, WordIndexOptions options, Guid engineWalFileId) {
+    internal WordIndexLucene(SetRegister sets, string indexId, string friendlyName, string folderPath, WordIndexOptions options, LuceneTextIndexEngine engine) {
         _path = Path.Combine(folderPath, GetFolderName(indexId));
         _indexId = indexId;
+        _engine = engine;
         _stateId = new();
         _sets = sets;
         MinWordLength = options.MinWordLength;
@@ -55,7 +57,7 @@ public class WordIndexLucene : IWordIndex {
         PrefixSearch = options.PrefixSearch;
         InfixSearch = options.InfixSearch;
         FriendlyName = friendlyName;
-        Open(engineWalFileId);
+        open();
     }
     public string UniqueKey => _indexId;
     public string FriendlyName { get; }
@@ -147,14 +149,16 @@ public class WordIndexLucene : IWordIndex {
     }
 
     /// <summary>
-    /// Durably commits pending documents together with the index's position: the timestamp and WAL
-    /// file id go into the Lucene commit user data, atomically with the data itself. Skips the
-    /// commit when there is nothing new to record, and never regresses the persisted timestamp
-    /// (during replay the engine may checkpoint at a position this index is already past).
+    /// Durably commits pending documents together with the index's position: the timestamp and the
+    /// engine's current WAL file id go into the Lucene commit user data, atomically with the data
+    /// itself. Skips the commit when there is nothing new to record, and never regresses the
+    /// persisted timestamp (during replay the engine may checkpoint at a position this index is
+    /// already past).
     /// </summary>
-    internal void Commit(long timestamp, Guid walFileId) {
+    internal void Commit(long timestamp) {
         if (_writer.IsClosed) return;
         if (timestamp < _persistedTimestamp) return;
+        var walFileId = _engine.WalFileId;
         if (!_writer.HasUncommittedChanges() && timestamp == _persistedTimestamp && walFileId == _persistedWalFileId) return;
         _writer.SetCommitData(new Dictionary<string, string> {
             [TimestampCommitKey] = timestamp.ToString(CultureInfo.InvariantCulture),
@@ -165,8 +169,7 @@ public class WordIndexLucene : IWordIndex {
         _persistedWalFileId = walFileId;
     }
 
-    internal void Close() => close();
-    internal void Open(Guid engineWalFileId) {
+    void open() {
         if (!System.IO.Directory.Exists(_path)) System.IO.Directory.CreateDirectory(_path);
         _directory = FSDirectory.Open(_path);
         _analyzer = new StandardAnalyzer(_version);
@@ -175,7 +178,7 @@ public class WordIndexLucene : IWordIndex {
         } catch (Exception err) {
             throw new Exception("Failed to open Lucene index writer for path: " + _path, err);
         }
-        readPersistedState(engineWalFileId);
+        readPersistedState();
     }
     /// <summary>
     /// Reads the persisted position from the latest commit's user data. The position is only
@@ -184,7 +187,7 @@ public class WordIndexLucene : IWordIndex {
     /// between the engine's WAL re-binding steps, restored files) and is reset to empty so the
     /// replay rebuilds it from timestamp 0 instead of duplicating or resurrecting documents.
     /// </summary>
-    void readPersistedState(Guid engineWalFileId) {
+    void readPersistedState() {
         long ts = 0;
         Guid wal = Guid.Empty;
         var commitData = _writer.CommitData;
@@ -192,14 +195,14 @@ public class WordIndexLucene : IWordIndex {
             if (commitData.TryGetValue(TimestampCommitKey, out var tsStr)) long.TryParse(tsStr, NumberStyles.None, CultureInfo.InvariantCulture, out ts);
             if (commitData.TryGetValue(WalFileIdCommitKey, out var walStr)) Guid.TryParse(walStr, out wal);
         }
-        if (ts > 0 && wal != Guid.Empty && wal == engineWalFileId) {
+        if (ts > 0 && wal != Guid.Empty && wal == _engine.WalFileId) {
             _persistedTimestamp = ts;
             _persistedWalFileId = wal;
         } else if (_writer.MaxDoc > 0 || ts > 0) {
             resetFiles();
         } else {
             _persistedTimestamp = 0;
-            _persistedWalFileId = wal == engineWalFileId ? wal : Guid.Empty;
+            _persistedWalFileId = Guid.Empty; // the first commit stamps the engine's WAL id
         }
     }
     void resetFiles() {
@@ -229,11 +232,11 @@ public class WordIndexLucene : IWordIndex {
         _analyzer.Dispose();
         _directory.Dispose();
     }
-    internal void OptimizeAndMerge(long timestamp, Guid walFileId) {
-        Commit(timestamp, walFileId);
+    internal void OptimizeAndMerge(long timestamp) {
+        // optimize can run before any transaction this session; it must never regress the position
+        if (timestamp < _persistedTimestamp) timestamp = _persistedTimestamp;
+        Commit(timestamp);
         _writer.ForceMerge(1, true);
-        if (_writer.HasUncommittedChanges()) _writer.Commit(); // persists the merge; the commit user data carries over
-        close();
-        Open(walFileId);
+        Commit(timestamp); // persists the merge, re-stamped at the same position
     }
 }

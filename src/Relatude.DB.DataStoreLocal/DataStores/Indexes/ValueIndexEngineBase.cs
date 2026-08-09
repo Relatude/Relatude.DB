@@ -67,4 +67,8 @@ public abstract class ValueIndexEngineBase : IndexEngineBase, IValueIndexEngine 
     /// <summary>Create (or open) the backend int-array index for <paramref name="id"/>. Set
     /// <paramref name="justCreated"/> as in <see cref="CreateValueIndex{T}"/>.</summary>
     protected abstract IIntArrayIndex CreateIntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated);
+
+    // Derived query caches (e.g. the facet-set sidecar): no-ops unless the backend maintains any.
+    public virtual void SaveIndexCaches(bool force) { }
+    public virtual void ResetIndexCaches() { }
 }

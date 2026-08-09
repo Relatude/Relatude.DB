@@ -1,6 +1,5 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -68,20 +67,6 @@ public interface IIndexEngine : IDisposable {
     void ResetAll();
     void OptimizeDisk();
     long GetTotalDiskSpace();
-    void SaveIndexCaches(bool force);
-    void ResetIndexCaches();
-
-    /// <summary>Deletes the shared on-disk index folder used by all engines under the default
-    /// layout. Utility for tooling that wants to force a full index rebuild while the store is closed.</summary>
-    static void DeleteFilesInDefaultFolder(string databaseFolderPath, string? filePrefix) {
-        var path = Path.Combine(databaseFolderPath, new FileKeyUtility(filePrefix).IndexStoreFolderKey);
-        if (Directory.Exists(path)) {
-            try {
-                Directory.Delete(path, true);
-            } catch {
-            }
-        }
-    }
 }
 
 /// <summary>Engine serving the value and array indexes (equality/range/facet queries).</summary>
@@ -90,6 +75,11 @@ public interface IValueIndexEngine : IIndexEngine {
     IStringArrayIndex OpenStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
     IGuidArrayIndex OpenGuidArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
     IIntArrayIndex OpenIntArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type);
+    /// <summary>Persist any derived query caches the engine maintains (e.g. the facet-set sidecar),
+    /// so the next open starts warm. No-op for engines without such caches.</summary>
+    void SaveIndexCaches(bool force);
+    /// <summary>Drop the persisted derived caches; the engine rebuilds them lazily.</summary>
+    void ResetIndexCaches();
 }
 
 /// <summary>Engine serving the full-text word indexes. A backend may implement this alongside

@@ -133,10 +133,6 @@ public abstract class IndexEngineBase : IIndexEngine {
 
     // ---- maintenance / lifecycle -----------------------------------------------------------
 
-    public void OptimizeDisk() {
-        OptimizeDiskCore();
-    }
-
     public void DeleteUnopenedIndexes() {
         if (_inTransaction) throw new InvalidOperationException("DeleteUnopenedIndexes cannot run while a transaction is active.");
         DeleteUnopenedIndexesCore();
@@ -196,7 +192,7 @@ public abstract class IndexEngineBase : IIndexEngine {
     public abstract long GetTotalDiskSpace();
 
     /// <summary>Backend-specific disk optimization (e.g. VACUUM, segment merge).</summary>
-    protected abstract void OptimizeDiskCore();
+    public abstract void OptimizeDisk();
 
     /// <summary>Delete indexes that exist in storage but were not opened this session, and drop
     /// their persisted timestamps.</summary>
@@ -208,7 +204,4 @@ public abstract class IndexEngineBase : IIndexEngine {
 
     /// <summary>Release backend resources (files, connections).</summary>
     protected abstract void DisposeCore();
-
-    public virtual void SaveIndexCaches(bool force) { }
-    public virtual void ResetIndexCaches() { }
 }

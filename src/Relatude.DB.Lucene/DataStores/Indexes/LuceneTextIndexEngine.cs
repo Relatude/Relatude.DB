@@ -22,8 +22,8 @@ namespace Relatude.DB.DataStores.Indexes;
 public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     const string _markerFileName = "engine.walid";
     readonly string _luceneFolderPath;
-    readonly Dictionary<string, IWordIndex> _wordIndexes = [];       // wrapped, handed out; for idempotent re-open
-    readonly Dictionary<string, WordIndexLucene> _luceneIndexes = []; // unwrapped, for lifecycle calls
+    // raw index for lifecycle calls, wrapped for hand-out (and idempotent re-open)
+    readonly Dictionary<string, (WordIndexLucene index, IWordIndex wrapped)> _indexes = [];
     Guid _walFileId;
     long _currentTimestamp; // last published (committed) transaction; made durable in MakeDurableCore
     public LuceneTextIndexEngine(string baseIndexFolderPath) {
@@ -33,17 +33,20 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     }
     public override string Name => "Lucene";
 
+    /// <summary>The WAL file id the engine's indexes belong to; the indexes read it when they
+    /// validate their commit data on open and stamp it on every commit.</summary>
+    internal Guid WalFileId => _walFileId;
+
     public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, WordIndexOptions options) {
-        if (_wordIndexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
-        var index = new WordIndexLucene(sets, id, friendlyName, _luceneFolderPath, options, _walFileId);
+        if (_indexes.TryGetValue(id, out var existing)) return existing.wrapped; // idempotent re-open
+        var index = new WordIndexLucene(sets, id, friendlyName, _luceneFolderPath, options, this);
         // Never registered as just-created: a Lucene index carries its own persisted timestamp
         // (0 when fresh), so it is not part of the first-commit protocol.
         RegisterManagedIndex(id, index, justCreated: false);
         // Wrapped here for the same reason as in the value engines: this engine owns the queue
         // lifecycle, flushing the wrapper's queued remove at every commit boundary.
         var optimized = WrapWordIndexAndRegisterQueue(id, index);
-        _luceneIndexes[id] = index;
-        _wordIndexes[id] = optimized;
+        _indexes[id] = (index, optimized);
         return optimized;
     }
 
@@ -54,26 +57,26 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     // by the compensating actions and the queued removes the base executes on rollback.
     protected override void RollbackTransactionCore() { }
     protected override void MakeDurableCore() {
-        foreach (var w in _luceneIndexes.Values) w.Commit(_currentTimestamp, _walFileId);
+        foreach (var (index, _) in _indexes.Values) index.Commit(_currentTimestamp);
     }
 
     /// <summary>The engine's durable position: the oldest position among its indexes (each commits
     /// its own). 0 with no indexes open, or when any index is fresh — forcing a full replay for it.</summary>
     public override long GetTimestamp() {
-        if (_luceneIndexes.Count == 0) return _currentTimestamp;
-        return _luceneIndexes.Values.Min(i => i.PersistedTimestamp);
+        if (_indexes.Count == 0) return _currentTimestamp;
+        return _indexes.Values.Min(v => v.index.PersistedTimestamp);
     }
 
     // ---- WAL binding ----------------------------------------------------------------------------
     protected override Guid ReadWalFileId() => _walFileId;
     protected override void WriteWalFileId(Guid walFileId, long? timestamp) {
+        _walFileId = walFileId; // in memory first, so the index commits below stamp the new id
         if (timestamp.HasValue) {
-            // Re-stamp every index first, the marker last: a crash in between leaves the marker on
-            // the old WAL id, which the next open detects as a mismatch and resets everything.
-            foreach (var w in _luceneIndexes.Values) w.Commit(timestamp.Value, walFileId);
+            // Re-stamp every index before the durable marker: a crash in between leaves the marker
+            // on the old WAL id, which the next open detects as a mismatch and resets everything.
+            foreach (var (index, _) in _indexes.Values) index.Commit(timestamp.Value);
             _currentTimestamp = timestamp.Value;
         }
-        _walFileId = walFileId;
         writeMarkerFile(walFileId);
     }
     Guid readMarkerFile() {
@@ -91,29 +94,24 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     }
 
     // ---- maintenance / lifecycle -----------------------------------------------------------------
-    protected override void OptimizeDiskCore() {
-        foreach (var w in _luceneIndexes.Values) w.OptimizeAndMerge(_currentTimestamp, _walFileId);
+    public override void OptimizeDisk() {
+        foreach (var (index, _) in _indexes.Values) index.OptimizeAndMerge(_currentTimestamp);
     }
     protected override void DeleteUnopenedIndexesCore() {
         // Drops the index directories of word indexes that have left the schema, so a later re-add
         // starts with a fresh, empty index (timestamp 0) instead of stale data claiming to be current.
-        var openFolders = _luceneIndexes.Keys.Select(WordIndexLucene.GetFolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var openFolders = _indexes.Keys.Select(WordIndexLucene.GetFolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var dir in Directory.GetDirectories(_luceneFolderPath)) {
             if (openFolders.Contains(Path.GetFileName(dir))) continue;
             try { Directory.Delete(dir, true); } catch { } // a locked folder is skipped, not fatal
         }
     }
     protected override void ResetAllDataCore() {
-        foreach (var w in _luceneIndexes.Values) w.Close();
-        // wipe everything under the lucene folder, marker included — the base re-writes the WAL id
-        // and a timestamp of 0 immediately after this returns
-        foreach (var dir in Directory.GetDirectories(_luceneFolderPath)) {
-            try { Directory.Delete(dir, true); } catch { }
-        }
-        foreach (var file in Directory.GetFiles(_luceneFolderPath)) {
-            try { File.Delete(file); } catch { }
-        }
-        foreach (var w in _luceneIndexes.Values) w.Open(_walFileId);
+        // every open index resets in place (empty directory, timestamp 0); dropping the unopened
+        // directories covers word indexes that have left the schema. The marker file stays: the
+        // base re-writes the WAL id and a timestamp of 0 immediately after this returns.
+        foreach (var (index, _) in _indexes.Values) index.ResetToEmpty();
+        DeleteUnopenedIndexesCore();
     }
     public override long GetTotalDiskSpace() {
         if (!Directory.Exists(_luceneFolderPath)) return 0;
@@ -122,8 +120,8 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
         });
     }
     protected override void DisposeCore() {
-        foreach (var w in _luceneIndexes.Values) {
-            try { w.Dispose(); } catch { }
+        foreach (var (index, _) in _indexes.Values) {
+            try { index.Dispose(); } catch { }
         }
     }
 }

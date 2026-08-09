@@ -3,7 +3,6 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
-using System.Diagnostics;
 using System.Reflection;
 
 namespace Relatude.DB.DataStores.Indexes;
