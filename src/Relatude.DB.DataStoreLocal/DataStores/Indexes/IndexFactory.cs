@@ -43,9 +43,9 @@ internal static class IndexFactory {
         };
         IStringArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.PersistedIndexStore != null) {
-            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " String Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.PersistedIndexStore.StringArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (useProvider && store.Engines.Value != null) {
+            var name = store.Engines.Value.Name + " String Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = store.Engines.Value.OpenStringArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
@@ -78,9 +78,9 @@ internal static class IndexFactory {
         };
         IGuidArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.PersistedIndexStore != null) {
-            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Guid Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.PersistedIndexStore.GuidArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (useProvider && store.Engines.Value != null) {
+            var name = store.Engines.Value.Name + " Guid Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = store.Engines.Value.OpenGuidArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Guid Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new GuidArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
@@ -113,9 +113,9 @@ internal static class IndexFactory {
         };
         IIntArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.PersistedIndexStore != null) {
-            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Int Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.PersistedIndexStore.IntArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (useProvider && store.Engines.Value != null) {
+            var name = store.Engines.Value.Name + " Int Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = store.Engines.Value.OpenIntArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Int Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new IntArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
@@ -148,11 +148,11 @@ internal static class IndexFactory {
         };
         IValueIndex<T> index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.PersistedIndexStore != null) {
-            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Value Index " + classDef.CodeName + "." + property.CodeName;
-            // already wrapped in OptimizedValueIndex by the store, which flushes the wrapper's
+        if (useProvider && store.Engines.Value != null) {
+            var name = store.Engines.Value.Name + " Value Index " + classDef.CodeName + "." + property.CodeName;
+            // already wrapped in OptimizedValueIndex by the engine, which flushes the wrapper's
             // queued remove into the backend on every commit
-            index = store.PersistedIndexStore.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
+            index = store.Engines.Value.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Value Index " + classDef.CodeName + "." + property.CodeName;
             index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, store.FileKeys, writeValue, readValue);
@@ -187,11 +187,11 @@ internal static class IndexFactory {
         };
         IWordIndex index;
         var classDef = store.Datamodel.NodeTypes[p.Model.NodeType];
-        if (useProvider && store.PersistedIndexStore != null) {
-            var name = (store.PersistedIndexStore.GetType()!.Name).Decamelize() + " Word Index " + classDef.CodeName + "." + p.CodeName;
-            // already wrapped in OptimizedWordIndex by the store, which flushes the wrapper's
+        if (useProvider && store.Engines.Text != null) {
+            var name = store.Engines.Text.Name + " Word Index " + classDef.CodeName + "." + p.CodeName;
+            // already wrapped in OptimizedWordIndex by the engine, which flushes the wrapper's
             // queued remove into the backend on every commit
-            return store.PersistedIndexStore.OpenWordIndex(sets, uniqueKey, name, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch);
+            return store.Engines.Text.OpenWordIndex(sets, uniqueKey, name, new WordIndexOptions(p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch));
         } else {
             var name = "Memory Word Index " + classDef.CodeName + "." + p.CodeName;
             index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));

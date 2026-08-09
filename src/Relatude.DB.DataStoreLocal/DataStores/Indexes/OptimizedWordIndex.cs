@@ -9,7 +9,7 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex {
     readonly AddRemoveOptimization _o = new(index);
 
     // exposed so the persisted index store can flush the queued remove into its backend before a
-    // commit and discard it on rollback (see PersistedIndexStoreBase)
+    // commit and discard it on rollback (see IndexEngineBase)
     internal AddRemoveOptimization Queue => _o;
 
     public string UniqueKey => _i.UniqueKey;

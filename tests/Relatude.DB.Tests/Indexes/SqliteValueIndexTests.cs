@@ -27,7 +27,7 @@ public class SqliteValueIndexTests {
     static void withIndex<T>(PropertyType type, T[] values, Action<IValueIndex<T>, T[]> assert) where T : notnull {
         var dir = tempDir();
         try {
-            using var store = new SqliteIndexStore(dir, null);
+            using var store = new SqliteIndexStore(dir);
             var index = store.OpenValueIndex<T>(new SetRegister(100), Guid.NewGuid().ToString(), type + " test", type);
             store.BeginTransaction();
             for (var i = 0; i < values.Length; i++) index.Add(i + 1, values[i]);
@@ -250,7 +250,7 @@ public class SqliteValueIndexTests {
     public void UnsupportedTypeIsRejectedWithItsName() {
         var dir = tempDir();
         try {
-            using var store = new SqliteIndexStore(dir, null);
+            using var store = new SqliteIndexStore(dir);
             var ex = Assert.ThrowsException<NotSupportedException>(() =>
                 store.OpenValueIndex<byte[]>(new SetRegister(100), Guid.NewGuid().ToString(), "bytes", PropertyType.ByteArray));
             StringAssert.Contains(ex.Message, "ByteArray");
@@ -265,7 +265,7 @@ public class SqliteValueIndexTests {
         // only reachable through getSqlType must survive a reset too
         var dir = tempDir();
         try {
-            using var store = new SqliteIndexStore(dir, null);
+            using var store = new SqliteIndexStore(dir);
             var sets = new SetRegister(100);
             var reference = store.OpenValueIndex<Guid>(sets, "ref", "reference", PropertyType.Reference);
             var amount = store.OpenValueIndex<decimal>(sets, "amt", "amount", PropertyType.Decimal);

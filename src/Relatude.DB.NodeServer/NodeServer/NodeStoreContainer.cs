@@ -136,31 +136,37 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 }
                 ai = server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, localFallbackPath);
             }
-            Func<IPersistedIndexStore>? createIndexStore = null;
+            Func<IndexEngines>? createIndexEngines = null;
 
             List<string> toLog = new();
-            if (settings.LocalSettings.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory) {
-                if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Memory) {
-                    throw new Exception("The setting PersistedTextIndexEngine must be set to Sqlite or Lucene when PersistedValueIndexEngine is Sqlite.");
-                }
-                createIndexStore = () => {
+            var valueEngineSetting = settings.LocalSettings.PersistedValueIndexEngine;
+            var textEngineSetting = settings.LocalSettings.PersistedTextIndexEngine;
+            // The engines are independent — any combination is legal except SQLite text without
+            // SQLite values: the FTS5 word indexes share the SQLite value engine's connection and
+            // transaction, so that engine must exist to also serve text.
+            if (textEngineSetting == PersistedTextIndexEngine.Sqlite && valueEngineSetting != PersistedValueIndexEngine.Sqlite) {
+                throw new Exception("The setting PersistedTextIndexEngine can only be Sqlite when PersistedValueIndexEngine is Sqlite (the FTS5 word indexes share the SQLite value engine).");
+            }
+            if (valueEngineSetting != PersistedValueIndexEngine.Memory || textEngineSetting != PersistedTextIndexEngine.Memory) {
+                createIndexEngines = () => {
                     var indexPath = settings.LocalSettings.PersistedValueIndexFolderPath;
                     if (string.IsNullOrEmpty(indexPath)) indexPath = localFallbackPath;
                     if (string.IsNullOrEmpty(indexPath)) {
-                        throw new Exception("The setting PersistedValueIndexFolderPath is required for the persisted index store.");
+                        throw new Exception("The setting PersistedValueIndexFolderPath is required for persisted index engines.");
                     }
                     indexPath = Path.Combine(indexPath, fileKeyUtility.IndexStoreFolderKey);
                     toLog.Add("Index path: " + indexPath);
-                    IPersistentWordIndexFactory? textIndexFactory = null;
-                    if (settings.LocalSettings.PersistedTextIndexEngine == PersistedTextIndexEngine.Lucene) {
-                        textIndexFactory = LateBindings.CreateLucenePersistentWordIndexFactory(indexPath);
-                    }
-                    return LateBindings.CreatePersistedIndexStore(settings.LocalSettings.PersistedValueIndexEngine, indexPath, textIndexFactory);
+                    IValueIndexEngine? valueEngine = valueEngineSetting == PersistedValueIndexEngine.Memory ? null
+                        : LateBindings.CreateValueIndexEngine(valueEngineSetting, indexPath);
+                    ITextIndexEngine? textEngine = textEngineSetting switch {
+                        PersistedTextIndexEngine.Memory => null,
+                        // dual-role: the SQLite value engine also serves the FTS5 word indexes
+                        PersistedTextIndexEngine.Sqlite => (ITextIndexEngine)valueEngine!,
+                        PersistedTextIndexEngine.Lucene => LateBindings.CreateLuceneTextIndexEngine(indexPath),
+                        _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngineSetting),
+                    };
+                    return new IndexEngines(valueEngine, textEngine);
                 };
-            } else {
-                if (settings.LocalSettings.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory) {
-                    throw new Exception("The setting PersistedTextIndexEngine must be Memory when PersistedValueIndexEngine is Memory.");
-                }
             }
             IQueueStore? queueStore = null;
             if (settings.LocalSettings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
@@ -194,7 +200,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioBackup,
                     ioLog,
                     ai,
-                    createIndexStore,
+                    createIndexEngines,
                     queueStore,
                     ioSecondary,
                     ioIndexes,

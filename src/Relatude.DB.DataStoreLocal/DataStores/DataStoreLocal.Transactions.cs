@@ -81,14 +81,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
-            PersistedIndexStore?.BeginTransaction();
+            Engines.BeginTransaction();
             execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId, ctx);
-            PersistedIndexStore?.CommitTransaction(transaction.Timestamp);
+            Engines.CommitTransaction(transaction.Timestamp);
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
-            PersistedIndexStore?.RollbackTransaction();
+            Engines.RollbackTransaction();
             if (err is NodeLockedException) {
                 // LogWarning(err.Message); // no logging as outer call wil log exception
             } else {
@@ -96,7 +96,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             throw;
         } catch (Exception err) {
-            PersistedIndexStore?.CleanUpOnUnknownTransactionError();
+            Engines.CleanUpOnUnknownTransactionError();
             throw createCriticalErrorAndSetDbToErrorState("Critical Transaction Error. ", err, transaction);
         } finally {
             _lock.ExitWriteLock();

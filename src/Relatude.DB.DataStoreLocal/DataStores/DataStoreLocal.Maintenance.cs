@@ -26,7 +26,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, txt, prg);
             }, out transactionCount, out actionCount, out bytesWritten);
             TaskQueuePersisted?.FlushDisk();
-            if (PersistedIndexStore != null) {
+            if (Engines.Any) {
                 // Persisted indexes commit only in memory at transaction execution and are made
                 // durable here, AFTER the WAL flush — so the durable indexes can never contain
                 // transactions the durable log is missing. The write lock (briefly, the lock
@@ -36,7 +36,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _lock.EnterWriteLock();
                 try {
                     _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
-                    PersistedIndexStore.MakeDurable();
+                    Engines.MakeDurable();
                 } finally {
                     _lock.ExitWriteLock();
                 }
@@ -77,7 +77,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             try {
                 FlushToDisk(true, activityId);
                 validateDatabaseState();
-                PersistedIndexStore?.OptimizeDisk();
+                Engines.OptimizeDisk();
             } catch (Exception err) {
                 throw createCriticalErrorAndSetDbToErrorState("Failed to truncate indexes. ", err);
             } finally {
@@ -148,14 +148,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (stateFileExisted) {
             _noPrimitiveActionsSinceLastStateSnapshot = Settings.AutoSaveIndexStatesActionCountUpperLimit + 1;
         }
-        PersistedIndexStore?.ResetAll();
-        PersistedIndexStore?.ResetIndexCaches();
+        Engines.ResetAll();
+        Engines.ResetIndexCaches();
     }
     public void SaveIndexCaches(bool force) {
         _lock.EnterWriteLock();
         try {
             if (State == DataStoreState.Open)
-                PersistedIndexStore?.SaveIndexCaches(force);
+                Engines.SaveIndexCaches(force);
         } finally {
             _lock.ExitWriteLock();
         }
@@ -164,7 +164,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (State == DataStoreState.Open)
-                PersistedIndexStore?.ResetIndexCaches();
+                Engines.ResetIndexCaches();
         } finally {
             _lock.ExitWriteLock();
         }
@@ -201,7 +201,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _noTransactionsSinceClearCache = 0;
                 _noQueriesSinceClearCache = 0;
                 _noNodeGetsSinceClearCache = 0;
-                PersistedIndexStore?.ResetIndexCaches();
+                Engines.ResetIndexCaches();
                 foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
             }
@@ -300,7 +300,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
             try { info.FileStoreSize = _fileStores.Sum(kv => kv.Value.GetSizeForMetrics()); } catch { }
             try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Sum(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)); } catch { }
-            try { info.IndexFileSize = (PersistedIndexStore?.GetTotalDiskSpace() ?? 0L) + FileKeys.Index_GetAll(_ioIndex).Sum(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)); } catch { }
+            try { info.IndexFileSize = Engines.GetTotalDiskSpace() + FileKeys.Index_GetAll(_ioIndex).Sum(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)); } catch { }
             try { info.TotalFileSize = AllIOs.SelectMany(io => io.GetFiles()).Sum(f => f.Size); } catch { }
             // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 

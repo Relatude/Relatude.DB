@@ -12,11 +12,11 @@ internal interface IIndexMirror {
 }
 
 /// <summary>
-/// Base class for array indexes backed by an <see cref="IPersistedIndexStore"/>, generic over the
+/// Base class for array indexes backed by an <see cref="IValueIndexEngine"/>, generic over the
 /// element type. The backend only persists the raw id → element[] mapping (through the three
 /// primitives at the bottom); queries are answered from an in-memory mirror of that mapping,
 /// lazily loaded on first use and kept in sync by writing through on every mutation. Mutations run
-/// inside the store's transaction, so a backend rollback and the reversal actions replayed on the
+/// inside the engine's transaction, so a backend rollback and the reversal actions replayed on the
 /// mirror stay consistent with each other.
 /// </summary>
 public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IValueArrayIndex<T>, IIndexMirror where T : notnull {
@@ -28,8 +28,8 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
     readonly object _loadLock = new();
     bool _loaded;
 
-    protected PersistedValueArrayIndexBase(IPersistedIndexStore store, bool justCreated, SetRegister sets, string uniqueKey, string friendlyName)
-        : base(store, justCreated) {
+    protected PersistedValueArrayIndexBase(IIndexEngine engine, bool justCreated, SetRegister sets, string uniqueKey, string friendlyName)
+        : base(engine, justCreated) {
         _sets = sets;
         _nodeIdByValue = new(sets);
         _arrays = new();

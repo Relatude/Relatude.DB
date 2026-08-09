@@ -3,7 +3,7 @@ using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
-public class NativeKvIndexStore : PersistedIndexStoreBase {
+public class NativeKvIndexStore : ValueIndexEngineBase {
     readonly BPlusTreeStorageEngine _fileStorage;
     readonly ISortedIntIndex<string> _settings;
     readonly string? _kvFolder;
@@ -15,7 +15,7 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         WalId = 1,
     }
     readonly Action<string>? _log;
-    public NativeKvIndexStore(string? folderPath, IPersistentWordIndexFactory? wordIndexFactory, Action<string>? log = null) : base(wordIndexFactory) {
+    public NativeKvIndexStore(string? folderPath, Action<string>? log = null) {
         string? filePath;
         if (log == null) {
             log = (msg) => {
@@ -39,10 +39,6 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
         _settings = _fileStorage.OpenOrCreateIntIndex<string>("settings");
         if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
     }
-    // The native store's word indexes are always factory-supplied (Lucene). They use a near-real-time
-    // reader and are rebuilt from the WAL when behind, so committing them on every data transaction
-    // would only add cost — defer instead (they still commit on OptimizeDisk and Dispose).
-    protected override bool CommitFactoryWordIndexesOnCommit => false;
     protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
         justCreated = index.PersistedTimestamp == 0;
@@ -51,9 +47,6 @@ public class NativeKvIndexStore : PersistedIndexStoreBase {
             try { ((IValueIdsCachePersistence)index).LoadCachedSets(section); } catch { } // stale or corrupt section: stay cold
         }
         return index;
-    }
-    protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
-        throw new InvalidOperationException("The native KV index store has no built-in word index; a word index factory is required.");
     }
     protected override IStringArrayIndex CreateStringArrayIndex(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvStringArrayIndex(id, this, _fileStorage, sets, friendlyName);

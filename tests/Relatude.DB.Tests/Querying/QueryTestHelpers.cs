@@ -1,5 +1,6 @@
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.Utils;
 
@@ -13,7 +14,7 @@ internal static class QueryTestHelpers {
             UsePersistedValueIndexesByDefault = true,
             PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
         }, null, null, null, null, null,
-        () => new NativeKvIndexStore(null, null)
+        () => new IndexEngines(new NativeKvIndexStore(null))
 
         );
         var store = new NodeStore(storeData);

@@ -32,21 +32,20 @@ public static class LateBindings {
         throw new Exception($"The type {typeName} does not implement the interface {typeof(T).FullName} " +
             $"or the constructor parameters do not match. Make sure the nuget package {nugetName} is correctly referenced.");
     }
-    public static IPersistentWordIndexFactory CreateLucenePersistentWordIndexFactory(string indexPath) {
-        return create<IPersistentWordIndexFactory>("Relatude.DB.DataStores.Indexes.WordIndexLuceneFactory", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
-    }
-    public static IPersistedIndexStore CreatePersistedIndexStore(PersistedValueIndexEngine engine, string indexPath, IPersistentWordIndexFactory? wordIndexFactory) {
+    public static IValueIndexEngine CreateValueIndexEngine(PersistedValueIndexEngine engine, string indexPath) {
         switch (engine) {
             case PersistedValueIndexEngine.Memory:
-                throw new Exception("The Memory engine is not supported for persisted index store. Please use Sqlite or Native engine.");
+                throw new Exception("The Memory engine is not a persisted value index engine. Please use Sqlite or Native.");
             case PersistedValueIndexEngine.Sqlite:
-                return create<IPersistedIndexStore>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath, wordIndexFactory]);
+                return create<IValueIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath]);
             case PersistedValueIndexEngine.Native:
-                if(wordIndexFactory == null) throw new Exception("wordIndexFactory cannot be null for Native engine.");
-                return new NativeKvIndexStore(indexPath, wordIndexFactory);
+                return new NativeKvIndexStore(indexPath);
             default:
                 throw new Exception("Unknown PersistedValueIndexEngine: " + engine);
         }
+    }
+    public static ITextIndexEngine CreateLuceneTextIndexEngine(string indexPath) {
+        return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.LuceneTextIndexEngine", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
     }
     public static IQueueStore CreateSqliteQueueStore(string queuePath) {
         return create<IQueueStore>("Relatude.DB.Tasks.SqliteQueueStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [queuePath]);

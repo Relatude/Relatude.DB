@@ -12,7 +12,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     readonly AddRemoveOptimization _o = new(index);
 
     // exposed so the persisted index store can flush the queued remove into its backend before a
-    // commit and discard it on rollback (see PersistedIndexStoreBase)
+    // commit and discard it on rollback (see IndexEngineBase)
     internal AddRemoveOptimization Queue => _o;
 
     // flushes the queued remove once and returns the raw inner index for tight per-id read loops:

@@ -6,11 +6,16 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
 /// <summary>
-/// SQLite-backed <see cref="IPersistedIndexStore"/>. All the cross-cutting orchestration
-/// (transaction guard, first-commit protocol, word-index lifecycle, WAL-id/timestamp/reset rules)
-/// lives in <see cref="PersistedIndexStoreBase"/>; this class only implements the SQLite specifics.
+/// SQLite-backed index engine. It is dual-role: it always serves the value and array indexes
+/// (<see cref="IValueIndexEngine"/> via <see cref="ValueIndexEngineBase"/>), and can additionally
+/// serve the word indexes as FTS5 tables (<see cref="ITextIndexEngine"/>) sharing the same
+/// connection and transaction — when configured so, the same instance fills both engine slots and
+/// <see cref="IndexEngines"/> de-duplicates lifecycle calls by reference, so all index data still
+/// commits in one SQLite transaction. All the cross-cutting orchestration (transaction guard,
+/// first-commit protocol, WAL-id/timestamp/reset rules) lives in the base classes; this class only
+/// implements the SQLite specifics.
 /// </summary>
-public class SqliteIndexStore : PersistedIndexStoreBase {
+public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     class idxInfo(string id, PropertyType dataType, string tableName) {
         public string Id { get; } = id;
         public PropertyType DataType { get; } = dataType;
@@ -20,12 +25,11 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
     static string _settingsTableName = "settings";
     SqliteConnection _connection;
     SqliteTransaction? _transaction;
-    readonly bool _useExternalWordIndex;
     readonly Dictionary<string, idxInfo> _idxs = [];
+    readonly Dictionary<string, IWordIndex> _wordIndexes = []; // opened word indexes, for idempotent re-open
     public string GetTableName(string id) => _idxs[id].Table;
     readonly string _indexPath;
-    public SqliteIndexStore(string indexPath, IPersistentWordIndexFactory? wordIndexFactory) : base(wordIndexFactory) {
-        _useExternalWordIndex = wordIndexFactory != null;
+    public SqliteIndexStore(string indexPath) {
         _indexPath = indexPath;
         var sqlLiteFolder = Path.Combine(indexPath, "sqlite");
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
@@ -162,18 +166,23 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
         };
     }
 
-    // Only reached when no word-index factory was supplied (the built-in FTS5 word index). Both
-    // shipped backends run with a factory, so this path is effectively unused; the table entry is
-    // registered before constructing the index because WordIndexSqlite resolves its table via
-    // GetTableName(id).
-    protected override IWordIndex CreateBuiltInWordIndex(SetRegister sets, string id, string friendlyName, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, out bool justCreated) {
+    // The built-in FTS5 word index, used when this instance is also the text engine. The word
+    // index shares the value store's connection and transaction, so it takes part in the base's
+    // first-commit protocol and queue lifecycle like any value index.
+    public IWordIndex OpenWordIndex(SetRegister sets, string id, string friendlyName, WordIndexOptions options) {
+        if (_wordIndexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var tableName = "W" + id.Replace("-", "_");
-        justCreated = !doesTableExist(tableName);
-        _idxs.Add(id, new idxInfo(id, PropertyType.String, tableName)); // registered first: WordIndexSqlite resolves its table via GetTableName(id)
+        var justCreated = !doesTableExist(tableName);
+        _idxs.Add(id, new idxInfo(id, PropertyType.String, tableName)); // registered first: SqliteWordIndex resolves its table via GetTableName(id)
         if (justCreated) {
             executeCommand("CREATE VIRTUAL TABLE " + tableName + " USING fts5(id, value, prefix ='2 3')");
         }
-        return new SqliteWordIndex(sets, this, id, friendlyName, minWordLength, maxWordLength, prefixSearch, infixSearch, justCreated);
+        var index = new SqliteWordIndex(sets, this, id, friendlyName, options.MinWordLength, options.MaxWordLength, options.PrefixSearch, options.InfixSearch, justCreated);
+        RegisterManagedIndex(id, index, justCreated);
+        // Wrapped here for the same reason as in OpenValueIndex: the engine owns the queue lifecycle.
+        var optimized = WrapWordIndexAndRegisterQueue(id, index);
+        _wordIndexes[id] = optimized;
+        return optimized;
     }
 
     public T CastFromDb<T>(object? value) {
@@ -350,11 +359,9 @@ public class SqliteIndexStore : PersistedIndexStoreBase {
                 cmd.ExecuteNonQuery();
                 cmd.CommandText = "CREATE INDEX " + i.Table + "_value ON " + i.Table + " (value)";
                 cmd.ExecuteNonQuery();
-            } else if (i.Table.StartsWith("W")) { // FTS5 Word Index
-                if (!_useExternalWordIndex) {
-                    cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
-                    cmd.ExecuteNonQuery();
-                }
+            } else if (i.Table.StartsWith("W")) { // FTS5 word index: only in _idxs when this instance is the text engine
+                cmd.CommandText = "CREATE VIRTUAL TABLE " + i.Table + " USING fts5(id, value, prefix ='2 3')";
+                cmd.ExecuteNonQuery();
             } else if (i.Table.StartsWith("A")) { // array index (string or guid)
                 cmd.CommandText = "CREATE TABLE " + i.Table + " (id INTEGER PRIMARY KEY, value TEXT)";
                 cmd.ExecuteNonQuery();

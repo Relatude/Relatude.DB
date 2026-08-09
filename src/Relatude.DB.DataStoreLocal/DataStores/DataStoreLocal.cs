@@ -61,8 +61,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     SetRegister _sets = default!;
     DateTime _initiatedUtc;
     internal readonly NativeModelStore _nativeModelStore;
-    internal IPersistedIndexStore? PersistedIndexStore;
-    Func<IPersistedIndexStore>? _createPersistedIndexStore;
+    internal IndexEngines Engines = IndexEngines.Empty;
+    Func<IndexEngines>? _createIndexEngines;
 
     long _noPrimitiveActionsSinceStartup;
     long _noPrimitiveActionsSinceLastStateSnapshot;
@@ -89,7 +89,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? bkup = null,
         IIOProvider? log = null,
         AIEngine? ai = null,
-        Func<IPersistedIndexStore>? createPersistedIndexStore = null,
+        Func<IndexEngines>? createIndexEngines = null,
         IQueueStore? queueStore = null,
         IIOProvider? secondaryLogIO = null,
         IIOProvider? indexIO = null,
@@ -119,7 +119,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _urlProviderPublic = urlProvider ?? new DefaultUrlProvider(new UrlProviderOptions());
         _urlProviderPublic.Initialize(this);
 
-        _createPersistedIndexStore = createPersistedIndexStore;
+        _createIndexEngines = createIndexEngines;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, datamodel);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
@@ -222,12 +222,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? bkup = null,
         IIOProvider? log = null,
         AIEngine? ai = null,
-        Func<IPersistedIndexStore>? createPersistedIndexStore = null,
+        Func<IndexEngines>? createIndexEngines = null,
         bool? throwOnBadStateFile = false,
         bool? throwOnBadLogFile = false
         ) {
         settings ??= new();
-        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, createPersistedIndexStore);
+        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, createIndexEngines);
         try {
             d.Open(throwOnBadLogFile ?? settings.ThrowOnBadLogFile,
                 throwOnBadStateFile ?? settings.ThrowOnBadStateFile);
@@ -245,9 +245,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _addresses = new();
         _definition = new(_sets, Datamodel, this);
 
-        if (_createPersistedIndexStore != null) {
-            PersistedIndexStore = _createPersistedIndexStore();
-        }
+        Engines = _createIndexEngines?.Invoke() ?? IndexEngines.Empty;
         var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? _fileKeys.WAL_GetSecondaryFileKey() : null;
@@ -256,10 +254,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         _relations = new(_definition);
         _index = new(_definition);
         _definition.Initialize(this, _settings, _io, _ai);  // this will open all indexes and set up the variables
-        PersistedIndexStore?.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
+        Engines.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
         _variables = getRootVariables();
         _nodeWriteLocks = new();
-        //PersistedIndexStore?.ReOpen();
         logLine___________________________();
         LogInfo("Database intialized");
         _state = DataStoreState.Closed; // ready to be opened
@@ -356,7 +353,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     // which are created in the constructor only and never recreated by initialize():
                     try { _index?.Dispose(); } catch { }
                     try { _wal?.Dispose(); } catch { }
-                    try { PersistedIndexStore?.Dispose(); } catch { }
+                    try { Engines.Dispose(); } catch { }
                     initialize();
                     readState(throwOnBadStateFile, currentModelHash, activityId);
                     TaskQueue?.ReOpen();
@@ -429,7 +426,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { _wal?.Dispose(); } catch { }
         try { _logger?.Dispose(); } catch { }
         try { _ai?.Dispose(); } catch { }
-        try { PersistedIndexStore?.Dispose(); } catch { }
+        try { Engines.Dispose(); } catch { }
         try { TaskQueue?.Dispose(); } catch { }
         try { TaskQueuePersisted?.Dispose(); } catch { }
         if (_state == DataStoreState.Open) _state = DataStoreState.Disposed; // if in error state, do not change state

@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
@@ -31,7 +32,7 @@ public class FacetSetsSidecarTests {
             PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
             UsePersistedTextIndexesByDefault = false,
         };
-        return new NodeStore(DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null)));
+        return new NodeStore(DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(dir))));
     }
 
     // a facet query WITH a selection: counting the other facets runs against the filtered set,

@@ -1,5 +1,6 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 using Relatude.DB.IO;
@@ -41,7 +42,7 @@ public class IndexAheadOfLogTests {
             PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
         };
         return new NodeStore(DataStoreLocal.Open(dm, settings, new IOProviderDisk(dir), null, null, null, null,
-            () => new NativeKvIndexStore(dir, null)));
+            () => new IndexEngines(new NativeKvIndexStore(dir))));
     }
     static void insertNodes(NodeStore store) {
         for (int i = 0; i < NodeCount; i++) {

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
@@ -67,7 +68,7 @@ public class FacetPerfHarness {
             UsePersistedTextIndexesByDefault = false, // memory word index keeps the harness self-contained
         };
         Directory.CreateDirectory(_dir);
-        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(_dir), null, null, null, null, () => new NativeKvIndexStore(null, null));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(_dir), null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(null)));
         var store = new NodeStore(storeData);
         try {
             seedIfEmpty(store);

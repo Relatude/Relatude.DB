@@ -52,7 +52,7 @@ public class ReferencesTests {
             ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
                 UsePersistedValueIndexesByDefault = true,
                 PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            }, null, null, null, null, null, () => new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null, null)))
+            }, null, null, null, null, null, () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null))))
             : new NodeStore(DataStoreLocal.Open(dm));
         brands = [
             new RefBrand { Id = Guid.NewGuid(), Name = "Acme" },
@@ -275,7 +275,7 @@ public class ReferencesTests {
                 PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
             };
             return new NodeStore(DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null,
-                () => new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir, null)));
+                () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir))));
         }
         return new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal(), new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, null));
     }

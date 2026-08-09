@@ -169,6 +169,24 @@ public partial class RelatudeDBServer {
             }
         }
         _authentication = new(this);
+        // Dispose the stores on host shutdown so pending work is flushed and the index engines
+        // commit before the process exits. Crash-safety does not depend on this — the WAL replay
+        // rebuilds anything lost — but a clean stop avoids the replay cost on the next start.
+        app.Lifetime.ApplicationStopping.Register(Shutdown);
+    }
+    /// <summary>Disposes every database container (flushing pending writes and committing the
+    /// index engines) and releases the AI providers. Called automatically on host shutdown.</summary>
+    public void Shutdown() {
+        Log("Server shutting down, disposing databases.");
+        foreach (var container in Containers.Values) {
+            try { container.Dispose(); } catch (Exception err) { Log("Error disposing \"" + container.Settings.Name + "\": " + err.Message); }
+        }
+        lock (_ais) {
+            foreach (var ai in _ais.Values) {
+                try { ai.Dispose(); } catch { }
+            }
+            _ais.Clear();
+        }
     }
     int _remaingToAutoOpenCount = 0;
     public bool AnyRemaingToAutoOpenIncludingFailed => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;

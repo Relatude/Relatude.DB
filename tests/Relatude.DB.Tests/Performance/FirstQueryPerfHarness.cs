@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
 
@@ -54,7 +55,7 @@ public class FirstQueryPerfHarness {
         };
         Directory.CreateDirectory(dir);
         var swOpen = Stopwatch.StartNew();
-        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new NativeKvIndexStore(dir, null));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(dir)));
         var store = new NodeStore(storeData);
         swOpen.Stop();
         try {

@@ -98,15 +98,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, "Reading index " + txt, prg / 2);
                 setStartupProgressEstimate(1 + prg / 2);
             }, walFileId); // could introduce lazy loading of indexes later....
-            if (PersistedIndexStore != null) {
-                if (PersistedIndexStore.GetWalFileId() == Guid.Empty) {
-                    PersistedIndexStore.SetWalFileId(walFileId);
-                    LogInfo(" - Persisted indexes initialized with log file id.");
-                } else if (PersistedIndexStore.GetWalFileId() != walFileId) {
-                    PersistedIndexStore.ResetAll();
-                    LogInfo(" - Persisted indexes reset, log file id different.");
-                }
-            }
+            Engines.BindToWalFile(walFileId, msg => LogInfo(msg));
         } catch (Exception err) {
             var errMsg = "Failed loading memory index states. " + err.Message;
             if (err.CausedByOutOfMemory()) {
@@ -203,7 +195,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var actionCountInTransaction = 0;
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
-        PersistedIndexStore?.BeginTransaction();
+        Engines.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors);
         idValidator.Seed(nodeSnapshot.Select(n => n.nodeId)); // ids loaded from the state file snapshot; validation below only runs for actions newer than the snapshot
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp)) {
@@ -271,14 +263,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                         }
                     }
                 }
-                if (PersistedIndexStore != null) {
-                    if (noActionsNotCommittedInPersistedIndexes > 30000 && PersistedIndexStore.GetTimestamp() < transaction.Timestamp) {
-                        PersistedIndexStore.CommitTransaction(transaction.Timestamp);
-                        PersistedIndexStore.MakeDurable();
-                        PersistedIndexStore.BeginTransaction();
-                        //LogInfo("   - Persisted indexes at timestamp " + new DateTime( transaction.Timestamp, DateTimeKind.Utc));
-                        noActionsNotCommittedInPersistedIndexes = 0;
-                    }
+                if (Engines.Any && noActionsNotCommittedInPersistedIndexes > 30000) {
+                    // commits, makes durable and reopens the replay transaction of every engine
+                    // that is behind this position, bounding replay work lost to a startup crash
+                    Engines.CheckpointDuringReplay(transaction.Timestamp);
+                    noActionsNotCommittedInPersistedIndexes = 0;
                 }
                 if (isTransactionRelevantForStateStores) {
                     _noTransactionsSinceLastStateSnapshot++;
@@ -294,8 +283,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         // max(state file, replayed transactions) = the newest timestamp the durable log covers.
         var lastLogTimestamp = _wal.LastTimestamp;
         string? aheadIndex = null;
-        if (PersistedIndexStore != null && PersistedIndexStore.GetTimestamp() > lastLogTimestamp) {
-            aheadIndex = "The persisted index store";
+        var aheadEngine = Engines.FindEngineAheadOfLog(lastLogTimestamp);
+        if (aheadEngine != null) {
+            aheadIndex = "The index engine \"" + aheadEngine.Name + "\"";
         } else {
             foreach (var indx in _definition.GetAllIndexes()) {
                 if (indx.PersistedTimestamp > lastLogTimestamp) {
@@ -308,11 +298,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             logError(aheadIndex + " contains transactions that are missing from the log file. "
                 + "This indicates that acknowledged writes were lost in an earlier unclean shutdown. "
                 + "All indexes will be reset and rebuilt from the log file. ");
-            PersistedIndexStore?.RollbackTransaction(); // the replay transaction cannot stay open across the reset and reload
+            Engines.RollbackTransaction(); // the replay transaction cannot stay open across the reset and reload
             throw new StateFileReadException(aheadIndex + " is ahead of the log file (its timestamp is newer than the last log timestamp). ", null);
         }
-        PersistedIndexStore?.CommitTransaction(_wal.LastTimestamp);
-        PersistedIndexStore?.MakeDurable(); // replay work must not stay pending until the first background flush
+        Engines.CommitTransaction(_wal.LastTimestamp);
+        Engines.MakeDurable(); // replay work must not stay pending until the first background flush
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);
