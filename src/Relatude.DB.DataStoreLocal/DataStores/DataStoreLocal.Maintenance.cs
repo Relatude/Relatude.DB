@@ -2,6 +2,7 @@
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
 using System.Diagnostics;
+using System.Runtime;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
@@ -203,16 +204,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _noNodeGetsSinceClearCache = 0;
                 Engines.ResetIndexCaches();
                 foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
-                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
+                collectAndReleaseMemory();
             }
 
             if (a.HasFlag(MaintenanceAction.PurgeCache)) {
                 _nodes.HalfCacheSize();
                 _sets.HalfCacheSize();
-                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
+                collectAndReleaseMemory();
             }
             if (a.HasFlag(MaintenanceAction.CompressMemory)) foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
-            if (a.HasFlag(MaintenanceAction.GarbageCollect)) GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, false);
+            if (a.HasFlag(MaintenanceAction.GarbageCollect)) collectAndReleaseMemory();
             if (a.HasFlag(MaintenanceAction.ResetStateAndIndexes)) {
                 if (State == DataStoreState.Closed || State == DataStoreState.Open || State == DataStoreState.Error) {
                     resetStateAndIndexes();
@@ -230,6 +231,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         // caches gone: rebuild the mirror and facet warm state in the background, so the next
         // filtered facet query does not pay the cold rebuild inline
         if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
+    }
+    // A background, non-compacting collect leaves the freed bytes as holes in committed regions and
+    // returns nothing to the OS. Only a blocking, compacting, aggressive collect actually shrinks
+    // the process. It is a pause, but these maintenance actions exist precisely to reclaim memory.
+    static void collectAndReleaseMemory() {
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);

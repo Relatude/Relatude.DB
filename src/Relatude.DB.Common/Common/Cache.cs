@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Common {
     /// <summary>
@@ -7,35 +7,57 @@ namespace Relatude.DB.Common {
     /// If adding an item will exceed max size it removes items from cache until total size is half of max
     /// Reducing size is costly, and above logic reduce calls to this method
     /// Only items with size>0 is removed. So items with size 0 is reserved!!
-    /// This is used to ensure items are kept in cache until segment is written to transaction log.   
+    /// This is used to ensure items are kept in cache until segment is written to transaction log.
     /// </summary>
     /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TValue"></typeparam>
     /// <param name="maxSize"></param>
     public class Cache<TKey, TValue>(long maxSize) where TKey : notnull {
-        class Entry<T> {
-            public Entry(T data, ulong timestamp, int size) {
-                Data = data;
-                Timestamp = timestamp;
-                Size = size;
-            }
-            public T Data;
-            public ulong Timestamp;
-            public int Size;
+        // Entries are linked into an intrusive least-recently-used list, so eviction only touches
+        // the entries it actually removes. ( A sort of the whole cache is prohibitive at millions of entries. )
+        class Entry(TKey key, TValue data, int size) {
+            public readonly TKey Key = key;
+            public TValue Data = data;
+            public int Size = size;
+            public Entry? Newer;
+            public Entry? Older;
         }
         readonly object _lock = new();
         readonly long _maxSize = maxSize;
-        readonly Dictionary<TKey, Entry<TValue>> _cache = [];
+        readonly Dictionary<TKey, Entry> _cache = [];
+        Entry? _mru;
+        Entry? _lru;
         long _hits = 0;
         long _misses = 0;
         int _overflows = 0;
         long _size = 0;
-        ulong _timestamp = 0;
+        void unlink(Entry e) {
+            if (e.Newer != null) e.Newer.Older = e.Older; else _mru = e.Older;
+            if (e.Older != null) e.Older.Newer = e.Newer; else _lru = e.Newer;
+            e.Newer = e.Older = null;
+        }
+        void linkAsMru(Entry e) {
+            e.Older = _mru;
+            e.Newer = null;
+            if (_mru != null) _mru.Newer = e;
+            _mru = e;
+            _lru ??= e;
+        }
+        void touch(Entry e) {
+            if (_mru == e) return;
+            unlink(e);
+            linkAsMru(e);
+        }
+        void remove(Entry e) {
+            unlink(e);
+            _cache.Remove(e.Key);
+        }
         public bool TryUpdateSize(TKey key, int size) {
             lock (_lock) {
                 if (_cache.TryGetValue(key, out var item)) {
                     if (_maxSize == 0 && size > 0) {
-                        _cache.Remove(key); // it means items was only in cache because it had size 0, ( and had not been written to log yet )
+                        _size -= item.Size; // it means items was only in cache because it had size 0, ( and had not been written to log yet )
+                        remove(item);
                     } else {
                         _size -= item.Size;
                         item.Size = size;
@@ -54,10 +76,12 @@ namespace Relatude.DB.Common {
                 if (_cache.TryGetValue(key, out var item)) {
                     _size -= item.Size;
                     item.Data = data;
-                    item.Timestamp = ++_timestamp;
                     item.Size = size;
+                    touch(item);
                 } else {
-                    _cache.Add(key, new Entry<TValue>(data, ++_timestamp, size));
+                    item = new Entry(key, data, size);
+                    _cache.Add(key, item);
+                    linkAsMru(item);
                 }
                 _size += size;
                 if (size > 0) resizeIfNeeded();
@@ -70,15 +94,16 @@ namespace Relatude.DB.Common {
         }
         void reduceToSize(long size) {
             // removes items in order of last accessed until total size is less than size
-            var items = _cache.OrderBy(i => i.Value.Timestamp);
             if (_size < size) return;
             _overflows++;
-            foreach (var i in items) {
-                if (i.Value.Size > 0) { // if size is 0, it indicates item should never be removed ( used by Nodestore while waiting for transaction log write)
-                    if (_size < size) break;
-                    _size -= i.Value.Size;
-                    _cache.Remove(i.Key);
+            var e = _lru;
+            while (e != null && _size >= size) {
+                var newer = e.Newer;
+                if (e.Size > 0) { // if size is 0, it indicates item should never be removed ( used by Nodestore while waiting for transaction log write)
+                    _size -= e.Size;
+                    remove(e);
                 }
+                e = newer;
             }
         }
         public bool Contains(TKey id) {
@@ -101,14 +126,23 @@ namespace Relatude.DB.Common {
         public TValue GetOrCreate(TKey nodeId, Func<TValue> create) {
             lock (_lock) {
                 if (_cache.TryGetValue(nodeId, out var item)) {
-                    item.Timestamp = ++_timestamp;
+                    touch(item);
                     _hits++;
                     return item.Data;
                 }
             }
             var data = create();
             lock (_lock) {
-                _cache[nodeId] = new Entry<TValue>(data, ++_timestamp, 0);
+                if (_cache.TryGetValue(nodeId, out var item)) {
+                    _size -= item.Size;
+                    item.Data = data;
+                    item.Size = 0;
+                    touch(item);
+                } else {
+                    item = new Entry(nodeId, data, 0);
+                    _cache.Add(nodeId, item);
+                    linkAsMru(item);
+                }
                 _misses++;
                 return data;
             }
@@ -117,7 +151,7 @@ namespace Relatude.DB.Common {
             lock (_lock) {
                 if (_cache.TryGetValue(nodeId, out var item)) {
                     data = item.Data;
-                    item.Timestamp = ++_timestamp;
+                    touch(item);
                     _hits++;
                     return true;
                 } else {
@@ -131,7 +165,7 @@ namespace Relatude.DB.Common {
             lock (_lock) {
                 if (_cache.TryGetValue(nodeId, out var item)) {
                     _size -= item.Size;
-                    _cache.Remove(nodeId);
+                    remove(item);
                     return true;
                 } else {
                     return false;
@@ -140,8 +174,12 @@ namespace Relatude.DB.Common {
         }
         public void ClearAll_NotSize0() {
             lock (_lock) {
-                var toRemove = _cache.Where(kv => kv.Value.Size > 0).ToArray();
-                foreach (var kv in toRemove) _cache.Remove(kv.Key);
+                var e = _lru;
+                while (e != null) {
+                    var newer = e.Newer;
+                    if (e.Size > 0) remove(e);
+                    e = newer;
+                }
                 _misses = 0;
                 _hits = 0;
                 _size = 0;

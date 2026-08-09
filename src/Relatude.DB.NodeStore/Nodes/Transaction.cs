@@ -44,6 +44,14 @@ public partial class Transaction {
         get => _transactionData.NoRetriesIfLocked;
         set => _transactionData.NoRetriesIfLocked = value;
     }
+    /// <summary>
+    /// Hint that the inserted nodes are unlikely to be read back soon. They are dropped from the node
+    /// cache as soon as they are written to the log, instead of filling it with the whole data set.
+    /// </summary>
+    public bool BulkInsert {
+        get => _transactionData.BulkInsert;
+        set => _transactionData.BulkInsert = value;
+    }
     public void AddLockExcemptions(Guid lockId) {
         if (_transactionData.LockExcemptions == null) _transactionData.LockExcemptions = [];
         _transactionData.LockExcemptions.Add(lockId);

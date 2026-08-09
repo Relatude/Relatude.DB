@@ -150,6 +150,16 @@ public class NodeStore : IDisposable {
     public TransactionResult InsertIfNotExists(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
         => Execute(new Transaction(this).InsertIfNotExists(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
 
+    /// <summary>
+    /// Insert for data loads: identical to <see cref="Insert(IEnumerable{object}, string?, RevisionType?, bool, bool)"/>,
+    /// but the nodes leave the node cache as soon as they are written to the log, so a large load does
+    /// not leave the whole data set resident in memory.
+    /// </summary>
+    public TransactionResult BulkInsert(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => Execute(new Transaction(this) { BulkInsert = true }.Insert(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+    public Task<TransactionResult> BulkInsertAsync(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
+        => ExecuteAsync(new Transaction(this) { BulkInsert = true }.Insert(nodes, cultureCode, revisionType, ignoreRelated), flushToDisk);
+
     public Task<TransactionResult> InsertAsync(object node, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)
         => ExecuteAsync(new Transaction(this).Insert(node, cultureCode, revisionType, ignoreRelated), flushToDisk);
     public Task<TransactionResult> InsertAsync(IEnumerable<object> nodes, string? cultureCode = null, RevisionType? revisionType = null, bool flushToDisk = false, bool ignoreRelated = false)

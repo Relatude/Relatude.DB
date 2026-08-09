@@ -161,7 +161,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     var primitive = enumerator.Current;
                     _transactionActionActivity.Record();
                     if (anyLocks) validateLocks(primitive, lockExcemptions);
-                    executeAction(primitive, ctx); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
+                    executeAction(primitive, ctx, !transaction.BulkInsert); // safe errors might occur if constraints are violated ( typically for relations or unique value constraints )
                     executed.Add(primitive);
                 }
                 resultingOperations[i - 1] = _converter.LastResultingOperation; // must be read after enumeration, as it is set during enumeration
@@ -205,13 +205,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_nodeWriteLocks.IsLocked(rra.Moved, transactionLocks)) throw new NodeLockedException("Node with ID: " + rra.Moved + " is locked and cannot have relations changed. ");
         }
     }
-    void executeAction(PrimitiveActionBase action, QueryContext ctx) {
-        if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx);
+    void executeAction(PrimitiveActionBase action, QueryContext ctx, bool keepNodesInCache = true) {
+        if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx, keepNodesInCache);
         else if (action is PrimitiveRelationAction ra) executeRelationAction(ra);
         else if (action is PrimitiveRelationReorderAction rra) _relations.RegisterAction(rra); // order only, no node or native model changes
         else throw new NotImplementedException();
     }
-    void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx) {
+    void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx, bool keepNodesInCache) {
         switch (action.Operation) {
             case PrimitiveOperation.Add: {
                     if (_nodes.Contains(action.Node.__Id))
@@ -222,7 +222,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         throw new ValueConstraintException("The value: \"" + value + "\" of " + propName + " is not unique for node with ID: " + action.Node.__Id + "(" + action.Node.Id + ")", p.Id);
                     }
                     validateInnerContentUniqueKeyConstrains(action.Node);
-                    _nodes.Add(action.Node, action.Segment);
+                    _nodes.Add(action.Node, action.Segment, keepNodesInCache);
                     _index.Add(action.Node);
                 }
                 break;

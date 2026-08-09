@@ -58,9 +58,9 @@ public static class ShopSeeder {
             };
             product.Brand.Set(brand.Id);
             batch.Add(product);
-            if (batch.Count == batchSize) { db.Insert(batch); batch.Clear(); }
+            if (batch.Count == batchSize) { db.BulkInsert(batch); batch.Clear(); }
         }
-        if (batch.Count > 0) db.Insert(batch);
+        if (batch.Count > 0) db.BulkInsert(batch);
     }
     static List<Color> pickColors(Random rnd, List<Color> all)
         => Enumerable.Range(0, 1 + rnd.Next(3)).Select(_ => all[rnd.Next(all.Count)]).Distinct().ToList();

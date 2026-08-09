@@ -12,6 +12,11 @@ public class TransactionData {
         Actions = actions;
     }
     public bool NoRetriesIfLocked;
+    /// <summary>
+    /// Hint that the inserted nodes are unlikely to be read back soon. They are dropped from the node
+    /// cache as soon as they are written to the log, instead of filling it with the whole data set.
+    /// </summary>
+    public bool BulkInsert;
     public Action? InnerCallbackBeforeCommitting;
     public List<Guid>? LockExcemptions { get; set; }
     public List<ActionBase> Actions { get; set; }

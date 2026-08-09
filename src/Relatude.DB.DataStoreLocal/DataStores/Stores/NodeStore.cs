@@ -20,6 +20,7 @@ internal sealed class NodeStore {
     readonly ReadSegmentsFunc _read;
     readonly Cache<int, INodeDataInternal> _cache; // threadsafe
     readonly Dictionary<int, NodeSegment> _segments;  // NOT threadsafe, main store of all valid nodes
+    readonly HashSet<int> _dropWhenWritten = []; // nodes from bulk transactions, evicted the moment the log write makes them readable from disk
     Definition _definition;
     public NodeStore(Definition definition, SettingsLocal config, ReadSegmentsFunc read) {
         _read = read;
@@ -107,17 +108,19 @@ internal sealed class NodeStore {
     public bool Contains(int id) {
         lock (_lock) return _segments.ContainsKey(id);
     }
-    public void Add(INodeDataInternal node, NodeSegment? segment) {
+    public void Add(INodeDataInternal node, NodeSegment? segment, bool keepInCache = true) {
         lock (_lock) {
             node.EnsureReadOnly();
             _segments.Add(node.__Id, segment ?? (new()));
             _cache.Set(node.__Id, node, 0);
+            if (!keepInCache) _dropWhenWritten.Add(node.__Id);
         }
     }
     public void Remove(INodeDataInternal node, out NodeSegment segmentInfoRemoved) {
         lock (_lock) {
             segmentInfoRemoved = _segments[node.__Id];
             _segments.Remove(node.__Id);
+            _dropWhenWritten.Remove(node.__Id);
             _cache.Clear_EvenIf0Size(node.__Id); // if zero size in cache, item will never be written to log, so it can be removed
         }
     }
@@ -125,7 +128,8 @@ internal sealed class NodeStore {
         lock (_lock) {
             if (!_segments.ContainsKey(id)) return;
             _segments[id] = segment;
-            _cache.TryUpdateSize(id, estimateSize(segment.Length));
+            if (_dropWhenWritten.Remove(id)) _cache.Clear_EvenIf0Size(id); // now readable from the log, so no reason to keep the bulk inserted node
+            else _cache.TryUpdateSize(id, estimateSize(segment.Length));
         }
     }
     public void RegisterAction_NotThreadsafe(PrimitiveNodeAction action) { // not threadsafe, must be called from log writer thread only
