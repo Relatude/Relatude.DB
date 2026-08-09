@@ -9,7 +9,6 @@ using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
 using Relatude.DB.Transactions;
 using System.Text;
-using System.Text.Json;
 using Website.Simple;
 using Website.Simple.Models;
 
@@ -27,7 +26,7 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpenBackground = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 150_000, 1000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 1500_000, 1000); // populates the facet search example (see wwwroot/search.html)
     };
 });
 

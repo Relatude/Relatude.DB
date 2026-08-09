@@ -88,20 +88,20 @@ public class TextIndex : IWordIndex {
     public void Add(int nodeId, object value) {
         var text = (string)value;
         if (!string.IsNullOrEmpty(text)) {
-            var entries = IndexUtil.Clean(text, MinWordLength, MaxWordLength, out var wordCount);
+            var entries = IndexUtil.CleanToStrings(text, MinWordLength, MaxWordLength, out var wordCount);
             _docs.Set(nodeId, wordCount);
             _mem.SetDocOp(nodeId, wordCount);
-            foreach (var kv in entries) _mem.Set(new string(kv.Key), nodeId, kv.Value);
+            foreach (var kv in entries) _mem.Set(kv.Key, nodeId, kv.Value);
         }
         _stateId.RegisterAddition(nodeId, text ?? string.Empty); // invalidates cached result sets in the SetRegister
     }
     public void Remove(int nodeId, object value) {
         var text = (string)value;
         if (!string.IsNullOrEmpty(text)) {
-            var entries = IndexUtil.Clean(text, MinWordLength, MaxWordLength, out _);
+            var entries = IndexUtil.CleanToStrings(text, MinWordLength, MaxWordLength, out _);
             _docs.Remove(nodeId);
             _mem.SetDocOp(nodeId, -1);
-            foreach (var kv in entries) _mem.Set(new string(kv.Key), nodeId, MemTable.Tombstone);
+            foreach (var kv in entries) _mem.Set(kv.Key, nodeId, MemTable.Tombstone);
         }
         _stateId.RegisterRemoval(nodeId, text ?? string.Empty);
     }
