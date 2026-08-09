@@ -59,21 +59,102 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         var settingsLocal = settings.LocalSettings;
         if (settingsLocal == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
         var fileKeyUtil = new FileKeyUtility(settingsLocal.FilePrefix);
+        var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
+        var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
         var ioProvidersToClean = new List<IIOProvider>();
-        if (settings.IoDatabase != null) {
-            var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
-            if (ioDatabase != null) ioProvidersToClean.Add(ioDatabase);
-        }
-        if (settings.IoIndexes != null) {
-            var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
-            if (ioIndexes != null) ioProvidersToClean.Add(ioIndexes);
-        }
+        if (ioDatabase != null) ioProvidersToClean.Add(ioDatabase);
+        if (ioIndexes != null) ioProvidersToClean.Add(ioIndexes);
         foreach (var io in ioProvidersToClean) {
             io.DeleteFolderIfItExists([fileKeyUtil.IndexStoreFolderKey]);
             io.DeleteFileIfItExists(fileKeyUtil.StateFileKey);
             fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteFileIfItExists);
             fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteFileIfItExists);
         }
+        // The index engines own their files on the local disk, in a folder that is not necessarily
+        // below any of the IO providers above (PersistedValueIndexFolderPath can point anywhere),
+        // so the loop alone can leave engine data behind - and this method exists to force a full
+        // rebuild from the log. Deleting the whole folder covers every engine subfolder at once.
+        if (usesPersistedIndexEngines(settingsLocal)) {
+            var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase), fileKeyUtil);
+            if (Directory.Exists(indexFolder)) Directory.Delete(indexFolder, true);
+        }
+    }
+
+    static bool usesPersistedIndexEngines(SettingsLocal local)
+        => local.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory
+        || local.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory;
+
+    /// <summary>
+    /// The local disk folder for the plugins that own their storage: the index engines, the sqlite
+    /// queue store and the AI embedding cache all write real files instead of going through an
+    /// <see cref="IIOProvider"/>. Prefers the index provider's folder, then the database provider's,
+    /// and falls back to the server's data folder when neither is disk backed.
+    /// </summary>
+    string getLocalDiskFolder(IIOProvider? ioIndexes, IIOProvider? ioDatabase) {
+        if (ioIndexes is IOProviderDisk indexDisk) return indexDisk.BaseFolder;
+        if (ioDatabase is IOProviderDisk databaseDisk) return databaseDisk.BaseFolder;
+        return server.DefaultSubDataFolderPath;
+    }
+
+    /// <summary>
+    /// The folder the persisted index engines write to: <see cref="SettingsLocal.PersistedValueIndexFolderPath"/>
+    /// when set, otherwise <paramref name="localDiskFolder"/>; a relative path is rooted against the
+    /// server data folder, as for the queue store. Every engine claims its own subfolder below the
+    /// returned path (nativekv, sqlite, lucene), which is what lets them share one index folder.
+    /// </summary>
+    string resolveIndexFolderPath(SettingsLocal local, string localDiskFolder, FileKeyUtility fileKeys) {
+        var path = local.PersistedValueIndexFolderPath;
+        if (string.IsNullOrEmpty(path)) path = localDiskFolder;
+        if (!Path.IsPathRooted(path)) path = server.RootDataFolderPath.SuperPathCombine(path);
+        return Path.Combine(path, fileKeys.IndexStoreFolderKey);
+    }
+
+    /// <summary>
+    /// Builds the factory for this container's persisted index engines, or null when every index
+    /// kind stays in memory (memory indexes persist themselves through state files).
+    ///
+    /// <para>The engines are independent: each index kind picks its own, and every combination of
+    /// <see cref="SettingsLocal.PersistedValueIndexEngine"/> and
+    /// <see cref="SettingsLocal.PersistedTextIndexEngine"/> is supported. The one case that is not
+    /// simply "one engine per kind" is SQLite text: the word indexes are FTS5 tables inside a SQLite
+    /// database, so when the values are SQLite too, a single instance fills both roles and all index
+    /// data commits in one SQLite transaction (<see cref="IndexEngines"/> de-duplicates the
+    /// lifecycle calls by reference); otherwise a standalone SQLite engine holds the word index
+    /// tables on its own.</para>
+    ///
+    /// <para>The returned factory runs once per data-store initialization — which happens again when
+    /// a bad state file forces a reload — so it must build fresh engine instances every time.
+    /// Anything that can be resolved up front (paths, diagnostics) is done here instead, so a
+    /// misconfigured path is reported by <see cref="Initialize"/> rather than from deep inside the
+    /// data store constructor.</para>
+    /// </summary>
+    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog) {
+        var valueEngine = local.PersistedValueIndexEngine;
+        var textEngine = local.PersistedTextIndexEngine;
+        if (!usesPersistedIndexEngines(local)) {
+            toLog.Add("Index engines: none. All indexes are in memory, persisted through state files.");
+            return null;
+        }
+        toLog.Add("Index engines: values=" + valueEngine + ", text=" + textEngine + ". Index path: " + indexPath);
+        // A persisted default that no engine can serve falls back to memory indexes. That is a valid
+        // configuration, but silent - and an unexpectedly in-memory index is hard to spot later:
+        if (local.UsePersistedValueIndexesByDefault && valueEngine == PersistedValueIndexEngine.Memory)
+            toLog.Add("Note: UsePersistedValueIndexesByDefault is on while PersistedValueIndexEngine is Memory, so value indexes stay in memory.");
+        if (local.UsePersistedTextIndexesByDefault && textEngine == PersistedTextIndexEngine.Memory)
+            toLog.Add("Note: UsePersistedTextIndexesByDefault is on while PersistedTextIndexEngine is Memory, so word indexes stay in memory.");
+        return () => {
+            var value = valueEngine == PersistedValueIndexEngine.Memory ? null
+                : LateBindings.CreateValueIndexEngine(valueEngine, indexPath);
+            ITextIndexEngine? text = textEngine switch {
+                PersistedTextIndexEngine.Memory => null,
+                PersistedTextIndexEngine.Sqlite => valueEngine == PersistedValueIndexEngine.Sqlite
+                    ? (ITextIndexEngine)value! // dual role: one database, one connection, one transaction
+                    : LateBindings.CreateSqliteTextIndexEngine(indexPath),
+                PersistedTextIndexEngine.Lucene => LateBindings.CreateLuceneTextIndexEngine(indexPath),
+                _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngine),
+            };
+            return new IndexEngines(value, text);
+        };
     }
 
     private FileKeyUtility getLoggerFileKeys() {
@@ -93,20 +174,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
             Dispose();
-            if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
+            var local = settings.LocalSettings;
+            if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
             server.RaiseEventDatamodelInit(Datamodel, settings);
             var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
             var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
 
-            string? localFallbackPath = null;
-            // fallbackpath used for sqlite and lucene indexes, if used
-            if (localFallbackPath == null && ioIndexes is IOProviderDisk ioDisk2) localFallbackPath = ioDisk2.BaseFolder;
-            if (localFallbackPath == null && ioDatabase is IOProviderDisk ioDisk) localFallbackPath = ioDisk.BaseFolder;
-            if (localFallbackPath == null) localFallbackPath = server.DefaultSubDataFolderPath;
-
-            FileKeyUtility fileKeyUtility = new FileKeyUtility(settings.LocalSettings.FilePrefix);
+            var localDiskFolder = getLocalDiskFolder(ioIndexes, ioDatabase);
+            FileKeyUtility fileKeyUtility = new FileKeyUtility(local.FilePrefix);
             IFileStore[]? fs = null;
             if (settings.FileStoreSettings != null) {
                 foreach (var ioFilesSetting in settings.FileStoreSettings) {
@@ -131,55 +208,21 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var ioLog = server.GetOrNullIO(settings.IoLog);
             AIEngine? ai = null;
             if (settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty) {
-                if (localFallbackPath == null) {
-                    throw new Exception("The setting PersistedValueIndexFolderPath is required for the AI provider");
-                }
-                ai = server.GetAI(settings.AiProvider.Value, Settings.LocalSettings?.FilePrefix, localFallbackPath);
+                ai = server.GetAI(settings.AiProvider.Value, local.FilePrefix, localDiskFolder);
             }
-            Func<IndexEngines>? createIndexEngines = null;
 
             List<string> toLog = new();
-            var valueEngineSetting = settings.LocalSettings.PersistedValueIndexEngine;
-            var textEngineSetting = settings.LocalSettings.PersistedTextIndexEngine;
-            // The engines are independent — any combination is legal except SQLite text without
-            // SQLite values: the FTS5 word indexes share the SQLite value engine's connection and
-            // transaction, so that engine must exist to also serve text.
-            if (textEngineSetting == PersistedTextIndexEngine.Sqlite && valueEngineSetting != PersistedValueIndexEngine.Sqlite) {
-                throw new Exception("The setting PersistedTextIndexEngine can only be Sqlite when PersistedValueIndexEngine is Sqlite (the FTS5 word indexes share the SQLite value engine).");
-            }
-            if (valueEngineSetting != PersistedValueIndexEngine.Memory || textEngineSetting != PersistedTextIndexEngine.Memory) {
-                createIndexEngines = () => {
-                    var indexPath = settings.LocalSettings.PersistedValueIndexFolderPath;
-                    if (string.IsNullOrEmpty(indexPath)) indexPath = localFallbackPath;
-                    if (string.IsNullOrEmpty(indexPath)) {
-                        throw new Exception("The setting PersistedValueIndexFolderPath is required for persisted index engines.");
-                    }
-                    indexPath = Path.Combine(indexPath, fileKeyUtility.IndexStoreFolderKey);
-                    toLog.Add("Index path: " + indexPath);
-                    IValueIndexEngine? valueEngine = valueEngineSetting == PersistedValueIndexEngine.Memory ? null
-                        : LateBindings.CreateValueIndexEngine(valueEngineSetting, indexPath);
-                    ITextIndexEngine? textEngine = textEngineSetting switch {
-                        PersistedTextIndexEngine.Memory => null,
-                        // dual-role: the SQLite value engine also serves the FTS5 word indexes
-                        PersistedTextIndexEngine.Sqlite => (ITextIndexEngine)valueEngine!,
-                        PersistedTextIndexEngine.Lucene => LateBindings.CreateLuceneTextIndexEngine(indexPath),
-                        _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngineSetting),
-                    };
-                    return new IndexEngines(valueEngine, textEngine);
-                };
-            }
+            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog);
+
             IQueueStore? queueStore = null;
-            if (settings.LocalSettings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
-                var queuePath = settings.LocalSettings.PersistedQueueStoreFolderPath;
-                if (string.IsNullOrEmpty(queuePath)) queuePath = localFallbackPath;
-                if (string.IsNullOrEmpty(queuePath)) throw new Exception("The setting PersistedQueueStoreFolderPath is required for the persisted queue store.");
+            if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
+                var queuePath = local.PersistedQueueStoreFolderPath;
+                if (string.IsNullOrEmpty(queuePath)) queuePath = localDiskFolder;
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 toLog.Add("Queue path: " + queuePath);
                 queuePath = Path.Combine(queuePath, fileKeyUtility.Queue_GetFileKey("sqlite"));
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
-            var sw = Stopwatch.StartNew();
-
             var urlOptions = new UrlProviderOptions() {
                 HashKey = settings.Id,
                 //UrlNodeRoot = "assets",
@@ -194,7 +237,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
 
             IDataStore datastore = new DataStoreLocal(
                     Datamodel,
-                    settings.LocalSettings,
+                    local,
                     ioDatabase,
                     fs,
                     ioBackup,

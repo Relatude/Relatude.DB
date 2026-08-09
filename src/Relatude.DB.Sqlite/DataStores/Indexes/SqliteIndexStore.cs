@@ -28,10 +28,10 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     readonly Dictionary<string, idxInfo> _idxs = [];
     readonly Dictionary<string, IWordIndex> _wordIndexes = []; // opened word indexes, for idempotent re-open
     public string GetTableName(string id) => _idxs[id].Table;
-    readonly string _indexPath;
+    readonly string _sqliteFolder;
     public SqliteIndexStore(string indexPath) {
-        _indexPath = indexPath;
-        var sqlLiteFolder = Path.Combine(indexPath, "sqlite");
+        // own subfolder below the shared index folder: other engines (nativekv, lucene) claim theirs
+        var sqlLiteFolder = _sqliteFolder = Path.Combine(indexPath, "sqlite");
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
         var dbFileName = "index.db";
         var dbPath = Path.Combine(sqlLiteFolder, dbFileName);
@@ -311,8 +311,9 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         cmd.ExecuteNonQuery();
     }
     public override long GetTotalDiskSpace() {
-        if (!Directory.Exists(_indexPath)) return 0;
-        return Directory.GetFiles(_indexPath, "*", SearchOption.AllDirectories).Sum(f => {
+        // only this engine's own folder: the index folder is shared, and IndexEngines sums the engines
+        if (!Directory.Exists(_sqliteFolder)) return 0;
+        return Directory.GetFiles(_sqliteFolder, "*", SearchOption.AllDirectories).Sum(f => {
             try {
                 return new FileInfo(f).Length; // sometimes files get deleted between the GetFiles and FileInfo calls
             } catch {

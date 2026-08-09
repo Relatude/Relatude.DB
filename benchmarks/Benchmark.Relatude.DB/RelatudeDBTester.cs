@@ -115,14 +115,14 @@ public class RelatudeDBTester : ITester {
         return _store.Query<TestUser>().Where(u => u.Age == age).Execute().ToArray();
     }
     public void UpdateUserAge(Guid userId, int newAge) {
-        _store.UpdateIfDifferentProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
+        _store.UpdateProperty<TestUser, int>(userId, u => u.Age, newAge, _flushEveryTrans);
     }
     public void FlushToDisk() {
         _store.Flush();
     }
     public void DeleteUsersOfAge(int age) {
         var ids = _store.Query<TestUser>(u => u.Age == age).SelectId().Execute();
-        _store.DeleteIfExists(ids, _flushEveryTrans);
+        _store.Delete(ids, _flushEveryTrans);
     }
     public void Close() {
         _store.Dispose();
