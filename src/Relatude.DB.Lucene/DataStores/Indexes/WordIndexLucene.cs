@@ -8,6 +8,7 @@ using Lucene.Net.Store;
 using Lucene.Net.Util;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -45,9 +46,8 @@ public class WordIndexLucene : IWordIndex {
     public int MaxWordLength { get; }
     public bool PrefixSearch { get; }
     public bool InfixSearch { get; }
-    internal static string GetFolderName(string indexId) => indexId.ToLower().Replace("wordindex", "");
     internal WordIndexLucene(SetRegister sets, string indexId, string friendlyName, string folderPath, WordIndexOptions options, LuceneTextIndexEngine engine) {
-        _path = Path.Combine(folderPath, GetFolderName(indexId));
+        _path = Path.Combine(folderPath, FileKeyUtility.IndexEngine_LuceneIndexFolderKey(indexId));
         _indexId = indexId;
         _engine = engine;
         _stateId = new();

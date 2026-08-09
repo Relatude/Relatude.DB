@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
 
 /// <summary>
@@ -31,10 +32,9 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     readonly string _sqliteFolder;
     public SqliteIndexStore(string indexPath) {
         // own subfolder below the shared index folder: other engines (nativekv, lucene) claim theirs
-        var sqlLiteFolder = _sqliteFolder = Path.Combine(indexPath, "sqlite");
+        var sqlLiteFolder = _sqliteFolder = Path.Combine(indexPath, FileKeyUtility.IndexEngine_SqliteFolderKey);
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
-        var dbFileName = "index.db";
-        var dbPath = Path.Combine(sqlLiteFolder, dbFileName);
+        var dbPath = Path.Combine(sqlLiteFolder, FileKeyUtility.IndexEngine_SqliteFileKey);
         _cnnStr = "Data Source=" + dbPath;// + ";Pooling=False;";
         _connection = new SqliteConnection(_cnnStr);
         _connection.Open();

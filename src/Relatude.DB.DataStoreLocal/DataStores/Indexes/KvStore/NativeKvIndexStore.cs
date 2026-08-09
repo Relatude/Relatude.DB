@@ -1,6 +1,7 @@
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
+using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes.KvStore;
 
 public class NativeKvIndexStore : ValueIndexEngineBase {
@@ -23,9 +24,9 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         }
         _log = log;
         if (folderPath != null) {
-            _kvFolder = Path.Combine(folderPath, "nativekv");
+            _kvFolder = Path.Combine(folderPath, FileKeyUtility.IndexEngine_NativeKvFolderKey);
             if (!Directory.Exists(_kvFolder)) Directory.CreateDirectory(_kvFolder);
-            filePath = Path.Combine(_kvFolder, "nativekv.db");
+            filePath = Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_NativeKvFileKey);
         } else {
             filePath = null;// memory only
         }
@@ -36,7 +37,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateIntIndex<string>("settings");
-        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FacetSetsFile.FileName), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
+        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
     }
     protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
@@ -110,7 +111,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
             var isCacheOutOfDate = timestamp > _lastPersistedCacheTimestamp;
             var anyCacheDirty = _cachePersistableIndexes.Values.Any(i => i.AreThereNewUnsavedCachedSets);
             if (isCacheOutOfDate || anyCacheDirty || force) {
-                var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
+                var filePath = Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey);
                 try {
                     if (File.Exists(filePath)) File.Delete(filePath);
                     FacetSetsFile.Write(filePath, timestamp, _cachePersistableIndexes.Values, _log);
@@ -121,7 +122,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     }
     public override void ResetIndexCaches() {
         if (_kvFolder != null) {
-            var filePath = Path.Combine(_kvFolder, FacetSetsFile.FileName);
+            var filePath = Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey);
             try {
                 if (File.Exists(filePath)) File.Delete(filePath);
             } catch { }

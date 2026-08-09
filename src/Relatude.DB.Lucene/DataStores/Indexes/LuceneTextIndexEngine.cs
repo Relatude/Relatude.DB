@@ -1,4 +1,5 @@
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -20,14 +21,13 @@ namespace Relatude.DB.DataStores.Indexes;
 /// <see cref="WordIndexLucene"/>.</para>
 /// </summary>
 public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
-    const string _markerFileName = "engine.walid";
     readonly string _luceneFolderPath;
     // raw index for lifecycle calls, wrapped for hand-out (and idempotent re-open)
     readonly Dictionary<string, (WordIndexLucene index, IWordIndex wrapped)> _indexes = [];
     Guid _walFileId;
     long _currentTimestamp; // last published (committed) transaction; made durable in MakeDurableCore
     public LuceneTextIndexEngine(string baseIndexFolderPath) {
-        _luceneFolderPath = Path.Combine(baseIndexFolderPath, "lucene");
+        _luceneFolderPath = Path.Combine(baseIndexFolderPath, FileKeyUtility.IndexEngine_LuceneFolderKey);
         if (!Directory.Exists(_luceneFolderPath)) Directory.CreateDirectory(_luceneFolderPath);
         _walFileId = readMarkerFile();
     }
@@ -80,15 +80,15 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
         writeMarkerFile(walFileId);
     }
     Guid readMarkerFile() {
-        var path = Path.Combine(_luceneFolderPath, _markerFileName);
+        var path = Path.Combine(_luceneFolderPath, FileKeyUtility.IndexEngine_LuceneWalIdFileKey);
         try {
             if (File.Exists(path) && Guid.TryParse(File.ReadAllText(path).Trim(), out var id)) return id;
         } catch { }
         return Guid.Empty;
     }
     void writeMarkerFile(Guid walFileId) {
-        var path = Path.Combine(_luceneFolderPath, _markerFileName);
-        var tmp = path + ".tmp";
+        var path = Path.Combine(_luceneFolderPath, FileKeyUtility.IndexEngine_LuceneWalIdFileKey);
+        var tmp = FileKeyUtility.TempFileKey(path);
         File.WriteAllText(tmp, walFileId.ToString("D"));
         File.Move(tmp, path, overwrite: true);
     }
@@ -100,7 +100,7 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     protected override void DeleteUnopenedIndexesCore() {
         // Drops the index directories of word indexes that have left the schema, so a later re-add
         // starts with a fresh, empty index (timestamp 0) instead of stale data claiming to be current.
-        var openFolders = _indexes.Keys.Select(WordIndexLucene.GetFolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var openFolders = _indexes.Keys.Select(FileKeyUtility.IndexEngine_LuceneIndexFolderKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var dir in Directory.GetDirectories(_luceneFolderPath)) {
             if (openFolders.Contains(Path.GetFileName(dir))) continue;
             try { Directory.Delete(dir, true); } catch { } // a locked folder is skipped, not fatal

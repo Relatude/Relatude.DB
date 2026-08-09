@@ -50,6 +50,21 @@ public class FileKeyUtility {
     string queueFileKey => _prefix + "queue";
     string queueFileKeyPattern => _prefix + "queue.*";
 
+    // Storage names of the persisted index engines. These live on the local disk below
+    // IndexStoreFolderKey and carry no prefix of their own: that folder is already prefixed, and
+    // each engine owns one subfolder below it, which is what lets several engines share one index
+    // folder (e.g. values in nativekv, text in lucene). Renaming any of them orphans existing
+    // index data, so the engine rebuilds from the log on the next open.
+    const string indexEngineNativeKvFolder = "nativekv";
+    const string indexEngineNativeKvFile = "nativekv.db";
+    const string indexEngineFacetSetsFile = "facetsets.bin";
+    const string indexEngineSqliteFolder = "sqlite";
+    const string indexEngineSqliteFile = "index.db";
+    const string indexEngineLuceneFolder = "lucene";
+    const string indexEngineLuceneWalIdFile = "engine.walid";
+    const string binaryExtension = ".bin";
+    const string tempExtension = ".tmp";
+
     public FileKeyUtility(string? prefix) {
         // filter prefix for letters, numbers, and underscores:
         if (prefix != null) {
@@ -165,6 +180,42 @@ public class FileKeyUtility {
 
     public string Queue_GetFileKey(string ext) => queueFileKey + "." + ext;
 
+    #region Index engine storage (static: no prefix, they sit below IndexStoreFolderKey)
+
+    /// <summary>Folder of the native KV value index engine.</summary>
+    public static string IndexEngine_NativeKvFolderKey => indexEngineNativeKvFolder;
+    /// <summary>The native KV engine's database file, inside <see cref="IndexEngine_NativeKvFolderKey"/>.</summary>
+    public static string IndexEngine_NativeKvFileKey => indexEngineNativeKvFile;
+    /// <summary>The native KV engine's facet-set sidecar, inside <see cref="IndexEngine_NativeKvFolderKey"/>.</summary>
+    public static string IndexEngine_FacetSetsFileKey => indexEngineFacetSetsFile;
+    /// <summary>Folder of the SQLite index engine (value indexes, and the FTS5 word indexes when it serves text too).</summary>
+    public static string IndexEngine_SqliteFolderKey => indexEngineSqliteFolder;
+    /// <summary>The SQLite engine's database file, inside <see cref="IndexEngine_SqliteFolderKey"/>.</summary>
+    public static string IndexEngine_SqliteFileKey => indexEngineSqliteFile;
+    /// <summary>Folder of the Lucene text index engine; each word index gets a subfolder below it.</summary>
+    public static string IndexEngine_LuceneFolderKey => indexEngineLuceneFolder;
+    /// <summary>The Lucene engine's WAL-file-id marker, inside <see cref="IndexEngine_LuceneFolderKey"/>.</summary>
+    public static string IndexEngine_LuceneWalIdFileKey => indexEngineLuceneWalIdFile;
+    /// <summary>
+    /// Folder of one Lucene word index, below <see cref="IndexEngine_LuceneFolderKey"/>. A word
+    /// index id is already unique per property, culture and sub key, so the id itself names the
+    /// folder; it is lowercased so the name is identical on case sensitive and case insensitive
+    /// file systems. Invariant lowercasing, because the current culture must not decide the folder
+    /// name: under a Turkish locale a culture code such as "it-IT" would lowercase to "ıt-ıt", and
+    /// the index would look fresh (and be rebuilt) on the next open.
+    /// </summary>
+    public static string IndexEngine_LuceneIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
+
+    /// <summary>
+    /// The sibling name to write to before atomically replacing <paramref name="fileKey"/>, so a
+    /// crash mid-write cannot leave a half-written file in place of the real one. A binary extension
+    /// is replaced rather than appended to, keeping the temp file out of ".bin" search patterns.
+    /// </summary>
+    public static string TempFileKey(string fileKey)
+        => fileKey.EndsWith(binaryExtension) ? fileKey[..^binaryExtension.Length] + tempExtension : fileKey + tempExtension;
+
+    #endregion
+
     #region STATIC helpers:
 
     static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
@@ -183,12 +234,21 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.queueFileKeyPattern)) return "Task queue";
         if (fileKey.MatchesWildcard(_anyPrefix.loggerAllFilePattern)) return "Log file";
         if (fileKey.MatchesWildcard(_anyPrefix.indexFilePattern)) return "Index";
+        // index engine files: unprefixed, inside their engine folder (see the region above)
+        if (fileKey == indexEngineNativeKvFile) return "Native index engine";
+        if (fileKey == indexEngineFacetSetsFile) return "Facet cache";
+        if (fileKey == indexEngineSqliteFile) return "Sqlite index engine";
+        if (fileKey == indexEngineLuceneWalIdFile) return "Lucene index engine log file id";
         return "-";
     }
 
     internal static string FolderTypeDescription(string relpath) {
         return relpath switch {
             var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Index Store",
+            // the engine folders below the index store, matched on the last path segment
+            var s when s.MatchesWildcard("*" + indexEngineNativeKvFolder) => "Native index engine",
+            var s when s.MatchesWildcard("*" + indexEngineSqliteFolder) => "Sqlite index engine",
+            var s when s.MatchesWildcard("*" + indexEngineLuceneFolder) => "Lucene index engine",
             _ => "-",
         };
     }

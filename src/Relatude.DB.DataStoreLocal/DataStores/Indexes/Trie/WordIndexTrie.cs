@@ -69,7 +69,7 @@ internal class WordIndexTrie : IWordIndex {
         if (_io.CanRenameFile) {
             // write to a temp file and swap, so a crash during save does not also lose the previous good state
             // swapping the extension keeps the key length unchanged (file keys have a max length) and keeps it out of the index.*.bin pattern
-            var tempFileName = fileName.EndsWith(".bin") ? fileName[..^4] + ".tmp" : fileName + ".tmp";
+            var tempFileName = FileKeyUtility.TempFileKey(fileName);
             _io.DeleteFileIfItExists(tempFileName);
             using (var stream = _io.OpenAppend(tempFileName)) {
                 _trie.WriteState(stream);

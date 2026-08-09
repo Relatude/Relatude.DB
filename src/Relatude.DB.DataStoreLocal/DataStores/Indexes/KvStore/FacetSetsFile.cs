@@ -23,7 +23,7 @@ internal interface IValueIdsCachePersistence {
 /// </summary>
 internal static class FacetSetsFile {
     const long _magic = 0x315445_53464244; // "RDBFSET1"
-    public const string FileName = "facetsets.bin";
+    // the file name lives with every other index storage name, see FileKeyUtility.IndexEngine_FacetSetsFileKey
 
     public static Dictionary<string, byte[]>? TryRead(string path, long engineTimestamp, Action<string>? log, out long cachedTimestamp) {
         cachedTimestamp = 0;
