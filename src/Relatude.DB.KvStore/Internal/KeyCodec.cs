@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using Relatude.DB.Common;
 
@@ -37,13 +38,14 @@ internal static class KeyCodec
     /// The codec for a store that only ever compares encodings for equality — the hash layout,
     /// which has no value tree, no ordering and no composite keys. Order-preservation and
     /// prefix-freedom are what force the variable-length types to escape their content
-    /// (<see cref="ByteArrayCodec"/>, <see cref="StringCodec"/>), and neither buys the hash layout
-    /// anything: it stores the payload with an explicit length and only asks whether two encodings
-    /// are byte-identical, which raw bytes answer exactly as well. So byte arrays and strings are
-    /// stored verbatim here — no escape scan, no terminator, and no size inflation on content full
-    /// of zero bytes (a float vector is roughly a quarter zeros, which the escaping codec grows by
-    /// a quarter and a worst case doubles). Every other type is fixed-size and unescaped already,
-    /// and its encoding is a bijection, so it keeps the one codec both layouts share.
+    /// (<see cref="ByteArrayCodec"/>, <see cref="StringCodec"/>, <see cref="FloatArrayCodec"/>),
+    /// and neither buys the hash layout anything: it stores the payload with an explicit length and
+    /// only asks whether two encodings are byte-identical, which raw bytes answer exactly as well.
+    /// So byte arrays, strings and float arrays are stored verbatim here — no escape scan, no
+    /// terminator, and no size inflation on content full of zero bytes (a float vector is roughly a
+    /// quarter zeros, which the escaping codec grows by a quarter and a worst case doubles). Every
+    /// other type is fixed-size and unescaped already, and its encoding is a bijection, so it keeps
+    /// the one codec both layouts share.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IKeyCodec<T> GetUnordered<T>() where T : notnull => UnorderedCache<T>.Instance;
@@ -69,6 +71,7 @@ internal static class KeyCodec
         public static readonly IKeyCodec<T> Instance =
             typeof(T) == typeof(byte[]) ? (IKeyCodec<T>)(object)new RawByteArrayCodec() :
             typeof(T) == typeof(string) ? (IKeyCodec<T>)(object)new RawStringCodec() :
+            typeof(T) == typeof(float[]) ? (IKeyCodec<T>)(object)new RawFloatArrayCodec() :
             Cache<T>.Instance;
     }
 
@@ -93,9 +96,10 @@ internal static class KeyCodec
         if (t == typeof(DateTimeOffset)) return (new DateTimeOffsetCodec(), 17);
         if (t == typeof(byte[])) return (new ByteArrayCodec(), 18);
         if (t == typeof(GeoCoordinate)) return (new GeoCoordinateCodec(), 19);
+        if(t == typeof(float[])) return (new FloatArrayCodec(), 20);
         throw new NotSupportedException(
             $"Type '{t}' is not supported as an index value. Supported: integral types, bool, char, " +
-            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], GeoCoordinate.");
+            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], float[], GeoCoordinate.");
     }
 
     private sealed class Int32Codec : IKeyCodec<int>
@@ -307,6 +311,76 @@ internal static class KeyCodec
         public GeoCoordinate Decode(ReadOnlySpan<byte> src)
             => GeoCoordinate.FromStorageValue(BinaryPrimitives.ReadUInt64BigEndian(src));
     }
+    /// <summary>
+    /// Element-wise lexicographic order over floats: each element is written as the four-byte
+    /// order-preserving form <see cref="SingleCodec"/> uses (IEEE-754 total order, so -0 &lt; +0
+    /// and NaNs sort at the ends), so byte-wise order of the concatenation equals element-wise
+    /// order of the arrays. The stream is then escaped exactly like <see cref="ByteArrayCodec"/>
+    /// (0x00 as (0x00, 0xFF), terminated by (0x00, 0x00)) to make it prefix-free, which is what
+    /// makes a shorter array sort before any array that extends it.
+    /// </summary>
+    private sealed class FloatArrayCodec : IKeyCodec<float[]>
+    {
+        public int FixedSize => -1;
+        public int GetMaxSize(float[] value) => value.Length * 8 + 2; // 4 bytes per element, each possibly escaped
+
+        public int Encode(Span<byte> dst, float[] value)
+        {
+            int w = 0;
+            foreach (float f in value)
+            {
+                uint bits = ToOrderedBits(f);
+                for (int shift = 24; shift >= 0; shift -= 8)
+                {
+                    byte b = (byte)(bits >> shift);
+                    dst[w++] = b;
+                    if (b == 0) dst[w++] = 0xFF;
+                }
+            }
+            dst[w++] = 0;
+            dst[w++] = 0;
+            return w;
+        }
+
+        public float[] Decode(ReadOnlySpan<byte> src)
+        {
+            src = src[..^2]; // strip terminator
+            int zeros = src.Count((byte)0);
+            var result = new float[(src.Length - zeros) >> 2];
+
+            if (zeros == 0)
+            {
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = FromOrderedBits(BinaryPrimitives.ReadUInt32BigEndian(src[(i * 4)..]));
+                return result;
+            }
+
+            int r = 0;
+            for (int i = 0; i < result.Length; i++)
+            {
+                uint bits = 0;
+                for (int k = 0; k < 4; k++)
+                {
+                    byte b = src[r++];
+                    bits = (bits << 8) | b;
+                    if (b == 0) r++; // skip 0xFF escape marker
+                }
+                result[i] = FromOrderedBits(bits);
+            }
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint ToOrderedBits(float value)
+        {
+            uint bits = BitConverter.SingleToUInt32Bits(value);
+            return (bits & 0x8000_0000u) != 0 ? ~bits : bits ^ 0x8000_0000u;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float FromOrderedBits(uint bits)
+            => BitConverter.UInt32BitsToSingle((bits & 0x8000_0000u) != 0 ? bits ^ 0x8000_0000u : ~bits);
+    }
 
     private sealed class TimeSpanCodec : IKeyCodec<TimeSpan>
     {
@@ -390,6 +464,52 @@ internal static class KeyCodec
             return value.Length;
         }
         public byte[] Decode(ReadOnlySpan<byte> src) => src.ToArray();
+    }
+
+    /// <summary>
+    /// The <see cref="RawByteArrayCodec"/> of float arrays: the raw little-endian element bits, no
+    /// order-preserving transform, no escape pass and no terminator, so an <c>n</c>-element vector
+    /// is exactly <c>4n</c> bytes however many zero bytes it contains. Equal arrays encode to equal
+    /// bytes and bitwise-distinct arrays to distinct bytes, which is the whole contract for the
+    /// stores that use it (see <see cref="GetUnordered{T}"/>). Neither order-preserving nor
+    /// prefix-free, so it must never reach a B+Tree key.
+    /// <para>
+    /// Little-endian is written explicitly rather than blitting native memory: everything else in
+    /// the file format fixes its byte order, and this is persisted data. On a little-endian host —
+    /// every platform .NET currently ships on — both directions are a straight copy, because
+    /// <see cref="BitConverter.IsLittleEndian"/> folds at JIT time and the swapping branch is
+    /// dropped entirely.
+    /// </para>
+    /// </summary>
+    private sealed class RawFloatArrayCodec : IKeyCodec<float[]>
+    {
+        public int FixedSize => -1;
+        public int GetMaxSize(float[] value) => value.Length * 4;
+
+        public int Encode(Span<byte> dst, float[] value)
+        {
+            int size = value.Length * 4;
+            if (BitConverter.IsLittleEndian)
+            {
+                MemoryMarshal.AsBytes(value.AsSpan()).CopyTo(dst);
+            }
+            else
+            {
+                for (int i = 0; i < value.Length; i++)
+                    BinaryPrimitives.WriteSingleLittleEndian(dst[(i * 4)..], value[i]);
+            }
+            return size;
+        }
+
+        public float[] Decode(ReadOnlySpan<byte> src)
+        {
+            if (BitConverter.IsLittleEndian) return MemoryMarshal.Cast<byte, float>(src).ToArray();
+
+            var result = new float[src.Length / 4];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = BinaryPrimitives.ReadSingleLittleEndian(src[(i * 4)..]);
+            return result;
+        }
     }
 
     /// <summary>Plain UTF-8, the <see cref="RawByteArrayCodec"/> of strings: no escape pass and no terminator.</summary>

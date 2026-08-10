@@ -37,6 +37,7 @@ internal static class FacetSetsFile {
             cachedTimestamp = r.ReadInt64();
             if (cachedTimestamp != engineTimestamp) {
                 log?.Invoke($"Deleted old facet sets file.");
+                r.Close();
                 File.Delete(path);
                 return null;
             }

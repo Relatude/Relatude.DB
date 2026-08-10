@@ -6,30 +6,31 @@ namespace Relatude.DB.AI;
 
 public class NativeKvEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
-    readonly BPlusTreeStorageEngine _fileStorage;
-    readonly IUlongIndex<byte[]> _embeddings;
-    readonly Cache<ulong, float[]> _cache = new(1000);
+    readonly BPlusTreeStorageEngine _storage;
+    readonly IUlongIndex<float[]> _embeddings;
+    readonly Cache<ulong, float[]> _cache;
     bool _disposed;
-    public NativeKvEmbeddingCache(string? filePath) {
-        var options = new BPlusTreeEngineOptions() {
-            PageCacheBytes = 2L * 1024 * 1024 * 100, // 2 MB
+    public NativeKvEmbeddingCache(string? filePath) {        
+        // if filePath is null, the cache will be in-memory only
+        _storage = new (filePath, new () {
+            PageCacheBytes = 2L * 1024 * 1024, // 2 MB
             PendingWriteBytes = 4L * 1024 * 1024, // 4 MB
             ValueCacheEntries = 0,
-        };
-        _fileStorage = new BPlusTreeStorageEngine(filePath, options);
+        });
+        _cache = new Cache<ulong, float[]>(1000); // 1000 entries, ~4 MB for 128-dim embeddings
         try {
-            _embeddings = _fileStorage.OpenOrCreateUlongHashIndex<byte[]>("embeddings");
+            _embeddings = _storage.OpenOrCreateUlongHashIndex<float[]>("embeddings");
         } catch (InvalidOperationException) {
             // the file uses an older cache layout; it is only a cache, so discard it and start fresh
-            _fileStorage.DeleteAll();
-            _embeddings = _fileStorage.OpenOrCreateUlongHashIndex<byte[]>("embeddings");
+            _storage.DeleteAll();
+            _embeddings = _storage.OpenOrCreateUlongHashIndex<float[]>("embeddings");
         }
     }
 
     public void ClearAll() {
         lock (_lock) {
             throwIfDisposed();
-            _fileStorage.DeleteAll();
+            _storage.DeleteAll();
             _cache.ClearAll_NotSize0();
         }
     }
@@ -37,7 +38,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
     public void Dispose() {
         lock (_lock) {
             if (_disposed) return;
-            _fileStorage.Dispose();
+            _storage.Dispose();
             _disposed = true;
         }
     }
@@ -46,7 +47,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         ArgumentNullException.ThrowIfNull(embedding);
         lock (_lock) {
             throwIfDisposed();
-            write(() => _embeddings.Set(hash, toBytes(embedding)));
+            write(() => _embeddings.Set(hash, embedding));
             _cache.Set(hash, embedding, 1);
         }
     }
@@ -57,7 +58,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             throwIfDisposed();
             write(() => {
                 foreach (var (hash, embedding) in values) {
-                    _embeddings.Set(hash, toBytes(embedding));
+                    _embeddings.Set(hash, embedding);
                 }
             });
             foreach (var (hash, embedding) in values) _cache.Set(hash, embedding, 1);
@@ -69,7 +70,7 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
             throwIfDisposed();
             if (_cache.TryGet(hash, out embedding)) return true;
             if (_embeddings.TryGetValue(hash, out var value)) {
-                embedding = toFloats(value);
+                embedding = value;
                 _cache.Set(hash, embedding, 1);
                 return true;
             }
@@ -79,28 +80,15 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
     }
 
     void write(Action action) {
-        _fileStorage.BeginTransaction();
+        _storage.BeginTransaction();
         try {
             action();
-            _fileStorage.CommitTransaction(DateTime.UtcNow.Ticks, false);
-            _fileStorage.MakeDurable(true);
+            _storage.CommitTransaction(DateTime.UtcNow.Ticks, false);
+            _storage.MakeDurable(true);
         } catch {
-            if (_fileStorage.IsInTransaction) _fileStorage.RollbackTransaction();
+            if (_storage.IsInTransaction) _storage.RollbackTransaction();
             throw;
         }
     }
-
-    static byte[] toBytes(float[] embedding) {
-        var bytes = new byte[embedding.Length * sizeof(float)];
-        Buffer.BlockCopy(embedding, 0, bytes, 0, bytes.Length);
-        return bytes;
-    }
-
-    static float[] toFloats(byte[] bytes) {
-        var embedding = new float[bytes.Length / sizeof(float)];
-        Buffer.BlockCopy(bytes, 0, embedding, 0, bytes.Length);
-        return embedding;
-    }
-
     void throwIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
