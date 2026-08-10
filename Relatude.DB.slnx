@@ -39,6 +39,7 @@
     <Project Path="src/Relatude.DB.Model/Relatude.DB.Model.csproj" />
     <Project Path="src/Relatude.DB.NodeServer/Relatude.DB.NodeServer.csproj" />
     <Project Path="src/Relatude.DB.NodeStore/Relatude.DB.NodeStore.csproj" />
+    <Project Path="src/Relatude.DB.VectorIndex/Relatude.DB.VectorIndex.csproj" Id="769f8091-3dd8-4107-9bf8-4bad46082faa" />
   </Folder>
   <Folder Name="/Nuget/">
     <File Path="nuget/build.bat" />

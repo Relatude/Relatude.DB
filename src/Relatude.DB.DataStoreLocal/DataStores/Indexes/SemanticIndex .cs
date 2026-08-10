@@ -7,7 +7,7 @@ using System.Reflection;
 
 namespace Relatude.DB.DataStores.Indexes;
 
-internal class SemanticIndex : IIndex {
+internal class SemanticIndex : IIndex, ISemanticIndex {
     readonly IVectorIndex _index;
     readonly AIEngine _ai;
     readonly SetRegister _register;
