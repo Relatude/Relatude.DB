@@ -1,0 +1,65 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/.Examples/">
+    <Project Path="examples/Website.Simple/Website.Simple.csproj" />
+  </Folder>
+  <Folder Name="/Assets/">
+    <File Path=".gitignore" />
+    <File Path="license.txt" />
+    <File Path="notes.txt" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/Benchmarks/">
+    <Project Path="benchmarks/Benchmark.Site/Benchmark.Site.csproj" />
+    <Project Path="benchmarks/KvBenchmarks/KvBenchmarks.csproj" />
+    <Project Path="benchmarks/TextIndexBenchmarks/TextIndexBenchmarks.csproj" />
+  </Folder>
+  <Folder Name="/Benchmarks/Benchmark.Site.Libs/">
+    <Project Path="benchmarks/Benchmark.Base/Benchmark.Base.csproj" />
+    <Project Path="benchmarks/Benchmark.LiteDB/Benchmark.LiteDB.csproj" />
+    <Project Path="benchmarks/Benchmark.MSSQL/Benchmark.MSSQL.csproj" />
+    <Project Path="benchmarks/Benchmark.RavenDB/Benchmark.RavenDB.csproj" />
+    <Project Path="benchmarks/Benchmark.Relatude.DB/Benchmark.Relatude.DB.csproj" />
+    <Project Path="benchmarks/Benchmark.SQLite/Benchmark.SQLite.csproj" />
+  </Folder>
+  <Folder Name="/Database/">
+    <Project Path="src/Relatude.DB.Common/Relatude.DB.Common.csproj" />
+    <Project Path="src/Relatude.DB.DataStore/Relatude.DB.DataStore.csproj" />
+    <Project Path="src/Relatude.DB.DataStoreLocal/Relatude.DB.DataStoreLocal.csproj" />
+    <Project Path="src/Relatude.DB.DataStoreRemote/Relatude.DB.DataStoreRemote.csproj" />
+    <Project Path="src/Relatude.DB.FileStorage/Relatude.DB.FileStorage.csproj" />
+    <Project Path="src/Relatude.DB.GraphQL/Relatude.DB.GraphQL.csproj" />
+    <Project Path="src/Relatude.DB.IO/Relatude.DB.IO.csproj" />
+    <Project Path="src/Relatude.DB.KvStore/Relatude.DB.KvStore.csproj" />
+    <Project Path="src/Relatude.DB.Logger/Relatude.DB.Logger.csproj" />
+    <Project Path="src/Relatude.DB.Model/Relatude.DB.Model.csproj" />
+    <Project Path="src/Relatude.DB.NodeServer/Relatude.DB.NodeServer.csproj" />
+    <Project Path="src/Relatude.DB.NodeStore/Relatude.DB.NodeStore.csproj" />
+  </Folder>
+  <Folder Name="/Nuget/">
+    <File Path="nuget/build.bat" />
+    <File Path="nuget/Relatude.DB.Local.nuspec.later" />
+    <File Path="nuget/Relatude.DB.Plugins.Azure.nuspec" />
+    <File Path="nuget/Relatude.DB.Plugins.FFMpeg.nuspec" />
+    <File Path="nuget/Relatude.DB.Plugins.Lucene.nuspec" />
+    <File Path="nuget/Relatude.DB.Plugins.Skia.nuspec" />
+    <File Path="nuget/Relatude.DB.Plugins.Sqlite.nuspec" />
+    <File Path="nuget/Relatude.DB.Remote.nuspec.later" />
+    <File Path="nuget/Relatude.DB.Server.nuspec" />
+  </Folder>
+  <Folder Name="/Plugins/">
+    <Project Path="src/Relatude.DB.Azure/Relatude.DB.Azure.csproj" />
+    <Project Path="src/Relatude.DB.FFMpeg/Relatude.DB.FFMpeg.csproj" />
+    <Project Path="src/Relatude.DB.Lucene/Relatude.DB.Lucene.csproj" />
+    <Project Path="src/Relatude.DB.Skia/Relatude.DB.Skia.csproj" />
+    <Project Path="src/Relatude.DB.Sqlite/Relatude.DB.Sqlite.csproj" />
+    <Project Path="src/Relatude.DB.TextIndex/Relatude.DB.TextIndex.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/Relatude.DB.Tests/Relatude.DB.Tests.csproj" />
+  </Folder>
+</Solution>

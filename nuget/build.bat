@@ -53,7 +53,7 @@ set /p tag=Enter subversion tag (ie: -alpha):
 if "%tag%"=="" set "tag=-alpha"
 
 :: Build the solution
-dotnet build ..\Relatude.DB.sln --configuration Release
+dotnet build ..\Relatude.DB.slnx --configuration Release
 
 :: Pack the NuGet packages using the entered version
 for %%f in (.\*.nuspec) do (

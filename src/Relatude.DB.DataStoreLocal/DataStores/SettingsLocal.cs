@@ -63,13 +63,13 @@ public class SettingsLocal {
     public bool UsePersistedValueIndexesByDefault { get; set; } = false;
     public bool UsePersistedTextIndexesByDefault { get; set; } = false;
 
-    public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Memory;
+    public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Native;
     public string? PersistedValueIndexFolderPath { get; set; }
 
     public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
-    public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Memory;
+    public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Native;
 
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.BuiltIn;
