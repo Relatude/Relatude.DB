@@ -31,7 +31,7 @@ public class WalFileBindingTests {
         idx.value.Add(id, "hello" + id);
         idx.word.Add(id, "hello world " + id);
         engines.CommitTransaction(timestamp);
-        engines.MakeDurable();
+        engines.MakeDurable(timestamp);
     }
     static void assertBinding(IndexEngines engines, Guid walFileId, long timestamp) {
         Assert.AreEqual(walFileId, engines.Value!.GetWalFileId(), "value engine WAL id");

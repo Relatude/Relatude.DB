@@ -90,6 +90,8 @@ export interface LocalSettings {
     enableInstantTextIndexingByDefault: boolean
     usePersistedTextIndexesByDefault: boolean
     persistedTextIndexEngine: number
+    usePersistedSemanticIndexesByDefault: boolean
+    persistedSemanticIndexEngine: number
     autoDequeTasks: boolean
     persistedQueueStoreEngine: number
     persistedQueueStoreFolderPath: string | null

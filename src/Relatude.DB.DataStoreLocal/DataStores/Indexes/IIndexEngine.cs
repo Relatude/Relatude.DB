@@ -1,3 +1,4 @@
+using Relatude.DB.AI;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 
@@ -92,3 +93,30 @@ public interface ITextIndexEngine : IIndexEngine {
 
 /// <summary>Per-property word index configuration, taken from the string property model.</summary>
 public sealed record WordIndexOptions(int MinWordLength, int MaxWordLength, bool PrefixSearch, bool InfixSearch);
+
+/// <summary>
+/// Engine serving the semantic (vector) indexes. Deliberately NOT an <see cref="IIndexEngine"/>:
+/// a semantic index implements <see cref="ISemanticIndex"/> (which extends <see cref="IIndex"/>)
+/// and is driven through the same protocol as the memory indexes — writes per transaction, the
+/// state save/read hooks for durability, and WAL replay gated by its own
+/// <see cref="IIndex.PersistedTimestamp"/> — so the engine takes no part in the transaction cycle;
+/// it only owns the storage folder, hands out indexes, and covers folder-level maintenance.
+/// </summary>
+public interface ISemanticIndexEngine : IDisposable {
+    /// <summary>Short human-readable engine name, used in index friendly names and log messages.</summary>
+    string Name { get; }
+    ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log);
+    /// <summary>Durably persists every index's unflushed writes, stamped at the given log position.
+    /// Called right after every successful WAL flush (with the newest timestamp the durable log
+    /// covers), so the durable indexes can never contain transactions the durable log is missing.
+    /// Indexes write only the changes since their last flush, so this is cheap to call often.</summary>
+    void MakeDurable(long logTimestamp);
+    /// <summary>Wipes all index data but keeps the WAL binding, resetting every index to timestamp
+    /// 0 so the startup loader rebuilds it from the log (e.g. after a divergence reset).</summary>
+    void ResetAll();
+    /// <summary>Durably deletes every persisted index that has not been opened in this session, so
+    /// an index that has left the schema does not resurrect stale data when it is later re-added.
+    /// Call only after every index in the current schema has been opened.</summary>
+    void DeleteUnopenedIndexes();
+    long GetTotalDiskSpace();
+}

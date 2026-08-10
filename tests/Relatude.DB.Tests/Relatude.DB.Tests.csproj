@@ -27,6 +27,7 @@
 	  <ProjectReference Include="..\..\src\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.TextIndex\Relatude.DB.TextIndex.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
 	</ItemGroup>
 
 </Project>

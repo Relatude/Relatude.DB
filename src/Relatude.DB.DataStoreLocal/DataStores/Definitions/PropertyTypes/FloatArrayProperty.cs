@@ -11,8 +11,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         public FloatArrayProperty(FloatArrayPropertyModel pm, Definition def) : base(pm, def) {
             _isSystemVectorIndexPropertyId = pm.Id == NodeConstants.SystemVectorIndexPropertyId;
         }
-        IndexUtil<SemanticIndex> _indexUtil = new();
-        public SemanticIndex GetSemanticIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
+        IndexUtil<ISemanticIndex> _indexUtil = new();
+        public ISemanticIndex GetSemanticIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (Indexed && ai != null) _indexUtil.Initalize(IndexFactory.CreateSemanticIndexes(store, ai, this, null), Model.CultureSensitive, AllIndexes);
         }

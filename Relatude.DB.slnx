@@ -17,6 +17,7 @@
     <Project Path="benchmarks/Benchmark.Site/Benchmark.Site.csproj" />
     <Project Path="benchmarks/KvBenchmarks/KvBenchmarks.csproj" />
     <Project Path="benchmarks/TextIndexBenchmarks/TextIndexBenchmarks.csproj" />
+    <Project Path="benchmarks/VectorIndexBenchmarks/VectorIndexBenchmarks.csproj" />
   </Folder>
   <Folder Name="/Benchmarks/Benchmark.Site.Libs/">
     <Project Path="benchmarks/Benchmark.Base/Benchmark.Base.csproj" />
@@ -39,6 +40,7 @@
     <Project Path="src/Relatude.DB.Model/Relatude.DB.Model.csproj" />
     <Project Path="src/Relatude.DB.NodeServer/Relatude.DB.NodeServer.csproj" />
     <Project Path="src/Relatude.DB.NodeStore/Relatude.DB.NodeStore.csproj" />
+    <Project Path="src/Relatude.DB.TextIndex/Relatude.DB.TextIndex.csproj" />
     <Project Path="src/Relatude.DB.VectorIndex/Relatude.DB.VectorIndex.csproj" Id="769f8091-3dd8-4107-9bf8-4bad46082faa" />
   </Folder>
   <Folder Name="/Nuget/">
@@ -58,7 +60,6 @@
     <Project Path="src/Relatude.DB.Lucene/Relatude.DB.Lucene.csproj" />
     <Project Path="src/Relatude.DB.Skia/Relatude.DB.Skia.csproj" />
     <Project Path="src/Relatude.DB.Sqlite/Relatude.DB.Sqlite.csproj" />
-    <Project Path="src/Relatude.DB.TextIndex/Relatude.DB.TextIndex.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/Relatude.DB.Tests/Relatude.DB.Tests.csproj" />

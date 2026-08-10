@@ -302,7 +302,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw new StateFileReadException(aheadIndex + " is ahead of the log file (its timestamp is newer than the last log timestamp). ", null);
         }
         Engines.CommitTransaction(_wal.LastTimestamp);
-        Engines.MakeDurable(); // replay work must not stay pending until the first background flush
+        Engines.MakeDurable(_wal.LastTimestamp); // replay work must not stay pending until the first background flush
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);

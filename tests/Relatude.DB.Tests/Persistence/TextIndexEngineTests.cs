@@ -178,7 +178,7 @@ public class TextIndexEngineTests {
                 engines.BeginTransaction();
                 idx.Add(1, "hello world 1");
                 engines.CommitTransaction(1000);
-                engines.MakeDurable();
+                engines.MakeDurable(1000);
                 Assert.AreEqual(1000, engines.Text!.GetTimestamp());
             }
             // the log is now a different file: the engine must reset (timestamp 0 forces the
@@ -192,7 +192,7 @@ public class TextIndexEngineTests {
                 engines.BeginTransaction();
                 idx.Add(2, "hello world 2");
                 engines.CommitTransaction(2000);
-                engines.MakeDurable();
+                engines.MakeDurable(2000);
             }
             // next startup against the same log: the adopted binding holds, nothing resets again
             using (var engines = new IndexEngines(null, new TextIndexEngine(dir))) {

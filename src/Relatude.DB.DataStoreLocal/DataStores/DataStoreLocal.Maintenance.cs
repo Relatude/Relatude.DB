@@ -37,7 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _lock.EnterWriteLock();
                 try {
                     _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
-                    Engines.MakeDurable();
+                    Engines.MakeDurable(_wal.LastTimestamp);
                 } finally {
                     _lock.ExitWriteLock();
                 }

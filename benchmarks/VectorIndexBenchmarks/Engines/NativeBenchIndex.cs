@@ -1,0 +1,33 @@
+using Relatude.DB.AI;
+using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Sets;
+using Relatude.DB.VectorIndex;
+
+namespace VectorIndexBenchmarks.Engines;
+
+/// <summary>
+/// The disk-based vector index (<see cref="NativeVectorIndex"/>): vectors live in immutable
+/// segment files, only ids, offsets and centroids stay in memory, and a search probes the
+/// <see cref="NativeVectorIndexOptions.Accuracy"/> fraction of clusters nearest the query, serving
+/// hot blocks from a byte-budgeted cache. It is the only one of the two with a per-WAL-flush
+/// durability hook: <see cref="NativeVectorIndex.MakeDurable"/> writes just the delta.
+/// </summary>
+public sealed class NativeBenchIndex : IBenchVectorIndex {
+    readonly NativeVectorIndex _index;
+    readonly string _dir;
+
+    public NativeBenchIndex(string dir, Guid walId, AIEngine ai, NativeVectorIndexOptions options) {
+        Directory.CreateDirectory(dir);
+        _dir = dir;
+        // A disabled set cache (size 0), for the same reason as the in-memory index: the filter
+        // phase must reach the index on every call.
+        _index = new NativeVectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
+        _index.ReadStateForMemoryIndexes(walId);
+    }
+    public ISemanticIndex Index => _index;
+    public bool SupportsIncrementalDurability => true;
+    public void SaveState(long timestamp) => _index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
+    public void MakeDurable(long timestamp) => _index.MakeDurable(timestamp);
+    public long DiskBytes => Harness.Engines.FolderBytes(_dir);
+    public void Dispose() => _index.Dispose();
+}

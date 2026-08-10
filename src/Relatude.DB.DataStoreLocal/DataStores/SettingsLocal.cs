@@ -60,8 +60,9 @@ public class SettingsLocal {
     public double AutoPurgeCacheIntervalInMinutes { get; set; } = 5;
     public double AutoPurgeCacheLowerSizeLimitInMb { get; set; } = 1;
 
-    public bool UsePersistedValueIndexesByDefault { get; set; } = false;
-    public bool UsePersistedTextIndexesByDefault { get; set; } = false;
+    public bool UsePersistedValueIndexesByDefault { get; set; } = true;
+    public bool UsePersistedTextIndexesByDefault { get; set; } = true;
+    public bool UsePersistedSemanticIndexesByDefault { get; set; } = true;
 
     public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Native;
     public string? PersistedValueIndexFolderPath { get; set; }
@@ -70,6 +71,7 @@ public class SettingsLocal {
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
     public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Native;
+    public PersistedSemanticIndexEngine PersistedSemanticIndexEngine { get; set; } = PersistedSemanticIndexEngine.Native;
 
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
@@ -80,12 +82,16 @@ public enum PersistedTextIndexEngine {
     Memory = 0,
     Sqlite = 1,
     Lucene = 2,
-    Native = 3, // the built-in disk text index (Relatude.DB.TextIndex)
+    Native = 3,
 }
 public enum PersistedValueIndexEngine {
     Memory = 0,
     Sqlite = 1,
     Native = 2,
+}
+public enum PersistedSemanticIndexEngine {
+    Memory = 0,
+    Native = 1, // the built-in disk vector index (Relatude.DB.VectorIndex)
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,

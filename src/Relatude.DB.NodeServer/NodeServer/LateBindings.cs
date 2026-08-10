@@ -50,6 +50,9 @@ public static class LateBindings {
     public static ITextIndexEngine CreateNativeTextIndexEngine(string indexPath) {
         return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.TextIndexEngine", "Relatude.DB.TextIndex", "Relatude.DB.Plugins.TextIndex", [indexPath]);
     }
+    public static ISemanticIndexEngine CreateNativeSemanticIndexEngine(string indexPath) {
+        return create<ISemanticIndexEngine>("Relatude.DB.VectorIndex.NativeVectorIndexEngine", "Relatude.DB.VectorIndex", "Relatude.DB.Plugins.VectorIndex", [indexPath]);
+    }
     /// <summary>
     /// A SQLite engine serving only the FTS5 word indexes, for a configuration whose value indexes
     /// use another engine. When the value indexes are SQLite too, do not call this: pass that

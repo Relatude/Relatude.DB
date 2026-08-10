@@ -17,6 +17,8 @@
 		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
 		<ProjectReference Include="..\Relatude.DB.DataStoreRemote\Relatude.DB.DataStoreRemote.csproj" />
 		<ProjectReference Include="..\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
+		<ProjectReference Include="..\Relatude.DB.TextIndex\Relatude.DB.TextIndex.csproj" />
+		<ProjectReference Include="..\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<EmbeddedResource Include="NodeServer\ClientUI\Images\favicon.ico" />

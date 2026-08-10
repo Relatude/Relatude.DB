@@ -7,26 +7,26 @@ using System.Reflection;
 
 namespace Relatude.DB.DataStores.Indexes;
 
-internal class SemanticIndex : IIndex, ISemanticIndex {
+internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     readonly IVectorIndex _index;
     readonly AIEngine _ai;
     readonly SetRegister _register;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
-    public SemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai, Action<string> log) {
+    public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai, Action<string> log) {
         _register = sets;
         UniqueKey = uniqueKey;
-        var indexType = ai.Settings.IndexType ?? AIProviderIndexType.FlatMemory;
-        _index = indexType switch {
-            AIProviderIndexType.FlatMemory => new FlatMemoryVectorIndex(),
-            //AIProviderIndexType.HnswVector => new HnswVectorIndex(), 
-            //AIProviderIndexType.FlatDisk => new FlatDiskVectorIndex(),
-            AIProviderIndexType.TurboQuant =>
-            ai.Settings.ModelDimensions.HasValue ? new TurboQuantVectorIndex(ai.Settings.ModelDimensions.Value, log) :
-            throw new Exception("AI model dimensions must be specified in settings to create a semantic index. "),
-            _ => throw new Exception("AIProviderIndexType not supported: " + indexType)
-        };
+        _index = new FlatMemoryVectorIndex();
+        //var indexType = ai.Settings.IndexType ?? AIProviderIndexType.Flat;
+        //_index = indexType switch {
+        //    AIProviderIndexType.Flat => new FlatMemoryVectorIndex(),
+        //    //AIProviderIndexType.HnswVector => new HnswVectorIndex(),
+        //    //AIProviderIndexType.FlatDisk => new FlatDiskVectorIndex(),
+        //    AIProviderIndexType.TurboQuant =>
+        //    ai.Settings.ModelDimensions.HasValue ? new TurboQuantVectorIndex(ai.Settings.ModelDimensions.Value, log) :
+        //    throw new Exception("AI model dimensions must be specified in settings to create a semantic index. "),
+        //};
         _ai = ai;
         newSetState();
         _io = io;
@@ -37,7 +37,7 @@ internal class SemanticIndex : IIndex, ISemanticIndex {
     void newSetState() {
         _searchIndexStateId = SetRegister.NewStateId();
     }
-    internal List<RawSearchHit> SearchForHitData(string value, int top, int maxHits, float minimumCosineSimilarity, out int totalHits) {
+    public List<RawSearchHit> SearchForHitData(string value, int top, int maxHits, float minimumCosineSimilarity, out int totalHits) {
         var vector = _ai.GetEmbeddingsAsync([value]).Result.First();
         List<VectorHit> vectorHits;
 
@@ -119,11 +119,11 @@ internal class SemanticIndex : IIndex, ISemanticIndex {
     }
     public void ClearCache() {
     }
-    internal string GetSample(string search, string sourceText) {
+    public string GetSample(string search, string sourceText) {
         // more to be done later here....
         return sourceText;
     }
-    internal string GetContextText(string search, string sourceText) {
+    public string GetContextText(string search, string sourceText) {
         // more to be done later here....
         return sourceText;
     }

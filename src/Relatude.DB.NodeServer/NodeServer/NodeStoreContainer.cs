@@ -82,7 +82,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
 
     static bool usesPersistedIndexEngines(SettingsLocal local)
         => local.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory
-        || local.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory;
+        || local.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory
+        || local.PersistedSemanticIndexEngine != PersistedSemanticIndexEngine.Memory;
 
     /// <summary>
     /// The local disk folder for the plugins that own their storage: the index engines, the sqlite
@@ -128,20 +129,29 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// misconfigured path is reported by <see cref="Initialize"/> rather than from deep inside the
     /// data store constructor.</para>
     /// </summary>
-    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog) {
+    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog, bool hasAiProvider) {
         var valueEngine = local.PersistedValueIndexEngine;
         var textEngine = local.PersistedTextIndexEngine;
+        // semantic indexes only exist when an AI provider is configured, and unlike value/text
+        // indexes they have no per-property persisted override — so unless the store default asks
+        // for persisted semantic indexes, the engine is never loaded and no folder is claimed
+        var semanticEngine = hasAiProvider && local.UsePersistedSemanticIndexesByDefault
+            ? local.PersistedSemanticIndexEngine : PersistedSemanticIndexEngine.Memory;
         if (!usesPersistedIndexEngines(local)) {
             toLog.Add("Index engines: none. All indexes are in memory, persisted through state files.");
             return null;
         }
-        toLog.Add("Index engines: values=" + valueEngine + ", text=" + textEngine + ". Index path: " + indexPath);
+        toLog.Add("Index engines: values=" + valueEngine + ", text=" + textEngine + ", semantic=" + semanticEngine + ". Index path: " + indexPath);
         // A persisted default that no engine can serve falls back to memory indexes. That is a valid
         // configuration, but silent - and an unexpectedly in-memory index is hard to spot later:
         if (local.UsePersistedValueIndexesByDefault && valueEngine == PersistedValueIndexEngine.Memory)
             toLog.Add("Note: UsePersistedValueIndexesByDefault is on while PersistedValueIndexEngine is Memory, so value indexes stay in memory.");
         if (local.UsePersistedTextIndexesByDefault && textEngine == PersistedTextIndexEngine.Memory)
             toLog.Add("Note: UsePersistedTextIndexesByDefault is on while PersistedTextIndexEngine is Memory, so word indexes stay in memory.");
+        if (local.UsePersistedSemanticIndexesByDefault && local.PersistedSemanticIndexEngine == PersistedSemanticIndexEngine.Memory && hasAiProvider)
+            toLog.Add("Note: UsePersistedSemanticIndexesByDefault is on while PersistedSemanticIndexEngine is Memory, so semantic indexes stay in memory.");
+        if (!local.UsePersistedSemanticIndexesByDefault && local.PersistedSemanticIndexEngine != PersistedSemanticIndexEngine.Memory && hasAiProvider)
+            toLog.Add("Note: UsePersistedSemanticIndexesByDefault is off, so semantic indexes stay in memory (PersistedSemanticIndexEngine is " + local.PersistedSemanticIndexEngine + ").");
         return () => {
             var value = valueEngine == PersistedValueIndexEngine.Memory ? null
                 : LateBindings.CreateValueIndexEngine(valueEngine, indexPath);
@@ -154,7 +164,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 PersistedTextIndexEngine.Native => LateBindings.CreateNativeTextIndexEngine(indexPath),
                 _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngine),
             };
-            return new IndexEngines(value, text);
+            ISemanticIndexEngine? semantic = semanticEngine switch {
+                PersistedSemanticIndexEngine.Memory => null,
+                PersistedSemanticIndexEngine.Native => LateBindings.CreateNativeSemanticIndexEngine(indexPath),
+                _ => throw new Exception("Unknown PersistedSemanticIndexEngine: " + semanticEngine),
+            };
+            return new IndexEngines(value, text, semantic);
         };
     }
 
@@ -213,7 +228,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
 
             List<string> toLog = new();
-            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog);
+            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog, ai != null);
 
             IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {

@@ -67,7 +67,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");
         if (_regEx != null && !_regEx.Match(v).Success) throw new Exception("Value does not match regular expression. ");
     }
-    SemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
+    ISemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
         if (db._ai != null && IndexedBySemantic) {
             if (!db._definition.Properties.TryGetValue(this.PropertyIdForVectors, out var semProp))
                 throw new Exception("Semantic property for vectors is not defined. ");
@@ -82,7 +82,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         return null;
     }
     public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db, QueryContext ctx) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
+        ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
@@ -93,7 +93,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             if (wordIndex == null) throw new NullReferenceException(nameof(wordIndex));
             return wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
         } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
-            if (semanticIndex == null) throw new NullReferenceException(nameof(SemanticIndex));
+            if (semanticIndex == null) throw new NullReferenceException(nameof(MemorySemanticIndex));
             return semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
         } else {
             return IdSet.Empty;
@@ -101,7 +101,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     }
     internal IEnumerable<RawSearchHit> SearchForRankedHitData(IdSet baseSet, string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int pageIndex,
         int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits, out double innerSearchTimeMs) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
+        ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
         if (ratioSemantic > 1) ratioSemantic = 1;
         else if (ratioSemantic < 0) ratioSemantic = 0;
@@ -179,11 +179,11 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         return new TextSample(search, sourceText, maxLength);
     }
     internal string GetSemanticSample(string search, string sourceText, DataStoreLocal db, QueryContext ctx) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
+        ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         return semanticIndex!.GetSample(search, sourceText);
     }
     internal string GetSemanticContextText(string question, string sourceText, DataStoreLocal db, QueryContext ctx) {
-        SemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
+        ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         return semanticIndex!.GetContextText(question, sourceText);
     }
     internal string GetWordContextText(string question, string sourceText) {
@@ -192,7 +192,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     override public bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) {
         // special handling for system text index property, allowing different node types to be indexed or not
         if (!_isSystemTextIndexPropertyId) return true;
-        if (index is DataStores.Indexes.SemanticIndex) {
+        if (index is DataStores.Indexes.MemorySemanticIndex) {
             return Definition.NodeTypes[nodeTypeId].Model.SemanticIndex!.Value;
         }
         if (index is DataStores.Indexes.IWordIndex) {

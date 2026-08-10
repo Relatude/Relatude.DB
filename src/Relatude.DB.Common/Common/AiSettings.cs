@@ -7,6 +7,6 @@ public enum AIProviderCacheType {
     Sqlite = 3,
 }
 public enum AIProviderIndexType {
-    FlatMemory = 0,
+    Flat = 0,
     TurboQuant = 1,
 }

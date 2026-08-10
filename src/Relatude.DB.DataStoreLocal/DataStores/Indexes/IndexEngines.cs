@@ -19,24 +19,37 @@ public sealed class IndexEngines : IDisposable {
     public static readonly IndexEngines Empty = new(null, null); // stateless, safe to share
     public IValueIndexEngine? Value { get; }
     public ITextIndexEngine? Text { get; }
+    /// <summary>The semantic (vector) index factory. Not part of the transaction/WAL fan-out below:
+    /// semantic indexes are driven through the memory-index protocol and carry their own persisted
+    /// positions, see <see cref="ISemanticIndexEngine"/>.</summary>
+    public ISemanticIndexEngine? Semantic { get; }
     readonly IIndexEngine[] _distinct; // reference-deduped, fixed fan-out order
-    public IndexEngines(IValueIndexEngine? value = null, ITextIndexEngine? text = null) {
+    public IndexEngines(IValueIndexEngine? value = null, ITextIndexEngine? text = null, ISemanticIndexEngine? semantic = null) {
         Value = value;
         Text = text;
+        Semantic = semantic;
         var list = new List<IIndexEngine>(2);
         if (value != null) list.Add(value);
         if (text != null && !list.Contains(text)) list.Add(text);
         _distinct = [.. list];
     }
-    /// <summary>True when at least one engine is configured; with none, every call is a no-op.</summary>
-    public bool Any => _distinct.Length > 0;
+    /// <summary>True when at least one persisted engine is configured (semantic included); with
+    /// none, every lifecycle call is a no-op. Gates the durable-flush and replay-checkpoint work.</summary>
+    public bool Any => _distinct.Length > 0 || Semantic != null;
 
     // ---- transaction protocol ------------------------------------------------------------------
     public void BeginTransaction() { foreach (var e in _distinct) e.BeginTransaction(); }
     public void CommitTransaction(long timestamp) { foreach (var e in _distinct) e.CommitTransaction(timestamp); }
     public void RollbackTransaction() { foreach (var e in _distinct) e.RollbackTransaction(); }
     public void CleanUpOnUnknownTransactionError() { foreach (var e in _distinct) e.CleanUpOnUnknownTransactionError(); }
-    public void MakeDurable() { foreach (var e in _distinct) e.MakeDurable(); }
+    /// <summary>Durably persists everything committed so far; called right after a successful WAL
+    /// flush. <paramref name="lastDurableLogTimestamp"/> is the newest timestamp the durable log
+    /// covers — the transactional engines persist the position they recorded at commit, while the
+    /// semantic indexes (driven through the index protocol, not transactions) are stamped here.</summary>
+    public void MakeDurable(long lastDurableLogTimestamp) {
+        foreach (var e in _distinct) e.MakeDurable();
+        Semantic?.MakeDurable(lastDurableLogTimestamp);
+    }
 
     // ---- startup -------------------------------------------------------------------------------
     /// <summary>
@@ -72,6 +85,9 @@ public sealed class IndexEngines : IDisposable {
                 e.BeginTransaction();
             }
         }
+        // semantic indexes take no part in transactions; a durable flush checkpoints them the same
+        // way (each index guards against regressing, so an up-to-date index is a no-op)
+        Semantic?.MakeDurable(timestamp);
     }
     /// <summary>The engine whose durable timestamp is newer than the newest timestamp the durable
     /// log contains — evidence of acknowledged writes lost from the log — or null when none is.</summary>
@@ -86,10 +102,16 @@ public sealed class IndexEngines : IDisposable {
     }
 
     // ---- maintenance ---------------------------------------------------------------------------
-    public void DeleteUnopenedIndexes() { foreach (var e in _distinct) e.DeleteUnopenedIndexes(); }
-    public void ResetAll() { foreach (var e in _distinct) e.ResetAll(); }
+    public void DeleteUnopenedIndexes() {
+        foreach (var e in _distinct) e.DeleteUnopenedIndexes();
+        Semantic?.DeleteUnopenedIndexes();
+    }
+    public void ResetAll() {
+        foreach (var e in _distinct) e.ResetAll();
+        Semantic?.ResetAll();
+    }
     public void OptimizeDisk() { foreach (var e in _distinct) e.OptimizeDisk(); }
-    public long GetTotalDiskSpace() { return _distinct.Sum(e => e.GetTotalDiskSpace()); }
+    public long GetTotalDiskSpace() { return _distinct.Sum(e => e.GetTotalDiskSpace()) + (Semantic?.GetTotalDiskSpace() ?? 0); }
     // derived query caches (facet-set sidecar) are a value-engine concern, see IValueIndexEngine
     public void SaveIndexCaches(bool force) { Value?.SaveIndexCaches(force); }
     public void ResetIndexCaches() { Value?.ResetIndexCaches(); }
@@ -97,5 +119,6 @@ public sealed class IndexEngines : IDisposable {
         foreach (var e in _distinct) {
             try { e.Dispose(); } catch { }
         }
+        try { Semantic?.Dispose(); } catch { }
     }
 }

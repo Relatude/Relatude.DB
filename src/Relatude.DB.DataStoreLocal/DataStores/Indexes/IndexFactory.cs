@@ -200,8 +200,8 @@ internal static class IndexFactory {
         return new OptimizedWordIndex(index);
     }
 
-    public static Dictionary<string, SemanticIndex> CreateSemanticIndexes(DataStoreLocal store, AIEngine ai, FloatArrayProperty property, string? subKey) {
-        Dictionary<string, SemanticIndex> indexes = new();
+    public static Dictionary<string, ISemanticIndex> CreateSemanticIndexes(DataStoreLocal store, AIEngine ai, FloatArrayProperty property, string? subKey) {
+        Dictionary<string, ISemanticIndex> indexes = new();
         var sets = store._definition.Sets;
         if (property.Model.CultureSensitive) {
             foreach (var culture in store._nativeModelStore.Cultures) {
@@ -215,12 +215,18 @@ internal static class IndexFactory {
         return indexes;
 
     }
-    static SemanticIndex createSemanticIndex(DataStoreLocal store, AIEngine ai, string? cultureCode, SetRegister sets, FloatArrayProperty p, string? subKey) {
+    static ISemanticIndex createSemanticIndex(DataStoreLocal store, AIEngine ai, string? cultureCode, SetRegister sets, FloatArrayProperty p, string? subKey) {
         var def = store._definition;
         var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
-        var name = "Semantic " + classDef.CodeName + "." + p.Model.CodeName;
         var uniqueKey = getUniqueKey(p, cultureCode, subKey);
-        return new SemanticIndex(def.Sets, uniqueKey, name, store.IOIndex, store.FileKeys, ai, t => store.LogInfo(t));
+        // the store default decides: persisted (engine) or memory. Off, or on without a configured
+        // engine, falls back to the in-memory index, like the other kinds.
+        if (store.Settings.UsePersistedSemanticIndexesByDefault && store.Engines.Semantic != null) {
+            var name = store.Engines.Semantic.Name + " Semantic Index " + classDef.CodeName + "." + p.Model.CodeName;
+            return store.Engines.Semantic.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
+        }
+        return new MemorySemanticIndex(def.Sets, uniqueKey, "Semantic " + classDef.CodeName + "." + p.Model.CodeName,
+            store.IOIndex, store.FileKeys, ai, t => store.LogInfo(t));
     }
 
 }

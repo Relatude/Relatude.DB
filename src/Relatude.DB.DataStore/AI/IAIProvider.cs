@@ -29,5 +29,5 @@ public class AIProviderSettings {
     public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;
 
     public AIProviderCacheType? CacheType { get; set; }
-    public AIProviderIndexType? IndexType { get; set; }
+    //public AIProviderIndexType? IndexType { get; set; }
 }

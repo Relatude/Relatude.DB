@@ -65,6 +65,7 @@ public class FileKeyUtility {
     const string indexEngineLuceneWalIdFile = "engine.walid";
     const string indexEngineTextIndexFolder = "textindex";
     const string indexEngineTextIndexWalIdFile = "engine.walid";
+    const string indexEngineVectorIndexFolder = "vectorindex";
     const string binaryExtension = ".bin";
     const string tempExtension = ".tmp";
 
@@ -224,6 +225,11 @@ public class FileKeyUtility {
     /// <summary>Folder of one disk text word index, below <see cref="IndexEngine_TextIndexFolderKey"/>.
     /// Same naming rule as <see cref="IndexEngine_LuceneIndexFolderKey"/> and for the same reasons.</summary>
     public static string IndexEngine_TextIndexIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
+    /// <summary>Folder of the built-in disk vector index engine; each semantic index gets a subfolder below it.</summary>
+    public static string IndexEngine_VectorIndexFolderKey => indexEngineVectorIndexFolder;
+    /// <summary>Folder of one disk vector index, below <see cref="IndexEngine_VectorIndexFolderKey"/>.
+    /// Same naming rule as <see cref="IndexEngine_LuceneIndexFolderKey"/> and for the same reasons.</summary>
+    public static string IndexEngine_VectorIndexIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
 
     /// <summary>
     /// The sibling name to write to before atomically replacing <paramref name="fileKey"/>, so a

@@ -1,23 +1,23 @@
-﻿using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.DataStores.Indexes;
 
-public interface ISemanticIndex {
-    string FriendlyName { get; }
-    long PersistedTimestamp { get; }
-    string UniqueKey { get; }
-
-    void Add(int nodeId, object value);
-    void ClearCache();
-    void CompressMemory();
-    void Dispose();
-    void FlagFirstCommit();
+/// <summary>
+/// A semantic (vector similarity) index over one float-array property. Extends <see cref="IIndex"/>:
+/// implementations are driven exactly like the other property indexes — adds/removes per
+/// transaction, the memory-index state protocol at startup and state saves, and WAL replay gated by
+/// <see cref="IIndex.PersistedTimestamp"/> — whether the vectors live in memory
+/// (<see cref="MemorySemanticIndex"/>) or on disk (the native vector index engine).
+/// </summary>
+public interface ISemanticIndex : IIndex {
     int MaxCount(string value);
-    void ReadStateForMemoryIndexes(Guid walFileId);
-    void RegisterAddDuringStateLoad(int nodeId, object value);
-    void RegisterRemoveDuringStateLoad(int nodeId, object value);
-    void Remove(int nodeId, object value);
-    void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId);
+    /// <summary>All node ids whose vector is at least this similar to the embedded search text.</summary>
     IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity);
-    void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId);
+    /// <summary>The top ranked hits for the embedded search text; <paramref name="totalHits"/> is
+    /// the number of hits evaluated (bounded by <paramref name="maxHits"/>).</summary>
+    List<RawSearchHit> SearchForHitData(string value, int top, int maxHits, float minimumCosineSimilarity, out int totalHits);
+    /// <summary>A display sample of the source text for a search; currently the full text.</summary>
+    string GetSample(string search, string sourceText);
+    /// <summary>The context to hand an LLM for a question over the source text; currently the full text.</summary>
+    string GetContextText(string search, string sourceText);
 }

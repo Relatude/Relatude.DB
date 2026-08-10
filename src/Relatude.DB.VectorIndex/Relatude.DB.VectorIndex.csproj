@@ -10,4 +10,8 @@
     <ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="AI\" />
+  </ItemGroup>
+
 </Project>
