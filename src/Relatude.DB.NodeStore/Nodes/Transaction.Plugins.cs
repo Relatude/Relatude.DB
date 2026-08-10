@@ -3,11 +3,21 @@ using Relatude.DB.Common;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
 public partial class Transaction {
+    /// <summary>
+    /// Commits everything queued on this transaction: all operations are applied together, or none of them are and
+    /// an exception is thrown. Pass flushToDisk to wait until the change is on disk rather than only in the log
+    /// buffer. The transaction is emptied afterwards, so the instance can be filled and executed again.
+    /// </summary>
     public async Task<TransactionResult> ExecuteAsync(bool flushToDisk = false) {
         var result = await Store.ExecuteAsync(this, flushToDisk);
         _transactionData = new();
         return result;
     }
+    /// <summary>
+    /// Commits everything queued on this transaction: all operations are applied together, or none of them are and
+    /// an exception is thrown. The returned result carries the new state id of the store and what each operation
+    /// ended up doing. The transaction is emptied afterwards and can be filled and executed again.
+    /// </summary>
     public TransactionResult Execute(bool flushToDisk = false) {
         var stateId = Store.Execute(this, flushToDisk);
         _transactionData = new();
