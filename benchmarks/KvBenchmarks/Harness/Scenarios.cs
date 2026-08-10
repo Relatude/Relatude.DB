@@ -69,7 +69,7 @@ public static class Engines {
     public static IIntIndex<T> OpenBenchIndex<T>(IStorageEngine engine, string engineName) where T : notnull
         => IsHashLayout(engineName)
             ? engine.OpenOrCreateIntHashIndex<T>(IndexName)
-            : engine.OpenOrCreateIntIndex<T>(IndexName);
+            : engine.OpenOrCreateSortedIntIndex<T>(IndexName);
 
     /// <summary>A memory-only native engine, used as the reference in verification.</summary>
     public static IStorageEngine CreateReference() => new BPlusTreeStorageEngine(null);

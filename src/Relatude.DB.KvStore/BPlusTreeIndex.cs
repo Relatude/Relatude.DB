@@ -128,8 +128,11 @@ internal abstract class BPlusTreeIndex<TId, T>(BPlusTreeStorageEngine engine, st
         {
             int valueLen = _codec.Encode(buf, value);
             // Validate the composite up front: failing on the second tree would leave the two trees inconsistent.
+            // The bound is inherent to this layout — a value here is half of a tree key, so it has to
+            // fit a page and be comparable in place; a value that large belongs in the hash layout,
+            // which stores values as opaque payloads and spills them to overflow pages.
             if (valueLen + IdSize > NodePage.MaxKeySize)
-                throw new ArgumentException($"Encoded value is {valueLen} bytes; the maximum is {NodePage.MaxKeySize - IdSize}.");
+                throw new ArgumentException($"Encoded value is {valueLen} bytes; the maximum for a sorted index is {NodePage.MaxKeySize - IdSize} (its values are ordered tree keys). A hash index (OpenOrCreate*HashIndex) stores values of any size.");
 
             IdCodec<TId>.Encode(buf[valueLen..], id);
             Span<byte> composite = buf[..(valueLen + IdSize)];

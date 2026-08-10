@@ -123,6 +123,10 @@ public interface ISortedDictionaryIndex<K, T>: IDictionaryIndex<K, T> where K : 
 /// <see cref="IDictionaryIndex{K,T}.GetIds"/> is a full scan — dropping those guarantees is what
 /// buys the constant-time lookups (see <c>OpenOrCreateIntHashIndex</c>). A sorted index satisfies
 /// this contract too, so an engine without a dedicated hash layout can serve one.
+/// <para>
+/// Dropping the ordering also lifts any bound on value size: values are opaque payloads here, not
+/// ordered keys, so an engine is free to store one across as many pages as it takes.
+/// </para>
 /// </summary>
 public interface IIntIndex<T> : IDictionaryIndex<int, T> where T : notnull {
 }
@@ -163,20 +167,21 @@ public interface IStorageEngine {
     /// An opened existing index reports the engine's timestamp; a newly created one reports 0
     /// until the next commit or <see cref="SetTimestamp"/> (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>).
     /// </summary>
-    ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull;
+    ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull;
 
-    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by ulong ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
-    ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull;
+    /// <summary>Same contract as <see cref="OpenOrCreateSortedIntIndex{T}"/>, but the index is keyed by ulong ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
+    ISortedUlongIndex<T> OpenOrCreateSortedUlongIndex<T>(string name) where T : notnull;
 
-    /// <summary>Same contract as <see cref="OpenOrCreateIntIndex{T}"/>, but the index is keyed by Guid ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
-    ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull;
+    /// <summary>Same contract as <see cref="OpenOrCreateSortedIntIndex{T}"/>, but the index is keyed by Guid ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
+    ISortedGuidIndex<T> OpenOrCreateSortedGuidIndex<T>(string name) where T : notnull;
 
     /// <summary>
     /// Opens the unordered index named <paramref name="name"/>, creating it if absent — same
-    /// storage, same transactions and same timestamp as <see cref="OpenOrCreateIntIndex{T}"/>,
+    /// storage, same transactions and same timestamp as <see cref="OpenOrCreateSortedIntIndex{T}"/>,
     /// but without any ordering (see <see cref="IIntIndex{T}"/>), which makes lookups by id and
-    /// writes markedly cheaper. A name belongs to one layout: opening a sorted index as a hash
-    /// index (or the reverse) throws, as does a mismatched id or value type.
+    /// writes markedly cheaper and puts no bound on value size. A name belongs to one layout:
+    /// opening a sorted index as a hash index (or the reverse) throws, as does a mismatched id or
+    /// value type.
     /// <para>
     /// An engine with no cheaper unordered layout may return its sorted index, whose stronger
     /// guarantees satisfy this contract.
@@ -233,7 +238,7 @@ public interface IStorageEngine {
 
     /// <summary>
     /// Durably deletes every index present in the store that has not been opened in this session
-    /// (via <see cref="OpenOrCreateIntIndex{T}"/>), data and definition included; open indexes and the
+    /// (via <see cref="OpenOrCreateSortedIntIndex{T}"/>), data and definition included; open indexes and the
     /// engine timestamp are untouched. Lets callers drop indexes that have left the schema, so a
     /// later re-add opens a fresh, empty index reporting timestamp 0 (see
     /// <see cref="ISortedIntIndex{T}.GetTimestamp"/>) instead of stale data claiming to be current.

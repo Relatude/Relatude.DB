@@ -112,20 +112,19 @@ public class KvHashIndexTests {
         var index = engine.OpenOrCreateUlongHashIndex<byte[]>("big");
         var ids = Enumerable.Range(0, 200).Select(i => (ulong)i * 0x1000_0000_0000_0001ul).ToArray();
 
-        // 500 raw bytes encode to ~1000 with the escaping codec: only a couple fit a page,
-        // so the table has to split all the way down to very small buckets
-        byte[] payload(int seed) => Enumerable.Range(0, 500).Select(i => (byte)(i + seed)).ToArray();
+        // 1000-byte values are just inside the inline limit, so only three fit a page and the
+        // table has to split all the way down to very small buckets
+        byte[] payload(int seed) => Enumerable.Range(0, 1000).Select(i => (byte)(i + seed)).ToArray();
         commit(engine, () => { for (var i = 0; i < ids.Length; i++) index.Set(ids[i], payload(i)); });
 
         Assert.AreEqual(ids.Length, index.Count);
         for (var i = 0; i < ids.Length; i++) CollectionAssert.AreEqual(payload(i), index.GetValue(ids[i]));
         CollectionAssert.AreEquivalent(ids, index.Keys.ToArray());
 
-        // a value too large for a bucket is rejected, and leaves the index untouched
-        commit(engine, () => {
-            Assert.ThrowsException<ArgumentException>(() => index.Set(1ul, new byte[2000]));
-        }, timestamp: 2);
-        Assert.AreEqual(ids.Length, index.Count);
+        // a value past the inline limit is stored on overflow pages, not rejected
+        commit(engine, () => index.Set(1ul, new byte[2000]), timestamp: 2);
+        Assert.AreEqual(ids.Length + 1, index.Count);
+        CollectionAssert.AreEqual(new byte[2000], index.GetValue(1ul));
     }
 
     [TestMethod]
@@ -314,21 +313,21 @@ public class KvHashIndexTests {
         try {
             var filePath = Path.Combine(dir, "layouts.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var sorted = engine.OpenOrCreateIntIndex<string>("sorted");
+                var sorted = engine.OpenOrCreateSortedIntIndex<string>("sorted");
                 var hash = engine.OpenOrCreateIntHashIndex<string>("hash");
                 commit(engine, () => { sorted.Set(1, "a"); hash.Set(1, "a"); });
 
                 Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntIndex<string>("hash"));
+                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
                 Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateUlongHashIndex<string>("hash"));
                 Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<int>("hash"));
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 // the layout is persisted, so the same mismatches are caught on a fresh open too
                 Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntIndex<string>("hash"));
+                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
                 Assert.AreEqual("a", engine.OpenOrCreateIntHashIndex<string>("hash").GetValue(1));
-                Assert.AreEqual("a", engine.OpenOrCreateIntIndex<string>("sorted").GetValue(1));
+                Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("sorted").GetValue(1));
             }
         } finally {
             Directory.Delete(dir, true);
@@ -339,7 +338,7 @@ public class KvHashIndexTests {
     public void HashIndex_DeleteAllEmptiesOpenIndexes() {
         using var engine = new BPlusTreeStorageEngine(null);
         var hash = engine.OpenOrCreateIntHashIndex<string>("hash");
-        var sorted = engine.OpenOrCreateIntIndex<string>("sorted");
+        var sorted = engine.OpenOrCreateSortedIntIndex<string>("sorted");
         commit(engine, () => {
             for (var i = 0; i < 5000; i++) hash.Set(i, "v");
             sorted.Set(1, "v");
@@ -405,7 +404,7 @@ public class KvHashIndexTests {
         var random = new Random(20260805);
         using var engine = new BPlusTreeStorageEngine(null);
         var hash = engine.OpenOrCreateUlongHashIndex<int>("hash");
-        var sorted = engine.OpenOrCreateUlongIndex<int>("sorted");
+        var sorted = engine.OpenOrCreateSortedUlongIndex<int>("sorted");
         var model = new Dictionary<ulong, int>();
 
         for (var round = 1; round <= 20; round++) {

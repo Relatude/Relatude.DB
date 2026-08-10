@@ -17,13 +17,20 @@ namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 /// [6..8] fragmented (reclaimable-by-compaction) bytes inside the cell heap (u16)
 /// [16..] slot array: [tag:u16][offset:u16] per entry, in insertion order
 /// </code>
-/// Cell: <c>[valLen:u16][id][value]</c>, with the id occupying a fixed <c>idSize</c> bytes
+/// Cell: <c>[payloadLen:u16][id][payload]</c>, with the id occupying a fixed <c>idSize</c> bytes
 /// (4, 8 or 16 — see <see cref="IdCodec{TId}"/>), so cells need no key length.
 /// <para>
 /// Slots are unsorted, so a lookup is a linear scan — but only over the tags, 4 bytes apart and
 /// contiguous from the header: the 16 high hash bits filter out virtually every entry before the
 /// id itself is touched. That keeps a full bucket to a couple of cache lines of scanning and one
 /// comparison, which is cheaper than the binary search a sorted page would need.
+/// </para>
+/// <para>
+/// The payload is the encoded value itself while it fits (see <see cref="MaxInlineValueSize"/>);
+/// past that it is an 8-byte reference to an overflow chain holding the value (see
+/// <see cref="OverflowStore"/>), marked by the high bit of the cell's length word. Everything that
+/// moves cells around — a bucket copy, a split, the heap compaction — treats the payload as opaque
+/// bytes and carries the flag with it, so only the index layer above ever resolves a reference.
 /// </para>
 /// </summary>
 internal static class HashPage
@@ -33,8 +40,17 @@ internal static class HashPage
     public const int SlotSize = 4;
     public const byte TypeHashBucket = 3;
 
-    /// <summary>Largest encoded value a bucket accepts; three max-size cells still fit one page, so a split can always separate two entries.</summary>
-    public const int MaxValueSize = NodePage.MaxValueSize;
+    /// <summary>Largest encoded value stored inline in a cell; three max-size cells still fit one page, so a split can always separate two entries. Larger values go to an overflow chain, whose cells are smaller than this.</summary>
+    public const int MaxInlineValueSize = NodePage.MaxValueSize;
+
+    /// <summary>Cell payload of an overflow entry: <c>[totalLen:u32][firstPage:u32]</c>.</summary>
+    public const int OverflowRefSize = 8;
+
+    // The cell's length word carries the overflow flag in its high bit: payload lengths are bounded
+    // by MaxInlineValueSize (1024) and OverflowRefSize, so the top bits of the u16 are free and no
+    // cell has to grow a byte to say which kind it is.
+    private const int OverflowFlag = 0x8000;
+    private const int PayloadLenMask = 0x7FFF;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int LocalDepth(byte[] p) => p[1];
@@ -67,7 +83,7 @@ internal static class HashPage
 
     public static void SetLocalDepth(byte[] p, int localDepth) => p[1] = (byte)localDepth;
 
-    public static int CellSize(int idSize, int valueLength) => 2 + idSize + valueLength;
+    public static int CellSize(int idSize, int payloadLength) => 2 + idSize + payloadLength;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int CellOffset(byte[] p, int i)
@@ -76,17 +92,37 @@ internal static class HashPage
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ReadOnlySpan<byte> Key(byte[] p, int i, int idSize) => p.AsSpan(CellOffset(p, i) + 2, idSize);
 
+    /// <summary>The bytes stored in cell <paramref name="i"/>: the encoded value itself, or an overflow reference when <see cref="IsOverflow"/>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ReadOnlySpan<byte> Value(byte[] p, int i, int idSize)
+    public static ReadOnlySpan<byte> Payload(byte[] p, int i, int idSize)
     {
         int off = CellOffset(p, i);
-        return p.AsSpan(off + 2 + idSize, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off)));
+        return p.AsSpan(off + 2 + idSize, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off)) & PayloadLenMask);
+    }
+
+    /// <summary>True when cell <paramref name="i"/> holds an overflow reference rather than the value itself (see <see cref="OverflowRef"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsOverflow(byte[] p, int i)
+        => (BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(CellOffset(p, i))) & OverflowFlag) != 0;
+
+    /// <summary>The chain an overflow cell points at: total payload length and first page. Only valid where <see cref="IsOverflow"/>.</summary>
+    public static (int TotalLength, uint FirstPage) OverflowRef(byte[] p, int i, int idSize)
+    {
+        ReadOnlySpan<byte> r = Payload(p, i, idSize);
+        return ((int)BinaryPrimitives.ReadUInt32LittleEndian(r), BinaryPrimitives.ReadUInt32LittleEndian(r[4..]));
+    }
+
+    /// <summary>Builds the <see cref="OverflowRefSize"/>-byte payload of an overflow cell.</summary>
+    public static void WriteOverflowRef(Span<byte> dst, int totalLength, uint firstPage)
+    {
+        BinaryPrimitives.WriteUInt32LittleEndian(dst, (uint)totalLength);
+        BinaryPrimitives.WriteUInt32LittleEndian(dst[4..], firstPage);
     }
 
     public static int CellSizeAt(byte[] p, int i, int idSize)
     {
         int off = CellOffset(p, i);
-        return CellSize(idSize, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off)));
+        return CellSize(idSize, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(off)) & PayloadLenMask);
     }
 
     /// <summary>
@@ -148,10 +184,14 @@ internal static class HashPage
         return contiguous + Frag(p) + freedBytes >= cellSize + SlotSize;
     }
 
-    /// <summary>Appends a cell (order is irrelevant here), compacting the heap if that is what it takes.</summary>
-    public static bool TryInsert(byte[] p, ushort tag, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value, int idSize)
+    /// <summary>
+    /// Appends a cell (order is irrelevant here), compacting the heap if that is what it takes.
+    /// <paramref name="overflow"/> marks <paramref name="payload"/> as a reference to a chain
+    /// holding the value rather than the value itself.
+    /// </summary>
+    public static bool TryInsert(byte[] p, ushort tag, ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, int idSize, bool overflow)
     {
-        int cellSize = CellSize(idSize, value.Length);
+        int cellSize = CellSize(idSize, payload.Length);
         int count = Count(p);
         int contiguous = CellStart(p) - (HeaderSize + SlotSize * count);
         int need = cellSize + SlotSize;
@@ -163,9 +203,9 @@ internal static class HashPage
         }
 
         int off = CellStart(p) - cellSize;
-        BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(off), (ushort)value.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(off), (ushort)(payload.Length | (overflow ? OverflowFlag : 0)));
         key.CopyTo(p.AsSpan(off + 2));
-        value.CopyTo(p.AsSpan(off + 2 + idSize));
+        payload.CopyTo(p.AsSpan(off + 2 + idSize));
 
         int slot = HeaderSize + SlotSize * count;
         BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(slot), tag);
@@ -196,7 +236,7 @@ internal static class HashPage
         {
             int slot = HeaderSize + SlotSize * i;
             int off = BinaryPrimitives.ReadUInt16LittleEndian(tmp[(slot + 2)..]);
-            int size = CellSize(idSize, BinaryPrimitives.ReadUInt16LittleEndian(tmp[off..]));
+            int size = CellSize(idSize, BinaryPrimitives.ReadUInt16LittleEndian(tmp[off..]) & PayloadLenMask);
             write -= size;
             tmp.Slice(off, size).CopyTo(p.AsSpan(write));
             BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(slot + 2), (ushort)write);

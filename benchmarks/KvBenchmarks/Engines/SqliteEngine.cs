@@ -43,7 +43,7 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull
     {
         if (Existing<T>(name) is object open)
         {
@@ -57,7 +57,7 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
 
     /// <summary>
     /// The unordered layout: the same table, without the covering (v, id) index that
-    /// <see cref="OpenOrCreateIntIndex{T}"/> creates. SQLite then maintains one B-tree per write
+    /// <see cref="OpenOrCreateSortedIntIndex{T}"/> creates. SQLite then maintains one B-tree per write
     /// instead of two, and value-side queries fall back to a table scan.
     /// </summary>
     public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
@@ -106,10 +106,10 @@ public sealed class SqliteEngine : IStorageEngine, IDisposable
         return existed;
     }
 
-    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+    public ISortedUlongIndex<T> OpenOrCreateSortedUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
-    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+    public ISortedGuidIndex<T> OpenOrCreateSortedGuidIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull

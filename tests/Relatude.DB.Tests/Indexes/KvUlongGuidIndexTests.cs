@@ -38,12 +38,12 @@ public class KvUlongGuidIndexTests {
         try {
             var filePath = Path.Combine(dir, "ulong.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateUlongIndex<string>("by-ulong");
+                var index = engine.OpenOrCreateSortedUlongIndex<string>("by-ulong");
                 commit(engine, () => { foreach (var (id, value) in _ulongEntries) index.Set(id, value); });
                 verifyUlongEntries(index);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                verifyUlongEntries(engine.OpenOrCreateUlongIndex<string>("by-ulong")); // decode path: read back from disk
+                verifyUlongEntries(engine.OpenOrCreateSortedUlongIndex<string>("by-ulong")); // decode path: read back from disk
             }
         } finally {
             Directory.Delete(dir, true);
@@ -78,12 +78,12 @@ public class KvUlongGuidIndexTests {
         try {
             var filePath = Path.Combine(dir, "guid.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateGuidIndex<int>("by-guid");
+                var index = engine.OpenOrCreateSortedGuidIndex<int>("by-guid");
                 commit(engine, () => { for (var i = 0; i < guids.Length; i++) index.Set(guids[i], i * 10); });
-                verifyGuidEntries(engine.OpenOrCreateGuidIndex<int>("by-guid"), guids);
+                verifyGuidEntries(engine.OpenOrCreateSortedGuidIndex<int>("by-guid"), guids);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                verifyGuidEntries(engine.OpenOrCreateGuidIndex<int>("by-guid"), guids);
+                verifyGuidEntries(engine.OpenOrCreateSortedGuidIndex<int>("by-guid"), guids);
             }
         } finally {
             Directory.Delete(dir, true);
@@ -103,7 +103,7 @@ public class KvUlongGuidIndexTests {
     [TestMethod]
     public void BPlusTree_UlongIds_RangeScansAndCounts() {
         using var engine = new BPlusTreeStorageEngine(null); // memory-only
-        var index = engine.OpenOrCreateUlongIndex<int>("ranges");
+        var index = engine.OpenOrCreateSortedUlongIndex<int>("ranges");
         // two ids per value so (value, id) ordering inside a value is exercised, with
         // id order deliberately opposite to value order
         commit(engine, () => {
@@ -139,7 +139,7 @@ public class KvUlongGuidIndexTests {
     [TestMethod]
     public void BPlusTree_GuidIds_DuplicateValues_AscendingIdsPerValue() {
         using var engine = new BPlusTreeStorageEngine(null);
-        var index = engine.OpenOrCreateGuidIndex<string>("dupes");
+        var index = engine.OpenOrCreateSortedGuidIndex<string>("dupes");
         var shared = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
         var single = Guid.NewGuid();
         commit(engine, () => {
@@ -166,8 +166,8 @@ public class KvUlongGuidIndexTests {
     [TestMethod]
     public void BPlusTree_ValueCache_ServesAndEvictsUlongAndGuidIds() {
         using var engine = new BPlusTreeStorageEngine(null, new BPlusTreeEngineOptions { ValueCacheEntries = 64 });
-        var byUlong = engine.OpenOrCreateUlongIndex<string>("cached-ulong");
-        var byGuid = engine.OpenOrCreateGuidIndex<string>("cached-guid");
+        var byUlong = engine.OpenOrCreateSortedUlongIndex<string>("cached-ulong");
+        var byGuid = engine.OpenOrCreateSortedGuidIndex<string>("cached-guid");
         var guid = Guid.NewGuid();
 
         commit(engine, () => {
@@ -202,18 +202,18 @@ public class KvUlongGuidIndexTests {
         try {
             var filePath = Path.Combine(dir, "kinds.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 commit(engine, () => index.Set(1, "a")); // persists the definition to the catalog
 
                 // same session, already open with a different id type
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateUlongIndex<string>("idx"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateGuidIndex<string>("idx"));
+                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
+                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedGuidIndex<string>("idx"));
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 // reopen from disk with a different id type must fail even though the value type matches
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateUlongIndex<string>("idx"));
+                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
                 // matching id and value type still opens
-                Assert.AreEqual("a", engine.OpenOrCreateIntIndex<string>("idx").GetValue(1));
+                Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("idx").GetValue(1));
             }
         } finally {
             Directory.Delete(dir, true);

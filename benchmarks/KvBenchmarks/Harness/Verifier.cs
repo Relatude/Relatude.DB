@@ -29,7 +29,7 @@ public static class Verifier
         using var candidate = (IDisposable)Engines.Create(engineName, dir);
         var refEngine = (IStorageEngine)reference;
         var candEngine = (IStorageEngine)candidate;
-        var refIdx = refEngine.OpenOrCreateIntIndex<T>(Engines.IndexName);
+        var refIdx = refEngine.OpenOrCreateSortedIntIndex<T>(Engines.IndexName);
         IIntIndex<T> candIdx = Engines.OpenBenchIndex<T>(candEngine, engineName);
 
         long ts = 0;

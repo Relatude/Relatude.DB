@@ -40,12 +40,12 @@ public class KvByteArrayIndexTests {
         var filePath = Path.Combine(dir, "bytes.db");
         try {
             using (var engine = new BPlusTreeStorageEngine(filePath, new BPlusTreeEngineOptions())) {
-                var index = engine.OpenOrCreateIntIndex<byte[]>("bytes");
+                var index = engine.OpenOrCreateSortedIntIndex<byte[]>("bytes");
                 addAll(engine, index);
                 verifyAll(index);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath, new BPlusTreeEngineOptions())) {
-                verifyAll(engine.OpenOrCreateIntIndex<byte[]>("bytes")); // decode path: read back from disk
+                verifyAll(engine.OpenOrCreateSortedIntIndex<byte[]>("bytes")); // decode path: read back from disk
             }
         } finally {
             Directory.Delete(dir, true);

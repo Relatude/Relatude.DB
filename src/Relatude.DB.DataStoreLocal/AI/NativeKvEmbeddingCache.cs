@@ -7,10 +7,10 @@ namespace Relatude.DB.AI;
 public class NativeKvEmbeddingCache : IEmbeddingCache {
     readonly object _lock = new();
     readonly BPlusTreeStorageEngine _fileStorage;
-    readonly ISortedUlongIndex<byte[]> _embeddings;
+    readonly IUlongIndex<byte[]> _embeddings;
     readonly Cache<ulong, float[]> _cache = new(1000);
     bool _disposed;
-    public NativeKvEmbeddingCache(string filePath) {
+    public NativeKvEmbeddingCache(string? filePath) {
         var options = new BPlusTreeEngineOptions() {
             PageCacheBytes = 2L * 1024 * 1024 * 100, // 2 MB
             PendingWriteBytes = 4L * 1024 * 1024, // 4 MB
@@ -18,11 +18,11 @@ public class NativeKvEmbeddingCache : IEmbeddingCache {
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         try {
-            _embeddings = _fileStorage.OpenOrCreateUlongIndex<byte[]>("embeddings");
+            _embeddings = _fileStorage.OpenOrCreateUlongHashIndex<byte[]>("embeddings");
         } catch (InvalidOperationException) {
             // the file uses an older cache layout; it is only a cache, so discard it and start fresh
             _fileStorage.DeleteAll();
-            _embeddings = _fileStorage.OpenOrCreateUlongIndex<byte[]>("embeddings");
+            _embeddings = _fileStorage.OpenOrCreateUlongHashIndex<byte[]>("embeddings");
         }
     }
 

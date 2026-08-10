@@ -259,8 +259,13 @@ internal static class HashDirectoryStore
         return roots[0];
     }
 
-    /// <summary>Frees every page of the directory rooted at <paramref name="rootPage"/>, buckets included.</summary>
-    public static void FreeAll(IWritePageSource txn, uint rootPage)
+    /// <summary>
+    /// Frees every page of the directory rooted at <paramref name="rootPage"/> — buckets and the
+    /// overflow chains their entries reference included. <paramref name="idSize"/> is the index's
+    /// encoded id size (<see cref="IdCodec.SizeOfKind"/>), needed to walk the cells of a bucket
+    /// belonging to an index this session never opened.
+    /// </summary>
+    public static void FreeAll(IWritePageSource txn, uint rootPage, int idSize)
     {
         if (rootPage == 0)
             return;
@@ -287,6 +292,16 @@ internal static class HashDirectoryStore
             page = next;
         }
         foreach (uint bucket in buckets)
+        {
+            // Chains first: the bucket page has to still be readable to name them.
+            byte[] bucketPage = txn.GetPage(bucket);
+            int cells = HashPage.Count(bucketPage);
+            for (int i = 0; i < cells; i++)
+            {
+                if (HashPage.IsOverflow(bucketPage, i))
+                    OverflowStore.Free(txn, HashPage.OverflowRef(bucketPage, i, idSize).FirstPage);
+            }
             txn.Free(bucket);
+        }
     }
 }

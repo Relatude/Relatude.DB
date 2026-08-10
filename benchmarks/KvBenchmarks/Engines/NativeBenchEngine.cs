@@ -12,9 +12,9 @@ namespace KvBenchmarks.Engines;
 /// </summary>
 public sealed class NativeBenchEngine(BPlusTreeStorageEngine inner) : IStorageEngine, IDisposable
 {
-    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull => inner.OpenOrCreateIntIndex<T>(name);
-    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull => inner.OpenOrCreateUlongIndex<T>(name);
-    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull => inner.OpenOrCreateGuidIndex<T>(name);
+    public ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull => inner.OpenOrCreateSortedIntIndex<T>(name);
+    public ISortedUlongIndex<T> OpenOrCreateSortedUlongIndex<T>(string name) where T : notnull => inner.OpenOrCreateSortedUlongIndex<T>(name);
+    public ISortedGuidIndex<T> OpenOrCreateSortedGuidIndex<T>(string name) where T : notnull => inner.OpenOrCreateSortedGuidIndex<T>(name);
     public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull => inner.OpenOrCreateIntHashIndex<T>(name);
     public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull => inner.OpenOrCreateUlongHashIndex<T>(name);
     public IGuidIndex<T> OpenOrCreateGuidHashIndex<T>(string name) where T : notnull => inner.OpenOrCreateGuidHashIndex<T>(name);

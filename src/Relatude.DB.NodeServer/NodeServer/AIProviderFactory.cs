@@ -1,17 +1,21 @@
 ﻿using Relatude.DB.IO;
 using Relatude.DB.AI;
+using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
+
 public static class AIProviderFactory {
     public static AIEngine Create(AIProviderSettings settings, string? dataFolder, string? filePrefix) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
-            filePath = dataFolder.SuperPathCombine(new FileKeyUtility(filePrefix).AiCacheFileKey);
+            var fileKey = new FileKeyUtility(filePrefix).GetAiCacheFileKey(settings.CacheType);
+            filePath = dataFolder.SuperPathCombine(fileKey);
         }
         IEmbeddingCache? cache = settings.CacheType switch {
             null => null,
             AIProviderCacheType.None => null,
             AIProviderCacheType.Memory => new MemoryEmbeddingCache(1000),
             AIProviderCacheType.Sqlite => LateBindings.CreateSqlLiteEmbeddingCache(filePath),
+            AIProviderCacheType.Native => new NativeKvEmbeddingCache(filePath),
             _ => throw new NotImplementedException(),
         };
         var provider = LateBindings.CreateAiProvider(settings);

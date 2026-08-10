@@ -6,8 +6,8 @@ namespace Relatude.DB.DataStores.Indexes.KvStore;
 internal class NativeKvGuidArrayIndex : PersistedGuidArrayIndexBase {
     readonly ISortedIntIndex<byte[]> _index;
     public NativeKvGuidArrayIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName)
-        : base(store, engine.OpenOrCreateIntIndex<byte[]>(uniqueKey).GetTimestamp() == 0, sets, uniqueKey, friendlyName) {
-        _index = engine.OpenOrCreateIntIndex<byte[]>(uniqueKey); // idempotent: returns the same open index as the base check above
+        : base(store, engine.OpenOrCreateSortedIntIndex<byte[]>(uniqueKey).GetTimestamp() == 0, sets, uniqueKey, friendlyName) {
+        _index = engine.OpenOrCreateSortedIntIndex<byte[]>(uniqueKey); // idempotent: returns the same open index as the base check above
     }
     protected override IEnumerable<KeyValuePair<int, Guid[]>> ReadAllPersisted() {
         foreach (var kv in _index.Entries) yield return new(kv.Key, decode(kv.Value));

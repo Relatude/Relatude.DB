@@ -2,6 +2,7 @@
 using System.Text.Json;
 
 namespace Relatude.DB.NodeServer;
+
 public interface ISettingsLoader {
     Task<RelatudeDBServerSettings> ReadAsync();
     Task WriteAsync(RelatudeDBServerSettings settings);
@@ -28,6 +29,10 @@ public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
             var settings = RelatudeDBServerSettings.CreateDefault();
             await WriteAsync(settings);
             return settings;
+        }
+        // compatibility "hack":
+        if (json.Contains("\"PersistedQueueStoreEngine\": \"BuiltIn\",")) {
+            json = json.Replace("\"PersistedQueueStoreEngine\": \"BuiltIn\",", "\"PersistedQueueStoreEngine\": \"Native\",");
         }
         return JsonSerializer.Deserialize<RelatudeDBServerSettings>(json, getOptions()) ?? new RelatudeDBServerSettings() {
             Id = Guid.NewGuid(),

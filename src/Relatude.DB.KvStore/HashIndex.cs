@@ -21,9 +21,16 @@ namespace Relatude.DB.Datastores.Indexes.BTreeIndex;
 /// Buckets split when they fill up and the directory doubles when a bucket reaches the global
 /// depth (see <see cref="HashDirectory"/>), so both stay proportional to the data with no
 /// reorganization pass and no rebalancing.
+/// <para>
+/// Values are not bounded by the page: one that does not fit a cell is written to a private chain
+/// of overflow pages and the cell keeps an 8-byte reference to it (see <see cref="OverflowStore"/>).
+/// The bucket machinery never looks inside a payload, so splits, copies and compaction are
+/// unaffected — and because a reference is smaller than a typical inline value, a table of large
+/// values packs more entries per bucket than one of medium-sized ones.
+/// </para>
 /// </summary>
 [SkipLocalsInit] // Set/Remove stackalloc scratch per call; zeroing it is pure cost (every read is length-bounded to written bytes)
-internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
+internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp, byte valueEncoding)
     : IDictionaryIndex<TId, T>, IValueCacheOwner, IIndexTimestamp
     where TId : unmanaged
     where T : notnull
@@ -36,7 +43,14 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     // constant even inside this class's canonically shared code (reference-type T).
     private static int IdSize => IdCodec<TId>.Size;
 
-    private readonly IKeyCodec<T> _codec = KeyCodec.Get<T>();
+    // Which value encoding this index was created with, from its catalog entry: the unescaped one
+    // for anything created since it existed, the shared order-preserving one for indexes written
+    // before that (see BPlusTreeStorageEngine.EncodingRaw). Nothing here depends on which — the
+    // layout only ever compares encodings for equality — but a stored index must keep being read
+    // with the codec that wrote it.
+    private readonly IKeyCodec<T> _codec = valueEncoding == BPlusTreeStorageEngine.EncodingRaw
+        ? KeyCodec.GetUnordered<T>()
+        : KeyCodec.Get<T>();
 
     private readonly ValueCache<TId, T>? _valueCache =
         engine.ValueCacheEntries > 0 ? new ValueCache<TId, T>(engine.ValueCacheEntries) : null;
@@ -124,16 +138,19 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
         try
         {
             int valueLen = _codec.Encode(buf, value);
-            if (valueLen > HashPage.MaxValueSize)
-                throw new ArgumentException($"Encoded value is {valueLen} bytes; the maximum is {HashPage.MaxValueSize}.");
             ReadOnlySpan<byte> valueBytes = buf[..valueLen];
+
+            // A value past the inline limit goes to an overflow chain and the cell holds a
+            // reference. The chain is only written by the branch that actually inserts the cell —
+            // its size is known from the reference alone, so the fit tests below need no pages.
+            bool overflow = valueLen > HashPage.MaxInlineValueSize;
+            int cellSize = HashPage.CellSize(IdSize, overflow ? HashPage.OverflowRefSize : valueLen);
 
             Span<byte> key = stackalloc byte[MaxIdSize];
             key = key[..IdSize];
             IdCodec<TId>.Encode(key, id);
             ulong hash = IdCodec<TId>.Hash(id);
             ushort tag = HashDirectory.TagOf(hash);
-            int cellSize = HashPage.CellSize(IdSize, valueLen);
 
             // Each pass either writes the cell or makes room (a bucket split, preceded by a
             // directory doubling when the bucket is already at the global depth) and retries.
@@ -149,7 +166,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                     var (freshId, freshPage) = txn.Allocate();
                     HashPage.Init(freshPage, dir.GlobalDepth);
                     dir.Set(slot, freshId);
-                    Insert(freshPage, tag, key, valueBytes);
+                    InsertValue(txn, freshPage, tag, key, valueBytes, overflow);
                     MarkAdded(st, id);
                     return;
                 }
@@ -158,14 +175,22 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                 int cell = HashPage.Find(page, tag, key);
                 if (cell >= 0)
                 {
-                    if (HashPage.Value(page, cell, IdSize).SequenceEqual(valueBytes))
+                    if (PayloadEquals(txn, page, cell, valueBytes))
                         return; // same mapping already present: nothing was written
                     if (HashPage.CanFit(page, cellSize, freedCells: 1, freedBytes: HashPage.CellSizeAt(page, cell, IdSize)))
                     {
+                        // The chain the old cell referenced, read before the cell goes away and
+                        // freed only once the replacement is in place — a retry must never come
+                        // back to a cell whose value has already been released.
+                        uint replacedChain = HashPage.IsOverflow(page, cell)
+                            ? HashPage.OverflowRef(page, cell, IdSize).FirstPage
+                            : 0;
                         // A copy is byte-identical, so the cell keeps its index.
                         page = CowBucket(txn, dir, slot, pageId, page).Page;
                         HashPage.RemoveAt(page, cell, IdSize);
-                        Insert(page, tag, key, valueBytes);
+                        InsertValue(txn, page, tag, key, valueBytes, overflow);
+                        if (replacedChain != 0)
+                            OverflowStore.Free(txn, replacedChain);
                         MarkWritten(st, id);
                         return;
                     }
@@ -173,7 +198,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                 else if (HashPage.CanFit(page, cellSize))
                 {
                     page = CowBucket(txn, dir, slot, pageId, page).Page;
-                    Insert(page, tag, key, valueBytes);
+                    InsertValue(txn, page, tag, key, valueBytes, overflow);
                     MarkAdded(st, id);
                     return;
                 }
@@ -211,8 +236,11 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
             return false;
 
         int localDepth = HashPage.LocalDepth(page);
+        uint chain = HashPage.IsOverflow(page, cell) ? HashPage.OverflowRef(page, cell, IdSize).FirstPage : 0;
         (uint cowId, page) = CowBucket(txn, dir, slot, pageId, page);
         HashPage.RemoveAt(page, cell, IdSize);
+        if (chain != 0)
+            OverflowStore.Free(txn, chain); // the entry is gone: so is the only reference to its chain
         if (HashPage.Count(page) == 0)
         {
             // An emptied bucket gives its page back; its slots revert to "no bucket" and each
@@ -237,10 +265,46 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
         RecordTouched(st, id);
     }
 
-    private static void Insert(byte[] page, ushort tag, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value)
+    private static void Insert(byte[] page, ushort tag, ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, bool overflow)
     {
-        if (!HashPage.TryInsert(page, tag, key, value, IdSize))
+        if (!HashPage.TryInsert(page, tag, key, payload, IdSize, overflow))
             throw new InvalidOperationException("Internal error: a cell that was measured to fit must always insert.");
+    }
+
+    /// <summary>
+    /// Inserts the entry, spilling <paramref name="value"/> to a fresh overflow chain first when it
+    /// is too large to live in the cell. The caller has already measured the cell against the page.
+    /// </summary>
+    private static void InsertValue(BPlusTreeStorageEngine.WriteTxn txn, byte[] page, ushort tag,
+        ReadOnlySpan<byte> key, ReadOnlySpan<byte> value, bool overflow)
+    {
+        if (!overflow)
+        {
+            Insert(page, tag, key, value, overflow: false);
+            return;
+        }
+        uint firstPage = OverflowStore.Write(txn, value);
+        Span<byte> reference = stackalloc byte[HashPage.OverflowRefSize];
+        HashPage.WriteOverflowRef(reference, value.Length, firstPage);
+        Insert(page, tag, key, reference, overflow: true);
+    }
+
+    /// <summary>True when cell <paramref name="cell"/> already holds exactly <paramref name="valueBytes"/>, resolving an overflow chain without materializing it.</summary>
+    private static bool PayloadEquals(IPageSource src, byte[] page, int cell, ReadOnlySpan<byte> valueBytes)
+    {
+        if (!HashPage.IsOverflow(page, cell))
+            return HashPage.Payload(page, cell, IdSize).SequenceEqual(valueBytes);
+        var (total, firstPage) = HashPage.OverflowRef(page, cell, IdSize);
+        return OverflowStore.PayloadEquals(src, firstPage, total, valueBytes);
+    }
+
+    /// <summary>The value in cell <paramref name="cell"/>, reading its overflow chain when the cell only references one.</summary>
+    private T DecodeAt(IPageSource src, byte[] page, int cell)
+    {
+        if (!HashPage.IsOverflow(page, cell))
+            return _codec.Decode(HashPage.Payload(page, cell, IdSize));
+        var (total, firstPage) = HashPage.OverflowRef(page, cell, IdSize);
+        return _codec.Decode(OverflowStore.Read(src, firstPage, total));
     }
 
     /// <summary>
@@ -283,8 +347,10 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
         {
             ReadOnlySpan<byte> key = HashPage.Key(old, i, IdSize);
             ulong hash = IdCodec<TId>.Hash(IdCodec<TId>.Decode(key));
+            // Payloads move verbatim, overflow references included: a chain belongs to its entry,
+            // not to the bucket it currently sits in, so a split never touches one.
             Insert(((hash >> localDepth) & 1) == 0 ? lowPage : highPage,
-                HashDirectory.TagOf(hash), key, HashPage.Value(old, i, IdSize));
+                HashDirectory.TagOf(hash), key, HashPage.Payload(old, i, IdSize), HashPage.IsOverflow(old, i));
         }
 
         int step = 1 << localDepth;
@@ -314,7 +380,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
             value = default!;
             return false;
         }
-        value = _codec.Decode(HashPage.Value(page, cell, IdSize));
+        value = DecodeAt(read.Source, page, cell);
 
         if (cacheable)
         {
@@ -362,13 +428,18 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     public IEnumerable<TId> GetIds(T value)
     {
         byte[] target = EncodeToArray(value);
+        // Whether a value is stored inline or spilled follows from its encoded length alone, so
+        // cells of the other kind cannot possibly match and are skipped on the flag.
+        bool overflow = target.Length > HashPage.MaxInlineValueSize;
         using var read = engine.BeginRead();
         foreach (byte[] page in Buckets(read.Source, DirFor(read)))
         {
             int count = HashPage.Count(page);
             for (int i = 0; i < count; i++)
             {
-                if (HashPage.Value(page, i, IdSize).SequenceEqual(target))
+                if (HashPage.IsOverflow(page, i) != overflow)
+                    continue;
+                if (PayloadEquals(read.Source, page, i, target))
                     yield return IdCodec<TId>.Decode(HashPage.Key(page, i, IdSize));
             }
         }
@@ -387,7 +458,7 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
                 {
                     yield return new KeyValuePair<TId, T>(
                         IdCodec<TId>.Decode(HashPage.Key(page, i, IdSize)),
-                        _codec.Decode(HashPage.Value(page, i, IdSize)));
+                        DecodeAt(read.Source, page, i));
                 }
             }
         }
@@ -471,11 +542,11 @@ internal abstract class HashIndex<TId, T>(BPlusTreeStorageEngine engine, string 
     }
 }
 
-internal sealed class HashIntIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
-    : HashIndex<int, T>(engine, name, hasEngineTimestamp), IIntIndex<T> where T : notnull;
+internal sealed class HashIntIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp, byte valueEncoding)
+    : HashIndex<int, T>(engine, name, hasEngineTimestamp, valueEncoding), IIntIndex<T> where T : notnull;
 
-internal sealed class HashUlongIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
-    : HashIndex<ulong, T>(engine, name, hasEngineTimestamp), IUlongIndex<T> where T : notnull;
+internal sealed class HashUlongIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp, byte valueEncoding)
+    : HashIndex<ulong, T>(engine, name, hasEngineTimestamp, valueEncoding), IUlongIndex<T> where T : notnull;
 
-internal sealed class HashGuidIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp)
-    : HashIndex<Guid, T>(engine, name, hasEngineTimestamp), IGuidIndex<T> where T : notnull;
+internal sealed class HashGuidIndex<T>(BPlusTreeStorageEngine engine, string name, bool hasEngineTimestamp, byte valueEncoding)
+    : HashIndex<Guid, T>(engine, name, hasEngineTimestamp, valueEncoding), IGuidIndex<T> where T : notnull;

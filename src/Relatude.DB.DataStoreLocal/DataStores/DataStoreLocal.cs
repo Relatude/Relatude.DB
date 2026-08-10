@@ -129,7 +129,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         RegisterRunner(new RewriteTaskRunner(this));
         TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
         if (queueStore == null) {
-            if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.BuiltIn) {
+            if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
                 queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, _fileKeys.Queue_GetFileKey("bin"));
             } else if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Memory) {
                 queueStore = new DefaultQueueStore(_taskRunners);

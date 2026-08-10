@@ -34,7 +34,7 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 engine.BeginTransaction();
                 for (int i = 0; i < 100; i++) index.Set(i, "v" + i);
                 engine.CommitTransaction(10, true);
@@ -44,14 +44,14 @@ public class KvDeferredDurabilityTests {
             using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite))
                 fs.SetLength(48 * 1024 * 1024 + 123);
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 for (int i = 0; i < 100; i++) Assert.AreEqual("v" + i, index.GetValue(i));
                 engine.BeginTransaction();
                 for (int i = 0; i < 100; i++) index.Set(i, "w" + i);
                 engine.CommitTransaction(20, true);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 Assert.AreEqual(20, engine.GetTimestamp());
                 for (int i = 0; i < 100; i++) Assert.AreEqual("w" + i, index.GetValue(i));
             }
@@ -66,7 +66,7 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 engine.BeginTransaction();
                 index.Set(1, "durable");
                 engine.CommitTransaction(10, true);
@@ -77,7 +77,7 @@ public class KvDeferredDurabilityTests {
                 // dispose without MakeDurable = crash
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 Assert.AreEqual(10, engine.GetTimestamp()); // rolled back to the durable point
                 Assert.AreEqual("durable", index.GetValue(1));
                 Assert.IsFalse(index.ContainsKey(2));
@@ -93,7 +93,7 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 for (int i = 0; i < 50; i++) publish(engine, () => index.Set(i, "v" + i), 100 + i);
                 // overwrites and removes: frees pages across publishes, exercising the quarantine
                 for (int i = 0; i < 25; i++) publish(engine, () => index.Set(i, "w" + i), 200 + i);
@@ -101,7 +101,7 @@ public class KvDeferredDurabilityTests {
                 engine.MakeDurable(true);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 Assert.AreEqual(349, engine.GetTimestamp());
                 for (int i = 0; i < 25; i++) Assert.AreEqual("w" + i, index.GetValue(i));
                 for (int i = 25; i < 40; i++) Assert.AreEqual("v" + i, index.GetValue(i));
@@ -121,7 +121,7 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 engine.BeginTransaction();
                 for (int i = 0; i < 100; i++) index.Set(i, "base" + i);
                 engine.CommitTransaction(10, true);
@@ -129,14 +129,14 @@ public class KvDeferredDurabilityTests {
                 // crash: no MakeDurable
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 for (int i = 0; i < 100; i++) Assert.AreEqual("base" + i, index.GetValue(i));
                 engine.BeginTransaction();
                 for (int i = 0; i < 100; i++) index.Set(i, "next" + i);
                 engine.CommitTransaction(30, true);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 Assert.AreEqual(30, engine.GetTimestamp());
                 for (int i = 0; i < 100; i++) Assert.AreEqual("next" + i, index.GetValue(i));
             }
@@ -151,14 +151,14 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 engine.BeginTransaction();
                 index.Set(1, "a");
                 engine.CommitTransaction(10, true); // no explicit MakeDurable
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 Assert.AreEqual(10, engine.GetTimestamp());
-                Assert.AreEqual("a", engine.OpenOrCreateIntIndex<string>("idx").GetValue(1));
+                Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("idx").GetValue(1));
             }
         } finally {
             Directory.Delete(dir, true);
@@ -168,7 +168,7 @@ public class KvDeferredDurabilityTests {
     [TestMethod]
     public void MakeDurable_WhileTransactionActive_Throws() {
         using var engine = new BPlusTreeStorageEngine(null); // memory-only is enough for the guard
-        engine.OpenOrCreateIntIndex<string>("idx");
+        engine.OpenOrCreateSortedIntIndex<string>("idx");
         engine.BeginTransaction();
         Assert.ThrowsException<InvalidOperationException>(() => engine.MakeDurable(true));
         engine.RollbackTransaction();
@@ -180,7 +180,7 @@ public class KvDeferredDurabilityTests {
         try {
             var filePath = Path.Combine(dir, "kv.db");
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var index = engine.OpenOrCreateIntIndex<string>("idx");
+                var index = engine.OpenOrCreateSortedIntIndex<string>("idx");
                 engine.BeginTransaction();
                 index.Set(1, "a");
                 engine.CommitTransaction(10, true);
@@ -188,7 +188,7 @@ public class KvDeferredDurabilityTests {
                 engine.MakeDurable(true);
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                Assert.AreEqual("a", engine.OpenOrCreateIntIndex<string>("idx").GetValue(1));
+                Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("idx").GetValue(1));
             }
         } finally {
             Directory.Delete(dir, true);

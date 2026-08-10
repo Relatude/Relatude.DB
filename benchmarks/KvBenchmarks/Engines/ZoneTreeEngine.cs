@@ -30,7 +30,7 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
 
     private string TsFile => Path.Combine(_folder, "timestamp.txt");
 
-    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
@@ -47,7 +47,7 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
 
     /// <summary>
     /// The unordered layout: the id → value tree alone, without the composite (value, id) tree
-    /// <see cref="OpenOrCreateIntIndex{T}"/> maintains beside it. Every write then touches one LSM
+    /// <see cref="OpenOrCreateSortedIntIndex{T}"/> maintains beside it. Every write then touches one LSM
     /// tree instead of two, and ordered queries are gone rather than slow.
     /// </summary>
     public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
@@ -67,10 +67,10 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
         return index;
     }
 
-    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+    public ISortedUlongIndex<T> OpenOrCreateSortedUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
-    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+    public ISortedGuidIndex<T> OpenOrCreateSortedGuidIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull

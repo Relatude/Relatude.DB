@@ -55,14 +55,44 @@ public class NativeKvEmbeddingCacheTests {
     }
 
     [TestMethod]
+    public void FullSizeEmbeddings_RoundTripThroughOverflowPages() {
+        // 3072 dimensions (text-embedding-3-large) is 12288 bytes — far past what a single index
+        // page can hold, so the value lives on a chain of overflow pages.
+        static float[] large(int seed) => Enumerable.Range(0, 3072).Select(i => (i + seed) * 0.125f).ToArray();
+        var dir = tempDir();
+        try {
+            var filePath = Path.Combine(dir, "large.db");
+            using (var cache = new NativeKvEmbeddingCache(filePath)) {
+                cache.Set(1ul, large(0));
+                cache.SetMany(Enumerable.Range(2, 20).Select(i => Tuple.Create((ulong)i, large(i))).ToList());
+                cache.Set(1ul, large(100)); // replacing one chain with another
+
+                Assert.IsTrue(cache.TryGet(1ul, out var e));
+                CollectionAssert.AreEqual(large(100), e);
+            }
+            using (var cache = new NativeKvEmbeddingCache(filePath)) {
+                Assert.IsTrue(cache.TryGet(1ul, out var e1)); // read back from disk, not from the memory cache
+                CollectionAssert.AreEqual(large(100), e1);
+                for (var i = 2; i <= 21; i++) {
+                    Assert.IsTrue(cache.TryGet((ulong)i, out var e), $"embedding {i} was lost");
+                    CollectionAssert.AreEqual(large(i), e);
+                }
+                Assert.IsFalse(cache.TryGet(9999ul, out _));
+            }
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [TestMethod]
     public void OldTwoIndexLayout_IsWipedAndCacheStartsFresh() {
         var dir = tempDir();
         try {
             var filePath = Path.Combine(dir, "cache.db");
             // the layout the cache used before it moved to a single ulong-keyed index
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
-                var hashes = engine.OpenOrCreateIntIndex<ulong>("embedding-hashes");
-                var embeddings = engine.OpenOrCreateIntIndex<byte[]>("embeddings");
+                var hashes = engine.OpenOrCreateSortedIntIndex<ulong>("embedding-hashes");
+                var embeddings = engine.OpenOrCreateSortedIntIndex<byte[]>("embeddings");
                 engine.BeginTransaction();
                 hashes.Set(0, 42ul);
                 embeddings.Set(0, [1, 2, 3, 4]);
@@ -76,7 +106,7 @@ public class NativeKvEmbeddingCacheTests {
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 // the wipe must also have removed the old hash index, so the name is free again
-                Assert.AreEqual(0, engine.OpenOrCreateIntIndex<ulong>("embedding-hashes").Count);
+                Assert.AreEqual(0, engine.OpenOrCreateSortedIntIndex<ulong>("embedding-hashes").Count);
             }
         } finally {
             Directory.Delete(dir, true);

@@ -3,6 +3,19 @@ using System.Runtime.CompilerServices;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
+/// <summary>Non-generic access to the id encoding, for the paths that only have the persisted <see cref="IdCodec{TId}.Kind"/> to go by (a catalog entry of an index nobody opened).</summary>
+internal static class IdCodec
+{
+    /// <summary>Encoded id size for a catalog id kind (see <see cref="IdCodec{TId}.Kind"/>).</summary>
+    public static int SizeOfKind(byte kind) => kind switch
+    {
+        0 => 4,  // int
+        1 => 8,  // ulong
+        2 => 16, // Guid
+        _ => throw new InvalidDataException($"Unknown index id kind {kind}. The file is corrupt or was written by a newer version."),
+    };
+}
+
 /// <summary>
 /// Order-preserving, fixed-size binary encoding for index ids (the key side of
 /// <see cref="ISortedDictionaryIndex{K,T}"/>): int, ulong or Guid. Like <see cref="IKeyCodec{T}"/>

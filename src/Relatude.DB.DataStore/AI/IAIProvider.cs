@@ -1,24 +1,10 @@
-﻿namespace Relatude.DB.AI;
+﻿using Relatude.DB.Common;
 
-//public class ChatMessage { 
-//    public string Role { get; set; } = "";
-//    public string Content { get; set; } = "";
-//}
-
+namespace Relatude.DB.AI;
 public interface IAIProvider : IDisposable {
     Task<float[][]> GetEmbeddingsAsync(string[] paragraphs);
     Task<string> GetCompletionAsync(string prompt, string? modelKey = null);
     //Task<string> GetChatCompletionAsync(ChatMessage[] conversation);
-}
-
-public enum AIProviderCacheType {
-    None = 0,
-    Memory = 1,
-    Sqlite = 2,
-}
-public enum AIProviderIndexType{
-    FlatMemory = 0,
-    TurboQuant = 1,
 }
 public class AIProviderSettings {
     public Guid Id { get; set; }

@@ -22,10 +22,10 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     // rewriting the sidecar when reads have added nothing since the last save (see UpdatePersistedCaches)
     bool _hasUnsavedCachedSets;
     public NativeKvValueIndex(string uniqueKey, NativeKvIndexStore store, IStorageEngine engine, SetRegister sets, string friendlyName)
-        : base(store, engine.OpenOrCreateIntIndex<T>(uniqueKey).GetTimestamp() == 0) {
+        : base(store, engine.OpenOrCreateSortedIntIndex<T>(uniqueKey).GetTimestamp() == 0) {
         UniqueKey = uniqueKey;
         _sets = sets;
-        _index = engine.OpenOrCreateIntIndex<T>(uniqueKey); // idempotent: returns the same open index as the base check above
+        _index = engine.OpenOrCreateSortedIntIndex<T>(uniqueKey); // idempotent: returns the same open index as the base check above
         _stateId = new();
         FriendlyName = friendlyName;
         _keyBuilder = new GapCacheKeyBuilder<T>(this);

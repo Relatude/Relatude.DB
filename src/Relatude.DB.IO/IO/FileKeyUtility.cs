@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Relatude.DB.Common;
+using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
 /// <summary>
 /// A common utility class for generating file keys and making sure naming is consistent and that the different stores do have conflicting names.
@@ -82,7 +83,16 @@ public class FileKeyUtility {
 
     public string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
     public string StateFileKey => stateFilePattern;
-    public string AiCacheFileKey => aiCacheFilePattern;
+    public string? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
+        if (cacheProvider == null) return null;
+        return cacheProvider.Value switch {
+            AIProviderCacheType.None => null,
+            AIProviderCacheType.Native => "native." + aiCacheFilePattern,
+            AIProviderCacheType.Memory => null,
+            AIProviderCacheType.Sqlite => aiCacheFilePattern,
+            _ => throw new NotImplementedException(),
+        };
+    }
     public string IndexStoreFolderKey => indexStoreFolderPattern;
 
     public string CriticalErrorLogFileKey => criticalErrorLogFilePattern;

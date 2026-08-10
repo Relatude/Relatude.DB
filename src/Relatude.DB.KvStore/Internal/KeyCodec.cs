@@ -33,7 +33,22 @@ internal static class KeyCodec
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IKeyCodec<T> Get<T>() where T : notnull => Cache<T>.Instance;
 
-    /// <summary>Stable per-type id persisted in the catalog to detect type mismatches on reopen.</summary>
+    /// <summary>
+    /// The codec for a store that only ever compares encodings for equality — the hash layout,
+    /// which has no value tree, no ordering and no composite keys. Order-preservation and
+    /// prefix-freedom are what force the variable-length types to escape their content
+    /// (<see cref="ByteArrayCodec"/>, <see cref="StringCodec"/>), and neither buys the hash layout
+    /// anything: it stores the payload with an explicit length and only asks whether two encodings
+    /// are byte-identical, which raw bytes answer exactly as well. So byte arrays and strings are
+    /// stored verbatim here — no escape scan, no terminator, and no size inflation on content full
+    /// of zero bytes (a float vector is roughly a quarter zeros, which the escaping codec grows by
+    /// a quarter and a worst case doubles). Every other type is fixed-size and unescaped already,
+    /// and its encoding is a bijection, so it keeps the one codec both layouts share.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static IKeyCodec<T> GetUnordered<T>() where T : notnull => UnorderedCache<T>.Instance;
+
+    /// <summary>Stable per-type id persisted in the catalog to detect type mismatches on reopen. Independent of which codec flavour above stores the type.</summary>
     public static byte GetTypeId<T>() where T : notnull => Cache<T>.TypeId;
 
     private static class Cache<T> where T : notnull
@@ -47,6 +62,14 @@ internal static class KeyCodec
             Instance = (IKeyCodec<T>)codec;
             TypeId = id;
         }
+    }
+
+    private static class UnorderedCache<T> where T : notnull
+    {
+        public static readonly IKeyCodec<T> Instance =
+            typeof(T) == typeof(byte[]) ? (IKeyCodec<T>)(object)new RawByteArrayCodec() :
+            typeof(T) == typeof(string) ? (IKeyCodec<T>)(object)new RawStringCodec() :
+            Cache<T>.Instance;
     }
 
     private static (object Codec, byte TypeId) Create(Type t)
@@ -349,6 +372,33 @@ internal static class KeyCodec
             }
             return buf.AsSpan(..w).ToArray();
         }
+    }
+
+    /// <summary>
+    /// The bytes themselves, for stores that never order or prefix-scan their values (see
+    /// <see cref="GetUnordered{T}"/>): equal arrays encode to equal bytes and distinct arrays to
+    /// distinct bytes, which is the whole contract there. Neither order-preserving nor prefix-free,
+    /// so it must never reach a B+Tree key.
+    /// </summary>
+    private sealed class RawByteArrayCodec : IKeyCodec<byte[]>
+    {
+        public int FixedSize => -1;
+        public int GetMaxSize(byte[] value) => value.Length;
+        public int Encode(Span<byte> dst, byte[] value)
+        {
+            value.CopyTo(dst);
+            return value.Length;
+        }
+        public byte[] Decode(ReadOnlySpan<byte> src) => src.ToArray();
+    }
+
+    /// <summary>Plain UTF-8, the <see cref="RawByteArrayCodec"/> of strings: no escape pass and no terminator.</summary>
+    private sealed class RawStringCodec : IKeyCodec<string>
+    {
+        public int FixedSize => -1;
+        public int GetMaxSize(string value) => Encoding.UTF8.GetMaxByteCount(value.Length);
+        public int Encode(Span<byte> dst, string value) => Encoding.UTF8.GetBytes(value, dst);
+        public string Decode(ReadOnlySpan<byte> src) => Encoding.UTF8.GetString(src);
     }
 
     /// <summary>

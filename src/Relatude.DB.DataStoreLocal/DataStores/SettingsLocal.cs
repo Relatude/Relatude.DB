@@ -72,7 +72,7 @@ public class SettingsLocal {
     public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Native;
 
     public bool AutoDequeTasks { get; set; } = true;
-    public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.BuiltIn;
+    public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
     public string? PersistedQueueStoreFolderPath { get; set; }
 }
 
@@ -89,7 +89,7 @@ public enum PersistedValueIndexEngine {
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,
-    BuiltIn = 1,
+    Native = 1,
     Sqlite = 2,
 }
 public enum FileStoreEngine {

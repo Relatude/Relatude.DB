@@ -28,7 +28,7 @@ public sealed class FasterEngine : IStorageEngine, IDisposable
 
     private string TsFile => Path.Combine(_folder, "timestamp.txt");
 
-    public ISortedIntIndex<T> OpenOrCreateIntIndex<T>(string name) where T : notnull
+    public ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (_openIndexes.TryGetValue(name, out object? open))
@@ -46,7 +46,7 @@ public sealed class FasterEngine : IStorageEngine, IDisposable
     /// <summary>
     /// The unordered layout: the FasterKV store on its own. This is FASTER as it was designed —
     /// a hash key-value store — without the in-memory sorted set of (value, id) keys that
-    /// <see cref="OpenOrCreateIntIndex{T}"/> has to maintain to answer ordered queries at all,
+    /// <see cref="OpenOrCreateSortedIntIndex{T}"/> has to maintain to answer ordered queries at all,
     /// which is what the memory column of the sorted row is mostly paying for.
     /// </summary>
     public IIntIndex<T> OpenOrCreateIntHashIndex<T>(string name) where T : notnull
@@ -66,10 +66,10 @@ public sealed class FasterEngine : IStorageEngine, IDisposable
         return index;
     }
 
-    public ISortedUlongIndex<T> OpenOrCreateUlongIndex<T>(string name) where T : notnull
+    public ISortedUlongIndex<T> OpenOrCreateSortedUlongIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
-    public ISortedGuidIndex<T> OpenOrCreateGuidIndex<T>(string name) where T : notnull
+    public ISortedGuidIndex<T> OpenOrCreateSortedGuidIndex<T>(string name) where T : notnull
         => throw new NotSupportedException("The benchmark engines only support int-keyed indexes.");
 
     public IUlongIndex<T> OpenOrCreateUlongHashIndex<T>(string name) where T : notnull

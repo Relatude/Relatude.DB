@@ -36,7 +36,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
             ValueCacheEntries = 0,
         };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
-        _settings = _fileStorage.OpenOrCreateIntIndex<string>("settings");
+        _settings = _fileStorage.OpenOrCreateSortedIntIndex<string>("settings");
         if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
     }
     protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
