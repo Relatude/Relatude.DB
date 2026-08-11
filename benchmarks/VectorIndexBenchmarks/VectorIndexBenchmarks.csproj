@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- the two Relatude implementations: MemorySemanticIndex lives in DataStoreLocal (internal,
-         reached through InternalsVisibleTo), NativeVectorIndex in its own assembly -->
+    <!-- the three Relatude implementations: MemorySemanticIndex lives in DataStoreLocal (internal,
+         reached through InternalsVisibleTo), the two disk indexes each in their own assembly -->
     <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
+    <ProjectReference Include="..\..\src\Relatude.DB.VectorIndexHNSW\Relatude.DB.VectorIndexHNSW.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,7 +24,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.2.0.135</Version>
+    <Version>0.2.0.136</Version>
   </PropertyGroup>
 
 </Project>

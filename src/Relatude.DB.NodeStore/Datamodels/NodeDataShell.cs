@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Nodes;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Nodes;
 
 namespace Relatude.DB.Datamodels;
 
@@ -12,11 +13,21 @@ public class NodeDataShell {
     bool _copyBeforeUpdate;
     public NodeStore Store;
     Datamodel _dm;
-    public NodeDataShell(NodeStore store, INodeDataExternal nodeData, bool copyBeforeUpdate) {
+    PropertyPath? _propertyPath; // set when this node is an inner node of an embedded structure, null when it is a root node
+    public NodeDataShell(NodeStore store, INodeDataExternal nodeData, bool copyBeforeUpdate, PropertyPath? propertyPath = null) {
         NodeData = nodeData;
         _dm = store.Datastore.Datamodel;
         Store = store;
         _copyBeforeUpdate = copyBeforeUpdate;
+        _propertyPath = propertyPath;
+    }
+    /// <summary>
+    /// The path addressing one of this node's properties, so that values like FileValue can carry their own
+    /// address. Mirrors what the generated mapper does for class node types.
+    /// </summary>
+    public PropertyPath GetPropertyPath(Guid propertyId) {
+        var nodePath = _propertyPath == null ? new NodePath(NodeData.Id) : _propertyPath.CreatePathToInnerNode(NodeData.Id);
+        return nodePath.CreatePropertyPath(propertyId);
     }
     public T? GetValue<T>(Guid propertyId) {
         if (NodeData.TryGetValue(propertyId, out var value)) {

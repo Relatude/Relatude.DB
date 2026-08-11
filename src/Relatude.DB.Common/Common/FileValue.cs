@@ -119,7 +119,8 @@ public class FileValue {
         return ms.ToArray();
     }
     public static FileValue FromBytes(byte[] bytes, PropertyPath? propertyPath) {
-        if (bytes.Length == 0) return Empty;
+        // An empty value carries no data at all, so the path of the property it was read from is used.
+        if (bytes.Length == 0) return propertyPath == null ? Empty : CreateEmptyWithPropertyPath(propertyPath);
         var ms = new MemoryStream(bytes);
         var br = new BinaryReader(ms);
         var version = br.ReadInt32();
@@ -138,7 +139,7 @@ public class FileValue {
         var keyLength = br.ReadInt32();
         v._fileKeyData = br.ReadBytes(keyLength);
         if (ms.Position == ms.Length) {
-            v.PropertyPath = null;
+            v.PropertyPath = propertyPath; // no path was persisted, so falling back to the path it was read from
             return v;
         }
         var propertyPathBytes = br.ReadBytes((int)(ms.Length - ms.Position));
@@ -173,7 +174,7 @@ public class FileValue {
         if (b1.Size != b2.Size) return false;
         if (b1.StorageId != b2.StorageId) return false;
         if (b1.FileId != b2.FileId) return false;
-        if (b1.PropertyPath != b2.PropertyPath) return false;
+        if (!Equals(b1.PropertyPath, b2.PropertyPath)) return false; // PropertyPath is a class without operator ==, so comparing by value
         return true;
     }
 }

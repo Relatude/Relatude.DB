@@ -2,16 +2,20 @@ using System.Diagnostics;
 using System.Text.Json;
 using VectorIndexBenchmarks.Harness;
 
-// VectorIndexBenchmarks — benchmarks four vector indexes against each other on one set of
+// VectorIndexBenchmarks — benchmarks five vector indexes against each other on one set of
 // generated vectors and one query stream:
 //
 //   memory     Relatude MemorySemanticIndex — every vector on the managed heap, exact SIMD scan
 //   native     Relatude NativeVectorIndex   — disk segments, IVF clusters, byte-budgeted block cache
+//   hnsw       Relatude HnswVectorIndex     — disk records, HNSW graph, upper layers in memory
 //   sqlitevec  sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
 //   usearch    USearch                      — an HNSW graph in native memory, top-k only
 //
-// The two Relatude ones are driven through ISemanticIndex, the interface the data store uses; the
+// The three Relatude ones are driven through ISemanticIndex, the interface the data store uses; the
 // third-party ones take vectors directly. Both forms of every query are the same query.
+//
+// The grid is deliberate: native and hnsw differ only in algorithm, hnsw and usearch only in where
+// the vectors sit, and memory is the exact reference all three are scored against.
 //
 //   dotnet run -c Release [-- options]
 //
@@ -23,15 +27,16 @@ using VectorIndexBenchmarks.Harness;
 //   --noise=1.0                  how loosely vectors scatter around their center
 //   --batch=5000                 vectors between state saves during the load
 //   --cache=<MB>                 what the disk index may spend on cached vector blocks
-//   --accuracy=0.25              fraction of clusters the disk index probes per search
-//   --hnsw-m=16                  USearch graph degree (connectivity)
-//   --hnsw-ef-add=128            USearch build effort (expansionAdd)
-//   --hnsw-ef=64                 USearch search effort (expansionSearch) — its accuracy dial
+//   --accuracy=0.25              fraction of clusters the IVF disk index probes per search
+//   --hnsw-m=16                  graph degree (connectivity) — both HNSW implementations
+//   --hnsw-ef-add=128            build effort (expansionAdd) — both HNSW implementations
+//   --hnsw-ef=64                 search effort (expansionSearch) — their accuracy dial
 //   --min-sim=<f>                the similarity floor the searches pass down (default: the
 //                                similarity of the 500th exact neighbour, ~500 candidates)
-//   --engines=all|<list>         all = memory,native,sqlitevec,usearch; also native-exact and
-//                                native-lowmem. sqlite-vec scans every vector on every query, so
-//                                it dominates the runtime — drop it for quick iterations.
+//   --engines=all|<list>         all = memory,native,hnsw,usearch; also native-exact,
+//                                native-lowmem, hnsw-lowmem and sqlitevec. sqlite-vec scans every
+//                                vector on every query, so it dominates the runtime — drop it for
+//                                quick iterations.
 //   --persist=batch              save state after every batch instead of once after the load
 //   --data=<dir>                 working directory for index files (default: %TEMP%)
 //   --in-process                 run everything in this process (memory numbers get noisy)
@@ -246,10 +251,12 @@ static void printNotes(BenchOptions options, Corpus corpus) {
             (and NO_COLOR) stays plain text.
           - Speed without accuracy means nothing here. MemorySemanticIndex and sqlite-vec are exact by
             construction — they look at every vector. NativeVectorIndex probes the {{options.Accuracy:P0}} of clusters
-            nearest the query, and USearch walks an HNSW graph with an expansion of {{options.HnswExpansionSearch}}; both may
-            miss a neighbour they never visited. Read the search rates and the recall columns
-            together, and use --accuracy / --hnsw-ef to compare the two approximate ones at matched
-            recall rather than at matched settings, which mean different things.
+            nearest the query, while HnswVectorIndex and USearch walk an HNSW graph with an expansion
+            of {{options.HnswExpansionSearch}}; all three may miss a neighbour they never visited. Read the search rates
+            and the recall columns together. --hnsw-ef means the same thing to both graph indexes, so
+            those two are comparable as they stand; --accuracy is a fraction of the clusters in the
+            index and not the same kind of dial at all, so compare the IVF index against the graphs at
+            matched recall rather than at matched settings.
           - Recall% is the share of the exact first page of {{Corpus.RecallTopK}} a ranked search returns; Filter%
             the share of the exact above-threshold set an unranked filter search returns. Both are
             measured against a brute-force scan of the freshly loaded vectors, over {{Corpus.RecallQueryCount}} queries, and
@@ -263,7 +270,10 @@ static void printNotes(BenchOptions options, Corpus corpus) {
           - Not every implementation has every operation, and "n/a" means absent rather than slow.
             USearch answers "the best k" and has no unranked threshold query, so its Filter columns
             are blank — emulating one with a k of the whole index would measure a query nobody would
-            write. Only NativeVectorIndex has a post-WAL-flush durability hook.
+            write. HnswVectorIndex does answer one, by flooding outward from the query through
+            everything above the threshold, which is an approximation of a different shape than its
+            top-k walk — read its Filter% next to its Recall%. Only the two disk indexes have a
+            post-WAL-flush durability hook.
           - The third-party libraries keep their data in native memory (USearch's graph) or in a page
             cache (sqlite-vec), so almost nothing of theirs appears in the managed Mem/Warm columns —
             for them, only WSet MB and Disk MB carry information. That asymmetry is a property of the
@@ -286,23 +296,32 @@ static void printNotes(BenchOptions options, Corpus corpus) {
             WhereSearch filter uses, at the same floor, measured with the store's set cache disabled
             so the index answers every call.
           - Index/s is vectors per second including the state save at the end of the
-            load{{(options.PersistEveryBatch ? " (--persist=batch: after every batch instead)" : "")}}. Save ms is one state save after a small delta: the in-memory index
-            writes a file containing every vector it holds, the disk index writes the delta and swaps
-            a manifest, so this gap widens with the corpus. Flush ms is the post-WAL-flush hook the
-            disk index has and the in-memory one does not — the store makes an in-memory index
-            durable only at the periodic state save and replays the WAL for anything newer.
+            load{{(options.PersistEveryBatch ? " (--persist=batch: after every batch instead)" : "")}}. Building a graph is the slow part of HNSW and shows up here: linking a
+            node runs a search and then re-selects the neighbour lists of everything it attached to,
+            which is a few tens of thousands of distance computations per vector against the IVF
+            index's one cluster assignment. Save ms is one state save after a small delta: the
+            in-memory index writes a file containing every vector it holds, the IVF index writes the
+            delta and swaps a manifest, and the graph index writes the edges its inserts changed into
+            place — the read-modify-write of a few tens of thousands of scattered records, which is
+            why its state save is the dearest here. Flush ms is the post-WAL-flush hook the two disk
+            indexes have and the in-memory one does not, and it is where that trade pays off: the
+            graph index appends the same edges to a log in one sequential write instead, so the path
+            the store takes after every WAL flush is its cheapest column and its periodic state save
+            is its most expensive one.
           - Update replaces the vector of an existing id; Remove drops ids at random. Mixed
             interleaves inserts, searches and deletes, so searches run against an index that is
             churning rather than holding still. All three run a fixed {{BenchRunner.WritePhaseOps:N0}} / {{BenchRunner.WritePhaseOps:N0}} / {{BenchRunner.MixedPhaseWrites:N0}} operations
             rather than a share of the corpus, so they measure cost per operation and their numbers
             do not depend on --n.
           - Open ms reopens the persisted index; Cold ms is the first search after that, un-warmed.
-            The in-memory index reads every vector back into the heap to open; the disk index reads
-            its manifest, centroids and one block directory per segment, then pays for the blocks it
-            probes on the first searches.
+            The in-memory index reads every vector back into the heap to open; the IVF index reads its
+            manifest, centroids and one block directory per segment, and the graph index its manifest,
+            node table and upper-layer edges — then both pay for the vectors they touch on the first
+            searches.
           - Mem MB is managed heap growth right after the load (full GC), before the index has served
-            anything: for the in-memory index that is the vector data itself, for the disk index the
-            ids, offsets and centroids. Warm MB is the same measurement after the search phases, which
+            anything: for the in-memory index that is the vector data itself, for the IVF index the
+            ids, offsets and centroids, and for the graph index its node table and upper layers plus
+            whatever of the load is still in its record cache. Warm MB is the same measurement after the search phases, which
             is the only place a read-through cache appears — the disk index has by then pulled the
             blocks its searches touched into its {{options.CacheBytes / 1024 / 1024}} MB budget, and that memory is what its search
             rates were bought with (run --engines=native,native-lowmem to see the trade directly).

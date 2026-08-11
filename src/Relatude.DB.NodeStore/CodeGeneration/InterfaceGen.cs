@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Query;
 using System.Text;
@@ -264,6 +265,33 @@ internal static class InterfaceGen {
                     sb.AppendLine("} ");
                     sb.AppendLine("set { _" + p.CodeName + " = value; } ");
                 }
+                sb.AppendLine(" }");
+            } else if (p.PropertyType == PropertyType.File) {
+                // The stored value has no property path when the file is empty, and may lack one for data written
+                // before paths were persisted. It is therefore stamped on read, like the class mapper does, so
+                // that the value can address itself in the file APIs. Cached, so that changes to the mutable
+                // members of the value survive until the node is written back.
+                // Example:
+                //   Relatude.DB.Common.FileValue _File = null;
+                //   public Relatude.DB.Common.FileValue File {
+                //       get {
+                //           if (_File == null) _File = Relatude.DB.Common.FileValue.CopyAndEnsurePropertyPath(
+                //               __NodeDataShell.GetValue<Relatude.DB.Common.FileValue>(gd65cef817660f343fa7cb9591c47239c),
+                //               __NodeDataShell.GetPropertyPath(gd65cef817660f343fa7cb9591c47239c));
+                //           return _File;
+                //       }
+                //       set { _File = null; __NodeDataShell.SetValue(gd65cef817660f343fa7cb9591c47239c, value); }
+                //   }
+                var fileValueName = typeof(FileValue).Namespace + "." + nameof(FileValue);
+                sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
+                sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                sb.AppendLine("get {");
+                sb.AppendLine("if(_" + p.CodeName + " == null) _" + p.CodeName + " = " + fileValueName + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "("
+                    + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + "), "
+                    + shellName + "." + nameof(NodeDataShell.GetPropertyPath) + "(" + pIdName + "));");
+                sb.AppendLine("return _" + p.CodeName + ";");
+                sb.AppendLine("} ");
+                sb.AppendLine("set { _" + p.CodeName + " = null; " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");
                 sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");

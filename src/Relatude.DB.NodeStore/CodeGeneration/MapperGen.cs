@@ -150,7 +150,8 @@ internal static class MapperGen {
         if (nodeDef.IsInterface) {
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? ("__" + nodeDef.CodeName) : (nsp + ".__" + nodeDef.CodeName);
-            sb.AppendLine("var obj = new " + classTypeName + "(new " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + "(store , nodeData, true));");
+            // propertyPath is passed on so that the shell can address its own properties, needed by file values
+            sb.AppendLine("var obj = new " + classTypeName + "(new " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + "(store , nodeData, true, propertyPath));");
         } else { // if interface, no need to create shell or set properties, except relations
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;

@@ -1,4 +1,5 @@
 using Relatude.DB.VectorIndex;
+using Relatude.DB.VectorIndexHNSW;
 using VectorIndexBenchmarks.Engines;
 
 namespace VectorIndexBenchmarks.Harness;
@@ -14,14 +15,20 @@ public static class Engines {
     /// configuration of one implementation rather than another implementation, but naming it in
     /// --engines shows what the cache budget actually buys.</summary>
     public const string NativeLowMem = "native-lowmem";
+    /// <summary>The disk-based HNSW index: the same storage design as <see cref="Native"/>, walking a
+    /// proximity graph instead of probing the nearest clusters.</summary>
+    public const string Hnsw = "hnsw";
+    /// <summary>The HNSW index on a deliberately tiny record-cache budget, which is the configuration
+    /// that shows what a graph walk really costs when it has to go to the disk for every hop.</summary>
+    public const string HnswLowMem = "hnsw-lowmem";
     /// <summary>sqlite-vec: a vec0 virtual table in an ordinary SQLite file, exact by design.</summary>
     public const string SqliteVec = "sqlitevec";
     /// <summary>USearch: an HNSW graph in native memory — the other main answer to approximate search.</summary>
     public const string USearch = "usearch";
     public const long LowMemCacheBytes = 8L * 1024 * 1024;
 
-    //public static readonly string[] All = [Memory, Native, SqliteVec, USearch];
-    public static readonly string[] All = [Native, USearch];
+    //public static readonly string[] All = [Memory, Native, Hnsw, SqliteVec, USearch];
+    public static readonly string[] All = [Memory, Native, Hnsw, USearch];
 
     /// <summary>A fixed log id: an index binds its data to the WAL file it belongs to, and the
     /// benchmark's reopen step has to present the same one or the index resets itself.</summary>
@@ -32,6 +39,8 @@ public static class Engines {
         Native => "NativeVectorIndex",
         NativeExact => "NativeVectorIndex (exact)",
         NativeLowMem => $"NativeVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
+        Hnsw => "HnswVectorIndex",
+        HnswLowMem => $"HnswVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
         SqliteVec => "sqlite-vec",
         USearch => "USearch (HNSW)",
         _ => name,
@@ -43,6 +52,8 @@ public static class Engines {
         Native => "disk segments, IVF clusters, cached blocks; searches the nearest clusters only (Relatude.DB.VectorIndex)",
         NativeExact => "the same disk index probing every cluster (accuracy 1): exact, and reading every block",
         NativeLowMem => $"the same disk index with its block cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
+        Hnsw => "disk records, HNSW graph, upper layers in memory; walks to the query (Relatude.DB.VectorIndexHNSW)",
+        HnswLowMem => $"the same graph index with its record cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
         SqliteVec => "third party: a vec0 virtual table in a SQLite file, exact KNN by full scan (asg017/sqlite-vec)",
         USearch => "third party: an HNSW graph in native memory, top-k only (unum-cloud/USearch)",
         _ => name,
@@ -67,6 +78,16 @@ public static class Engines {
                 MaxCacheBytes = name == NativeLowMem ? LowMemCacheBytes : options.CacheBytes,
                 // the corpus is normalized by construction; the per-add check is a measurable cost
                 // that says nothing about the index, so it is off for every configuration
+                ValidateNormalized = false,
+            }),
+            // the graph index takes the HNSW dials rather than --accuracy, so it and USearch are
+            // configured identically and the algorithm is the only thing that differs between them
+            Hnsw or HnswLowMem => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new HnswVectorIndexOptions {
+                Dimensions = corpus.Dimensions,
+                MaxCacheBytes = name == HnswLowMem ? LowMemCacheBytes : options.CacheBytes,
+                Connectivity = (int)options.HnswConnectivity,
+                EfConstruction = (int)options.HnswExpansionAdd,
+                EfSearch = (int)options.HnswExpansionSearch,
                 ValidateNormalized = false,
             }),
             SqliteVec => new SqliteVecBenchIndex(dir, corpus.Dimensions, options.CacheBytes),
