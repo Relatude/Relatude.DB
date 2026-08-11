@@ -41,11 +41,13 @@ internal sealed class HnswGraph : IDisposable {
     readonly int _maxLevels;
     readonly double _levelScale;
     readonly Random _rnd;
-    readonly int[] _linkBuffer;
     // vectors of the routing nodes (layer >= _pinFloor), kept in memory so the descent reads nothing.
     // Concurrent because searches populate it under the index's read lock, which allows several.
     readonly ConcurrentDictionary<int, float[]> _pinned = new();
     readonly object _pinLock = new();
+    // the per-walk scratch, pooled: concurrent searches each need their own, and none of it is worth
+    // reallocating per query
+    readonly ConcurrentBag<Walk> _walks = [];
     long _pinnedBytes;
     volatile int _pinFloor = 1;
 
@@ -83,7 +85,34 @@ internal sealed class HnswGraph : IDisposable {
         _options = options;
         _levelScale = 1.0 / Math.Log(Math.Max(2, m));
         _rnd = new Random(options.RandomSeed ?? 20260811);
-        _linkBuffer = new int[m0 + 1];
+    }
+
+    /// <summary>Everything one walk needs beyond the graph itself: the visited stamps, the two heaps of
+    /// SEARCH-LAYER and the neighbour scratch. Pooled and reused, so a query allocates none of it.</summary>
+    sealed class Walk {
+        public readonly VisitedStamps Visited = new();
+        public readonly PriorityQueue<int, float> Candidates = new(); // best first: priority is the negated similarity
+        public readonly PriorityQueue<int, float> Results = new();    // worst first, capped at the beam width
+        public readonly List<int> Neighbours = [];  // the live, unvisited neighbours of the node being expanded
+        public readonly List<int> ToLoad = [];      // the subset of those whose vector is not already in memory
+        public readonly List<int> EntryPoints = [];
+        public readonly List<Candidate> Output = [];
+    }
+    // A walk's visited stamps are one byte per vector, so the pool has to be bounded: a burst of
+    // concurrent searches would otherwise leave the index holding a stamp array per search in it
+    // forever. Past the bound a walk is simply dropped and the next one allocates.
+    int _pooledWalks;
+    Walk rentWalk() {
+        if (!_walks.TryTake(out var walk)) return new();
+        Interlocked.Decrement(ref _pooledWalks);
+        return walk;
+    }
+    void returnWalk(Walk walk) {
+        if (Interlocked.Increment(ref _pooledWalks) > Math.Max(4, Environment.ProcessorCount)) {
+            Interlocked.Decrement(ref _pooledWalks);
+            return;
+        }
+        _walks.Add(walk);
     }
 
     /// <summary>The layout parameters a set of files is written with; a change to any of them means
@@ -144,27 +173,24 @@ internal sealed class HnswGraph : IDisposable {
         vector.CopyTo(record.AsSpan(0, _dims));
         if (entry < 0 || !_nodes.IsLive(entry)) return; // the first live node has nothing to link to
         var query = record.AsSpan(0, _dims); // stable: a dirty record is never moved or reloaded
-        var visited = new HashSet<int>();
-        var scratch = new List<int>();
-        var toLoad = new List<int>();
-        var entryPoints = new List<int> { entry };
-        for (var l = topLevel; l > level; l--) { // descend to the new node's own top layer
-            visited.Clear();
-            var found = searchLayer(query, l, 1, entryPoints, visited, scratch, toLoad);
-            if (found.Count == 0) continue;
-            entryPoints.Clear();
-            entryPoints.Add(found[^1].Ordinal); // searchLayer returns worst first
-        }
-        for (var l = Math.Min(topLevel, level); l >= 0; l--) {
-            visited.Clear();
-            var found = searchLayer(query, l, Math.Max(_options.EfConstruction, 1), entryPoints, visited, scratch, toLoad);
-            var max = l == 0 ? _m0 : _m;
-            var selected = selectNeighbours(found, max, ordinal);
-            setNeighbours(ordinal, l, selected);
-            foreach (var n in selected) link(n, l, ordinal, max);
-            entryPoints.Clear();
-            foreach (var c in found) entryPoints.Add(c.Ordinal); // the whole beam seeds the next layer
-            if (entryPoints.Count == 0) entryPoints.Add(entry);
+        var walk = rentWalk();
+        try {
+            var current = entry;
+            for (var l = topLevel; l > level; l--) current = greedyDescend(query, current, l, walk);
+            walk.EntryPoints.Clear();
+            walk.EntryPoints.Add(current);
+            for (var l = Math.Min(topLevel, level); l >= 0; l--) {
+                var found = searchLayer(query, l, Math.Max(_options.EfConstruction, 1), walk.EntryPoints, walk);
+                var max = l == 0 ? _m0 : _m;
+                var selected = selectNeighbours(found, max, ordinal);
+                setNeighbours(ordinal, l, selected);
+                walk.EntryPoints.Clear();
+                foreach (var c in found) walk.EntryPoints.Add(c.Ordinal); // the whole beam seeds the next layer
+                if (walk.EntryPoints.Count == 0) walk.EntryPoints.Add(entry);
+                linkBack(selected, l, ordinal, record, max, walk); // after the beam is copied out of Output
+            }
+        } finally {
+            returnWalk(walk);
         }
         _nodes.PromoteEntry(ordinal); // only now that it is linked can a search enter through it
     }
@@ -185,16 +211,42 @@ internal sealed class HnswGraph : IDisposable {
         if (level == 0) _store.SetNeighbours(ordinal, neighbours);
         else _nodes.SetUpperNeighbours(ordinal, level, neighbours);
     }
-    /// <summary>Adds the reverse edge from a chosen neighbour back to the new node. When that
-    /// neighbour is already full its edges are re-selected with the same heuristic, scored against
-    /// the neighbour itself — which is what keeps a well-connected node from collecting a crowd of
-    /// mutually similar edges and losing its long-range ones.</summary>
-    void link(int neighbour, int level, int newOrdinal, int max) {
+    /// <summary>
+    /// Adds the reverse edge from every chosen neighbour back to the new node.
+    ///
+    /// <para>At layer 0 this is where most of an insert's time goes: there are twice as many neighbours
+    /// as on the layers above and each full one re-runs the O(max²) selection heuristic. It is also
+    /// perfectly parallel — the chosen neighbours are distinct, each rewrites only its own list, and
+    /// everything any of them reads (its own current list, its neighbours' vectors, the new node's
+    /// vector) is untouched by the others. So the layer-0 pass runs concurrently and produces exactly
+    /// the graph the sequential pass would: the outcome of one link does not depend on the order the
+    /// others ran in.</para>
+    /// </summary>
+    void linkBack(int[] selected, int level, int newOrdinal, float[] newVector, int max, Walk walk) {
+        if (level != 0 || selected.Length < 4 || Environment.ProcessorCount <= 2) {
+            foreach (var n in selected) link(n, level, newOrdinal, newVector, max);
+            return;
+        }
+        walk.ToLoad.Clear();
+        var missing = 0;
+        foreach (var n in selected) {
+            walk.ToLoad.Add(n);
+            if (!_store.IsResident(n)) missing++;
+        }
+        _store.Prefetch(walk.ToLoad, missing); // their records are the first thing every worker wants
+        Parallel.ForEach(selected, n => link(n, 0, newOrdinal, newVector, max));
+    }
+    /// <summary>One reverse edge. When the neighbour's list is already full its edges are re-selected
+    /// with the same heuristic, scored against the neighbour itself — which is what keeps a
+    /// well-connected node from collecting a crowd of mutually similar edges and losing its long-range
+    /// ones. Called concurrently for layer 0, so it touches nothing shared and unsynchronized.</summary>
+    void link(int neighbour, int level, int newOrdinal, float[] newVector, int max) {
         var existing = level == 0 ? _store.Neighbours(_store.Get(neighbour)) : _nodes.UpperNeighbours(neighbour, level);
         if (existing.Length < max) {
-            existing.CopyTo(_linkBuffer);
-            _linkBuffer[existing.Length] = newOrdinal;
-            setNeighbours(neighbour, level, _linkBuffer.AsSpan(0, existing.Length + 1));
+            var appended = new int[existing.Length + 1]; // the cheap branch, and rare once the graph is warm
+            existing.CopyTo(appended);
+            appended[existing.Length] = newOrdinal;
+            setNeighbours(neighbour, level, appended);
             return;
         }
         var self = vectorRef(neighbour);
@@ -203,7 +255,7 @@ internal sealed class HnswGraph : IDisposable {
             if (!_nodes.IsLive(e)) continue;
             candidates.Add(new(e, VectorMath.Dot(self.AsSpan(0, _dims), vectorOf(e))));
         }
-        candidates.Add(new(newOrdinal, VectorMath.Dot(self.AsSpan(0, _dims), vectorOf(newOrdinal))));
+        candidates.Add(new(newOrdinal, VectorMath.Dot(self.AsSpan(0, _dims), newVector.AsSpan(0, _dims))));
         setNeighbours(neighbour, level, selectNeighbours(candidates, max, neighbour));
     }
     /// <summary>
@@ -222,6 +274,14 @@ internal sealed class HnswGraph : IDisposable {
         var sorted = new List<Candidate>(candidates.Count);
         foreach (var c in candidates) {
             if (c.Ordinal != self) sorted.Add(c);
+        }
+        // With no more candidates than slots the heuristic cannot drop anything: what it declines to
+        // select it puts straight back to fill the free slots, so the result is every candidate either
+        // way and the O(max²) dot products would only be deciding an order the graph never reads.
+        if (sorted.Count <= max) {
+            var all = new int[sorted.Count];
+            for (var i = 0; i < all.Length; i++) all[i] = sorted[i].Ordinal;
+            return all;
         }
         sorted.Sort(static (a, b) => b.Similarity.CompareTo(a.Similarity));
         var arrays = new float[sorted.Count][];
@@ -262,32 +322,50 @@ internal sealed class HnswGraph : IDisposable {
         var width = Math.Max(ef, wanted);
         if (tooWideToWalk(width)) return scanAll(query, minSim);
         var hits = new List<VectorHit>();
-        foreach (var c in beamSearch(query, width)) {
-            if (c.Similarity >= minSim) hits.Add(new(_nodes.NodeIdOf(c.Ordinal), c.Similarity));
+        var walk = rentWalk();
+        try {
+            foreach (var c in beamSearch(query, width, walk)) {
+                if (c.Similarity >= minSim) hits.Add(new(_nodes.NodeIdOf(c.Ordinal), c.Similarity));
+            }
+        } finally {
+            returnWalk(walk);
         }
         return hits;
     }
     /// <summary>
     /// Every node id at or above a similarity, unranked — the query a semantic filter asks. A graph
     /// answers "the nearest k", so this asks for a k wide enough to contain the answer: run the beam,
-    /// and if every candidate in it cleared the threshold then there are more above the threshold than
-    /// the beam could hold, so widen it and go again. It stops when the beam comes back with something
-    /// below the threshold, which means it has seen the edge of the above-threshold region.
+    /// and widen it while the answer looks like it is pressing against the edge of it.
+    ///
+    /// <para>"Pressing against the edge" is the part that matters for recall. Stopping as soon as the
+    /// beam's worst candidate falls below the threshold would leave a beam barely wider than the answer
+    /// it has to contain, and a graph walk at <c>ef</c> only just larger than <c>k</c> is precisely where
+    /// HNSW's recall is weakest — measurably so: it cost two points of filter recall. So the beam has to
+    /// come back at least a quarter empty before it is believed.</para>
     /// </summary>
     public HashSet<int> SearchAbove(float[] query, float minSim, int ef) {
         var ids = new HashSet<int>();
         if (_nodes.LiveCount == 0) return ids;
-        for (var width = Math.Max(ef, 64); ; width = width > int.MaxValue / 4 ? int.MaxValue : width * 4) {
-            if (tooWideToWalk(width)) { // the walk would score more vectors than the index holds
-                foreach (var hit in scanAll(query, minSim)) ids.Add(hit.NodeId);
+        var walk = rentWalk();
+        try {
+            for (var width = Math.Max(ef, 64); ; width = width > int.MaxValue / 4 ? int.MaxValue : width * 4) {
+                if (tooWideToWalk(width)) { // the walk would score more vectors than the index holds
+                    foreach (var hit in scanAll(query, minSim)) ids.Add(hit.NodeId);
+                    return ids;
+                }
+                var found = beamSearch(query, width, walk); // worst first
+                var above = 0;
+                foreach (var c in found) {
+                    if (c.Similarity >= minSim) above++;
+                }
+                if (found.Count >= width && above * 4 > width * 3) continue; // too full to trust
+                foreach (var c in found) {
+                    if (c.Similarity >= minSim) ids.Add(_nodes.NodeIdOf(c.Ordinal));
+                }
                 return ids;
             }
-            var found = beamSearch(query, width); // worst first
-            if (found.Count >= width && found[0].Similarity >= minSim) continue; // the floor is below the whole beam
-            foreach (var c in found) {
-                if (c.Similarity >= minSim) ids.Add(_nodes.NodeIdOf(c.Ordinal));
-            }
-            return ids;
+        } finally {
+            returnWalk(walk);
         }
     }
     /// <summary>
@@ -296,14 +374,15 @@ internal sealed class HnswGraph : IDisposable {
     /// and nothing else, on every core at once. A walk is a sequential chain, and around each candidate's
     /// dot product it pays a visited-set probe, two heap operations and a residency lookup. So a scan
     /// costs <c>vectors × dims / cores</c> against a walk's <c>width × (dims + bookkeeping)</c>, and
-    /// which wins turns on the dimension count: at 128 dimensions the bookkeeping dwarfs the arithmetic
-    /// and the scan stays ahead into the hundreds of thousands of vectors, while at 1536 the walk takes
-    /// over in the tens of thousands. Preferring the scan where it is faster is free accuracy — it is
-    /// also the exact answer. Always true below
+    /// which wins turns on the dimension count: at 128 dimensions the per-candidate costs rival the
+    /// arithmetic and the scan stays ahead into the hundreds of thousands of vectors, while at 1536 the
+    /// walk takes over in the tens of thousands. Preferring the scan where it is faster is free accuracy —
+    /// it is also the exact answer. Always true below
     /// <see cref="HnswVectorIndexOptions.MinVectorsForGraphSearch"/>, where the index is small enough
     /// that the scan is the better answer whatever the query asks for.
     /// <para>The constant is a calibration rather than a law: the per-candidate bookkeeping, expressed
-    /// in units of one dimension's worth of dot product.</para>
+    /// in units of one dimension's worth of dot product. It is deliberately on the generous side, so a
+    /// close call goes to the scan — which is the exact answer, and so the cheaper mistake to make.</para>
     /// </summary>
     const int walkOverheadInDims = 700;
     bool tooWideToWalk(int width) {
@@ -313,85 +392,122 @@ internal sealed class HnswGraph : IDisposable {
         return scanCost <= walkCost;
     }
     /// <summary>Descends to layer 0 and explores a beam of <paramref name="width"/> candidates there.
-    /// Returns them worst first, so the last entry is the best.</summary>
-    List<Candidate> beamSearch(float[] query, int width) {
-        var entryPoints = descend(query, out var visited, out var scratch, out var toLoad);
-        if (entryPoints.Count == 0) return [];
-        return searchLayer(query, 0, width, entryPoints, visited, scratch, toLoad);
-    }
-    /// <summary>Walks down from the entry point to layer 0 with a beam of one, which is where a graph
-    /// search spends its logarithmic budget and — because the upper layers are resident — no IO.</summary>
-    List<int> descend(float[] query, out HashSet<int> visited, out List<int> scratch, out List<int> toLoad) {
-        visited = [];
-        scratch = [];
-        toLoad = [];
-        var entryPoints = new List<int>();
+    /// Returns them worst first, so the last entry is the best — in the walk's own buffer, so the caller
+    /// must be done with them before it releases the walk.</summary>
+    List<Candidate> beamSearch(ReadOnlySpan<float> query, int width, Walk walk) {
         var entry = _nodes.EntryOrdinal;
-        if (entry < 0 || !_nodes.IsLive(entry)) return entryPoints;
-        entryPoints.Add(entry);
-        for (var l = _nodes.MaxLevel; l >= 1; l--) {
-            visited.Clear();
-            var found = searchLayer(query, l, 1, entryPoints, visited, scratch, toLoad);
-            if (found.Count == 0) continue;
-            entryPoints.Clear();
-            entryPoints.Add(found[^1].Ordinal);
+        if (entry < 0 || !_nodes.IsLive(entry)) {
+            walk.Output.Clear();
+            return walk.Output;
         }
-        visited.Clear();
-        return entryPoints;
+        for (var l = _nodes.MaxLevel; l >= 1; l--) entry = greedyDescend(query, entry, l, walk);
+        walk.EntryPoints.Clear();
+        walk.EntryPoints.Add(entry);
+        return searchLayer(query, 0, width, walk.EntryPoints, walk);
+    }
+    /// <summary>
+    /// One layer of the descent: step to the best neighbour for as long as any of them is closer to the
+    /// query than where we stand. This is SEARCH-LAYER with a beam of one written out — a beam of one
+    /// needs no heaps, and because every step strictly improves on the last it needs no visited set
+    /// either. Which matters because the descent runs once per layer per query and its work is otherwise
+    /// trivial: the layers above 0 keep their edges in memory and their vectors pinned, so all that was
+    /// left to pay was the bookkeeping.
+    /// </summary>
+    int greedyDescend(ReadOnlySpan<float> query, int entry, int level, Walk walk) {
+        var current = entry;
+        var best = VectorMath.Dot(query, vectorOf(current));
+        while (true) {
+            walk.Neighbours.Clear();
+            walk.ToLoad.Clear();
+            var missing = 0;
+            foreach (var n in _nodes.UpperNeighbours(current, level)) {
+                if (n < 0 || n >= _nodes.NextOrdinal || !_nodes.IsLive(n)) continue;
+                walk.Neighbours.Add(n);
+                if (_nodes.LevelOf(n) == 0 || !_pinned.ContainsKey(n)) {
+                    walk.ToLoad.Add(n);
+                    if (!_store.IsResident(n)) missing++;
+                }
+            }
+            _store.Prefetch(walk.ToLoad, missing);
+            var next = -1;
+            foreach (var n in walk.Neighbours) {
+                var sim = VectorMath.Dot(query, vectorOf(n));
+                if (sim <= best) continue;
+                best = sim;
+                next = n;
+            }
+            if (next < 0) return current;
+            current = next;
+        }
     }
     /// <summary>
     /// HNSW's SEARCH-LAYER: expand the most promising unexpanded candidate until the best one left is
     /// worse than the worst result kept, holding at most <paramref name="ef"/> results. Returns them
     /// worst first, so the last entry is the best.
     /// </summary>
-    List<Candidate> searchLayer(ReadOnlySpan<float> query, int level, int ef, List<int> entryPoints,
-        HashSet<int> visited, List<int> scratch, List<int> toLoad) {
-        var candidates = new PriorityQueue<int, float>(); // best first: priority is the negated similarity
-        var results = new PriorityQueue<int, float>();    // worst first, capped at ef
+    List<Candidate> searchLayer(ReadOnlySpan<float> query, int level, int ef, List<int> entryPoints, Walk walk) {
+        walk.Visited.Begin(_nodes.NextOrdinal);
+        var candidates = walk.Candidates;
+        var results = walk.Results;
+        candidates.Clear();
+        results.Clear();
+        // grown once per pooled walk rather than once per query; a beam of ef keeps ef results and tends
+        // to hold a similar number of unexpanded candidates
+        results.EnsureCapacity(Math.Min(ef, 4096) + 1);
+        candidates.EnsureCapacity(Math.Min(ef, 4096) + 1);
         foreach (var ep in entryPoints) {
-            if (!_nodes.IsLive(ep) || !visited.Add(ep)) continue;
+            if (!_nodes.IsLive(ep) || !walk.Visited.Add(ep)) continue;
             var sim = VectorMath.Dot(query, vectorOf(ep));
             candidates.Enqueue(ep, -sim);
             results.Enqueue(ep, sim);
         }
         while (results.Count > ef) results.Dequeue();
+        var worst = results.Count >= ef && results.TryPeek(out _, out var initial) ? initial : float.NegativeInfinity;
         while (candidates.TryPeek(out var current, out var negated)) {
-            if (results.Count >= ef && results.TryPeek(out _, out var worst) && -negated < worst) break;
+            if (results.Count >= ef && -negated < worst) break;
             candidates.Dequeue();
             var neighbours = level == 0
                 ? _store.Neighbours(_store.Get(current))
                 : _nodes.UpperNeighbours(current, level);
-            collectUnvisited(neighbours, visited, scratch, toLoad);
-            _store.Prefetch(toLoad); // one read latency for the whole neighbour list, not one each
-            foreach (var n in scratch) {
+            var missing = collectUnvisited(neighbours, walk);
+            _store.Prefetch(walk.ToLoad, missing); // one read latency for the whole neighbour list, not one each
+            foreach (var n in walk.Neighbours) {
                 var sim = VectorMath.Dot(query, vectorOf(n));
                 if (results.Count < ef) {
                     candidates.Enqueue(n, -sim);
                     results.Enqueue(n, sim);
-                } else if (results.TryPeek(out _, out var limit) && sim > limit) {
+                    if (results.Count >= ef && results.TryPeek(out _, out var filled)) worst = filled;
+                } else if (sim > worst) {
                     candidates.Enqueue(n, -sim);
                     results.Enqueue(n, sim);
                     results.Dequeue();
+                    if (results.TryPeek(out _, out var raised)) worst = raised;
                 }
             }
         }
-        var output = new List<Candidate>(results.Count);
+        var output = walk.Output;
+        output.Clear();
         while (results.TryDequeue(out var ordinal, out var sim)) output.Add(new(ordinal, sim));
         return output;
     }
-    /// <summary>The live, unvisited neighbours of a node, and the subset of them whose vector is not
-    /// already in memory. Neighbour ordinals are validated rather than trusted: a write torn by a
-    /// crash can leave a slot holding a stale id, and dropping it costs one edge.</summary>
-    void collectUnvisited(ReadOnlySpan<int> neighbours, HashSet<int> visited, List<int> scratch, List<int> toLoad) {
-        scratch.Clear();
-        toLoad.Clear();
+    /// <summary>The live, unvisited neighbours of a node into the walk's scratch, returning how many of
+    /// them would have to come off the disk. Neighbour ordinals are validated rather than trusted: a
+    /// write torn by a crash can leave a slot holding a stale id, and dropping it costs one edge.</summary>
+    int collectUnvisited(ReadOnlySpan<int> neighbours, Walk walk) {
+        walk.Neighbours.Clear();
+        walk.ToLoad.Clear();
+        var missing = 0;
         foreach (var n in neighbours) {
             if (n < 0 || n >= _nodes.NextOrdinal) continue;
             if (!_nodes.IsLive(n)) continue;
-            if (!visited.Add(n)) continue;
-            scratch.Add(n);
-            if (_nodes.LevelOf(n) == 0 || !_pinned.ContainsKey(n)) toLoad.Add(n);
+            if (!walk.Visited.Add(n)) continue;
+            walk.Neighbours.Add(n);
+            if (_nodes.LevelOf(n) == 0 || !_pinned.ContainsKey(n)) {
+                walk.ToLoad.Add(n);
+                if (!_store.IsResident(n)) missing++;
+            }
         }
+        return missing;
     }
     /// <summary>
     /// An exact scan of every live record. Used below the graph-search threshold and wherever a walk
@@ -532,6 +648,7 @@ internal sealed class HnswGraph : IDisposable {
         _store.ClearCache();
         _pinned.Clear();
         Interlocked.Exchange(ref _pinnedBytes, 0);
+        while (_walks.TryTake(out _)) Interlocked.Decrement(ref _pooledWalks); // their stamp arrays too
     }
     /// <summary>
     /// Rewrites the index into a new generation of files with the dead records dropped and the

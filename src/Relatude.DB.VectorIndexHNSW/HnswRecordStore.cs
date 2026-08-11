@@ -172,11 +172,7 @@ internal sealed class HnswRecordStore : IDisposable {
     /// <summary>Loads a batch of records concurrently, so the disk latency of one graph hop's
     /// neighbours is paid once rather than once per neighbour. Called with the index's read or write
     /// lock held, which is what makes the residency table the only shared state being touched.</summary>
-    public void Prefetch(List<int> ordinals) {
-        var missing = 0;
-        foreach (var ordinal in ordinals) {
-            if (!IsResident(ordinal)) missing++;
-        }
+    public void Prefetch(List<int> ordinals, int missing) {
         if (missing < 4 || Environment.ProcessorCount <= 2) return; // not worth the fan-out
         Parallel.ForEach(ordinals, ordinal => {
             if (!IsResident(ordinal)) Get(ordinal);
@@ -278,21 +274,67 @@ internal sealed class HnswRecordStore : IDisposable {
     /// A record still in memory is written from there; one that has been evicted since, from the
     /// overlay that its eviction put its list into.</summary>
     public void ConsolidateBehind() {
-        var buffer = new int[1 + NeighbourCapacity];
-        for (var ordinal = 0; ordinal < _nextOrdinal; ordinal++) {
-            if (!isBehind(ordinal)) continue;
-            var record = (uint)ordinal < (uint)_resident.Length ? _resident[ordinal] : null;
-            ReadOnlySpan<int> edges = record != null ? Neighbours(record)
-                : _overlay.TryGetValue(ordinal, out var kept) ? kept
-                : throw new InvalidOperationException("A record the graph file is behind on is neither in memory nor in the overlay. ");
-            buffer[0] = edges.Length;
-            edges.CopyTo(buffer.AsSpan(1));
-            _file.WriteWithin(ordinal, edgeRegionOffset, MemoryMarshal.AsBytes(buffer.AsSpan(0, 1 + edges.Length)));
+        // The stale records are scattered, and a 132-byte write into a page the OS has evicted has to
+        // read that page back first — so each one costs far more than its bytes. Where several of them
+        // sit close together it is cheaper to write the whole span as full records, in one call, out of
+        // the copies already in memory. The gap worth bridging is the one whose extra bytes cost less
+        // than the write call it saves.
+        var maxGap = Math.Max(1, 64 * 1024 / StrideBytes);
+        var edgeBuffer = new int[1 + NeighbourCapacity];
+        var spanBuffer = Array.Empty<float>();
+        var ordinal = 0;
+        while (ordinal < _nextOrdinal) {
+            if (!isBehind(ordinal)) {
+                // step over whole empty bitmap words: a large index with few pending edges should not
+                // pay a probe per vector to find them
+                var word = ordinal >> 6;
+                ordinal = (uint)word < (uint)_behind.Length && _behind[word] == 0 ? (word + 1) << 6 : ordinal + 1;
+                continue;
+            }
+            var last = ordinal;
+            if (allResident(ordinal, ordinal + 1)) { // a merged write reproduces whole records, so every
+                for (var next = ordinal + 1; next < _nextOrdinal && next - last <= maxGap; next++) {
+                    if (!isBehind(next)) continue;
+                    if (!allResident(last + 1, next + 1)) break; // record it covers has to be in memory
+                    last = next;
+                }
+            }
+            if (last == ordinal) {
+                var edges = edgesOf(ordinal);
+                edgeBuffer[0] = edges.Length;
+                edges.CopyTo(edgeBuffer.AsSpan(1));
+                _file.WriteWithin(ordinal, edgeRegionOffset, MemoryMarshal.AsBytes(edgeBuffer.AsSpan(0, 1 + edges.Length)));
+            } else {
+                var count = last - ordinal + 1;
+                if (spanBuffer.Length < count * Words) spanBuffer = new float[count * Words];
+                for (var i = 0; i < count; i++) {
+                    (_resident[ordinal + i] ?? throw new InvalidOperationException("A merged consolidation span is not fully in memory. "))
+                        .CopyTo(spanBuffer, i * Words);
+                }
+                _file.Write(ordinal, MemoryMarshal.AsBytes(spanBuffer.AsSpan(0, count * Words)));
+            }
+            ordinal = last + 1;
         }
         lock (_lock) {
             _overlay.Clear();
             Array.Clear(_behind);
         }
+    }
+    /// <summary>A behind record's current neighbour list: from the record while it is still in memory,
+    /// and from the overlay its eviction put it in when it is not.</summary>
+    ReadOnlySpan<int> edgesOf(int ordinal) {
+        var record = (uint)ordinal < (uint)_resident.Length ? _resident[ordinal] : null;
+        if (record != null) return Neighbours(record);
+        if (_overlay.TryGetValue(ordinal, out var kept)) return kept;
+        throw new InvalidOperationException("A record the graph file is behind on is neither in memory nor in the overlay. ");
+    }
+    /// <summary>Whether a whole run of records can be written from memory, which is what a merged write
+    /// over them needs — their vectors are only in the file, so an evicted one cannot be reproduced.</summary>
+    bool allResident(int first, int lastExclusive) {
+        for (var ordinal = first; ordinal < lastExclusive; ordinal++) {
+            if ((uint)ordinal >= (uint)_resident.Length || _resident[ordinal] == null) return false;
+        }
+        return true;
     }
     /// <summary>Restores what the durable edge log says at open: those records' file copies are stale, and
     /// none of them is in memory yet, so every entry goes into the overlay. Entries come in write order,
