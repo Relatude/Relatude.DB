@@ -141,7 +141,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             toLog.Add("Index engines: none. All indexes are in memory, persisted through state files.");
             return null;
         }
-        toLog.Add("Index engines: values=" + valueEngine + ", text=" + textEngine + ", semantic=" + semanticEngine + ". Index path: " + indexPath);
+        toLog.Add("Index engines: " + valueEngine + ", " + textEngine + ", " + semanticEngine);
         // A persisted default that no engine can serve falls back to memory indexes. That is a valid
         // configuration, but silent - and an unexpectedly in-memory index is hard to spot later:
         if (local.UsePersistedValueIndexesByDefault && valueEngine == PersistedValueIndexEngine.Memory)

@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 
+using VectorIndexBenchmarks.Engines;
+
 namespace VectorIndexBenchmarks.Harness;
 
 /// <summary>
@@ -43,8 +45,10 @@ public sealed class Corpus {
     public int DeltaCount { get; private init; }
     public int MixedCount { get; private init; }
 
-    /// <summary>The query texts the search phases pass to <c>ISemanticIndex</c>; the benchmark's AI
-    /// engine maps each one back to <see cref="QueryVectors"/>.</summary>
+    /// <summary>The query stream, each query carrying both the text a semantic index embeds itself
+    /// and the vector a library takes directly — the benchmark's AI engine maps one to the other, so
+    /// every implementation answers the identical question.</summary>
+    public BenchQuery[] Queries { get; private set; } = [];
     public string[] QueryTexts { get; private set; } = [];
     public float[][] QueryVectors { get; private set; } = [];
     /// <summary>Per recall query, the ids of the <see cref="FilterRank"/> nearest vectors of the
@@ -113,6 +117,7 @@ public sealed class Corpus {
         }
         corpus.QueryTexts = texts;
         corpus.QueryVectors = queries;
+        corpus.Queries = [.. texts.Zip(queries, (t, v) => new BenchQuery(t, v))];
 
         corpus.buildExactAnswers(options);
         return corpus;

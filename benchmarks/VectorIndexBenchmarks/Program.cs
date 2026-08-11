@@ -2,10 +2,16 @@ using System.Diagnostics;
 using System.Text.Json;
 using VectorIndexBenchmarks.Harness;
 
-// VectorIndexBenchmarks — benchmarks the two ISemanticIndex implementations against each other on
-// one set of generated vectors and one query stream: the in-memory MemorySemanticIndex (every
-// vector on the managed heap, every search an exact scan) and the disk-based NativeVectorIndex
-// (segment files, IVF clusters, a byte-budgeted block cache).
+// VectorIndexBenchmarks — benchmarks four vector indexes against each other on one set of
+// generated vectors and one query stream:
+//
+//   memory     Relatude MemorySemanticIndex — every vector on the managed heap, exact SIMD scan
+//   native     Relatude NativeVectorIndex   — disk segments, IVF clusters, byte-budgeted block cache
+//   sqlitevec  sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
+//   usearch    USearch                      — an HNSW graph in native memory, top-k only
+//
+// The two Relatude ones are driven through ISemanticIndex, the interface the data store uses; the
+// third-party ones take vectors directly. Both forms of every query are the same query.
 //
 //   dotnet run -c Release [-- options]
 //
@@ -18,9 +24,14 @@ using VectorIndexBenchmarks.Harness;
 //   --batch=5000                 vectors between state saves during the load
 //   --cache=<MB>                 what the disk index may spend on cached vector blocks
 //   --accuracy=0.25              fraction of clusters the disk index probes per search
+//   --hnsw-m=16                  USearch graph degree (connectivity)
+//   --hnsw-ef-add=128            USearch build effort (expansionAdd)
+//   --hnsw-ef=64                 USearch search effort (expansionSearch) — its accuracy dial
 //   --min-sim=<f>                the similarity floor the searches pass down (default: the
 //                                similarity of the 500th exact neighbour, ~500 candidates)
-//   --engines=all|<list>         e.g. memory,native,native-exact,native-lowmem
+//   --engines=all|<list>         all = memory,native,sqlitevec,usearch; also native-exact and
+//                                native-lowmem. sqlite-vec scans every vector on every query, so
+//                                it dominates the runtime — drop it for quick iterations.
 //   --persist=batch              save state after every batch instead of once after the load
 //   --data=<dir>                 working directory for index files (default: %TEMP%)
 //   --in-process                 run everything in this process (memory numbers get noisy)
@@ -42,7 +53,7 @@ if (options.ChildEngine is not null) {
     return 0;
 }
 
-Console.WriteLine("VectorIndexBenchmarks — MemorySemanticIndex vs NativeVectorIndex");
+Console.WriteLine("VectorIndexBenchmarks — Relatude vs sqlite-vec vs USearch");
 Console.WriteLine($"{options.N:N0} vectors x {options.Dimensions} dimensions "
     + $"({options.N * (long)options.Dimensions * 4 / (1024.0 * 1024.0):N0} MB of raw float32) | "
     + $"{(options.Clusters > 0 ? $"{options.Clusters:N0} clusters, noise {options.ClusterNoise:0.##}" : "uniformly random directions")} | "
@@ -119,6 +130,9 @@ static BenchResult runChild(string engine, BenchOptions options, string dir, str
     psi.ArgumentList.Add($"--batch={options.BatchSize}");
     psi.ArgumentList.Add($"--cache={options.CacheBytes / 1024 / 1024}");
     psi.ArgumentList.Add($"--accuracy={options.Accuracy}");
+    psi.ArgumentList.Add($"--hnsw-m={options.HnswConnectivity}");
+    psi.ArgumentList.Add($"--hnsw-ef-add={options.HnswExpansionAdd}");
+    psi.ArgumentList.Add($"--hnsw-ef={options.HnswExpansionSearch}");
     if (options.MinSimilarity.HasValue) psi.ArgumentList.Add($"--min-sim={options.MinSimilarity.Value}");
     if (options.PersistEveryBatch) psi.ArgumentList.Add("--persist=batch");
     using var proc = Process.Start(psi)!;
@@ -230,20 +244,34 @@ static void printNotes(BenchOptions options, Corpus corpus) {
             millisecond and footprint columns rank low-to-high, the rest high-to-low. "n/a" is a
             capability the implementation does not have — not a slow result. Redirected output
             (and NO_COLOR) stays plain text.
-          - Speed without accuracy means nothing here: the in-memory index scans every vector and is
-            exact by construction, the disk index probes the {{options.Accuracy:P0}} of clusters nearest the query
-            and may miss a neighbour that sits in one it did not open. Read the search rates and the
-            two recall columns together, and run --engines=memory,native-exact to compare the two on
-            equal accuracy (the disk index then reads every block, which is its slowest mode).
+          - Speed without accuracy means nothing here. MemorySemanticIndex and sqlite-vec are exact by
+            construction — they look at every vector. NativeVectorIndex probes the {{options.Accuracy:P0}} of clusters
+            nearest the query, and USearch walks an HNSW graph with an expansion of {{options.HnswExpansionSearch}}; both may
+            miss a neighbour they never visited. Read the search rates and the recall columns
+            together, and use --accuracy / --hnsw-ef to compare the two approximate ones at matched
+            recall rather than at matched settings, which mean different things.
           - Recall% is the share of the exact first page of {{Corpus.RecallTopK}} a ranked search returns; Filter%
             the share of the exact above-threshold set an unranked filter search returns. Both are
             measured against a brute-force scan of the freshly loaded vectors, over {{Corpus.RecallQueryCount}} queries, and
             both are 100% for an implementation that searches exactly (anything less is reported as
             an error rather than a trade-off).
-          - Both implementations are driven only through ISemanticIndex, the interface the data store
-            uses, so they answer the identical calls. A semantic search arrives as text and the index
-            embeds it itself; the benchmark supplies an AI engine that maps each query text back to
-            its generated vector and caches it, so what is measured is the index, not an embedding.
+          - The Relatude implementations are driven only through ISemanticIndex, the interface the data
+            store uses, so what is measured for them is the production path. A semantic search arrives
+            there as text the index embeds itself; the benchmark supplies an AI engine that maps each
+            query text back to its generated vector and caches it, so what is timed is the index and
+            not an embedding call. The third-party libraries take the same vector directly.
+          - Not every implementation has every operation, and "n/a" means absent rather than slow.
+            USearch answers "the best k" and has no unranked threshold query, so its Filter columns
+            are blank — emulating one with a k of the whole index would measure a query nobody would
+            write. Only NativeVectorIndex has a post-WAL-flush durability hook.
+          - The third-party libraries keep their data in native memory (USearch's graph) or in a page
+            cache (sqlite-vec), so almost nothing of theirs appears in the managed Mem/Warm columns —
+            for them, only WSet MB and Disk MB carry information. That asymmetry is a property of the
+            measurement, not a result: do not read their low Mem MB as frugality.
+          - sqlite-vec has no approximate index. Every ranked query scans and ranks every stored
+            vector, and a similarity floor buys it nothing (a vec0 KNN query takes a k and nothing
+            else, so the floor is applied to the rows that come back). It is the exact-answer
+            reference next to native-exact, and it is why a full run takes as long as it does.
           - The vectors are synthetic: unit vectors drawn around {{(options.Clusters > 0 ? options.Clusters + " random cluster centers" : "no centers at all")}}, and the
             queries are drawn from the same distribution, so a query has real near neighbours the way
             a real one does. Clustered data is what embeddings look like and what an IVF index is
@@ -304,8 +332,8 @@ sealed record TableColumn(string Header, Func<BenchResult, double?> Value, Func<
         => new(header, r => r.Rate(phase), rateText, Phase: phase);
     public static TableColumn Ms(string header, string key, bool optional = false)
         => new(header, r => r.Ms(key), v => v >= 1000 ? $"{v / 1000:0.00}s" : v >= 10 ? $"{v:0}" : $"{v:0.00}", LowerIsBetter: true, Phase: optional ? key : null);
-    public static TableColumn Percent(string header, string key)
-        => new(header, r => r.Quality0To1(key), v => (v * 100).ToString("0.0"));
+    public static TableColumn Percent(string header, string key, bool optional = false)
+        => new(header, r => r.Quality0To1(key), v => (v * 100).ToString("0.0"), Phase: optional ? key : null);
     public static TableColumn Megabytes(string header, Func<BenchResult, double> value)
         => new(header, r => value(r), v => v.ToString("0.0"), LowerIsBetter: true);
 
@@ -328,7 +356,7 @@ static class Columns {
         TableColumn.Rate("NoFloor", "NoFloor"),
         TableColumn.Rate("Filter", "Filter"),
         TableColumn.Percent("Recall%", "Recall"),
-        TableColumn.Percent("Filter%", "FilterRecall"),
+        TableColumn.Percent("Filter%", "FilterRecall", optional: true),
     ];
 
     public static readonly TableColumn[] Write = [

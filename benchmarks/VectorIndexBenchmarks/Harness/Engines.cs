@@ -3,7 +3,7 @@ using VectorIndexBenchmarks.Engines;
 
 namespace VectorIndexBenchmarks.Harness;
 
-/// <summary>The semantic index implementations under test, and how each one is opened.</summary>
+/// <summary>The vector index implementations under test, and how each one is opened.</summary>
 public static class Engines {
     public const string Memory = "memory";
     public const string Native = "native";
@@ -11,12 +11,17 @@ public static class Engines {
     /// in-memory index's accuracy, so the price of exactness on disk is visible.</summary>
     public const string NativeExact = "native-exact";
     /// <summary>The same disk index on a deliberately tiny block-cache budget — a second
-    /// configuration of one implementation rather than a third implementation, but naming it in
+    /// configuration of one implementation rather than another implementation, but naming it in
     /// --engines shows what the cache budget actually buys.</summary>
     public const string NativeLowMem = "native-lowmem";
+    /// <summary>sqlite-vec: a vec0 virtual table in an ordinary SQLite file, exact by design.</summary>
+    public const string SqliteVec = "sqlitevec";
+    /// <summary>USearch: an HNSW graph in native memory — the other main answer to approximate search.</summary>
+    public const string USearch = "usearch";
     public const long LowMemCacheBytes = 8L * 1024 * 1024;
 
-    public static readonly string[] All = [Memory, Native];
+    //public static readonly string[] All = [Memory, Native, SqliteVec, USearch];
+    public static readonly string[] All = [Native, USearch];
 
     /// <summary>A fixed log id: an index binds its data to the WAL file it belongs to, and the
     /// benchmark's reopen step has to present the same one or the index resets itself.</summary>
@@ -27,6 +32,8 @@ public static class Engines {
         Native => "NativeVectorIndex",
         NativeExact => "NativeVectorIndex (exact)",
         NativeLowMem => $"NativeVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
+        SqliteVec => "sqlite-vec",
+        USearch => "USearch (HNSW)",
         _ => name,
     };
 
@@ -36,19 +43,25 @@ public static class Engines {
         Native => "disk segments, IVF clusters, cached blocks; searches the nearest clusters only (Relatude.DB.VectorIndex)",
         NativeExact => "the same disk index probing every cluster (accuracy 1): exact, and reading every block",
         NativeLowMem => $"the same disk index with its block cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
+        SqliteVec => "third party: a vec0 virtual table in a SQLite file, exact KNN by full scan (asg017/sqlite-vec)",
+        USearch => "third party: an HNSW graph in native memory, top-k only (unum-cloud/USearch)",
         _ => name,
     };
 
-    /// <summary>True when the engine answers exactly, so its recall must come out at 100%.</summary>
-    public static bool IsExact(string name, BenchOptions options)
-        => name == Memory || name == NativeExact || options.Accuracy >= 1f;
+    /// <summary>True when the implementation answers exactly, so its recall must come out at 100%.
+    /// sqlite-vec has no approximate index at all; the Relatude disk index is exact only when it
+    /// probes every cluster.</summary>
+    public static bool IsExact(string name, BenchOptions options) => name switch {
+        Memory or NativeExact or SqliteVec => true,
+        Native or NativeLowMem => options.Accuracy >= 1f,
+        _ => false,
+    };
 
     public static IBenchVectorIndex Create(string name, string dir, BenchOptions options, Corpus corpus) {
         Directory.CreateDirectory(dir);
-        var ai = BenchAiEngine.Create(corpus);
         return name switch {
-            Memory => new MemoryBenchIndex(dir, WalFileId, ai),
-            Native or NativeExact or NativeLowMem => new NativeBenchIndex(dir, WalFileId, ai, new NativeVectorIndexOptions {
+            Memory => new MemoryBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus)),
+            Native or NativeExact or NativeLowMem => new NativeBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new NativeVectorIndexOptions {
                 Dimensions = corpus.Dimensions,
                 Accuracy = name == NativeExact ? 1f : options.Accuracy,
                 MaxCacheBytes = name == NativeLowMem ? LowMemCacheBytes : options.CacheBytes,
@@ -56,6 +69,8 @@ public static class Engines {
                 // that says nothing about the index, so it is off for every configuration
                 ValidateNormalized = false,
             }),
+            SqliteVec => new SqliteVecBenchIndex(dir, corpus.Dimensions, options.CacheBytes),
+            USearch => new USearchBenchIndex(dir, corpus.Dimensions, options.HnswConnectivity, options.HnswExpansionAdd, options.HnswExpansionSearch),
             _ => throw new ArgumentException($"Unknown engine '{name}'."),
         };
     }
@@ -81,10 +96,18 @@ public sealed class BenchOptions {
     public float ClusterNoise = 1.0f;
     /// <summary>Vectors per state save during the index, update and remove phases.</summary>
     public int BatchSize = 5_000;
-    /// <summary>Byte budget of the disk index's block cache.</summary>
+    /// <summary>Byte budget of the disk index's block cache, and of sqlite-vec's page cache. Both
+    /// are limits rather than reservations, so a very large value means "do not evict".</summary>
     public long CacheBytes = 256L * 1024 * 1024 * 100;
     /// <summary>Fraction of clusters the disk index probes per search.</summary>
     public float Accuracy = 0.25f;
+    /// <summary>HNSW graph degree (USearch's <c>connectivity</c>). 0 leaves the library default.</summary>
+    public ulong HnswConnectivity = 16;
+    /// <summary>HNSW build effort (USearch's <c>expansionAdd</c>).</summary>
+    public ulong HnswExpansionAdd = 128;
+    /// <summary>HNSW search effort (USearch's <c>expansionSearch</c>) — the closest analogue to the
+    /// disk index's <see cref="Accuracy"/>, and the dial to turn when comparing recall.</summary>
+    public ulong HnswExpansionSearch = 64;
     /// <summary>The similarity floor the search phases pass down; derived from the exact answers
     /// when not given, so about <see cref="Corpus.FilterRank"/> vectors clear it.</summary>
     public float? MinSimilarity;
@@ -116,6 +139,9 @@ public sealed class BenchOptions {
                 case "--batch": o.BatchSize = int.Parse(kv[1]); break;
                 case "--cache": o.CacheBytes = long.Parse(kv[1]) * 1024 * 1024; break;
                 case "--accuracy": o.Accuracy = float.Parse(kv[1]); break;
+                case "--hnsw-m": o.HnswConnectivity = ulong.Parse(kv[1]); break;
+                case "--hnsw-ef-add": o.HnswExpansionAdd = ulong.Parse(kv[1]); break;
+                case "--hnsw-ef": o.HnswExpansionSearch = ulong.Parse(kv[1]); break;
                 case "--min-sim": o.MinSimilarity = float.Parse(kv[1]); break;
                 case "--persist": o.PersistEveryBatch = kv[1] == "batch"; break;
                 case "--engines": o.EngineNames = kv[1] == "all" ? Engines.All : kv[1].Split(','); break;

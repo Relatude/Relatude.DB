@@ -14,7 +14,7 @@ namespace VectorIndexBenchmarks.Engines;
 /// <see cref="IIndex.SaveStateForMemoryIndexes"/>, which the store schedules periodically rather
 /// than per transaction.
 /// </summary>
-public sealed class MemoryBenchIndex : IBenchVectorIndex {
+public sealed class MemoryBenchIndex : SemanticBenchIndex {
     readonly IIOProvider _io;
     readonly string _dir;
 
@@ -27,12 +27,11 @@ public sealed class MemoryBenchIndex : IBenchVectorIndex {
         Index = new MemorySemanticIndex(new SetRegister(0), "bench", "bench", _io, new FileKeyUtility(null), ai, _ => { });
         Index.ReadStateForMemoryIndexes(walId);
     }
-    public ISemanticIndex Index { get; }
-    public bool SupportsIncrementalDurability => false;
-    public void SaveState(long timestamp) => Index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
-    public void MakeDurable(long timestamp) => throw new NotSupportedException();
-    public long DiskBytes => Harness.Engines.FolderBytes(_dir);
-    public void Dispose() {
+    protected override ISemanticIndex Index { get; }
+    public override Features Supported => Features.UnrankedFilter;
+    public override void SaveState(long timestamp) => Index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
+    public override long DiskBytes => Harness.Engines.FolderBytes(_dir);
+    public override void Dispose() {
         Index.Dispose();
         _io.CloseAllOpenStreams();
     }

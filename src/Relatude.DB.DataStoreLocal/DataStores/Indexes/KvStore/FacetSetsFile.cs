@@ -29,14 +29,14 @@ internal static class FacetSetsFile {
         cachedTimestamp = 0;
         try {
             if (!File.Exists(path)) {
-                log?.Invoke($"No facet sets file.");
+                //log?.Invoke($"No facet sets file.");
                 return null;
             }
             using var r = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 20));
             if (r.ReadInt64() != _magic) return null;
             cachedTimestamp = r.ReadInt64();
             if (cachedTimestamp != engineTimestamp) {
-                log?.Invoke($"Deleted old facet sets file.");
+                //log?.Invoke($"Deleted old facet sets file.");
                 r.Close();
                 File.Delete(path);
                 return null;
@@ -48,7 +48,7 @@ internal static class FacetSetsFile {
                 var length = r.ReadInt32();
                 sections[key] = r.ReadBytes(length);
             }
-            log?.Invoke($"Facet sets file loaded, {sectionCount} sections. ");
+            //log?.Invoke($"Facet sets file loaded, {sectionCount} sections. ");
             return sections;
         } catch(Exception err) {
             log?.Invoke("Error reading facet sets file: " + err.Message);

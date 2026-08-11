@@ -9,10 +9,10 @@ namespace VectorIndexBenchmarks.Engines;
 /// The disk-based vector index (<see cref="NativeVectorIndex"/>): vectors live in immutable
 /// segment files, only ids, offsets and centroids stay in memory, and a search probes the
 /// <see cref="NativeVectorIndexOptions.Accuracy"/> fraction of clusters nearest the query, serving
-/// hot blocks from a byte-budgeted cache. It is the only one of the two with a per-WAL-flush
+/// hot blocks from a byte-budgeted cache. It is the only implementation here with a per-WAL-flush
 /// durability hook: <see cref="NativeVectorIndex.MakeDurable"/> writes just the delta.
 /// </summary>
-public sealed class NativeBenchIndex : IBenchVectorIndex {
+public sealed class NativeBenchIndex : SemanticBenchIndex {
     readonly NativeVectorIndex _index;
     readonly string _dir;
 
@@ -24,10 +24,10 @@ public sealed class NativeBenchIndex : IBenchVectorIndex {
         _index = new NativeVectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
         _index.ReadStateForMemoryIndexes(walId);
     }
-    public ISemanticIndex Index => _index;
-    public bool SupportsIncrementalDurability => true;
-    public void SaveState(long timestamp) => _index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
-    public void MakeDurable(long timestamp) => _index.MakeDurable(timestamp);
-    public long DiskBytes => Harness.Engines.FolderBytes(_dir);
-    public void Dispose() => _index.Dispose();
+    protected override ISemanticIndex Index => _index;
+    public override Features Supported => Features.UnrankedFilter | Features.IncrementalDurability;
+    public override void SaveState(long timestamp) => _index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
+    public override void MakeDurable(long timestamp) => _index.MakeDurable(timestamp);
+    public override long DiskBytes => Harness.Engines.FolderBytes(_dir);
+    public override void Dispose() => _index.Dispose();
 }

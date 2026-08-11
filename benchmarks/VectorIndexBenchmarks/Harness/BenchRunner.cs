@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Relatude.DB.DataStores.Indexes;
+using VectorIndexBenchmarks.Engines;
 
 namespace VectorIndexBenchmarks.Harness;
 
@@ -37,9 +37,9 @@ public sealed class BenchResult {
 }
 
 /// <summary>
-/// Runs every phase against one implementation. Both see the same vectors, the same query stream
-/// and the same state-save boundaries; the only thing that varies is the index behind
-/// <see cref="ISemanticIndex"/>.
+/// Runs every phase against one implementation. All of them see the same vectors, the same query
+/// stream and the same state-save boundaries; the only thing that varies is the index behind
+/// <see cref="IBenchVectorIndex"/>.
 /// </summary>
 public static class BenchRunner {
     /// <summary>The ranked searches ask for a first page of 10 out of this many evaluated hits —
@@ -76,7 +76,6 @@ public static class BenchRunner {
         var wsBefore = Environment.WorkingSet;
 
         using var bench = Engines.Create(engineName, dir, options, corpus);
-        var idx = bench.Index;
         long ts = 0;
         var sw = new Stopwatch();
 
@@ -86,7 +85,7 @@ public static class BenchRunner {
         for (var i = 0; i < n;) {
             var end = Math.Min(n, i + options.BatchSize);
             for (; i < end; i++) {
-                idx.Add(Corpus.NodeId(i), corpus.Vector(i));
+                bench.Add(Corpus.NodeId(i), corpus.Vector(i));
                 Progress.Item(i + 1, n);
             }
             if (options.PersistEveryBatch) bench.SaveState(++ts);
@@ -108,13 +107,13 @@ public static class BenchRunner {
         // before any phase changes it. An approximate index trades recall for speed, so the search
         // rates below only mean something next to this.
         Progress.Phase("measuring recall");
-        measureAccuracy(result, idx, corpus);
+        measureAccuracy(result, bench, corpus);
 
         // ---- One durability checkpoint after a small delta -----------------------------------------
         // Where the two designs differ most: the in-memory index writes a state file containing
         // every vector it holds, the disk index writes the delta and swaps a manifest.
         Progress.Phase("saving state");
-        for (var i = 0; i < corpus.DeltaCount; i++) idx.Add(deltaBase + i + 1, corpus.DeltaVector(i));
+        for (var i = 0; i < corpus.DeltaCount; i++) bench.Add(deltaBase + i + 1, corpus.DeltaVector(i));
         sw.Restart();
         bench.SaveState(++ts);
         sw.Stop();
@@ -123,8 +122,8 @@ public static class BenchRunner {
         // The post-WAL-flush hook, for the implementation that has one: the same delta again, made
         // durable without the state save's maintenance. The in-memory index has no equivalent —
         // the store replays the WAL for anything newer than its last state file.
-        if (bench.SupportsIncrementalDurability) {
-            for (var i = 0; i < corpus.DeltaCount; i++) idx.Add(mixedBase + corpus.MixedCount + i + 1, corpus.DeltaVector(i));
+        if (bench.Supported.HasFlag(Features.IncrementalDurability)) {
+            for (var i = 0; i < corpus.DeltaCount; i++) bench.Add(mixedBase + corpus.MixedCount + i + 1, corpus.DeltaVector(i));
             sw.Restart();
             bench.MakeDurable(++ts);
             sw.Stop();
@@ -136,13 +135,17 @@ public static class BenchRunner {
         // ---- Searches -------------------------------------------------------------------------------
         // The first two carry a minimum similarity, which is how a semantic query is normally asked
         // and lets both implementations discard a vector before it reaches their top-k structure.
-        searchPhase(result, "Top10", q => ranked(idx, q, PageSize, MaxHitsEvaluated, corpus.MinSimilarity));
-        searchPhase(result, "Top100", q => ranked(idx, q, DeepPageSize, DeepMaxHitsEvaluated, corpus.MinSimilarity));
+        searchPhase(result, "Top10", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count);
+        searchPhase(result, "Top100", q => bench.SearchRanked(q, DeepPageSize, DeepMaxHitsEvaluated, corpus.MinSimilarity).Count);
         // No floor: every vector in the index is a candidate for the page, so nothing can be
         // discarded early and the whole corpus passes through the ranking.
-        searchPhase(result, "NoFloor", q => ranked(idx, q, PageSize, MaxHitsEvaluated, -1f));
-        // the unranked path: the id set a WhereSearch semantic filter combines with the rest of a query
-        searchPhase(result, "Filter", q => idx.SearchForIdSetUnranked(q, corpus.MinSimilarity).Count);
+        searchPhase(result, "NoFloor", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, -1f).Count);
+        // The unranked path a semantic WhereSearch filter uses. A pure top-k library has no such
+        // query, so it is skipped rather than emulated with a k of the whole index, which would
+        // measure a query nobody would write.
+        if (bench.Supported.HasFlag(Features.UnrankedFilter))
+            searchPhase(result, "Filter", q => bench.SearchIds(q, corpus.MinSimilarity).Count);
+        else result.Unsupported.Add("Filter");
 
         // ---- Footprint of an index that has been serving -------------------------------------------
         // The steady state of a running store, and the only place a read-through cache shows up: the
@@ -156,7 +159,7 @@ public static class BenchRunner {
         Progress.Phase("updating");
         var updateCount = Math.Min(options.UpdateCount, corpus.UpdateCount);
         sw.Restart();
-        for (var i = 0; i < updateCount; i++) idx.Add(Corpus.NodeId(i), corpus.UpdateVector(i));
+        for (var i = 0; i < updateCount; i++) bench.Update(Corpus.NodeId(i), corpus.UpdateVector(i));
         sw.Stop();
         result.Phases.Add(new() { Name = "Update", Ops = updateCount, Seconds = sw.Elapsed.TotalSeconds });
 
@@ -170,11 +173,11 @@ public static class BenchRunner {
         long mixedHits = 0, mixedRemoves = 0;
         sw.Restart();
         for (var i = 0; i < mixedWrites; i++) {
-            idx.Add(mixedBase + i + 1, corpus.MixedVector(i));
+            bench.Add(mixedBase + i + 1, corpus.MixedVector(i));
             for (var r = 0; r < readsPerWrite; r++)
-                mixedHits += ranked(idx, corpus.QueryTexts[(i * readsPerWrite + r) % Corpus.QueryCount], PageSize, MaxHitsEvaluated, corpus.MinSimilarity);
+                mixedHits += bench.SearchRanked(corpus.Queries[(i * readsPerWrite + r) % Corpus.QueryCount], PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count;
             if (i >= mixedRemoveLag && (i & 1) == 0) {
-                idx.Remove(mixedBase + (i - mixedRemoveLag) + 1, null!);
+                bench.Remove(mixedBase + (i - mixedRemoveLag) + 1);
                 mixedRemoves++;
             }
             Progress.Item(i + 1, mixedWrites);
@@ -188,7 +191,7 @@ public static class BenchRunner {
         Progress.Phase("removing");
         var removeCount = Math.Min(options.RemoveCount, n);
         sw.Restart();
-        for (var i = 0; i < removeCount; i++) idx.Remove(Corpus.NodeId(removeOrder[i]), null!);
+        for (var i = 0; i < removeCount; i++) bench.Remove(Corpus.NodeId(removeOrder[i]));
         sw.Stop();
         result.Phases.Add(new() { Name = "Remove", Ops = removeCount, Seconds = sw.Elapsed.TotalSeconds });
 
@@ -202,27 +205,27 @@ public static class BenchRunner {
         sw.Stop();
         result.Millis["Open"] = sw.Elapsed.TotalMilliseconds;
         sw.Restart();
-        var coldHits = ranked(reopened.Index, corpus.QueryTexts[0], PageSize, MaxHitsEvaluated, corpus.MinSimilarity);
+        var coldHits = reopened.SearchRanked(corpus.Queries[0], PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count;
         sw.Stop();
         result.Millis["Cold"] = sw.Elapsed.TotalMilliseconds;
         // A reopened index that answers nothing is the failure this whole exercise is about, so it
         // is a hard error rather than a fast number: a fraction of the corpus was deleted, not all of it.
-        if (coldHits == 0 && ranked(reopened.Index, corpus.QueryTexts[1], PageSize, MaxHitsEvaluated, corpus.MinSimilarity) == 0)
+        if (coldHits == 0 && reopened.SearchRanked(corpus.Queries[1], PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count == 0)
             result.Error ??= "sanity: the reopened index found nothing (data lost on restart?)";
         return result;
 
-        void searchPhase(BenchResult r, string name, Func<string, int> search) {
+        void searchPhase(BenchResult r, string name, Func<BenchQuery, int> search) {
             Progress.Phase($"warming up {name.ToLowerInvariant()} searches");
-            warm(() => { foreach (var q in corpus.QueryTexts) search(q); });
+            warm(() => { foreach (var q in corpus.Queries) search(q); });
             Progress.Phase($"{name.ToLowerInvariant()} searches");
             long hits = 0;
             sw.Restart();
-            for (var i = 0; i < corpus.QueryTexts.Length; i++) {
-                hits += search(corpus.QueryTexts[i]);
-                Progress.Item(i + 1, corpus.QueryTexts.Length);
+            for (var i = 0; i < corpus.Queries.Length; i++) {
+                hits += search(corpus.Queries[i]);
+                Progress.Item(i + 1, corpus.Queries.Length);
             }
             sw.Stop();
-            r.Phases.Add(new() { Name = name, Ops = corpus.QueryTexts.Length, Seconds = sw.Elapsed.TotalSeconds });
+            r.Phases.Add(new() { Name = name, Ops = corpus.Queries.Length, Seconds = sw.Elapsed.TotalSeconds });
             if (hits == 0) r.Error ??= $"sanity: the {name} phase found no hits at all";
         }
     }
@@ -233,7 +236,8 @@ public static class BenchRunner {
     /// filter search returns. The in-memory index is exact by construction, so anything below 100%
     /// there is a bug, not a trade-off — which is what makes it a usable reference.
     /// </summary>
-    static void measureAccuracy(BenchResult result, ISemanticIndex idx, Corpus corpus) {
+    static void measureAccuracy(BenchResult result, IBenchVectorIndex bench, Corpus corpus) {
+        var hasFilter = bench.Supported.HasFlag(Features.UnrankedFilter);
         double rankedRecall = 0, filterRecall = 0;
         int rankedQueries = 0, filterQueries = 0;
         for (var q = 0; q < corpus.ExactNeighbours.Length; q++) {
@@ -242,25 +246,24 @@ public static class BenchRunner {
             var sims = corpus.ExactSimilarities[q];
             var exactPage = exact.Take(Corpus.RecallTopK).ToHashSet();
             if (exactPage.Count > 0) {
-                var hits = idx.SearchForHitData(corpus.QueryTexts[q], Corpus.RecallTopK, MaxHitsEvaluated, -1f, out _);
-                rankedRecall += hits.Count(h => exactPage.Contains(h.NodeId)) / (double)exactPage.Count;
+                var hits = bench.SearchRanked(corpus.Queries[q], Corpus.RecallTopK, MaxHitsEvaluated, -1f);
+                rankedRecall += hits.Count(exactPage.Contains) / (double)exactPage.Count;
                 rankedQueries++;
             }
+            if (!hasFilter) continue;
             // The exact answer to this filter search: the neighbours at or above the threshold. When
             // the threshold lies below this query's own cutoff there are matches beyond the ones
             // computed, so an index may legitimately return more than these — never fewer.
             var expected = exact.Where((_, i) => sims[i] >= corpus.MinSimilarity).ToArray();
             if (expected.Length == 0) continue;
-            var found = idx.SearchForIdSetUnranked(corpus.QueryTexts[q], corpus.MinSimilarity);
+            var found = bench.SearchIds(corpus.Queries[q], corpus.MinSimilarity);
             filterRecall += expected.Count(found.Has) / (double)expected.Length;
             filterQueries++;
         }
         if (rankedQueries > 0) result.Quality["Recall"] = rankedRecall / rankedQueries;
         if (filterQueries > 0) result.Quality["FilterRecall"] = filterRecall / filterQueries;
+        else result.Unsupported.Add("FilterRecall");
     }
-
-    static int ranked(ISemanticIndex idx, string query, int top, int maxHits, float minSimilarity)
-        => idx.SearchForHitData(query, top, maxHits, minSimilarity, out _).Count;
 
     static void warm(Action body) {
         var clock = Stopwatch.StartNew();
