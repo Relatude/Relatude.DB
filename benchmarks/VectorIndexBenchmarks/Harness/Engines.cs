@@ -28,8 +28,11 @@ public static class Engines {
     public const string USearch = "usearch";
     public const long LowMemCacheBytes = 8L * 1024 * 1024;
 
-    //public static readonly string[] All = [Memory, Native, Hnsw, SqliteVec, USearch];
-    public static readonly string[] All = [Memory, Native, Hnsw, USearch];
+    //public static readonly string[] All = [Memory, Native, Hnsw, HnswLowMem, SqliteVec, USearch];
+    // Both HNSW configurations by default: they are one implementation run two ways, and the pair is
+    // the only place the table shows what the memory budget actually costs and buys. Reading them
+    // next to each other is the point — the same graph, once with room to cache it and once without.
+    public static readonly string[] All = [Memory, Native, Hnsw, HnswLowMem, USearch];
 
     /// <summary>A fixed log id: an index binds its data to the WAL file it belongs to, and the
     /// benchmark's reopen step has to present the same one or the index resets itself.</summary>

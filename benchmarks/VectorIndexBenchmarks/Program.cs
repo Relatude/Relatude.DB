@@ -5,17 +5,19 @@ using VectorIndexBenchmarks.Harness;
 // VectorIndexBenchmarks — benchmarks five vector indexes against each other on one set of
 // generated vectors and one query stream:
 //
-//   memory     Relatude MemorySemanticIndex — every vector on the managed heap, exact SIMD scan
-//   native     Relatude NativeVectorIndex   — disk segments, IVF clusters, byte-budgeted block cache
-//   hnsw       Relatude HnswVectorIndex     — disk records, HNSW graph, upper layers in memory
-//   sqlitevec  sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
-//   usearch    USearch                      — an HNSW graph in native memory, top-k only
+//   memory        Relatude MemorySemanticIndex — every vector on the managed heap, exact SIMD scan
+//   native        Relatude NativeVectorIndex   — disk segments, IVF clusters, byte-budgeted block cache
+//   hnsw          Relatude HnswVectorIndex     — disk records, HNSW graph, upper layers in memory
+//   hnsw-lowmem   the same in LowMemoryMode    — the graph on disk too, read through small caches
+//   sqlitevec     sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
+//   usearch       USearch                      — an HNSW graph in native memory, top-k only
 //
 // The three Relatude ones are driven through ISemanticIndex, the interface the data store uses; the
 // third-party ones take vectors directly. Both forms of every query are the same query.
 //
 // The grid is deliberate: native and hnsw differ only in algorithm, hnsw and usearch only in where
-// the vectors sit, and memory is the exact reference all three are scored against.
+// the vectors sit, hnsw and hnsw-lowmem only in how much memory they are allowed, and memory is the
+// exact reference all of them are scored against.
 //
 //   dotnet run -c Release [-- options]
 //
@@ -33,10 +35,10 @@ using VectorIndexBenchmarks.Harness;
 //   --hnsw-ef=64                 search effort (expansionSearch) — their accuracy dial
 //   --min-sim=<f>                the similarity floor the searches pass down (default: the
 //                                similarity of the 500th exact neighbour, ~500 candidates)
-//   --engines=all|<list>         all = memory,native,hnsw,usearch; also native-exact,
-//                                native-lowmem, hnsw-lowmem and sqlitevec. sqlite-vec scans every
-//                                vector on every query, so it dominates the runtime — drop it for
-//                                quick iterations.
+//   --engines=all|<list>         all = memory,native,hnsw,hnsw-lowmem,usearch; also native-exact,
+//                                native-lowmem and sqlitevec. sqlite-vec scans every vector on every
+//                                query, and hnsw-lowmem indexes at a fraction of the speed, so both
+//                                dominate the runtime — drop them for quick iterations.
 //   --persist=batch              save state after every batch instead of once after the load
 //   --data=<dir>                 working directory for index files (default: %TEMP%)
 //   --in-process                 run everything in this process (memory numbers get noisy)
@@ -324,7 +326,13 @@ static void printNotes(BenchOptions options, Corpus corpus) {
             whatever of the load is still in its record cache. Warm MB is the same measurement after the search phases, which
             is the only place a read-through cache appears — the disk index has by then pulled the
             blocks its searches touched into its {{options.CacheBytes / 1024 / 1024}} MB budget, and that memory is what its search
-            rates were bought with (run --engines=native,native-lowmem to see the trade directly).
+            rates were bought with. The two HnswVectorIndex rows are that trade priced outright: one
+            implementation, one set of files, run once with room to cache the graph and once with
+            LowMemoryMode, which keeps the upper layers and the residency table on disk too and
+            defaults its three budgets far lower. Read their Mem/Warm/WSet columns against their
+            search and Index rates — that ratio is the whole decision the option exists for. The same
+            comparison for the IVF index is --engines=native,native-lowmem, which is a cache budget
+            rather than a mode.
             WSet MB is working-set growth at the same point, which also covers native memory and file
             reads. Disk MB is the index on disk after the load was made durable. The generated vectors
             are {{options.N * (long)options.Dimensions * 4 / (1024.0 * 1024.0):N0}} MB of raw float32, held by the harness and outside all of these numbers:
