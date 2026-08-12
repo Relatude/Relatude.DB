@@ -42,9 +42,9 @@ public sealed class HnswVectorIndexOptions {
     /// <summary>Search effort: the beam width of a search at layer 0, before
     /// <see cref="Accuracy"/> scales it. This is the main recall dial.</summary>
     public int EfSearch { get; set; } = 64;
-    /// <summary>Upper bound on the number of graph layers, which bounds the record size of the node
-    /// table. Layer occupancy falls by a factor <see cref="Connectivity"/> per layer, so 8 layers
-    /// cover any index that fits on a disk.</summary>
+    /// <summary>Upper bound on the number of graph layers. Layer occupancy falls by a factor
+    /// <see cref="Connectivity"/> per layer, so 8 layers cover any index that fits on a disk — and a
+    /// node only pays for the layers it occupies, so a generous bound costs nothing.</summary>
     public int MaxLevels { get; set; } = 8;
     /// <summary>Byte budget for the vectors of nodes above layer 0, kept in memory so the descent
     /// from the entry point costs no disk reads. These are the graph's routing nodes — the analogue

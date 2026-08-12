@@ -16,7 +16,11 @@ namespace Relatude.DB.VectorIndexHNSW;
 /// vector data on disk.</para>
 ///
 /// <para>Upper slots are allocated only for nodes that reach layer 1, so the wide per-layer records
-/// are not paid for the 90-something percent of nodes that never leave layer 0.</para>
+/// are not paid for the 90-something percent of nodes that never leave layer 0 — and a node that
+/// does reach layer 1 takes one slot <i>per layer it occupies</i>, consecutively from its base slot,
+/// rather than a fixed record wide enough for every possible layer. Layer occupancy falls by a
+/// factor <see cref="Connectivity"/> per layer, so nearly every upper node has exactly one layer:
+/// fixed records would spend most of the file and the memory mirroring it on zeroed slots.</para>
 /// </summary>
 internal sealed class HnswNodeTable : IDisposable {
     internal const int NodesFileKind = 2;
@@ -37,15 +41,15 @@ internal sealed class HnswNodeTable : IDisposable {
 
     int[] _nodeId = [];      // by ordinal
     int[] _levelFlags = [];  // by ordinal
-    int[] _upperSlot = [];   // by ordinal; -1 for a node that never leaves layer 0
+    int[] _upperSlot = [];   // by ordinal; the base of the node's run of slots, -1 below layer 1
     int[] _upper = [];       // by upper slot, mirroring the file layout exactly
     readonly Dictionary<int, int> _ordinalOf = []; // node id -> ordinal, live nodes only
-    readonly HashSet<int>[] _levelMembers;         // live ordinals per layer, index 1..MaxLevels-1
 
     public int Connectivity { get; }
     public int MaxLevels { get; }
-    /// <summary>Words per upper-slot record: a count and <see cref="Connectivity"/> ordinals for
-    /// each layer above 0.</summary>
+    /// <summary>Words per upper slot: a count and <see cref="Connectivity"/> ordinals for one layer.
+    /// A node on layers 1..L holds L consecutive slots, layer <c>l</c> at its base slot
+    /// + <c>l - 1</c>.</summary>
     public int UpperWords { get; }
     public int NextOrdinal { get; private set; }
     public int NextUpperSlot { get; private set; }
@@ -59,13 +63,11 @@ internal sealed class HnswNodeTable : IDisposable {
         _upperFile = upperFile;
         Connectivity = connectivity;
         MaxLevels = maxLevels;
-        UpperWords = (maxLevels - 1) * (1 + connectivity);
-        _levelMembers = new HashSet<int>[maxLevels];
-        for (var l = 1; l < maxLevels; l++) _levelMembers[l] = [];
+        UpperWords = 1 + connectivity;
     }
 
     public static HnswNodeTable Create(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels) {
-        var upperWords = (maxLevels - 1) * (1 + connectivity);
+        var upperWords = 1 + connectivity;
         var nodes = FixedStrideFile.Create(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], 0);
         try {
             var upper = FixedStrideFile.Create(upperPath, UpperFileKind, generation, upperWords * 4, [connectivity, maxLevels], 0);
@@ -79,7 +81,7 @@ internal sealed class HnswNodeTable : IDisposable {
     /// the derived lookups. Anything past the manifest's counts is uncommitted scratch and ignored.</summary>
     public static HnswNodeTable Open(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels,
         int committedOrdinals, int committedUpperSlots, int expectedEntry, int expectedMaxLevel) {
-        var upperWords = (maxLevels - 1) * (1 + connectivity);
+        var upperWords = 1 + connectivity;
         var nodes = FixedStrideFile.Open(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], committedOrdinals);
         HnswNodeTable table;
         try {
@@ -116,16 +118,18 @@ internal sealed class HnswNodeTable : IDisposable {
         if (upperSlots > 0) _upperFile.Read(0, MemoryMarshal.AsBytes(_upper.AsSpan(0, upperSlots * UpperWords)));
         NextOrdinal = ordinals;
         NextUpperSlot = upperSlots;
+        _ordinalOf.EnsureCapacity(ordinals);
         for (var o = 0; o < ordinals; o++) {
+            var level = LevelOf(o);
+            if (level < 0 || level >= MaxLevels) throw new InvalidDataException("The node table holds a layer outside the configured range. ");
+            var slot = _upperSlot[o];
+            if (level > 0 && (slot < 0 || slot + level > upperSlots)) throw new InvalidDataException("The node table points outside the upper-layer file. ");
             if (!IsLive(o)) {
                 DeadCount++;
                 continue;
             }
-            var level = LevelOf(o);
-            if (level < 0 || level >= MaxLevels) throw new InvalidDataException("The node table holds a layer outside the configured range. ");
             if (!_ordinalOf.TryAdd(_nodeId[o], o)) throw new InvalidDataException("The node table holds the same node id twice. ");
             LiveCount++;
-            for (var l = 1; l <= level; l++) _levelMembers[l].Add(o);
         }
         // trust the manifest's entry point only when it is still a live node on the layer it claims
         if (expectedEntry >= 0 && expectedEntry < ordinals && IsLive(expectedEntry) && LevelOf(expectedEntry) == expectedMaxLevel) {
@@ -154,13 +158,13 @@ internal sealed class HnswNodeTable : IDisposable {
         _levelFlags[ordinal] = level | liveFlag;
         _upperSlot[ordinal] = -1;
         if (_appendedNodesFrom < 0) _appendedNodesFrom = ordinal;
-        if (level > 0) {
-            var slot = NextUpperSlot++;
-            ensureUpperCapacity(slot);
-            _upper.AsSpan(slot * UpperWords, UpperWords).Clear();
+        if (level > 0) { // one slot per occupied layer, consecutively from the base
+            var slot = NextUpperSlot;
+            NextUpperSlot += level;
+            ensureUpperCapacity(NextUpperSlot - 1);
+            _upper.AsSpan(slot * UpperWords, level * UpperWords).Clear();
             _upperSlot[ordinal] = slot;
             if (_appendedUpperFrom < 0) _appendedUpperFrom = slot;
-            for (var l = 1; l <= level; l++) _levelMembers[l].Add(ordinal);
         }
         _ordinalOf[nodeId] = ordinal;
         LiveCount++;
@@ -182,50 +186,53 @@ internal sealed class HnswNodeTable : IDisposable {
     /// index; a traversal skips dead ordinals, so the graph stays correct in the meantime.</summary>
     public void Kill(int ordinal) {
         if (!IsLive(ordinal)) return;
-        var level = LevelOf(ordinal);
-        _levelFlags[ordinal] = level; // clears the live flag, keeps the layer for the file record
+        _levelFlags[ordinal] = LevelOf(ordinal); // clears the live flag, keeps the layer for the file record
         _ordinalOf.Remove(_nodeId[ordinal]);
-        for (var l = 1; l <= level; l++) _levelMembers[l].Remove(ordinal);
         LiveCount--;
         DeadCount++;
         markNodeDirty(ordinal);
         if (EntryOrdinal == ordinal) RecomputeEntry();
     }
-    /// <summary>Picks a new entry point: any live node on the highest occupied layer.</summary>
+    /// <summary>Picks a new entry point: any live node on the highest occupied layer. One pass over
+    /// the flags array — it only runs when the entry point itself dies, which one node per index can
+    /// do, so a scan beats carrying per-layer membership sets on every insert and delete.</summary>
     public void RecomputeEntry() {
-        for (var l = MaxLevels - 1; l >= 1; l--) {
-            foreach (var ordinal in _levelMembers[l]) {
-                EntryOrdinal = ordinal;
-                MaxLevel = l;
-                return;
+        var best = -1;
+        var bestLevel = -1;
+        for (var o = 0; o < NextOrdinal; o++) {
+            var flags = _levelFlags[o];
+            if ((flags & liveFlag) == 0) continue;
+            var level = flags & 0xFFFF;
+            if (level > bestLevel) {
+                bestLevel = level;
+                best = o;
             }
         }
-        foreach (var ordinal in _ordinalOf.Values) { // everything left is on layer 0
-            EntryOrdinal = ordinal;
-            MaxLevel = 0;
-            return;
-        }
-        EntryOrdinal = -1;
-        MaxLevel = -1;
+        EntryOrdinal = best;
+        MaxLevel = bestLevel;
     }
 
     // ---- upper-layer adjacency ---------------------------------------------------------------------
 
+    /// <summary>The node's neighbours on one layer. The level is bounded by the node's own top layer,
+    /// not just the configured range: slots are allocated per occupied layer, so a level beyond the
+    /// node's own (a stale neighbour id can point at any node) would read another node's slot.</summary>
     public ReadOnlySpan<int> UpperNeighbours(int ordinal, int level) {
         var slot = _upperSlot[ordinal];
-        if (slot < 0 || level < 1 || level >= MaxLevels) return [];
-        var offset = slot * UpperWords + (level - 1) * (1 + Connectivity);
+        if (slot < 0 || level < 1 || level > LevelOf(ordinal)) return [];
+        var offset = (slot + level - 1) * UpperWords;
         var count = Math.Clamp(_upper[offset], 0, Connectivity);
         return _upper.AsSpan(offset + 1, count);
     }
     public void SetUpperNeighbours(int ordinal, int level, ReadOnlySpan<int> neighbours) {
         var slot = _upperSlot[ordinal];
-        if (slot < 0) throw new InvalidOperationException("The node has no layers above 0. ");
+        if (slot < 0 || level < 1 || level > LevelOf(ordinal)) throw new InvalidOperationException("The node does not occupy that layer. ");
         if (neighbours.Length > Connectivity) throw new ArgumentException("More neighbours than the layer has slots for. ");
-        var offset = slot * UpperWords + (level - 1) * (1 + Connectivity);
+        var unit = slot + level - 1;
+        var offset = unit * UpperWords;
         _upper[offset] = neighbours.Length;
         neighbours.CopyTo(_upper.AsSpan(offset + 1, neighbours.Length));
-        if (_appendedUpperFrom < 0 || slot < _appendedUpperFrom) _dirtyUpper.Add(slot);
+        if (_appendedUpperFrom < 0 || unit < _appendedUpperFrom) _dirtyUpper.Add(unit);
     }
     void markNodeDirty(int ordinal) {
         if (_appendedNodesFrom < 0 || ordinal < _appendedNodesFrom) _dirtyNodes.Add(ordinal);
@@ -304,8 +311,8 @@ internal sealed class HnswNodeTable : IDisposable {
         Array.Resize(ref _levelFlags, size);
         Array.Resize(ref _upperSlot, size);
     }
-    void ensureUpperCapacity(int slot) {
-        var needed = (long)(slot + 1) * UpperWords;
+    void ensureUpperCapacity(int lastSlot) {
+        var needed = (long)(lastSlot + 1) * UpperWords;
         if (needed <= _upper.Length) return;
         var size = Math.Max(64L * UpperWords, _upper.Length * 2L);
         while (size < needed) size *= 2;

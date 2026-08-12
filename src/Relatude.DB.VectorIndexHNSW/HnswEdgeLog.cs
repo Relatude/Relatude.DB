@@ -63,9 +63,7 @@ internal sealed class HnswEdgeLog : IDisposable {
     }
     public void FlushPending() {
         if (_pending.Count == 0) return;
-        var words = new int[_pending.Count];
-        _pending.CopyTo(words);
-        _file.Write(_entries, MemoryMarshal.AsBytes(words.AsSpan()));
+        _file.Write(_entries, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(_pending)));
         _entries += _pending.Count / _words;
         _pending.Clear();
     }

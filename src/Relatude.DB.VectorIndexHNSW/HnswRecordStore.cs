@@ -170,14 +170,12 @@ internal sealed class HnswRecordStore : IDisposable {
         return false;
     }
     /// <summary>Loads a batch of records concurrently, so the disk latency of one graph hop's
-    /// neighbours is paid once rather than once per neighbour. Called with the index's read or write
-    /// lock held, which is what makes the residency table the only shared state being touched.</summary>
+    /// neighbours is paid once rather than once per neighbour. The caller passes only ordinals it
+    /// found non-resident; the re-check inside the fan-out just skips one a racing search loaded
+    /// meanwhile. Called with the index's read or write lock held, which is what makes the residency
+    /// table the only shared state being touched.</summary>
     public void Prefetch(List<int> ordinals) {
-        var missing = 0;
-        foreach (var ordinal in ordinals) {
-            if (!IsResident(ordinal)) missing++;
-        }
-        if (missing < 4 || Environment.ProcessorCount <= 2) return; // not worth the fan-out
+        if (ordinals.Count < 4 || Environment.ProcessorCount <= 2) return; // not worth the fan-out
         Parallel.ForEach(ordinals, ordinal => {
             if (!IsResident(ordinal)) Get(ordinal);
         });
