@@ -299,6 +299,43 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
+    public void ParallelLinkingIsDeterministic() {
+        // Linking a new node writes back to every neighbour it attached to, and layer 0 does those
+        // concurrently on the grounds that they are independent. If that were wrong — if one link could
+        // see another's write — the graph would come out slightly different from run to run. Building the
+        // same vectors twice and comparing the files byte for byte is the direct test of it: identical
+        // input, identical layer assignment (the seed is fixed), so identical output or a race.
+        var dims = 48;
+        var count = 4_000;
+        var walId = Guid.NewGuid();
+        var vectors = new float[count][];
+        var r = new Random(8080);
+        for (var i = 0; i < count; i++) vectors[i] = randomUnit(r, dims);
+
+        var first = build(Path.Combine(_folder, "a"));
+        var second = build(Path.Combine(_folder, "b"));
+        Assert.AreEqual(first.Count, second.Count);
+        foreach (var name in first.Keys) {
+            CollectionAssert.AreEqual(first[name], second[name], $"{name} differs between two identical builds");
+        }
+
+        Dictionary<string, byte[]> build(string folder) {
+            Directory.CreateDirectory(folder);
+            using (var index = create(folder, new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 })) {
+                index.ReadStateForMemoryIndexes(walId);
+                for (var id = 1; id <= count; id++) index.Add(id, vectors[id - 1]);
+                index.SaveStateForMemoryIndexes(1, walId);
+            }
+            var files = new Dictionary<string, byte[]>();
+            foreach (var path in Directory.GetFiles(folder)) {
+                if (Path.GetFileName(path) == "manifest.bin") continue; // carries the WAL id, not the graph
+                files[Path.GetFileName(path)] = File.ReadAllBytes(path);
+            }
+            return files;
+        }
+    }
+
+    [TestMethod]
     public void EdgeLogSurvivesEviction() {
         // The awkward combination: a cache too small to hold the index, and edges that live in the log
         // rather than in the graph file. Evicting such a record would throw away the only correct copy of

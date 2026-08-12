@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.VectorIndex;
 
@@ -7,13 +8,31 @@ namespace Relatude.DB.VectorIndex;
 internal static class VectorMath {
     /// <summary>Dot product of two equal-length spans. Four independent SIMD accumulators keep the
     /// multiply pipeline busy; a single Vector.Dot per step would do a horizontal reduction on every
-    /// iteration.</summary>
+    /// iteration.
+    /// <para>The explicit 512-bit path is there because <see cref="Vector{T}"/> is 256 bits wide on this
+    /// runtime even where the hardware has AVX-512, so without it half the register width sits idle on
+    /// the machines most likely to be serving a large index. Everything else falls through to
+    /// <see cref="Vector{T}"/>, which is whatever the hardware does have.</para></summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float Dot(ReadOnlySpan<float> a, ReadOnlySpan<float> b) {
         int n = a.Length;
         int i = 0;
         float sum = 0f;
-        if (Vector.IsHardwareAccelerated) {
+        if (Vector512.IsHardwareAccelerated && n >= 64) {
+            var acc0 = Vector512<float>.Zero;
+            var acc1 = Vector512<float>.Zero;
+            var acc2 = Vector512<float>.Zero;
+            var acc3 = Vector512<float>.Zero;
+            int limit512 = n - 64;
+            for (; i <= limit512; i += 64) {
+                acc0 += Vector512.Create(a.Slice(i, 16)) * Vector512.Create(b.Slice(i, 16));
+                acc1 += Vector512.Create(a.Slice(i + 16, 16)) * Vector512.Create(b.Slice(i + 16, 16));
+                acc2 += Vector512.Create(a.Slice(i + 32, 16)) * Vector512.Create(b.Slice(i + 32, 16));
+                acc3 += Vector512.Create(a.Slice(i + 48, 16)) * Vector512.Create(b.Slice(i + 48, 16));
+            }
+            sum = Vector512.Sum(acc0 + acc1 + acc2 + acc3);
+            for (; i <= n - 16; i += 16) sum += Vector512.Sum(Vector512.Create(a.Slice(i, 16)) * Vector512.Create(b.Slice(i, 16)));
+        } else if (Vector.IsHardwareAccelerated) {
             int w = Vector<float>.Count;
             if (n >= w * 4) {
                 var acc0 = Vector<float>.Zero;
