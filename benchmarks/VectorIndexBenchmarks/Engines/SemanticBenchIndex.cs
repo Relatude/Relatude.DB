@@ -17,6 +17,9 @@ public abstract class SemanticBenchIndex : IBenchVectorIndex {
 
     // Add replaces on both Relatude implementations, so an update is the same call.
     public void Add(int nodeId, float[] vector) => Index.Add(nodeId, vector);
+    public virtual void AddBatch(IReadOnlyList<(int nodeId, float[] vector)> items) {
+        foreach (var (nodeId, vector) in items) Add(nodeId, vector);
+    }
     public void Update(int nodeId, float[] vector) => Index.Add(nodeId, vector);
     // Neither implementation reads the value on remove; the id is what identifies the vector.
     public void Remove(int nodeId) => Index.Remove(nodeId, null!);

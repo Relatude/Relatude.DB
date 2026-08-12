@@ -20,6 +20,17 @@ internal sealed class HnswSearchScratch {
     public readonly List<int> ToLoad = [];       // the subset of them not in memory
     public readonly List<int> EntryPoints = [];
     public readonly List<Candidate> Found = [];  // searchLayer's output, reused call to call
+    /// <summary>The query, quantized once per search — the form the walk scores against.</summary>
+    public sbyte[] Query = [];
+    public float QueryRescale;
+    /// <summary>False inside a batch-build worker, where every core is already an inserter and a
+    /// per-hop parallel prefetch would only oversubscribe them.</summary>
+    public bool ParallelPrefetch = true;
+
+    public void SetQuery(ReadOnlySpan<float> query) {
+        if (Query.Length < query.Length) Query = new sbyte[query.Length];
+        VectorMath.Quantize(query, Query, out QueryRescale);
+    }
 
     const int keepCapacity = 1 << 16;
     /// <summary>Give back what an unusually wide walk grew, so the pool holds working-set-sized
@@ -30,6 +41,35 @@ internal sealed class HnswSearchScratch {
         if (EntryPoints.Capacity > keepCapacity) { EntryPoints.Clear(); EntryPoints.TrimExcess(); }
     }
 }
+
+/// <summary>The write path's scratch on top of a search scratch: the selection heuristic's sort and
+/// output buffers, and the link path's candidate list. One per inserting worker — a sequential
+/// insert rents one, a batch build rents one per parallel worker — so nothing an insert touches is
+/// shared mutable state.</summary>
+internal sealed class HnswInsertScratch {
+    public readonly HnswSearchScratch Search = new();
+    public readonly List<Candidate> LinkCandidates = [];
+    public readonly List<Candidate> SelectSorted = [];
+    public readonly List<int> SelectKept = [];
+    public readonly List<int> SelectDropped = [];
+    public QuantizedRef[] SelectVectors = [];
+    public int[] UpsertIds = [];
+    public float[] UpsertSims = [];
+    public int[] LinkIds = [];
+    public float[] LinkSims = [];
+
+    /// <summary>Sizes the fixed buffers for a graph's layer-0 degree; cheap when already sized.</summary>
+    public void Prepare(int m0) {
+        if (UpsertIds.Length >= m0 + 1) return;
+        UpsertIds = new int[m0 + 1];
+        UpsertSims = new float[m0 + 1];
+        LinkIds = new int[m0 + 1];
+        LinkSims = new float[m0 + 1];
+    }
+}
+
+/// <summary>A node's quantized vector and its scale — everything the walk needs to score it.</summary>
+internal readonly record struct QuantizedRef(sbyte[] Q, float Rescale);
 
 /// <summary>
 /// An open-addressing set of node ordinals, replacing a <c>HashSet&lt;int&gt;</c> on the walk's

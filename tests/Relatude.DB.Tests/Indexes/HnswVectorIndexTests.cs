@@ -519,6 +519,276 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
+    public void LowMemoryModeStillCorrect() {
+        // The whole low-memory surface in one pass: upper layers read from the file per hop, a
+        // record cache that tracks entries instead of ordinals (and is far too small to hold the
+        // index), constant spilling, the edge log, and a reopen. Correctness must be unchanged.
+        var r = new Random(777);
+        const int dims = 64, centers = 60, perCenter = 100;
+        const int count = centers * perCenter;
+        var options = new HnswVectorIndexOptions {
+            LowMemoryMode = true,
+            MinVectorsForGraphSearch = 1,
+            MaxCacheBytes = 256 * 1024,              // a fraction of the index: eviction runs constantly
+            MemTableFlushThresholdBytes = 64 * 1024, // and the memtable spills constantly
+        };
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            var id = 1;
+            for (var c = 0; c < centers; c++) { // clustered, like real embeddings
+                var center = randomUnit(r, dims);
+                for (var i = 0; i < perCenter; i++) {
+                    var v = new float[dims];
+                    for (var d = 0; d < dims; d++) v[d] = center[d] + (float)(r.NextDouble() * 0.3 - 0.15);
+                    normalize(v);
+                    reference[id] = v;
+                    index.Add(id++, v);
+                    if (id % 2000 == 0) index.MakeDurable(id); // the cheap checkpoint, mid-load
+                }
+            }
+            assertRecall(index, 1500);
+            index.SaveStateForMemoryIndexes(count + 1, walId);
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(count, index.Count);
+            assertRecall(index, 4321);
+            for (var id = 1; id <= 200; id++) { // updates and removes against the on-disk graph
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.Add(id, v);
+            }
+            for (var id = 201; id <= 300; id++) {
+                index.Remove(id, null!);
+                reference.Remove(id);
+            }
+            index.SaveStateForMemoryIndexes(count + 2, walId);
+            Assert.AreEqual(count - 100, index.Count);
+            var hits = index.Search(reference[1], 0, 10, 0);
+            Assert.AreEqual(1, hits[0].NodeId, "an updated vector must be found under its id");
+            Assert.IsTrue(hits[0].Similarity > 0.999f);
+            for (var id = 201; id <= 300; id++) Assert.IsFalse(hits.Any(h => h.NodeId == id), "a removed id resurfaced");
+        }
+
+        void assertRecall(HnswVectorIndex index, int probe) {
+            var query = reference[probe];
+            var hits = index.Search(query, 0, 10, 0);
+            Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
+            Assert.IsTrue(hits[0].Similarity > 0.999f);
+            var overlap = hits.Select(h => h.NodeId).Intersect(bruteForceTopK(reference, query, 10)).Count();
+            Assert.IsTrue(overlap >= 8, $"recall@10 too low for {probe}: {overlap}");
+        }
+    }
+
+    [TestMethod]
+    public void LowMemoryAndNormalModeShareFiles() {
+        // The mode changes residency, never the files: an index written in one mode must open in
+        // the other at the same durable position, and writes made in either mode survive the swap.
+        var r = new Random(4040);
+        const int dims = 48, count = 1200;
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        var normal = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var lowMem = new HnswVectorIndexOptions { LowMemoryMode = true, MinVectorsForGraphSearch = 1 };
+        using (var index = create(_folder, normal)) { // written by the normal mode
+            index.ReadStateForMemoryIndexes(walId);
+            for (var id = 1; id <= count; id++) {
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.Add(id, v);
+            }
+            index.SaveStateForMemoryIndexes(1, walId);
+        }
+        using (var index = create(_folder, lowMem)) { // opened by the low-memory mode: no reset
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(1, index.PersistedTimestamp, "a mode switch must not reset the index");
+            Assert.AreEqual(count, index.Count);
+            Assert.AreEqual(500, index.Search(reference[500], 0, 1, 0)[0].NodeId);
+            for (var id = count + 1; id <= count + 50; id++) { // and writes link into the loaded graph
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.Add(id, v);
+            }
+            index.SaveStateForMemoryIndexes(2, walId);
+        }
+        using (var index = create(_folder, normal)) { // and back again
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(2, index.PersistedTimestamp);
+            Assert.AreEqual(count + 50, index.Count);
+            Assert.AreEqual(count + 25, index.Search(reference[count + 25], 0, 1, 0)[0].NodeId);
+        }
+    }
+
+    [TestMethod]
+    public void AddRemoveChurnKeepsIdentityConsistent() {
+        // Hammers the id → ordinal map — adds, replacements, removes and re-adds under colliding
+        // random ids — and verifies the index's whole answer set against a reference dictionary.
+        var r = new Random(90210);
+        const int dims = 16;
+        using var index = create(_folder);
+        var reference = new Dictionary<int, float[]>();
+        for (var round = 0; round < 8; round++) {
+            for (var i = 0; i < 400; i++) { // add or replace
+                var id = r.Next(1, 1500);
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.Add(id, v);
+            }
+            for (var i = 0; i < 150; i++) { // remove; some ids miss, which must be harmless
+                var id = r.Next(1, 1500);
+                reference.Remove(id);
+                index.Remove(id, null!);
+            }
+            Assert.AreEqual(reference.Count, index.Count, "count diverged in round " + round);
+        }
+        var all = index.Search(reference.Values.First(), 0, int.MaxValue, -1); // exact: scans everything
+        Assert.AreEqual(reference.Count, all.Count);
+        var got = all.Select(h => h.NodeId).ToHashSet();
+        foreach (var id in reference.Keys) Assert.IsTrue(got.Contains(id), "missing id " + id);
+        foreach (var (id, v) in reference.Take(50)) { // every id answers with its newest vector
+            var hit = index.Search(v, 0, 1, 0)[0];
+            Assert.AreEqual(id, hit.NodeId);
+            Assert.IsTrue(hit.Similarity > 0.999f);
+        }
+    }
+
+    [TestMethod]
+    public void AddRangeBuildsACorrectIndex() {
+        // The parallel batch build must answer like the sequential one: same ids, replace-on-same-id
+        // semantics (within a batch and across batches), empty vector as remove, comparable recall,
+        // and a clean persistence round trip.
+        var r = new Random(1717);
+        const int dims = 64, centers = 50, perCenter = 100;
+        const int count = centers * perCenter;
+        var options = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        var items = new List<(int nodeId, float[] vector)>();
+        var id = 1;
+        for (var c = 0; c < centers; c++) {
+            var center = randomUnit(r, dims);
+            for (var i = 0; i < perCenter; i++) {
+                var v = new float[dims];
+                for (var d = 0; d < dims; d++) v[d] = center[d] + (float)(r.NextDouble() * 0.3 - 0.15);
+                normalize(v);
+                reference[id] = v;
+                items.Add((id++, v));
+            }
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            index.AddRange(items.Take(count / 2));
+            index.AddRange(items.Skip(count / 2));
+            Assert.AreEqual(count, index.Count);
+            foreach (var probe in new[] { 111, 2500, 4999 }) assertRecall(index, probe);
+            // one batch carrying replaces of existing ids, a duplicate id (last wins) and a remove
+            var replacement = randomUnit(r, dims);
+            reference[10] = replacement;
+            reference[20] = replacement;
+            reference.Remove(30);
+            index.AddRange([(10, randomUnit(r, dims)), (10, replacement), (20, replacement), (30, [])]);
+            Assert.AreEqual(count - 1, index.Count);
+            var hit = index.Search(replacement, 0, 2, 0);
+            CollectionAssert.AreEquivalent(new[] { 10, 20 }, hit.Select(h => h.NodeId).ToArray());
+            Assert.IsTrue(hit[0].Similarity > 0.999f);
+            index.SaveStateForMemoryIndexes(1, walId);
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(count - 1, index.Count);
+            assertRecall(index, 2500);
+            Assert.IsFalse(index.Search(reference[2500], 0, int.MaxValue, -1).Any(h => h.NodeId == 30), "the removed id resurfaced");
+        }
+
+        void assertRecall(HnswVectorIndex index, int probe) {
+            var query = reference[probe];
+            var hits = index.Search(query, 0, 10, 0);
+            Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
+            Assert.IsTrue(hits[0].Similarity > 0.999f);
+            var overlap = hits.Select(h => h.NodeId).Intersect(bruteForceTopK(reference, query, 10)).Count();
+            Assert.IsTrue(overlap >= 8, $"recall@10 too low for {probe}: {overlap}");
+        }
+    }
+
+    [TestMethod]
+    public void AddRangeInLowMemoryMode() {
+        // The batch build's parallel workers against the on-disk graph: pending upper slots, the
+        // keyed record cache and constant eviction, all at once.
+        var r = new Random(818);
+        const int dims = 48, count = 4000;
+        var options = new HnswVectorIndexOptions {
+            LowMemoryMode = true,
+            MinVectorsForGraphSearch = 1,
+            MaxCacheBytes = 256 * 1024,
+            MemTableFlushThresholdBytes = 64 * 1024,
+        };
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        var items = new List<(int nodeId, float[] vector)>();
+        for (var id = 1; id <= count; id++) {
+            var v = randomUnit(r, dims);
+            reference[id] = v;
+            items.Add((id, v));
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            index.AddRange(items);
+            Assert.AreEqual(count, index.Count);
+            var hits = index.Search(reference[2000], 0, 1, 0);
+            Assert.AreEqual(2000, hits[0].NodeId);
+            Assert.IsTrue(hits[0].Similarity > 0.999f);
+            index.SaveStateForMemoryIndexes(1, walId);
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(count, index.Count);
+            Assert.AreEqual(123, index.Search(reference[123], 0, 1, 0)[0].NodeId);
+        }
+    }
+
+    [TestMethod]
+    public void StateLoadBufferingKeepsReplaySemantics() {
+        // RegisterAdd/RemoveDuringStateLoad buffer and batch; what must hold is that per id the last
+        // replayed op wins, and that every other operation sees the buffered state as if it had been
+        // applied immediately.
+        var r = new Random(929);
+        const int dims = 32, count = 3000;
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        using (var index = create(_folder)) {
+            index.ReadStateForMemoryIndexes(walId);
+            for (var id = 1; id <= count; id++) {
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.RegisterAddDuringStateLoad(id, v);
+            }
+            for (var id = 1; id <= 100; id++) { // replayed updates: later op per id wins
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.RegisterAddDuringStateLoad(id, v);
+            }
+            for (var id = 101; id <= 150; id++) { // replayed removes
+                index.RegisterRemoveDuringStateLoad(id, null!);
+                reference.Remove(id);
+            }
+            Assert.AreEqual(count - 50, index.Count); // Count drains the buffer
+            var hits = index.Search(reference[50], 0, 1, 0);
+            Assert.AreEqual(50, hits[0].NodeId, "an updated id must answer with its newest vector");
+            Assert.IsTrue(hits[0].Similarity > 0.999f);
+            index.SaveStateForMemoryIndexes(1, walId);
+        }
+        using (var index = create(_folder)) {
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(count - 50, index.Count);
+            var all = index.Search(reference[50], 0, int.MaxValue, -1).Select(h => h.NodeId).ToHashSet();
+            for (var id = 101; id <= 150; id++) Assert.IsFalse(all.Contains(id), "a removed id resurfaced: " + id);
+            Assert.AreEqual(reference.Count, all.Count);
+        }
+    }
+
+    [TestMethod]
     public void TextSearchThroughAiEngine() {
         var ai = AIEngine.CreateDummy(); // deterministic normalized 1536-dim embeddings
         using var index = create(_folder, null, ai);

@@ -64,6 +64,10 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     // mutable state, guarded by _lock:
     HnswGraph? _graph;               // null until the dimensions are known (no vector added yet)
     readonly List<string> _pendingRetire = []; // files a compaction replaced, deletable after the next manifest write
+    // Replay ops buffered by RegisterAdd/RemoveDuringStateLoad, applied as parallel batches; per id
+    // the last op wins and an empty vector means remove. Drained before anything else runs.
+    readonly Dictionary<int, float[]> _loadPending = [];
+    long _loadPendingBytes;
     long _generation;
     int _dims;
     long _persistedTimestamp;
@@ -93,7 +97,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     public void FlagFirstCommit() { }
     /// <summary>Byte budget of the graph-record cache; adjustable at runtime.</summary>
     public long MaxCacheBytes {
-        get => _graph?.MaxCacheBytes ?? _options.MaxCacheBytes;
+        get => _graph?.MaxCacheBytes ?? _options.ResolvedMaxCacheBytes;
         set {
             _options.MaxCacheBytes = value;
             if (_graph != null) _graph.MaxCacheBytes = value;
@@ -109,6 +113,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     public int Count {
         get {
             ensureOpened();
+            drainLoadBufferIfAny();
             _lock.EnterReadLock();
             try { return _graph?.LiveCount ?? 0; } finally { _lock.ExitReadLock(); }
         }
@@ -122,23 +127,37 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked(); // buffered replay ops precede this one
+            validateAdd(value);
             if (value.Length == 0) { // an empty embedding (empty source text) means nothing searchable
                 _graph?.Remove(nodeId);
             } else {
-                if (_dims == 0) _dims = value.Length; // the first vector locks the dimensions
-                else if (value.Length != _dims) throw new ArgumentException($"All vectors must have the same length. The index holds {_dims}-dimensional vectors, got {value.Length}. ");
-                if (_options.ValidateNormalized) {
-                    var squared = VectorMath.Dot(value, value);
-                    if (Math.Abs(squared - 1f) > 0.02f) throw new ArgumentException("Vectors must be L2-normalized (unit length); cosine similarity is computed as a dot product. ");
-                }
                 var graph = ensureGraph();
                 graph.Upsert(nodeId, value);
-                if (graph.DirtyBytes >= _options.MemTableFlushThresholdBytes) {
-                    // spill to keep memory bounded during bulk loads; no manifest write, so the
-                    // durable position is unchanged and the WAL still covers these ops
-                    graph.Flush();
-                }
+                spillIfNeeded(graph);
             }
+            _stateId = SetRegister.NewStateId();
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
+    /// <summary>Adds (or replaces, per id) a batch of vectors, linking them into the graph on every
+    /// core — the fast way to load many vectors at once. Within one call the last vector given for
+    /// an id wins, exactly as if they had been added one at a time; an empty vector removes the id.
+    /// Same durability as <see cref="Add"/>: the WAL covers everything until the next checkpoint.</summary>
+    public void AddRange(IEnumerable<(int nodeId, float[] vector)> items) {
+        ArgumentNullException.ThrowIfNull(items);
+        ensureOpened();
+        _lock.EnterWriteLock();
+        try {
+            drainLoadBufferLocked();
+            var batch = new Dictionary<int, float[]>();
+            foreach (var (nodeId, vector) in items) {
+                ArgumentNullException.ThrowIfNull(vector);
+                validateAdd(vector);
+                batch[nodeId] = vector; // last write per id wins, like sequential adds
+            }
+            applyBatchLocked(batch);
             _stateId = SetRegister.NewStateId();
         } finally {
             _lock.ExitWriteLock();
@@ -148,20 +167,109 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked();
             _graph?.Remove(nodeId);
             _stateId = SetRegister.NewStateId();
         } finally {
             _lock.ExitWriteLock();
         }
     }
-    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
+    /// <summary>The startup loader's add. During a state load nothing reads the index between calls,
+    /// so these are buffered and applied as parallel batches — the WAL replay after a cold start or a
+    /// reset is a bulk load, and this is what makes it run on every core. Everything is drained
+    /// before any other operation touches the index, and the buffered form keeps the replay's
+    /// semantics: per id the last operation wins, and an empty vector is a remove.</summary>
+    public void RegisterAddDuringStateLoad(int nodeId, object value) {
+        var vector = (float[])value;
+        ArgumentNullException.ThrowIfNull(vector);
+        ensureOpened();
+        _lock.EnterWriteLock();
+        try {
+            validateAdd(vector); // fail at the offending op, exactly like an unbuffered add
+            _loadPending[nodeId] = vector;
+            _loadPendingBytes += vector.Length * 4L + 32;
+            if (_loadPending.Count >= 8192 || _loadPendingBytes >= 64L * 1024 * 1024) drainLoadBufferLocked();
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) {
+        ensureOpened();
+        _lock.EnterWriteLock();
+        try {
+            _loadPending[nodeId] = []; // an empty vector is exactly the buffered form of a remove
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
+    /// <summary>Shared validation for every path a vector arrives through: the first vector locks
+    /// the dimensions, and an empty one is the "nothing searchable" marker that skips the checks.</summary>
+    void validateAdd(float[] value) {
+        if (value.Length == 0) return;
+        if (_dims == 0) _dims = value.Length; // the first vector locks the dimensions
+        else if (value.Length != _dims) throw new ArgumentException($"All vectors must have the same length. The index holds {_dims}-dimensional vectors, got {value.Length}. ");
+        if (_options.ValidateNormalized) {
+            var squared = VectorMath.Dot(value, value);
+            if (Math.Abs(squared - 1f) > 0.02f) throw new ArgumentException("Vectors must be L2-normalized (unit length); cosine similarity is computed as a dot product. ");
+        }
+    }
+    void spillIfNeeded(HnswGraph graph) {
+        if (graph.DirtyBytes >= _options.ResolvedMemTableFlushThresholdBytes) {
+            // spill to keep memory bounded during bulk loads; no manifest write, so the
+            // durable position is unchanged and the WAL still covers these ops
+            graph.Flush();
+        }
+    }
+    /// <summary>Applies a deduplicated batch: removes first, then the adds in parallel chunks.
+    /// Re-applying a partially applied batch is safe — an upsert replaces, a remove misses.</summary>
+    void applyBatchLocked(Dictionary<int, float[]> batch) {
+        if (batch.Count == 0) return;
+        List<(int nodeId, float[] vector)>? adds = null;
+        foreach (var (nodeId, vector) in batch) {
+            if (vector.Length == 0) _graph?.Remove(nodeId);
+            else (adds ??= new(batch.Count)).Add((nodeId, vector));
+        }
+        if (adds == null) return;
+        var graph = ensureGraph();
+        // Chunks sized so one chunk's unflushed records stay well inside the memtable budget — the
+        // spill check only runs between chunks, and a chunk of pinned-dirty records larger than the
+        // cache budget would leave the evictor nothing to evict.
+        var recordBytes = Math.Max(1L, (long)_dims * 4 + 300);
+        var chunkSize = (int)Math.Clamp(_options.ResolvedMemTableFlushThresholdBytes / 2 / recordBytes, 256, 4096);
+        for (var i = 0; i < adds.Count; i += chunkSize) {
+            var n = Math.Min(chunkSize, adds.Count - i);
+            var chunk = new (int nodeId, float[] vector)[n];
+            adds.CopyTo(i, chunk, 0, n);
+            graph.UpsertChunk(chunk);
+            spillIfNeeded(graph);
+        }
+    }
+    void drainLoadBufferLocked() {
+        if (_loadPending.Count == 0) return;
+        applyBatchLocked(_loadPending);
+        _loadPending.Clear();
+        _loadPendingBytes = 0;
+    }
+    /// <summary>For read paths: buffered replay ops must be visible before anything answers. The
+    /// unlocked count check is safe because the buffer is only ever non-empty during a state load,
+    /// which is single-threaded by the store.</summary>
+    void drainLoadBufferIfAny() {
+        if (_loadPending.Count == 0) return;
+        _lock.EnterWriteLock();
+        try {
+            drainLoadBufferLocked();
+            _stateId = SetRegister.NewStateId();
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
 
     // ---- searches ------------------------------------------------------------------------------
 
     public IdSet SearchForIdSetUnranked(string value, float minimumVectorSimilarity) {
         var vector = embed(value);
         ensureOpened();
+        drainLoadBufferIfAny();
         return _sets.SearchSemantic(_stateId, value, minimumVectorSimilarity, () => {
             if (vector.Length == 0) return new HashSet<int>();
             _lock.EnterReadLock();
@@ -181,6 +289,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     public HashSet<int> SearchAbove(float[] vector, float minCosineSimilarity, float? accuracy = null) {
         ArgumentNullException.ThrowIfNull(vector);
         ensureOpened();
+        drainLoadBufferIfAny();
         _lock.EnterReadLock();
         try {
             if (_graph == null || _graph.LiveCount == 0) return [];
@@ -210,6 +319,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         if (skip < 0) skip = 0;
         if (take < 0) take = 0;
         ensureOpened();
+        drainLoadBufferIfAny();
         _lock.EnterReadLock();
         try {
             if (take == 0 || _graph == null || _graph.LiveCount == 0) return [];
@@ -265,6 +375,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked(); // the manifest is about to claim the replayed position
             _walFileId = walFileId;
             if (logTimestamp <= 0) return; // nothing durable to claim yet
             if (logTimestamp < _persistedTimestamp) return;
@@ -288,6 +399,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked(); // the manifest is about to claim the replayed position
             if (logTimestamp <= 0) return; // nothing durable to claim yet
             if (logTimestamp < _persistedTimestamp) return; // never regress the persisted position
             if (_graph != null && _graph.DirtyBytes > 0) {
@@ -322,6 +434,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked();
             _walFileId = walFileId;
             flushAndSync();
             writeManifest(newTimestamp, walFileId);
@@ -354,6 +467,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            drainLoadBufferLocked();
             compactIfNeeded();
             consolidate(_persistedTimestamp, _walFileId);
             retirePendingFiles();
@@ -491,6 +605,8 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         _graph?.Dispose();
         _graph = null;
         _pendingRetire.Clear();
+        _loadPending.Clear(); // unflushed by design: the WAL covers these, a reload replays them
+        _loadPendingBytes = 0;
         _generation = 0;
         _persistedTimestamp = 0;
         _persistedWalFileId = Guid.Empty;

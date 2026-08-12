@@ -42,6 +42,11 @@ public interface IBenchVectorIndex : IDisposable {
     Features Supported { get; }
     /// <summary>Index a vector under an id that is not in the index yet.</summary>
     void Add(int nodeId, float[] vector);
+    /// <summary>Index a batch of new ids. Implementations with a bulk or parallel build path
+    /// override this; the default adds one at a time, which is what a per-op engine does anyway.</summary>
+    void AddBatch(IReadOnlyList<(int nodeId, float[] vector)> items) {
+        foreach (var (nodeId, vector) in items) Add(nodeId, vector);
+    }
     /// <summary>Replace the vector of an id that is already in the index.</summary>
     void Update(int nodeId, float[] vector);
     void Remove(int nodeId);

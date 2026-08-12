@@ -18,8 +18,9 @@ public static class Engines {
     /// <summary>The disk-based HNSW index: the same storage design as <see cref="Native"/>, walking a
     /// proximity graph instead of probing the nearest clusters.</summary>
     public const string Hnsw = "hnsw";
-    /// <summary>The HNSW index on a deliberately tiny record-cache budget, which is the configuration
-    /// that shows what a graph walk really costs when it has to go to the disk for every hop.</summary>
+    /// <summary>The HNSW index in <c>LowMemoryMode</c>: the graph stays on disk and is read through
+    /// small caches, which is the configuration that shows what a graph walk really costs when it
+    /// has to go to the disk for every hop — and what that buys back in resident memory.</summary>
     public const string HnswLowMem = "hnsw-lowmem";
     /// <summary>sqlite-vec: a vec0 virtual table in an ordinary SQLite file, exact by design.</summary>
     public const string SqliteVec = "sqlitevec";
@@ -40,7 +41,7 @@ public static class Engines {
         NativeExact => "NativeVectorIndex (exact)",
         NativeLowMem => $"NativeVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
         Hnsw => "HnswVectorIndex",
-        HnswLowMem => $"HnswVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
+        HnswLowMem => "HnswVectorIndex (low memory)",
         SqliteVec => "sqlite-vec",
         USearch => "USearch (HNSW)",
         _ => name,
@@ -53,7 +54,7 @@ public static class Engines {
         NativeExact => "the same disk index probing every cluster (accuracy 1): exact, and reading every block",
         NativeLowMem => $"the same disk index with its block cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
         Hnsw => "disk records, HNSW graph, upper layers in memory; walks to the query (Relatude.DB.VectorIndexHNSW)",
-        HnswLowMem => $"the same graph index with its record cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
+        HnswLowMem => "the same graph index in LowMemoryMode: the graph stays on disk, read through small caches",
         SqliteVec => "third party: a vec0 virtual table in a SQLite file, exact KNN by full scan (asg017/sqlite-vec)",
         USearch => "third party: an HNSW graph in native memory, top-k only (unum-cloud/USearch)",
         _ => name,
@@ -84,7 +85,8 @@ public static class Engines {
             // configured identically and the algorithm is the only thing that differs between them
             Hnsw or HnswLowMem => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new HnswVectorIndexOptions {
                 Dimensions = corpus.Dimensions,
-                MaxCacheBytes = name == HnswLowMem ? LowMemCacheBytes : options.CacheBytes,
+                LowMemoryMode = name == HnswLowMem, // budgets left null: the mode's own small defaults
+                MaxCacheBytes = name == HnswLowMem ? null : options.CacheBytes,
                 Connectivity = (int)options.HnswConnectivity,
                 EfConstruction = (int)options.HnswExpansionAdd,
                 EfSearch = (int)options.HnswExpansionSearch,

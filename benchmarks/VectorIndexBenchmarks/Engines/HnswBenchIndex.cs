@@ -35,6 +35,8 @@ public sealed class HnswBenchIndex : SemanticBenchIndex {
     }
     protected override ISemanticIndex Index => _index;
     public override Features Supported => Features.UnrankedFilter | Features.IncrementalDurability;
+    /// <summary>The parallel bulk path a store's initial ingest or WAL replay uses.</summary>
+    public override void AddBatch(IReadOnlyList<(int nodeId, float[] vector)> items) => _index.AddRange(items);
     public override void SaveState(long timestamp) => _index.SaveStateForMemoryIndexes(timestamp, Harness.Engines.WalFileId);
     public override void MakeDurable(long timestamp) => _index.MakeDurable(timestamp);
     public override long DiskBytes => Harness.Engines.FolderBytes(_dir);

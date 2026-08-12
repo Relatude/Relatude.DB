@@ -34,6 +34,7 @@ public class HnswVectorIndexEngine : ISemanticIndexEngine {
     // every index gets its own copy so runtime tuning of one (cache budget, accuracy) stays local to it
     HnswVectorIndexOptions cloneDefaults() => new() {
         Dimensions = _defaults.Dimensions,
+        LowMemoryMode = _defaults.LowMemoryMode,
         MaxCacheBytes = _defaults.MaxCacheBytes,
         Accuracy = _defaults.Accuracy,
         ValidateNormalized = _defaults.ValidateNormalized,

@@ -80,14 +80,18 @@ public static class BenchRunner {
         var sw = new Stopwatch();
 
         // ---- Index ------------------------------------------------------------------------------
+        // Loaded in batches of the state-save cadence: an implementation with a bulk build path
+        // gets to use it — a store's initial ingest or WAL replay hands it exactly such batches —
+        // and the rest add one at a time inside the default AddBatch.
         Progress.Phase("indexing");
         sw.Restart();
         for (var i = 0; i < n;) {
             var end = Math.Min(n, i + options.BatchSize);
-            for (; i < end; i++) {
-                bench.Add(Corpus.NodeId(i), corpus.Vector(i));
-                Progress.Item(i + 1, n);
-            }
+            var batch = new (int nodeId, float[] vector)[end - i];
+            for (var j = i; j < end; j++) batch[j - i] = (Corpus.NodeId(j), corpus.Vector(j));
+            bench.AddBatch(batch);
+            i = end;
+            Progress.Item(i, n);
             if (options.PersistEveryBatch) bench.SaveState(++ts);
         }
         if (!options.PersistEveryBatch) bench.SaveState(++ts); // the load must be durable before it is measured
