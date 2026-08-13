@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started with Relatude.DB</title>
+<script>
+// Applied before first paint so an explicitly chosen theme does not flash the
+// other one. localStorage access itself can throw on file:// origins, so guard.
+(function () {
+  try {
+    var t = window.localStorage.getItem("relatude-manual-theme-v1");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
+<style>
+/* Light is the base palette. Dark is applied in two places: under the system
+   preference (unless the reader has explicitly chosen light), and under an
+   explicit data-theme="dark" set by the theme button. Keep the two dark blocks
+   in sync — they are deliberately identical. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-side: #f7f8fa;
+  --bg-code: #f6f8fa;
+  --bg-hover: #ececf0;
+  --bg-active: #e4e9f7;
+  --fg: #1f2328;
+  --fg-dim: #656d76;
+  --fg-faint: #8b949e;
+  --accent: #2f5bd7;
+  --accent-soft: #dbe4fb;
+  --border: #d8dce3;
+  --border-soft: #e8ebef;
+  --mark: #fff3b8;
+  --mark-active: #ffd54a;
+  --side-w: 330px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1116;
+    --bg-side: #14161c;
+    --bg-code: #171a21;
+    --bg-hover: #1e222b;
+    --bg-active: #232a3d;
+    --fg: #e3e6eb;
+    --fg-dim: #9aa3b2;
+    --fg-faint: #6e7787;
+    --accent: #7fa2ff;
+    --accent-soft: #22304f;
+    --border: #2a2f3a;
+    --border-soft: #21252e;
+    --mark: #5c4a00;
+    --mark-active: #8a6d00;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1116;
+  --bg-side: #14161c;
+  --bg-code: #171a21;
+  --bg-hover: #1e222b;
+  --bg-active: #232a3d;
+  --fg: #e3e6eb;
+  --fg-dim: #9aa3b2;
+  --fg-faint: #6e7787;
+  --accent: #7fa2ff;
+  --accent-soft: #22304f;
+  --border: #2a2f3a;
+  --border-soft: #21252e;
+  --mark: #5c4a00;
+  --mark-active: #8a6d00;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* ---------------------------------------------------------------- sidebar */
+#sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: var(--side-w);
+  background: var(--bg-side);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 40;
+}
+#brand {
+  position: relative;
+  padding: 16px 52px 12px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+#brand h1 { font-size: 14px; margin: 0 0 2px; letter-spacing: .01em; }
+#brand p { font-size: 11.5px; color: var(--fg-faint); margin: 0; }
+
+#theme {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--fg-dim);
+  font-size: 14px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+#theme:hover { color: var(--accent); border-color: var(--accent); }
+#theme:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+#searchwrap { padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+#searchbox {
+  position: relative;
+}
+#search {
+  width: 100%;
+  padding: 8px 30px 8px 30px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+}
+#search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#searchbox .icon {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  color: var(--fg-faint); font-size: 13px; pointer-events: none;
+}
+#clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: 0; background: none; color: var(--fg-faint); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 4px 6px; display: none; border-radius: 4px;
+}
+#clear:hover { color: var(--fg); background: var(--bg-hover); }
+#searchmeta { font-size: 11.5px; color: var(--fg-faint); margin-top: 7px; min-height: 14px; }
+#searchmeta kbd {
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--bg);
+}
+
+#nav { flex: 1; overflow-y: auto; padding: 10px 8px 40px; }
+#results { flex: 1; overflow-y: auto; padding: 6px 8px 40px; display: none; }
+
+.node > .row {
+  display: flex; align-items: flex-start; gap: 4px;
+  border-radius: 6px; cursor: pointer; user-select: none;
+}
+.node > .row:hover { background: var(--bg-hover); }
+.node > .row.active { background: var(--bg-active); }
+.node > .row.active > a { color: var(--accent); font-weight: 600; }
+.twisty {
+  flex: 0 0 18px; width: 18px; height: 26px; border: 0; background: none; cursor: pointer;
+  color: var(--fg-faint); font-size: 9px; line-height: 26px; padding: 0; text-align: center;
+  transition: transform .12s ease;
+}
+.twisty.leaf { visibility: hidden; }
+.node.collapsed > .row > .twisty { transform: rotate(-90deg); }
+.node > .row > a {
+  flex: 1; padding: 4px 8px 4px 0; color: var(--fg-dim);
+  text-decoration: none; font-size: 13px; line-height: 1.4;
+}
+.node > .row > a:hover { color: var(--fg); }
+.kids { margin-left: 13px; border-left: 1px solid var(--border-soft); padding-left: 3px; }
+.node.collapsed > .kids { display: none; }
+.lvl1 > .row > a { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .07em; color: var(--fg-faint); padding-top: 12px; }
+.lvl2 > .row > a { font-weight: 500; color: var(--fg); }
+.lvl3 > .row > a { font-size: 12.5px; }
+
+.res {
+  display: block; padding: 8px 10px; margin-bottom: 3px; border-radius: 7px;
+  text-decoration: none; color: inherit; cursor: pointer;
+}
+.res:hover { background: var(--bg-hover); }
+.res .crumb { font-size: 10.5px; color: var(--fg-faint); text-transform: uppercase;
+              letter-spacing: .05em; margin-bottom: 2px; }
+.res .title { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 3px; }
+.res .snip { font-size: 12px; color: var(--fg-dim); line-height: 1.5;
+             display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+             overflow: hidden; }
+.res mark, mark.hit { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+mark.hit.current { background: var(--mark-active); }
+#noresults { padding: 22px 14px; font-size: 13px; color: var(--fg-faint); text-align: center; }
+
+/* ------------------------------------------------------------------ main */
+#main {
+  margin-left: var(--side-w);
+  padding: 46px 56px 220px;
+  max-width: 1000px;
+}
+#main h1, #main h2, #main h3, #main h4 { scroll-margin-top: 24px; line-height: 1.3; }
+#main h1 {
+  font-size: 27px; margin: 60px 0 20px; padding-bottom: 10px;
+  border-bottom: 2px solid var(--border);
+}
+#main h1:first-child { margin-top: 0; }
+#main h2 { font-size: 21px; margin: 46px 0 14px; padding-bottom: 7px;
+           border-bottom: 1px solid var(--border-soft); }
+#main h3 { font-size: 16.5px; margin: 32px 0 10px; }
+#main h4 { font-size: 14.5px; margin: 24px 0 8px; color: var(--fg-dim); }
+#main p { margin: 0 0 14px; }
+#main ul, #main ol { margin: 0 0 14px; padding-left: 26px; }
+#main li { margin-bottom: 5px; }
+#main li > p { margin-bottom: 6px; }
+#main a { color: var(--accent); text-decoration: none; }
+#main a:hover { text-decoration: underline; }
+#main hr { border: 0; border-top: 1px solid var(--border-soft); margin: 34px 0; }
+#main blockquote {
+  margin: 0 0 16px; padding: 10px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 7px 7px 0;
+}
+#main blockquote p:last-child { margin-bottom: 0; }
+#main code {
+  font-family: var(--mono); font-size: .875em;
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: 5px; padding: .12em .38em;
+}
+#main pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: 9px; padding: 13px 16px; overflow-x: auto; margin: 0 0 16px;
+  font-size: 12.8px; line-height: 1.55;
+}
+#main pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+#main table {
+  border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 13.5px;
+  display: block; overflow-x: auto;
+}
+#main th, #main td {
+  border: 1px solid var(--border-soft); padding: 7px 11px;
+  text-align: left; vertical-align: top;
+}
+#main th { background: var(--bg-side); font-weight: 600; }
+#main tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg-side) 55%, transparent); }
+#main .anchor {
+  opacity: 0; margin-left: 8px; color: var(--fg-faint);
+  text-decoration: none; font-weight: 400; font-size: .7em;
+}
+#main h1:hover .anchor, #main h2:hover .anchor,
+#main h3:hover .anchor, #main h4:hover .anchor { opacity: 1; }
+
+/* ------------------------------------------------------------- chrome bits */
+#progress {
+  position: fixed; top: 0; left: var(--side-w); right: 0; height: 2px;
+  background: var(--accent); width: 0; z-index: 50; transition: width .1s linear;
+}
+#toggle {
+  position: fixed; top: 12px; left: 12px; z-index: 60; display: none;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+  border-radius: 8px; width: 38px; height: 38px; font-size: 17px; cursor: pointer;
+}
+#totop {
+  position: fixed; right: 22px; bottom: 22px; z-index: 45;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg-dim);
+  border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 15px;
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+#totop.show { opacity: 1; pointer-events: auto; }
+#totop:hover { color: var(--accent); border-color: var(--accent); }
+
+#searchnav {
+  position: fixed; top: 14px; right: 22px; z-index: 55;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+  padding: 5px 7px; display: none; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--fg-dim); box-shadow: 0 4px 14px rgba(0,0,0,.09);
+}
+#searchnav button {
+  border: 0; background: var(--bg-hover); color: var(--fg); cursor: pointer;
+  border-radius: 5px; width: 24px; height: 22px; font-size: 11px;
+}
+#searchnav button:hover { background: var(--accent); color: #fff; }
+
+@media (max-width: 1080px) {
+  #sidebar { transform: translateX(-100%); transition: transform .2s ease; }
+  #sidebar.open { transform: none; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+  #main { margin-left: 0; padding: 66px 22px 200px; }
+  #progress { left: 0; }
+  #toggle { display: block; }
+}
+@media print {
+  #sidebar, #toggle, #totop, #progress, #searchnav { display: none !important; }
+  #main { margin: 0; max-width: none; padding: 0; }
+}
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #ffffcc }
+/* The Pygments wrapper must not paint its own background: the <pre> inside it
+   carries the themed background and the rounded corners, so a hardcoded light
+   fill here shows through at the corners in dark mode. */
+.codehilite { background: transparent; border-radius: 9px; }
+.codehilite .c { color: #3D7B7B; font-style: italic } /* Comment */
+.codehilite .err { border: 1px solid #FF0000 } /* Error */
+.codehilite .k { color: #008000; font-weight: bold } /* Keyword */
+.codehilite .o { color: #666666 } /* Operator */
+.codehilite .ch { color: #3D7B7B; font-style: italic } /* Comment.Hashbang */
+.codehilite .cm { color: #3D7B7B; font-style: italic } /* Comment.Multiline */
+.codehilite .cp { color: #9C6500 } /* Comment.Preproc */
+.codehilite .cpf { color: #3D7B7B; font-style: italic } /* Comment.PreprocFile */
+.codehilite .c1 { color: #3D7B7B; font-style: italic } /* Comment.Single */
+.codehilite .cs { color: #3D7B7B; font-style: italic } /* Comment.Special */
+.codehilite .gd { color: #A00000 } /* Generic.Deleted */
+.codehilite .ge { font-style: italic } /* Generic.Emph */
+.codehilite .gr { color: #E40000 } /* Generic.Error */
+.codehilite .gh { color: #000080; font-weight: bold } /* Generic.Heading */
+.codehilite .gi { color: #008400 } /* Generic.Inserted */
+.codehilite .go { color: #717171 } /* Generic.Output */
+.codehilite .gp { color: #000080; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #800080; font-weight: bold } /* Generic.Subheading */
+.codehilite .gt { color: #0044DD } /* Generic.Traceback */
+.codehilite .kc { color: #008000; font-weight: bold } /* Keyword.Constant */
+.codehilite .kd { color: #008000; font-weight: bold } /* Keyword.Declaration */
+.codehilite .kn { color: #008000; font-weight: bold } /* Keyword.Namespace */
+.codehilite .kp { color: #008000 } /* Keyword.Pseudo */
+.codehilite .kr { color: #008000; font-weight: bold } /* Keyword.Reserved */
+.codehilite .kt { color: #B00040 } /* Keyword.Type */
+.codehilite .m { color: #666666 } /* Literal.Number */
+.codehilite .s { color: #BA2121 } /* Literal.String */
+.codehilite .na { color: #687822 } /* Name.Attribute */
+.codehilite .nb { color: #008000 } /* Name.Builtin */
+.codehilite .nc { color: #0000FF; font-weight: bold } /* Name.Class */
+.codehilite .no { color: #880000 } /* Name.Constant */
+.codehilite .nd { color: #AA22FF } /* Name.Decorator */
+.codehilite .ni { color: #717171; font-weight: bold } /* Name.Entity */
+.codehilite .ne { color: #CB3F38; font-weight: bold } /* Name.Exception */
+.codehilite .nf { color: #0000FF } /* Name.Function */
+.codehilite .nl { color: #767600 } /* Name.Label */
+.codehilite .nn { color: #0000FF; font-weight: bold } /* Name.Namespace */
+.codehilite .nt { color: #008000; font-weight: bold } /* Name.Tag */
+.codehilite .nv { color: #19177C } /* Name.Variable */
+.codehilite .ow { color: #AA22FF; font-weight: bold } /* Operator.Word */
+.codehilite .w { color: #bbbbbb } /* Text.Whitespace */
+.codehilite .mb { color: #666666 } /* Literal.Number.Bin */
+.codehilite .mf { color: #666666 } /* Literal.Number.Float */
+.codehilite .mh { color: #666666 } /* Literal.Number.Hex */
+.codehilite .mi { color: #666666 } /* Literal.Number.Integer */
+.codehilite .mo { color: #666666 } /* Literal.Number.Oct */
+.codehilite .sa { color: #BA2121 } /* Literal.String.Affix */
+.codehilite .sb { color: #BA2121 } /* Literal.String.Backtick */
+.codehilite .sc { color: #BA2121 } /* Literal.String.Char */
+.codehilite .dl { color: #BA2121 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #BA2121; font-style: italic } /* Literal.String.Doc */
+.codehilite .s2 { color: #BA2121 } /* Literal.String.Double */
+.codehilite .se { color: #AA5D1F; font-weight: bold } /* Literal.String.Escape */
+.codehilite .sh { color: #BA2121 } /* Literal.String.Heredoc */
+.codehilite .si { color: #A45A77; font-weight: bold } /* Literal.String.Interpol */
+.codehilite .sx { color: #008000 } /* Literal.String.Other */
+.codehilite .sr { color: #A45A77 } /* Literal.String.Regex */
+.codehilite .s1 { color: #BA2121 } /* Literal.String.Single */
+.codehilite .ss { color: #19177C } /* Literal.String.Symbol */
+.codehilite .bp { color: #008000 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #0000FF } /* Name.Function.Magic */
+.codehilite .vc { color: #19177C } /* Name.Variable.Class */
+.codehilite .vg { color: #19177C } /* Name.Variable.Global */
+.codehilite .vi { color: #19177C } /* Name.Variable.Instance */
+.codehilite .vm { color: #19177C } /* Name.Variable.Magic */
+.codehilite .il { color: #666666 } /* Literal.Number.Integer.Long */
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<button id="toggle" title="Menu">&#9776;</button>
+
+<aside id="sidebar">
+  <div id="brand">
+    <h1>Getting started</h1>
+    <p>Relatude.DB &middot; a short introduction</p>
+    <p style="margin-top:6px"><a href="index.html" style="font-size:11.5px;color:var(--accent);text-decoration:none">&larr; Relatude.DB home</a></p>
+    <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
+  </div>
+  <div id="searchwrap">
+    <div id="searchbox">
+      <span class="icon">&#9906;</span>
+      <input id="search" type="search" placeholder="Search the intro…" autocomplete="off" spellcheck="false">
+      <button id="clear" title="Clear">&times;</button>
+    </div>
+    <div id="searchmeta"><kbd>/</kbd> to search &middot; <kbd>Esc</kbd> to clear</div>
+  </div>
+  <nav id="nav"></nav>
+  <div id="results"></div>
+</aside>
+
+<div id="searchnav">
+  <span id="searchnavlabel">0 / 0</span>
+  <button id="prevhit" title="Previous match (Shift+Enter)">&#9650;</button>
+  <button id="nexthit" title="Next match (Enter)">&#9660;</button>
+</div>
+
+<main id="main">
+<h1 id="getting-started-with-relatudedb">Getting started with Relatude.DB<a class="anchor" href="#getting-started-with-relatudedb" aria-label="Link to this section">#</a></h1>
+<p><strong>A short introduction</strong></p>
+<p>Relatude.DB is an open-source, object-oriented graph database for .NET. Your C# classes <em>are</em> the
+schema — there is no SQL, no migrations and no ORM mapping layer. You save an object and you get an
+object back, and the links between objects are real, navigable relations instead of foreign keys you
+have to join on.</p>
+<p>It runs in-process inside your ASP.NET Core app, so a query is a method call — typically
+sub-millisecond, because the graph is held in memory and persisted to an append-only log. Full-text
+(BM25) search, semantic/vector search, faceted search, file and image handling and an admin UI are
+part of the engine, not extra services you have to run.</p>
+<blockquote>
+<p><strong>Pre-1.0.</strong> The public API still moves in small ways. Source and examples:
+<a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a></p>
+</blockquote>
+<hr />
+<h2 id="1-install">1. Install<a class="anchor" href="#1-install" aria-label="Link to this section">#</a></h2>
+<p>Add the server package to a normal ASP.NET Core project:</p>
+<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>add<span class="w"> </span>package<span class="w"> </span>Relatude.DB.Server
+</code></pre></div>
+
+<p>That is the whole installation. There is no database server to set up, no connection string and no
+schema to create up front — the database is a folder next to your app.</p>
+<hr />
+<h2 id="2-modelling-just-write-classes">2. Modelling — just write classes<a class="anchor" href="#2-modelling-just-write-classes" aria-label="Link to this section">#</a></h2>
+<p>A node type is any class, record, struct <strong>or interface</strong> marked <code>[Node]</code>. Plain properties map
+automatically by their CLR type; attributes only <em>tune</em> things.</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node(TextIndex = BoolValue.True)]</span><span class="w">          </span><span class="c1">// whole node is free-text searchable</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Product</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="na">[PublicIdProperty]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="na">[StringProperty(IndexedByWords = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Description</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Sku</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span><span class="w">              </span><span class="c1">// no attribute needed</span>
+<span class="w">    </span><span class="na">[DoubleProperty(Indexed = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">Price</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[BooleanProperty(Indexed = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">InStock</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringArrayProperty(Indexed = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="p">[]</span><span class="w"> </span><span class="n">Tags</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+
+<span class="w">    </span><span class="na">[ReferenceProperty(Indexed = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">Reference</span><span class="o">&lt;</span><span class="n">Brand</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Brand</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>Indexed = true</code> is what makes a property filterable and facetable — the only performance knob you
+need on day one. <code>IndexedByWords = true</code> is the one other knob worth knowing: it adds a word index to
+that single property, which is what <code>MatchesSearch</code> (see below) searches.</p>
+<h3 id="property-types">Property types<a class="anchor" href="#property-types" aria-label="Link to this section">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Types</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scalars</td>
+<td><code>bool</code>, <code>int</code> (incl. enums), <code>long</code>, <code>decimal</code>, <code>double</code>, <code>float</code>, <code>Guid</code>, <code>DateTime</code>, <code>DateTimeOffset</code>, <code>TimeSpan</code></td>
+</tr>
+<tr>
+<td>Text</td>
+<td><code>string</code>, <code>[HtmlProperty] string</code></td>
+</tr>
+<tr>
+<td>Arrays</td>
+<td><code>string[]</code>, <code>Guid[]</code>, <code>int[]</code>, enum arrays, <code>byte[]</code>, <code>float[]</code> (vectors)</td>
+</tr>
+<tr>
+<td>Geo</td>
+<td><code>GeoCoordinate</code> — latitude/longitude with radius and distance queries</td>
+</tr>
+<tr>
+<td>Files</td>
+<td><code>FileValue</code> — a slot in the file store, with automatic image/video conversion</td>
+</tr>
+<tr>
+<td>Owned children</td>
+<td><code>Embedded&lt;T&gt;</code>, <code>EmbeddedMap&lt;TKey,T&gt;</code> — sub-objects that live and die with the parent</td>
+</tr>
+<tr>
+<td>Links</td>
+<td><code>Reference&lt;T&gt;</code>, <code>References&lt;T&gt;</code>, and relation properties (below)</td>
+</tr>
+</tbody>
+</table>
+<p>A few marker attributes are worth naming: <code>[PublicIdProperty]</code> (the Guid id), <code>[InternalIdProperty]</code>
+(the fast int id), <code>[DisplayNameProperty]</code>, <code>[AddressProperty]</code> (URL slug), <code>[CreatedUtcProperty]</code>,
+<code>[ChangedUtcProperty]</code> and <code>[Exclude]</code>.</p>
+<h3 id="relations-two-levels">Relations — two levels<a class="anchor" href="#relations-two-levels" aria-label="Link to this section">#</a></h3>
+<p>A reference property is enough for most things. It saves together with the node:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">product</span><span class="p">.</span><span class="n">Brand</span><span class="p">.</span><span class="n">Set</span><span class="p">(</span><span class="n">brand</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">product</span><span class="p">);</span>
+
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">product</span><span class="p">.</span><span class="n">Brand</span><span class="p">.</span><span class="n">TryGet</span><span class="p">(</span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">b</span><span class="p">))</span><span class="w"> </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">b</span><span class="p">.</span><span class="n">Name</span><span class="p">);</span>
+</code></pre></div>
+
+<p>When the link has to be navigable from <strong>both</strong> sides, declare it as a class. There are exactly five
+shapes, so there is very little to get wrong:</p>
+<table>
+<thead>
+<tr>
+<th>Base class</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OneOne&lt;T&gt;</code></td>
+<td>1↔1, same type, symmetric</td>
+</tr>
+<tr>
+<td><code>OneToOne&lt;TFrom,TTo&gt;</code></td>
+<td>1↔1</td>
+</tr>
+<tr>
+<td><code>OneToMany&lt;TOne,TMany&gt;</code></td>
+<td>1↔N</td>
+</tr>
+<tr>
+<td><code>ManyMany&lt;T&gt;</code></td>
+<td>N↔N, same type</td>
+</tr>
+<tr>
+<td><code>ManyToMany&lt;TFrom,TTo&gt;</code></td>
+<td>N↔N</td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Tree</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">OneToMany</span><span class="o">&lt;</span><span class="n">Page</span><span class="p">,</span><span class="w"> </span><span class="n">Page</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">   </span><span class="c1">// a page tree, in 3 lines</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Parent</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">One</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Children</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">Many</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// on Page:</span>
+<span class="k">public</span><span class="w"> </span><span class="n">Tree</span><span class="p">.</span><span class="n">Parent</span><span class="w">   </span><span class="n">Parent</span><span class="w">   </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="p">();</span>
+<span class="k">public</span><span class="w"> </span><span class="n">Tree</span><span class="p">.</span><span class="n">Children</span><span class="w"> </span><span class="n">Children</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="p">();</span>
+</code></pre></div>
+
+<p><code>page.Children</code> enumerates lazily, <code>page.Parent.Get()</code> walks up, and both sides stay consistent
+automatically — you never store a <code>ParentId</code>.</p>
+<h3 id="interfaces-and-classes">Interfaces and classes<a class="anchor" href="#interfaces-and-classes" aria-label="Link to this section">#</a></h3>
+<p>An interface can be a node type too, and the classes implementing it become <strong>subtypes</strong>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true)]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="na">[Node]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Article</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="na">[Node]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Video</span><span class="w">   </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IContent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">c</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Title</span><span class="p">.</span><span class="n">StartsWith</span><span class="p">(</span><span class="s">&quot;Hello&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span><span class="w">  </span><span class="c1">// returns both</span>
+</code></pre></div>
+
+<p>Query a base type and every descendant comes back, correctly typed. You can even skip the class
+entirely — <code>db.Create&lt;IArticle&gt;()</code> generates the implementation for you.</p>
+<hr />
+<h2 id="3-setup-one-call-plus-one-file">3. Setup — one call plus one file<a class="anchor" href="#3-setup-one-call-plus-one-file" aria-label="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">WebApplication</span><span class="p">.</span><span class="n">CreateBuilder</span><span class="p">(</span><span class="n">args</span><span class="p">);</span>
+<span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">();</span><span class="w">          </span><span class="c1">// no using needed</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Build</span><span class="p">();</span>
+
+<span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{ctx.Database.Count()} objects&quot;</span><span class="p">);</span>
+
+<span class="n">app</span><span class="p">.</span><span class="n">StartRelatudeDB</span><span class="p">();</span>
+<span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBAdmin</span><span class="p">();</span><span class="w">         </span><span class="c1">// admin UI at /relatude.db</span>
+<span class="n">app</span><span class="p">.</span><span class="n">Run</span><span class="p">();</span>
+</code></pre></div>
+
+<p>A <code>relatude.db.json</code> file beside the app says where the data lives and which namespaces hold the
+model:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;MasterUserName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;m&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;MasterPassword&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;m&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">    </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyDatabase&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;AutoOpen&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;IOSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Local disk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;relatude.db&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IOType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;LocalDisk&quot;</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">    </span><span class="nt">&quot;IoDatabase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195...&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;DatamodelSources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Shop&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Website.Simple.Models&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AssemblyNameReference&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;LocalSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;EnableTextIndexByDefault&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>That is the whole idea: <strong>this folder is the database, that namespace is the schema.</strong> Everything
+else has a sensible default, and the file is normally written for you by the admin UI at
+<code>/relatude.db</code> — datamodel sources, file storage, backups, indexing, Azure blob, Lucene and AI
+provider settings all live there.</p>
+<hr />
+<h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
+<p>One fluent builder, LINQ-style expressions, <code>Execute()</code> at the end.</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">;</span>
+
+<span class="kt">var</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+
+<span class="kt">var</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">()</span>
+<span class="w">             </span><span class="p">.</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">InStock</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Price</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">500</span><span class="p">)</span>
+<span class="w">             </span><span class="p">.</span><span class="n">OrderBy</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Price</span><span class="p">)</span>
+<span class="w">             </span><span class="p">.</span><span class="n">Page</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">)</span>
+<span class="w">             </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<p>Async twins exist throughout: <code>ExecuteAsync()</code>, <code>CountAsync()</code>, <code>FirstOrDefaultAsync()</code>.</p>
+<h3 id="search">Search<a class="anchor" href="#search" aria-label="Link to this section">#</a></h3>
+<p>Free-text and semantic search are part of the same index — there is no second search engine to run
+and keep in sync:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// BM25 free text, optionally blended with vector similarity</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">hits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;wool jacket&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">semanticRatio</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<h3 id="following-relations">Following relations<a class="anchor" href="#following-relations" aria-label="Link to this section">#</a></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// follow relations eagerly, in one query</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">pages</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Include</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Children</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<h3 id="facets">Facets<a class="anchor" href="#facets" aria-label="Link to this section">#</a></h3>
+<p>Facet counts adapt to the current result set, so you get drill-sideways behaviour for free:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">()</span>
+<span class="w">            </span><span class="p">.</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;jacket&quot;</span><span class="p">)</span>
+<span class="w">            </span><span class="p">.</span><span class="n">Facets</span><span class="p">()</span>
+<span class="w">            </span><span class="p">.</span><span class="n">AddValueFacet</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Brand</span><span class="p">)</span>
+<span class="w">            </span><span class="p">.</span><span class="n">AddValueFacet</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Tags</span><span class="p">)</span>
+<span class="w">            </span><span class="p">.</span><span class="n">AddRangeFacet</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Price</span><span class="p">)</span>
+<span class="w">            </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
+
+<span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">Facets</span><span class="p">)</span>
+<span class="w">    </span><span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">f</span><span class="p">.</span><span class="n">Values</span><span class="p">)</span><span class="w"> </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">$&quot;{f.DisplayName}: {v.DisplayName} ({v.Count})&quot;</span><span class="p">);</span>
+</code></pre></div>
+
+<h3 id="filtering-text-and-arrays">Filtering text and arrays<a class="anchor" href="#filtering-text-and-arrays" aria-label="Link to this section">#</a></h3>
+<p>Inside a <code>Where</code> lambda the familiar C# methods work. They are answered from the index when the
+property has one, and row by row when it does not:</p>
+<table>
+<thead>
+<tr>
+<th>Written as</th>
+<th>Means</th>
+<th>Needs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>p.Tags.Contains("eco")</code></td>
+<td>the array holds that element</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>p.Name.Contains("jacket")</code></td>
+<td>ordinal substring</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>p.Name.StartsWith("Wool")</code></td>
+<td>ordinal prefix</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>p.Description.MatchesSearch("wool jacket")</code></td>
+<td>word + semantic search in that <strong>one</strong> property</td>
+<td><code>IndexedByWords = true</code></td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Tags</span><span class="p">.</span><span class="n">Contains</span><span class="p">(</span><span class="s">&quot;eco&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Name</span><span class="p">.</span><span class="n">StartsWith</span><span class="p">(</span><span class="s">&quot;Wo&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
+
+<span class="c1">// scoped search: the words must be in Description, not merely somewhere in the node</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Description</span><span class="p">.</span><span class="n">MatchesSearch</span><span class="p">(</span><span class="s">&quot;waterproof&quot;</span><span class="p">)</span>
+<span class="w">                            </span><span class="o">||</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Name</span><span class="p">.</span><span class="n">MatchesSearch</span><span class="p">(</span><span class="s">&quot;waterproof&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<p>Three things worth saying once:</p>
+<ul>
+<li>Text matching is <strong>ordinal</strong> — case matters, just like <code>==</code> on strings. Passing an explicit
+  <code>StringComparison</code> is rejected rather than quietly ignored.</li>
+<li><code>Contains</code> means what it means in C#: an element on <code>string[]</code>/<code>Guid[]</code>/<code>int[]</code>/enum
+  arrays/<code>float[]</code>/<code>byte[]</code>, a substring on a <code>string</code>.</li>
+<li><code>MatchesSearch</code> is <code>WhereSearch</code> narrowed to one property, and being a predicate it composes with
+  <code>||</code> and <code>!</code> where a chained <code>WhereSearch</code> cannot. It is the one filter with no unindexed fallback
+  — a search cannot be evaluated row by row — so it requires <code>IndexedByWords</code> (or
+  <code>IndexedBySemantic</code>) and tells you when the property lacks it.</li>
+</ul>
+<hr />
+<h2 id="5-writing-data">5. Writing data<a class="anchor" href="#5-writing-data" aria-label="Link to this section">#</a></h2>
+<p>There is no change tracking to reason about and no <code>SaveChanges()</code> at the end of a request. Each
+call is its own ACID transaction, durably logged.</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Product</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Wool jacket&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">Price</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">249</span><span class="w"> </span><span class="p">};</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+
+<span class="n">p</span><span class="p">.</span><span class="n">Price</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">199</span><span class="p">;</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+
+<span class="n">db</span><span class="p">.</span><span class="n">Upsert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Delete</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+
+<span class="c1">// create + insert in one go (works for interfaces too)</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">art</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CreateAndInsert</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">Title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Hello&quot;</span><span class="p">);</span>
+
+<span class="c1">// relations</span>
+<span class="n">db</span><span class="p">.</span><span class="n">SetRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">RemoveRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span>
+
+<span class="c1">// batch several changes into one atomic transaction</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CreateTransaction</span><span class="p">();</span>
+<span class="n">t</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+<span class="n">t</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">other</span><span class="p">);</span>
+<span class="n">t</span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
+
+<span class="c1">// files: upload into a FileValue slot, get a resized/converted URL back</span>
+<span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileUploadAsync</span><span class="p">(</span><span class="n">art</span><span class="p">.</span><span class="n">File</span><span class="p">,</span><span class="w"> </span><span class="n">stream</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;hero.jpg&quot;</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">art</span><span class="p">.</span><span class="n">File</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">400</span><span class="p">,</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">300</span><span class="w"> </span><span class="p">});</span>
+</code></pre></div>
+
+<p>One naming trap to avoid: relation mutation is <code>SetRelation</code> / <code>RemoveRelation</code> / <code>ClearRelations</code>
+on <code>NodeStore</code>. <code>Relate&lt;R&gt;(from, to)</code> exists on <code>Transaction</code>, not as <code>db.Relate(...)</code>.</p>
+<hr />
+<h2 id="6-what-you-get-without-writing-it">6. What you get without writing it<a class="anchor" href="#6-what-you-get-without-writing-it" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Admin UI</strong> at <code>/relatude.db</code> — browse and edit data, inspect the datamodel, take backups, check
+  index status, run queries in a console.</li>
+<li><strong>Search</strong> — BM25 free text, prefix/infix, fuzzy, plus semantic vector search on the same index.</li>
+<li><strong>Facets</strong> — value and range facets with drill-sideways counts off any indexed property or relation.</li>
+<li><strong>Files</strong> — local disk or Azure blob, on-demand image and video conversion, CDN-friendly URLs.</li>
+<li><strong>Geo</strong> — coordinate properties with radius filters and sort-by-distance.</li>
+<li><strong>Extras</strong> — cultures and fallbacks, revisions, per-property read/write access, transaction plugins,
+  and a GraphQL <strong>read</strong> endpoint generated from your model
+  (<code>app.MapRelatudeDBGraphQL("/graphql")</code>; there are no GraphQL mutations).</li>
+</ul>
+<hr />
+<h2 id="where-next">Where next<a class="anchor" href="#where-next" aria-label="Link to this section">#</a></h2>
+<p>Add the NuGet, write the classes, point <code>relatude.db.json</code> at their namespace and run — the admin UI
+is already there and your data is already searchable.</p>
+<ul>
+<li><a href="manual.html">The manual</a> — data modelling and querying in depth.</li>
+<li><a href="relatude-db.skill">relatude-db.skill</a> — the same knowledge packaged for AI coding agents.</li>
+<li><a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a> — source, examples and issues.</li>
+</ul>
+</main>
+
+<button id="totop" title="Back to top">&#8593;</button>
+
+<script>
+(function () {
+  "use strict";
+
+  var NAV = [{"level": 1, "text": "Getting started with Relatude.DB", "id": "getting-started-with-relatudedb", "children": [{"level": 2, "text": "1. Install", "id": "1-install", "children": []}, {"level": 2, "text": "2. Modelling \u2014 just write classes", "id": "2-modelling-just-write-classes", "children": [{"level": 3, "text": "Property types", "id": "property-types", "children": []}, {"level": 3, "text": "Relations \u2014 two levels", "id": "relations-two-levels", "children": []}, {"level": 3, "text": "Interfaces and classes", "id": "interfaces-and-classes", "children": []}]}, {"level": 2, "text": "3. Setup \u2014 one call plus one file", "id": "3-setup-one-call-plus-one-file", "children": []}, {"level": 2, "text": "4. Querying", "id": "4-querying", "children": [{"level": 3, "text": "Search", "id": "search", "children": []}, {"level": 3, "text": "Following relations", "id": "following-relations", "children": []}, {"level": 3, "text": "Facets", "id": "facets", "children": []}, {"level": 3, "text": "Filtering text and arrays", "id": "filtering-text-and-arrays", "children": []}]}, {"level": 2, "text": "5. Writing data", "id": "5-writing-data", "children": []}, {"level": 2, "text": "6. What you get without writing it", "id": "6-what-you-get-without-writing-it", "children": []}, {"level": 2, "text": "Where next", "id": "where-next", "children": []}]}];
+  // v2: the default collapse state changed, and the key is versioned so readers
+  // carrying a v1 payload get the new default rather than their old tree.
+  var KEY = "relatude-intro-state-v1";
+  var THEME_KEY = "relatude-manual-theme-v1";
+
+  var $nav      = document.getElementById("nav");
+  var $results  = document.getElementById("results");
+  var $search   = document.getElementById("search");
+  var $clear    = document.getElementById("clear");
+  var $meta     = document.getElementById("searchmeta");
+  var $main     = document.getElementById("main");
+  var $sidebar  = document.getElementById("sidebar");
+  var $progress = document.getElementById("progress");
+  var $totop    = document.getElementById("totop");
+  var $snav     = document.getElementById("searchnav");
+  var $snavlbl  = document.getElementById("searchnavlabel");
+  var $theme    = document.getElementById("theme");
+
+  // ------------------------------------------------------------- storage
+  // Every localStorage touch goes through these. Browsers throw on access — not
+  // just on write — when the page is an opaque origin (some file:// contexts),
+  // in private mode, or when site data is blocked. An unguarded read would abort
+  // the whole script and leave the page inert, so nothing here may throw.
+  function lsGet(k) {
+    try { return window.localStorage.getItem(k); } catch (e) { return null; }
+  }
+  function lsSet(k, v) {
+    try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; }
+  }
+
+  // ------------------------------------------------------------- theme
+  // Three states, cycled by the button: auto (follow the OS) → light → dark.
+  // "auto" removes the attribute so the prefers-color-scheme rule takes over.
+  var THEMES = {
+    auto:  { icon: "◐", label: "Theme: auto (follows your system) — click for light" },
+    light: { icon: "☀", label: "Theme: light — click for dark" },
+    dark:  { icon: "☾", label: "Theme: dark — click to follow your system" }
+  };
+  var THEME_ORDER = ["auto", "light", "dark"];
+
+  var theme = lsGet(THEME_KEY);
+  if (theme !== "light" && theme !== "dark") theme = "auto";
+
+  function applyTheme(t) {
+    theme = t;
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    $theme.textContent = THEMES[t].icon;
+    $theme.title = THEMES[t].label;
+    $theme.setAttribute("aria-label", THEMES[t].label);
+  }
+
+  applyTheme(theme);
+
+  $theme.addEventListener("click", function () {
+    var next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+    applyTheme(next);
+    if (next === "auto") {
+      try { window.localStorage.removeItem(THEME_KEY); } catch (e) {}
+    } else {
+      lsSet(THEME_KEY, next);
+    }
+  });
+
+  // ------------------------------------------------------------- state
+  var state = { active: null, scroll: 0, collapsed: [], navScroll: 0 };
+  var stored = lsGet(KEY);
+  var hadState = false;
+  try {
+    var saved = JSON.parse(stored || "null");
+    if (saved && typeof saved === "object") {
+      hadState = true;
+      state.active    = typeof saved.active === "string" ? saved.active : null;
+      state.scroll    = +saved.scroll || 0;
+      state.collapsed = Array.isArray(saved.collapsed) ? saved.collapsed : [];
+      state.navScroll = +saved.navScroll || 0;
+    }
+  } catch (e) { /* corrupt payload: fall back to defaults */ }
+
+  var saveTimer = null;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 220);
+  }
+  function saveNow() {
+    clearTimeout(saveTimer);
+    lsSet(KEY, JSON.stringify(state));
+  }
+
+  // --------------------------------------------------------- build tree
+  var rowById = {};
+
+  function buildNode(item, level) {
+    var node = document.createElement("div");
+    node.className = "node lvl" + level;
+    node.dataset.id = item.id;
+
+    var row = document.createElement("div");
+    row.className = "row";
+
+    var tw = document.createElement("button");
+    tw.className = "twisty" + (item.children && item.children.length ? "" : " leaf");
+    tw.innerHTML = "&#9660;";
+    tw.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleNode(node, item.id);
+    });
+
+    var a = document.createElement("a");
+    a.href = "#" + item.id;
+    a.textContent = item.text;
+    a.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      goTo(item.id);
+      if (window.innerWidth <= 1080) $sidebar.classList.remove("open");
+    });
+
+    row.appendChild(tw);
+    row.appendChild(a);
+    node.appendChild(row);
+    rowById[item.id] = row;
+
+    if (item.children && item.children.length) {
+      var kids = document.createElement("div");
+      kids.className = "kids";
+      item.children.forEach(function (c) { kids.appendChild(buildNode(c, level + 1)); });
+      node.appendChild(kids);
+    }
+    if (state.collapsed.indexOf(item.id) !== -1) node.classList.add("collapsed");
+    return node;
+  }
+
+  // ---------------------------------------------------------- accordion
+  // At most one branch is open at a time. Whatever opens a node — a twisty
+  // click, a menu link, or scrolling into the section — everything that is not
+  // on the path to that node closes. `branches` is every node that actually has
+  // children; leaves have nothing to open and are skipped.
+  var branches = [];
+
+  // The chain of .node elements from `node` up to the nav root, inclusive. The
+  // DOM alternates .node > .kids > .node, so the non-.node links are skipped.
+  function ancestorSet(node) {
+    var keep = {};
+    var n = node;
+    while (n && n !== $nav) {
+      if (n.classList && n.classList.contains("node")) keep[n.dataset.id] = true;
+      n = n.parentElement;
+    }
+    return keep;
+  }
+
+  function applyOpen(keep) {
+    state.collapsed = [];
+    branches.forEach(function (n) {
+      var open = keep[n.dataset.id] === true;
+      n.classList.toggle("collapsed", !open);
+      if (!open) state.collapsed.push(n.dataset.id);
+    });
+    save();
+  }
+
+  function openPathTo(id) {
+    var row = rowById[id];
+    applyOpen(row ? ancestorSet(row.parentElement) : {});
+  }
+
+  function toggleNode(node, id) {
+    var keep = ancestorSet(node);
+    // Opening closes every branch off the path; closing leaves the ancestors
+    // open and just shuts this one (and anything under it).
+    if (!node.classList.contains("collapsed")) delete keep[id];
+    applyOpen(keep);
+  }
+
+  NAV.forEach(function (part) { $nav.appendChild(buildNode(part, 1)); });
+
+  branches = Array.prototype.slice.call($nav.querySelectorAll(".node")).filter(function (n) {
+    return !!n.querySelector(".kids");
+  });
+
+  // The whole tree starts collapsed on a first visit, so the reader sees just
+  // the parts and opens what they want.
+  if (!hadState) applyOpen({});
+
+  // ------------------------------------------------------- active section
+  var targets = [];
+  Array.prototype.forEach.call($main.querySelectorAll("h1[id], h2[id], h3[id]"), function (h) {
+    targets.push(h);
+  });
+
+  function setActive(id, scrollNav) {
+    if (state.active === id && !scrollNav) return;
+    var changed = state.active !== id;
+    state.active = id;
+    Object.keys(rowById).forEach(function (k) { rowById[k].classList.remove("active"); });
+    var row = rowById[id];
+    if (row) {
+      // Only re-shuffle the tree when the section actually changed — the scroll
+      // handler calls this on every frame.
+      if (changed) openPathTo(id);
+      row.classList.add("active");
+      if (scrollNav) {
+        var r = row.getBoundingClientRect();
+        var nr = $nav.getBoundingClientRect();
+        if (r.top < nr.top + 8 || r.bottom > nr.bottom - 8) {
+          row.scrollIntoView({ block: "center" });
+        }
+      }
+    }
+    save();
+  }
+
+  function currentHeading() {
+    var best = targets.length ? targets[0].id : null;
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].getBoundingClientRect().top <= 90) best = targets[i].id;
+      else break;
+    }
+    return best;
+  }
+
+  // A smooth scroll fires scroll events for every heading it travels past.
+  // Without this the accordion would flap open and shut the whole way to the
+  // target, so scroll-driven tracking pauses until the jump settles. The
+  // deadline is the fallback for browsers without scrollend.
+  var navLockUntil = 0;
+  window.addEventListener("scrollend", function () { navLockUntil = 0; });
+
+  function goTo(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var y = el.getBoundingClientRect().top + window.scrollY - 16;
+    navLockUntil = Date.now() + 800;
+    window.scrollTo({ top: y, behavior: "smooth" });
+    setActive(id, true);
+    // Some browsers refuse replaceState on file:// origins; the deep link is a
+    // nicety, so never let it break navigation.
+    try { if (history.replaceState) history.replaceState(null, "", "#" + id); } catch (e) {}
+  }
+
+  // -------------------------------------------------------- scroll tracking
+  var ticking = false;
+  window.addEventListener("scroll", function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () {
+      ticking = false;
+      state.scroll = window.scrollY;
+      var h = document.documentElement.scrollHeight - window.innerHeight;
+      $progress.style.width = (h > 0 ? (window.scrollY / h) * 100 : 0) + "%";
+      $totop.classList.toggle("show", window.scrollY > 700);
+      if (Date.now() >= navLockUntil) {
+        var id = currentHeading();
+        if (id) setActive(id, true);
+      }
+      save();
+    });
+  }, { passive: true });
+
+  $nav.addEventListener("scroll", function () {
+    state.navScroll = $nav.scrollTop;
+    save();
+  }, { passive: true });
+
+  window.addEventListener("beforeunload", saveNow);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") saveNow();
+  });
+
+  // ------------------------------------------------------------- search
+  // One record per h2/h3 section: heading text plus the prose that follows it.
+  var sections = [];
+  (function indexSections() {
+    var nodes = $main.children;
+    var cur = null;
+    var part = "";
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var tag = el.tagName;
+      if (tag === "H1") {
+        part = el.textContent.replace(/#$/, "").trim();
+        if (cur) sections.push(cur);
+        cur = { id: el.id, title: part, crumb: "", text: "" };
+        continue;
+      }
+      if (tag === "H2" || tag === "H3") {
+        if (cur) sections.push(cur);
+        cur = {
+          id: el.id,
+          title: el.textContent.replace(/#$/, "").trim(),
+          crumb: part,
+          text: ""
+        };
+        continue;
+      }
+      if (cur) cur.text += " " + el.textContent;
+    }
+    if (cur) sections.push(cur);
+    sections.forEach(function (s) {
+      s.hay = (s.title + " " + s.text).toLowerCase().replace(/\s+/g, " ");
+      s.text = s.text.replace(/\s+/g, " ").trim();
+    });
+  })();
+
+  function esc(s) {
+    return s.replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  function snippet(text, terms) {
+    var low = text.toLowerCase();
+    var at = -1;
+    for (var i = 0; i < terms.length; i++) {
+      var p = low.indexOf(terms[i]);
+      if (p !== -1 && (at === -1 || p < at)) at = p;
+    }
+    if (at === -1) at = 0;
+    var from = Math.max(0, at - 60);
+    var out = text.slice(from, from + 240);
+    if (from > 0) out = "…" + out;
+    if (from + 240 < text.length) out += "…";
+    out = esc(out);
+    terms.forEach(function (t) {
+      out = out.replace(new RegExp("(" + escRe(esc(t)) + ")", "gi"), "<mark>$1</mark>");
+    });
+    return out;
+  }
+
+  var currentTerms = [];
+
+  function runSearch(q) {
+    q = q.trim();
+    $clear.style.display = q ? "block" : "none";
+
+    if (!q) {
+      $results.style.display = "none";
+      $nav.style.display = "";
+      $meta.innerHTML = "<kbd>/</kbd> to search &middot; <kbd>Esc</kbd> to clear";
+      clearHighlights();
+      return;
+    }
+
+    var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    currentTerms = terms;
+
+    var hits = [];
+    sections.forEach(function (s) {
+      var score = 0, ok = true;
+      terms.forEach(function (t) {
+        var inTitle = s.title.toLowerCase().indexOf(t) !== -1;
+        var n = s.hay.split(t).length - 1;
+        if (!n) { ok = false; return; }
+        score += n + (inTitle ? 60 : 0);
+      });
+      if (ok) hits.push({ s: s, score: score });
+    });
+    hits.sort(function (a, b) { return b.score - a.score; });
+
+    $nav.style.display = "none";
+    $results.style.display = "block";
+    $results.innerHTML = "";
+
+    if (!hits.length) {
+      $results.innerHTML = '<div id="noresults">No matches for <strong>' + esc(q) + "</strong></div>";
+      $meta.textContent = "0 sections";
+      clearHighlights();
+      return;
+    }
+
+    hits.slice(0, 60).forEach(function (h) {
+      var a = document.createElement("a");
+      a.className = "res";
+      a.href = "#" + h.s.id;
+      a.innerHTML =
+        (h.s.crumb ? '<div class="crumb">' + esc(h.s.crumb) + "</div>" : "") +
+        '<div class="title">' + esc(h.s.title) + "</div>" +
+        '<div class="snip">' + snippet(h.s.text || h.s.title, terms) + "</div>";
+      a.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        goTo(h.s.id);
+        if (window.innerWidth <= 1080) $sidebar.classList.remove("open");
+      });
+      $results.appendChild(a);
+    });
+
+    $meta.textContent = hits.length + " section" + (hits.length === 1 ? "" : "s") + " matched";
+    highlightAll(terms);
+  }
+
+  // ------------------------------------- in-document highlighting + hit nav
+  var hits = [];
+  var hitIndex = -1;
+
+  function clearHighlights() {
+    Array.prototype.forEach.call($main.querySelectorAll("mark.hit"), function (m) {
+      var p = m.parentNode;
+      p.replaceChild(document.createTextNode(m.textContent), m);
+      p.normalize();
+    });
+    hits = [];
+    hitIndex = -1;
+    $snav.style.display = "none";
+  }
+
+  function highlightAll(terms) {
+    clearHighlights();
+    if (!terms.length) return;
+    var re = new RegExp("(" + terms.map(escRe).join("|") + ")", "gi");
+    var walker = document.createTreeWalker($main, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        var p = n.parentNode;
+        if (p.classList && p.classList.contains("anchor")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var texts = [];
+    var n;
+    while ((n = walker.nextNode())) texts.push(n);
+
+    texts.forEach(function (node) {
+      var v = node.nodeValue;
+      re.lastIndex = 0;
+      if (!re.test(v)) return;
+      re.lastIndex = 0;
+      var frag = document.createDocumentFragment();
+      var last = 0, m;
+      while ((m = re.exec(v))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(v.slice(last, m.index)));
+        var mk = document.createElement("mark");
+        mk.className = "hit";
+        mk.textContent = m[0];
+        frag.appendChild(mk);
+        hits.push(mk);
+        last = m.index + m[0].length;
+        if (m[0].length === 0) re.lastIndex++;
+      }
+      if (last < v.length) frag.appendChild(document.createTextNode(v.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+
+    if (hits.length) {
+      $snav.style.display = "flex";
+      hitIndex = -1;
+      updateHitLabel();
+    }
+  }
+
+  function updateHitLabel() {
+    $snavlbl.textContent = (hitIndex + 1) + " / " + hits.length;
+  }
+
+  function jumpHit(delta) {
+    if (!hits.length) return;
+    if (hitIndex >= 0 && hits[hitIndex]) hits[hitIndex].classList.remove("current");
+    hitIndex = (hitIndex + delta + hits.length) % hits.length;
+    var el = hits[hitIndex];
+    el.classList.add("current");
+    var y = el.getBoundingClientRect().top + window.scrollY - Math.round(window.innerHeight / 3);
+    window.scrollTo({ top: y, behavior: "smooth" });
+    updateHitLabel();
+  }
+
+  document.getElementById("nexthit").addEventListener("click", function () { jumpHit(1); });
+  document.getElementById("prevhit").addEventListener("click", function () { jumpHit(-1); });
+
+  var searchTimer = null;
+  $search.addEventListener("input", function () {
+    clearTimeout(searchTimer);
+    var v = $search.value;
+    searchTimer = setTimeout(function () { runSearch(v); }, 130);
+  });
+  $search.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); jumpHit(ev.shiftKey ? -1 : 1); }
+    if (ev.key === "Escape") { $search.value = ""; runSearch(""); $search.blur(); }
+  });
+  $clear.addEventListener("click", function () { $search.value = ""; runSearch(""); $search.focus(); });
+
+  document.addEventListener("keydown", function (ev) {
+    var t = ev.target.tagName;
+    if (t === "INPUT" || t === "TEXTAREA") return;
+    if (ev.key === "/") { ev.preventDefault(); $sidebar.classList.add("open"); $search.focus(); }
+    if (ev.key === "Escape" && $search.value) { $search.value = ""; runSearch(""); }
+  });
+
+  // ------------------------------------------------------------- chrome
+  document.getElementById("toggle").addEventListener("click", function () {
+    $sidebar.classList.toggle("open");
+  });
+  $totop.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // In-document links should keep the sidebar in sync.
+  Array.prototype.forEach.call($main.querySelectorAll('a[href^="#"]'), function (a) {
+    a.addEventListener("click", function (ev) {
+      var id = a.getAttribute("href").slice(1);
+      if (document.getElementById(id)) { ev.preventDefault(); goTo(id); }
+    });
+  });
+
+  // ------------------------------------------------------------- restore
+  (function restore() {
+    var fromHash = location.hash ? location.hash.slice(1) : "";
+    if (fromHash && document.getElementById(fromHash)) {
+      goTo(fromHash);
+      return;
+    }
+    if (state.scroll > 0) {
+      window.scrollTo(0, state.scroll);
+      // Late-loading fonts can shift layout; re-apply once things settle.
+      setTimeout(function () {
+        if (Math.abs(window.scrollY - state.scroll) > 4) window.scrollTo(0, state.scroll);
+      }, 90);
+    }
+    var id = state.active || currentHeading();
+    if (id) setActive(id, true);
+    if (state.navScroll) $nav.scrollTop = state.navScroll;
+  })();
+})();
+</script>
+</body>
+</html>
