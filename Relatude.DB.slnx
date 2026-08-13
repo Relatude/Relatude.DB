@@ -65,4 +65,7 @@
   <Folder Name="/Tests/">
     <Project Path="tests/Relatude.DB.Tests/Relatude.DB.Tests.csproj" />
   </Folder>
+  <Folder Name="/Tools/">
+    <Project Path="src/Relatude.DB.Console/Relatude.DB.Console.csproj" />
+  </Folder>
 </Solution>

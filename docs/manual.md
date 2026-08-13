@@ -55,6 +55,10 @@ concept builds on the last.
 27. [Cultures, visibility and scoped stores](#27-cultures-visibility-and-scoped-stores)
 28. [Pitfalls and gotchas](#28-pitfalls-and-gotchas)
 
+**Part IV — Tooling**
+
+29. [The command line tool](#29-the-command-line-tool)
+
 ---
 ---
 
@@ -2636,6 +2640,135 @@ A checklist of the things that actually bite people.
     If you need traversal, that is your signal to model the link as a relation.
 
 ---
+---
+
+# Part IV — Tooling
+
+## 29. The command line tool
+
+`Relatude.DB.Console` is a command line tool that works on a database and a datamodel **from the
+outside**: nothing of your application has to run, it only has to be readable. It exists for the
+things that otherwise need a running app and the admin UI — looking at the model, running a query,
+generating model code, checking a model before it is wired up, and routine maintenance. It is also
+the fastest way for a coding agent to find out what a Relatude.DB project actually contains.
+
+```bash
+dotnet run --project src/Relatude.DB.Console -- help          # from this repository
+dotnet tool install -g Relatude.DB.Tool && relatude help      # as a global tool
+```
+
+The binary is called `relatude`. Every example below assumes it is on the path.
+
+### Two things every command needs to know
+
+**Where the database is.** A database is named by its `relatude.db.json` (see
+[section 12](#12-registering-the-model--the-admin-ui)). The tool looks for it in the current folder
+and then upwards, or you point at it:
+
+```bash
+relatude info                            # nearest relatude.db.json, from here upwards
+relatude info --project ../MyApp         # application folder or .csproj
+relatude info --settings /srv/app/relatude.db.json
+relatude info --store "Reporting"        # when the file holds more than one database
+```
+
+The folder holding `relatude.db.json` is treated as the application's content root, exactly as the
+server treats it, so every relative path inside the file resolves to the same place.
+
+**Where the model is.** The datamodel is *not* stored in the database files — it lives in your code,
+which is why the tool has to load it. In order of preference:
+
+| Option | What it does |
+|---|---|
+| (nothing) | follows the `DatamodelSources` in `relatude.db.json`, loading your assemblies from the newest build output under `<project>/bin` |
+| `--bin <folder>` | load the application's assemblies from here instead |
+| `--assembly <file>` | load this assembly, repeatable |
+| `--source <path>` | compile these `.cs` files in memory — a model can be inspected before the project builds |
+| `--namespace <ns>` | add every model type in this namespace, repeatable |
+| `--model-type <name>` | add one model type by full name, and everything it references |
+
+With `--assembly` or `--source` and no `--namespace`/`--model-type`, the model types are detected by
+the Relatude attributes and member types they use. The engine's own model
+(`Relatude.DB.Native.Models`) is always part of the datamodel, as it is at runtime, but is left out
+of the output unless `--include-native` is given.
+
+The Relatude.DB assemblies are never loaded from your build output: your model types are bound to the
+ones the tool already has, so its version and your project's have to be compatible.
+
+### The commands
+
+```bash
+relatude schema                          # node types, members, ids, relations
+relatude schema --format md > MODEL.md   # the same as a markdown document
+relatude schema --format json            # ids included, for tooling
+relatude schema --type Product --ids     # one type, with guids
+
+relatude info                            # state, node counts per type, file sizes, log status
+
+relatude query "Product.Count()"
+relatude query "Product.Where(p => p.Price > 100).OrderBy(p => p.Name).Take(10)"
+relatude query "Article.WhereSearch(\"backpack\").Page(0, 20)"
+relatude query "Product.Where(p => p.Name == Name).Take(5)" --param Name=Rucksack
+
+relatude codegen --out Models/Model.g.cs # the model as C#, with every id spelled out
+relatude codegen --out-dir Models        # one file per node type and relation
+relatude codegen --no-attributes         # plain interfaces
+
+relatude validate                        # what would break at startup, and what to worry about
+relatude settings                        # relatude.db.json resolved, without secrets
+relatude init --namespace MyApp.Models   # write a relatude.db.json
+
+relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
+relatude insert --type Product --file products.json
+relatude delete --id 4101bdce-040a-4aa7-940f-354e31cdc4c5 --yes
+
+relatude maintenance flush
+relatude maintenance truncate-log        # rewrite the log to current state only
+relatude maintenance save-state          # write state files, so the next start is fast
+relatude maintenance backup --truncate
+relatude maintenance clear-cache
+relatude maintenance reset-indexes --yes # delete state and index files, rebuild from the log
+```
+
+`relatude help <command>` documents one command, **`relatude help all` prints the whole reference in
+one go** — that is the built-in reference, and it is the same text this section summarises.
+
+The query given to `query` is the *text* form of the query API — the form the HTTP API and the admin
+UI send. It reads like the typed API of [Part III](#part-iii--querying): a node type followed by
+method calls, with `--param` values referenced by name. Results are printed as JSON in the same shape
+a client would receive. One shape does not survive that trip: projecting into an anonymous object
+(`Select(a => new { … })`) needs a type to construct and there is none when the result is JSON, so
+select a single member or query the nodes and read the members off the result.
+
+### What it does not do
+
+`insert` sets scalar members only: text, numbers, bool, guid, dates, timespan, enums (by name or
+number), arrays of those, and geo coordinates as `[latitude, longitude]`. Relations, references,
+files and embedded values are refused with a message naming the member — relating nodes and uploading
+files belong in code, where the compiler checks what is being related to what.
+
+### Things worth knowing
+
+- **The application must not be running.** The log file has a single writer, so opening a database
+  that a running app holds fails with a message saying so. Read-only access to a live database is not
+  something the engine offers.
+- **Opening is a write.** Replaying the log, compiling the mapper and updating index files all touch
+  the data folder. Nothing is destroyed, but do not point the tool at production data casually.
+- **Background work stays off.** Auto backup, auto truncate, index state snapshots and the task queue
+  are disabled while a command runs, so nothing is started that the process cannot finish. Pass
+  `--allow-background` to keep the settings as they are. `maintenance` does the work it is asked for
+  synchronously, so it is finished when the command returns.
+- **Secrets are never printed.** `settings` reports whether a password, token secret, API key or
+  connection string is set, never its value.
+- **Output is split.** Results go to stdout, progress and warnings to stderr, so
+  `relatude query ... 2>/dev/null > out.json` gives a clean file. `--json` is available on most
+  commands. Exit codes: 0 fine, 1 the command failed, 2 the command line was wrong.
+- **Ids derived from names are a trap the tool will point out.** `validate` counts the node types and
+  members whose ids come from their names, and `codegen` writes the model out with those ids made
+  explicit — which is how you pin them before a rename (see pitfall 16 in
+  [section 28](#28-pitfalls-and-gotchas)).
+
+---
 
 ## Where to look when this manual runs out
 
@@ -2656,5 +2789,6 @@ your build, read the source — it is small and well commented:
 | `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
+| The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
 
 Repository: <https://github.com/Relatude/Relatude.DB>

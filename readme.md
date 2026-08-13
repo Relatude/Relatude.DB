@@ -61,6 +61,11 @@ Database:
 -   **Relatude.DB.Server.UI** — Admin UI frontend _(in early development)_
     
 
+Tools:
+
+-   **Relatude.DB.Console** — `relatude` command line tool: inspect the datamodel, run queries, generate model code, validate a model and run maintenance, without the application running. See [section 29 of the manual](docs/manual.md#29-the-command-line-tool), or `relatude help all`
+    
+
 Plugins:
 
 -   **Relatude.DB.Azure** — Azure Open AI and Azure Blob storage
@@ -88,6 +93,8 @@ The database is distributed with the following NuGet packages:
 -   **Relatude.DB.Plugins.Lucene** — Text index provider based on Lucene
     
 -   **Relatude.DB.Plugins.Sqlite** — Value index provider based on Sqlite
+    
+-   **Relatude.DB.Tool** — `relatude` command line tool, installed with `dotnet tool install -g Relatude.DB.Tool`
     
 
 Planned NuGets:

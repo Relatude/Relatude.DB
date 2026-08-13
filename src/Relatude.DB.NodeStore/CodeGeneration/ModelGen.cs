@@ -8,7 +8,16 @@ using Relatude.DB.Nodes;
 namespace Relatude.DB.CodeGeneration;
 
 public static class ModelGen {
-    public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes = true) {
+    public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes = true)
+        => GenerateCSharpModelCode(datamodel, addAttributes, null, null);
+    /// <summary>
+    /// Generates model code for the node types and relations the filters accept, all of them when a filter
+    /// is null. The filters let tooling write one file per type, or leave the native model out of the
+    /// generated code. Types that are filtered out are still resolved as parents, property types and
+    /// relation endpoints, so the emitted code refers to them by their full name.
+    /// </summary>
+    public static string GenerateCSharpModelCode(Datamodel datamodel, bool addAttributes,
+            Func<NodeTypeModel, bool>? includeNodeType, Func<RelationModel, bool>? includeRelation) {
         var sb = new StringBuilder();
         datamodel.EnsureInitalization();
         sb.AppendLine("using " + typeof(object).Namespace + ";");
@@ -16,6 +25,7 @@ public static class ModelGen {
         sb.AppendLine("");
         var nodeTypesByNamespace = datamodel.NodeTypes.Values
             .Where(n => n.Id != NodeConstants.BaseNodeTypeId)
+            .Where(n => includeNodeType == null || includeNodeType(n))
             .GroupBy(n => n.Namespace ?? string.Empty)
             .OrderBy(g => g.Key).Select(g => new { Namespace = g.Key, NodeTypes = g });
         foreach (var kv in nodeTypesByNamespace) {
@@ -30,6 +40,7 @@ public static class ModelGen {
             }
         }
         var relationsByNamespace = datamodel.Relations.Values
+            .Where(r => includeRelation == null || includeRelation(r))
             .GroupBy(r => r.Namespace ?? string.Empty)
             .OrderBy(g => g.Key).Select(g => new { Namespace = g.Key, Relations = g });
         foreach (var kv in relationsByNamespace) {

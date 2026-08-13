@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<!-- NOT Relatude.DB.Console: a namespace named Console would shadow System.Console -->
+		<RootNamespace>Relatude.DB.Cli</RootNamespace>
+		<AssemblyName>relatude</AssemblyName>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<Version>0.2.0.136</Version>
+		<PackAsTool>true</PackAsTool>
+		<ToolCommandName>relatude</ToolCommandName>
+		<PackageId>Relatude.DB.Tool</PackageId>
+		<Description>Command line tool for Relatude.DB: inspect the datamodel, run queries, generate model code and run maintenance on a local database.</Description>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- the server library is an ASP.NET Core library; its settings and container handling is reused as is -->
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
+		<!-- referenced so every engine a relatude.db.json may name can be loaded by LateBindings -->
+		<ProjectReference Include="..\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
+		<ProjectReference Include="..\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj" />
+		<ProjectReference Include="..\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
+	</ItemGroup>
+
+</Project>
