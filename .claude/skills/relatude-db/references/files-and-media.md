@@ -260,6 +260,8 @@ var thumb = new FileAdjustmentImage {
 | `Brightness`, `Contrast`, `Saturation` | ±100 | 0 = unchanged. |
 | `HueShift` | ±180 | Degrees. |
 | `Sharpness` | ±100 | 0 = unchanged. |
+| `InvertLuminance` | bool | Inverts all colours and shifts the hue 180° back, so lightness flips but hues survive. Applied before the adjustments above. |
+| `AutoLightDarkMode` | `None`, `AdaptToLightModeIfNeeded`, `AdaptToDarkModeIfNeeded` | Applies `InvertLuminance` only if the image looks made for the opposite surface. Photographs are never inverted. |
 | `Quality` | 0–100 | Lossy formats only. |
 | `BackgroundColor` | `"#RRGGBB"` / `"#RRGGBBAA"` | Used when the canvas is larger than the resized image. |
 | `AutoBackgroundColor` | bool | Pick the background from edge analysis instead. |

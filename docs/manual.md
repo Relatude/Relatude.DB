@@ -1899,6 +1899,61 @@ format, which is why you must not cache a response the store reports as uncachea
 SkiaImageConverter(1))` for images, `new FFMpegVideoConverter()` for video — or every conversion
 comes back as "No converter available".
 
+### Light and dark mode
+
+Artwork drawn for one background rarely survives on the other: a diagram on white turns into a
+bright slab in a dark theme. Two options on `FileAdjustmentImage` deal with that.
+
+`InvertLuminance` inverts every colour channel and then rotates the hue 180° back again. Light
+becomes dark and dark becomes light, but the hues survive the trip — the blue bars below are still
+blue:
+
+```csharp
+var darkVariant = new FileAdjustmentImage {
+    InvertLuminance = true,
+    RequestedFormat = FileFormat.Png
+};
+
+var url = db.Datastore.GetUrl(venue.Diagram.PropertyPath!, darkVariant);
+```
+
+![A bar chart on a white background beside the same chart after InvertLuminance, now on black](invert-luminance.png)
+
+`AutoLightDarkMode` leaves the decision to the converter, which examines the image and only inverts
+when that is likely to give the better result:
+
+```csharp
+var forDarkTheme = new FileAdjustmentImage {
+    AutoLightDarkMode = AutoLightDarkSwitch.AdaptToDarkModeIfNeeded
+};
+```
+
+| Value | Effect |
+| --- | --- |
+| `None` | No change. |
+| `AdaptToLightModeIfNeeded` | Invert if the image looks made for a dark surface. |
+| `AdaptToDarkModeIfNeeded` | Invert if the image looks made for a light surface. |
+
+"Looks made for" is decided from a subsampled grid of at most 160×160 pixels, so it costs nothing
+next to the conversion itself. Two questions settle it:
+
+- **Is this flat artwork?** Logos, icons, diagrams, screenshots and scanned documents have a small
+  palette, long runs of identical pixels, and most of their tone at the two ends of the luminance
+  range. Photographs have none of that, and a photograph is never inverted — inverting one gives you
+  a negative, not a dark-mode variant. Anything the analysis is unsure about is left alone.
+- **Which surface is it for?** For a mostly opaque image, its own dominant tone answers that: a dark
+  image was made for a dark surface. For artwork on a transparent background the visible pixels are
+  the ink instead, and ink is drawn to contrast with its surface, so the reading flips — dark ink
+  implies a light surface. That is why a logo on transparency and a screenshot with a baked-in
+  background both behave the way you would expect.
+
+Three things worth knowing. The two options are independent: `InvertLuminance = true` always inverts,
+and setting it to `false` does not stop `AutoLightDarkMode` from inverting. The inversion happens
+before `Brightness`, `Contrast`, `Saturation`, `HueShift` and `Sharpness`, so those apply to the
+final look rather than to the original. And both options are part of the conversion key, so the light
+and the dark variant of one file are two conversions at two URLs — which is what lets you hand both
+to a `<picture>` element and let `prefers-color-scheme` choose.
+
 ### The middleware that serves it
 
 Serving the URL is a middleware you write; nothing maps a file endpoint for you. It is about thirty

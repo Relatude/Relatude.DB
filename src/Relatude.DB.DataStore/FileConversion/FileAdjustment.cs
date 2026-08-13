@@ -98,6 +98,8 @@ public class FileAdjustmentImage : FileAdjustment {
     public double? Saturation { get; set; } // -100..100, where 0 means no change, -100 means completely desaturated, and 100 means fully saturated.
     public double? HueShift { get; set; } // -180..180, where 0 means no change, -180 means shift hue by -180 degrees, and 180 means shift hue by 180 degrees.
     public double? Sharpness { get; set; } // 0-100, where 0 means no change, -100 means completely blurred, and 100 means maximum sharpness.
+    public bool? InvertLuminance { get; set; } = null; // Shifts the hue 180 degrees and inverts all colors. Light becomes dark and dark becomes light while hues are preserved, so artwork made for one background reads correctly on the opposite one.
+    public AutoLightDarkSwitch? AutoLightDarkMode { get; set; } = null; // Analyzes the image and applies InvertLuminance only if it is likely to improve the result. Photographs are never inverted.
     public string? BackgroundColor { get; set; } = null; // Hex color code (e.g. "#RRGGBB" or "#RRGGBBAA"). Only used for certain crop modes when the output canvas is larger than the resized image.
     public bool? AutoBackgroundColor { get; set; } = null; // Automatically determine the background color based edge analysis of the image.
     public ImageCropMode? CropMode { get; set; }
@@ -126,9 +128,11 @@ public class FileAdjustmentImage : FileAdjustment {
         BitConverter.TryWriteBytes(buf[p..], (int)(CropMode ?? (ImageCropMode)(-1))); p += 4;
         BitConverter.TryWriteBytes(buf[p..], Quality ?? int.MinValue); p += 4;
         BitConverter.TryWriteBytes(buf[p..], TimeOffsetMs ?? double.NaN); p += 8;
-        BitConverter.TryWriteBytes(buf[p..], TimeOffsetPercentage ?? double.NaN);
+        BitConverter.TryWriteBytes(buf[p..], TimeOffsetPercentage ?? double.NaN); p += 8;
+        BitConverter.TryWriteBytes(buf[p..], (int)(AutoLightDarkMode ?? (AutoLightDarkSwitch)(-1)));
         var key = Convert.ToHexString(buf);
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
+        if (InvertLuminance.HasValue) key += "Inv" + InvertLuminance.Value.ToString();
         if (BackgroundColor != null) key += BackgroundColor;
         return key;
     }
@@ -150,9 +154,11 @@ public class FileAdjustmentImage : FileAdjustment {
         if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, -100, 100);
         if (TimeOffsetMs.HasValue) TimeOffsetMs = TimeOffsetMs < 0 ? null : TimeOffsetMs.Value;
         if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
+        if (CropMode.HasValue && !Enum.IsDefined(CropMode.Value)) CropMode = null;
+        if (AutoLightDarkMode.HasValue && !Enum.IsDefined(AutoLightDarkMode.Value)) AutoLightDarkMode = null;
     }
-    const int CURRENT_VERSION = 2;
-    const int FIXED_SIZE = 117; // 1+4+4+4+4+8+4+4+4+4+8+8+8+8+8+8+4+4+8+8+1+1
+    const int CURRENT_VERSION = 3;
+    const int FIXED_SIZE = 120; // 1+4+4+4+4+8+4+4+4+4+8+8+8+8+8+8+4+4+8+8+1+1+1+4
     public override byte[] ToBytes() {
         var bgBytes = BackgroundColor != null ? System.Text.Encoding.UTF8.GetBytes(BackgroundColor) : [];
         var buf = new byte[FIXED_SIZE + 2 + bgBytes.Length];
@@ -180,6 +186,8 @@ public class FileAdjustmentImage : FileAdjustment {
         BinaryPrimitives.WriteDoubleLittleEndian(s[p..], TimeOffsetPercentage ?? double.NaN); p += 8;
         s[p++] = AutoBackgroundColor.HasValue ? (byte)(AutoBackgroundColor.Value ? 2 : 1) : (byte)0;
         s[p++] = Temporary ? (byte)1 : (byte)0;
+        s[p++] = InvertLuminance.HasValue ? (byte)(InvertLuminance.Value ? 2 : 1) : (byte)0;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], (int)(AutoLightDarkMode ?? (AutoLightDarkSwitch)(-1))); p += 4;
         BinaryPrimitives.WriteUInt16LittleEndian(s[p..], (ushort)bgBytes.Length); p += 2;
         bgBytes.CopyTo(s[p..]);
         return buf;
@@ -212,6 +220,10 @@ public class FileAdjustmentImage : FileAdjustment {
         obj.TimeOffsetPercentage = double.IsNaN(rd = BinaryPrimitives.ReadDoubleLittleEndian(s[p..])) ? null : rd; p += 8;
         var abc = s[p++]; obj.AutoBackgroundColor = abc == 0 ? null : abc == 2;
         if (version >= 2) obj.Temporary = s[p++] != 0;
+        if (version >= 3) {
+            var inv = s[p++]; obj.InvertLuminance = inv == 0 ? null : inv == 2;
+            obj.AutoLightDarkMode = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == -1 ? null : (AutoLightDarkSwitch)ri; p += 4;
+        }
         var bgLen = BinaryPrimitives.ReadUInt16LittleEndian(s[p..]); p += 2;
         obj.BackgroundColor = bgLen == 0 ? null : System.Text.Encoding.UTF8.GetString(s.Slice(p, bgLen));
         return obj;

@@ -31,7 +31,14 @@ public static class IImageExt {
             img = img.Resize(adj.Width, adj.Height, cropMode, adj.BackgroundColor, adj.AutoBackgroundColor ?? false);
         }
 
-        // 5. Colour and tone adjustments (FileAdjustmentImage uses -100..100 / -180..180 ranges)
+        // 5. Light/dark adaptation — before the fine-grained colour adjustments below, so that those
+        //    apply to the final look rather than to the image as it happened to be stored
+        var invert = adj.InvertLuminance == true;
+        if (!invert && adj.AutoLightDarkMode is AutoLightDarkSwitch mode && mode != AutoLightDarkSwitch.None)
+            invert = img.AnalyzeTone().ShouldInvertLuminance(mode);
+        if (invert) img = img.InvertLuminance();
+
+        // 6. Colour and tone adjustments (FileAdjustmentImage uses -100..100 / -180..180 ranges)
         if (adj.Brightness is double b && b != 0) img = img.AdjustBrightness(b);
         if (adj.Contrast is double c && c != 0) img = img.AdjustContrast(c);
         if (adj.Saturation is double s && s != 0) img = img.AdjustSaturation(s);
@@ -123,6 +130,14 @@ public interface IImage : IDisposable {
 
     /// <summary>Adjust sharpness. Range: 0..100, 0 = no change.</summary>
     IImage AdjustSharpness(double sharpness);
+
+    /// <summary>Invert the luminance: invert all colors, then shift the hue 180 degrees back so hues
+    /// survive. Light becomes dark and dark becomes light, but red stays red.</summary>
+    IImage InvertLuminance();
+
+    /// <summary>Summarize the tone of the image, so a caller can decide whether inverting the
+    /// luminance would improve it. See <see cref="AutoLightDarkSwitch"/>.</summary>
+    ImageToneAnalysis AnalyzeTone();
 
     /// <summary>Encode and return the image in the requested format.</summary>
     byte[] Encode(FileFormat format, int? quality = null);

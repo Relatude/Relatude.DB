@@ -9,6 +9,11 @@ public enum ImageCropMode {
     Stretch, // Resize to fill the target dimensions without preserving aspect ratio. This may distort the image if the aspect ratio doesn't match.
     Auto, // Automatically choose between Fill and Fit based on the content of the image. For example, if the image has a mostly uniform colored edge, it should use Fit.
 }
+public enum AutoLightDarkSwitch {
+    None, // no change
+    AdaptToLightModeIfNeeded, // invert the luminance if the image looks made for a dark surface
+    AdaptToDarkModeIfNeeded, // invert the luminance if the image looks made for a light surface
+}
 public enum ImageObjectType {
     Face,
     Person,

@@ -117,6 +117,19 @@ public sealed class NativeImage : IImage {
 
     public IImage AdjustHue(double hueShift) => new NativeImage(_image.AdjustHue(hueShift));
 
+    // Invert first, then rotate the hue back: inverting red gives cyan, and rotating cyan by 180
+    // returns it to red — at the inverted lightness, which is the whole point. The other order would
+    // simply undo itself.
+    public IImage InvertLuminance() => new NativeImage(_image.Invert().AdjustHue(180));
+
+    public ImageToneAnalysis AnalyzeTone() {
+        var image = _image;
+        return ImageToneAnalysis.Analyze(Width, Height, (int x, int y, out byte r, out byte g, out byte b, out byte a) => {
+            var c = image[x, y];
+            r = c.R; g = c.G; b = c.B; a = c.A;
+        });
+    }
+
     // ── Drawing ─────────────────────────────────────────────────────────────
 
     public IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color) =>

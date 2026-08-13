@@ -153,6 +153,22 @@ internal sealed class SkiaImage : IImage {
     public IImage AdjustSaturation(double saturation) => ApplyColorMatrix(ColorMatrix.Saturation((float)((saturation + 100.0) / 100.0)));
     public IImage AdjustHue(double hueShift) => ApplyColorMatrix(ColorMatrix.HueRotation((float)hueShift));
 
+    public IImage InvertLuminance() {
+        // Invert first, then rotate the hue back: inverting red gives cyan, and rotating cyan by 180
+        // returns it to red — at the inverted lightness, which is the whole point. The other order
+        // would simply undo itself.
+        using var inverted = ApplyColorMatrix(ColorMatrix.Invert());
+        return inverted.AdjustHue(180);
+    }
+
+    public ImageToneAnalysis AnalyzeTone() {
+        var bitmap = _bitmap;
+        return ImageToneAnalysis.Analyze(Width, Height, (int x, int y, out byte r, out byte g, out byte b, out byte a) => {
+            var c = bitmap.GetPixel(x, y);
+            r = c.Red; g = c.Green; b = c.Blue; a = c.Alpha;
+        });
+    }
+
     public IImage AdjustSharpness(double sharpness) {
         if (sharpness == 0) return new SkiaImage(_bitmap.Copy());
         if (sharpness < 0) {
@@ -365,6 +381,14 @@ internal sealed class SkiaImage : IImage {
                 0, 0, 0,        1, 0,
             ];
         }
+
+        /// <summary>Invert every colour channel, leaving alpha alone.</summary>
+        public static float[] Invert() => [
+            -1,  0,  0, 0, 1,
+             0, -1,  0, 0, 1,
+             0,  0, -1, 0, 1,
+             0,  0,  0, 1, 0,
+        ];
 
         /// <param name="s">1 = no change, 0 = greyscale, 2 = double saturation</param>
         public static float[] Saturation(float s) {

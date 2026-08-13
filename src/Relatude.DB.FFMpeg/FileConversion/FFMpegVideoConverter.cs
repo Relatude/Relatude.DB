@@ -157,7 +157,9 @@ public class FFMpegVideoConverter : IFileConverter {
 
         var needPostProcessing = // these are not supported by ffmpeg filters
             adj.Brightness.HasValue || adj.Contrast.HasValue ||
-            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
+            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue ||
+            adj.InvertLuminance == true ||
+            (adj.AutoLightDarkMode.HasValue && adj.AutoLightDarkMode != AutoLightDarkSwitch.None);
 
         IFileConverter? postConverter = null;
         if (needPostProcessing) {
@@ -215,7 +217,9 @@ public class FFMpegVideoConverter : IFileConverter {
 
         var needPostProcessing = // these are not supported by ffmpeg filters
             adj.Brightness.HasValue || adj.Contrast.HasValue ||
-            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue;
+            adj.Saturation.HasValue || adj.Sharpness.HasValue || adj.HueShift.HasValue ||
+            adj.InvertLuminance == true ||
+            (adj.AutoLightDarkMode.HasValue && adj.AutoLightDarkMode != AutoLightDarkSwitch.None);
 
         IFileConverter? postConverter = null;
         if (needPostProcessing) {
