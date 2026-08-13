@@ -18,52 +18,55 @@
 })();
 </script>
 <style>
-/* Black and white throughout. Light is the base palette; dark is applied twice —
-   under the system preference (unless the reader explicitly chose light) and under
-   an explicit data-theme="dark". The two dark blocks are deliberately identical.
+/* Black and white throughout, on the same grounds as intro.html / manual.html:
+   #ffffff in light, #0f1116 in dark. Light is the base palette; dark is applied
+   twice — under the system preference (unless the reader explicitly chose light)
+   and under an explicit data-theme="dark". The two dark blocks are identical.
 
-   The page ground is the same grey as the video's own background (#EDEDED), so the
-   clip sits on the page without a frame. In dark mode the clip is inverted, which
-   turns that grey into #121212 — exactly the dark ground. */
+   The clip's own background is #EDEDED, so it is filtered onto whichever ground
+   is showing and keeps sitting on the page without a frame:
+     light  brightness(255/237) lifts 237 → 255 and leaves the black lines black;
+     dark   an SVG filter inverts and maps 237 → the exact #0f1116 per channel,
+            while 0 → white. See <svg id="video-filters"> at the end of the body. */
 :root {
   color-scheme: light;
-  --bg: #ededed;
-  --surface: #ffffff;
-  --fg: #16181c;
-  --fg-dim: #4c5158;
-  --fg-faint: #767b82;
-  --border: #d6d6d6;
-  --border-strong: #16181c;
-  --hover: #f7f7f7;
-  --invert: none;
+  --bg: #ffffff;
+  --surface: #f7f8fa;
+  --fg: #1f2328;
+  --fg-dim: #656d76;
+  --fg-faint: #8b949e;
+  --border: #d8dce3;
+  --hover: #ececf0;
+  --video-filter: brightness(1.07595);
+  --logo-filter: none;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #121212;
-    --surface: #1b1c1e;
-    --fg: #ececec;
-    --fg-dim: #a9adb3;
-    --fg-faint: #7b8087;
-    --border: #303236;
-    --border-strong: #ececec;
-    --hover: #26282b;
-    --invert: invert(1);
+    --bg: #0f1116;
+    --surface: #14161c;
+    --fg: #e3e6eb;
+    --fg-dim: #9aa3b2;
+    --fg-faint: #6e7787;
+    --border: #2a2f3a;
+    --hover: #1e222b;
+    --video-filter: url(#video-dark);
+    --logo-filter: invert(1);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #121212;
-  --surface: #1b1c1e;
-  --fg: #ececec;
-  --fg-dim: #a9adb3;
-  --fg-faint: #7b8087;
-  --border: #303236;
-  --border-strong: #ececec;
-  --hover: #26282b;
-  --invert: invert(1);
+  --bg: #0f1116;
+  --surface: #14161c;
+  --fg: #e3e6eb;
+  --fg-dim: #9aa3b2;
+  --fg-faint: #6e7787;
+  --border: #2a2f3a;
+  --hover: #1e222b;
+  --video-filter: url(#video-dark);
+  --logo-filter: invert(1);
 }
 
 * { box-sizing: border-box; }
@@ -98,7 +101,7 @@ body {
 
 /* ------------------------------------------------------------------ header */
 header { text-align: center; }
-.logo { width: 236px; max-width: 62%; height: auto; display: block; margin: 0 auto; filter: var(--invert); }
+.logo { width: 236px; max-width: 62%; height: auto; display: block; margin: 0 auto; filter: var(--logo-filter); }
 .tagline {
   margin: 18px 0 0;
   font-size: 20px;
@@ -119,11 +122,11 @@ header { text-align: center; }
   margin: 22px auto 0;
   width: 62%;
   overflow: hidden;
-  background: var(--bg);   /* same grey as the clip: no visible edge */
+  background: var(--bg);
 }
 .video video {
   display: block; width: 100%; height: auto; aspect-ratio: 16 / 9;
-  filter: var(--invert);
+  filter: var(--video-filter);
   /* Opacity is driven by the script: a quick fade in when a run starts, a slower
      fade out once it ends. Default 1 so the clip is still visible without JS. */
   opacity: 1;
@@ -131,7 +134,7 @@ header { text-align: center; }
   /* Feather all four edges to transparent so the clip melts into the page instead
      of ending on a hard rectangle. The two gradients are intersected: 11% of the
      width and 20% of the height are the same number of pixels at 16:9, so the
-     fade is even all the way round. The mask is applied after the invert filter,
+     fade is even all the way round. The mask is applied after the colour filter,
      so the soft edge reveals the page ground in either theme. */
   -webkit-mask-image:
     linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%),
@@ -259,6 +262,22 @@ footer a:hover { color: var(--fg); }
   </footer>
 
 </div>
+
+<!-- Dark-theme colour map for the clip. One linear ramp per channel does the invert
+     and the ground match in a single pass: y = 1 - slope*x, so a black line (x=0)
+     becomes white, and the clip's #EDEDED background (x = 237/255) lands on
+     #0f1116 — slope = (255-target)/237 per channel: 240/237, 238/237, 233/237.
+     color-interpolation-filters="sRGB" is required; the SVG default is linearRGB,
+     which would bend the ramp and miss the target. -->
+<svg id="video-filters" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <filter id="video-dark" color-interpolation-filters="sRGB">
+    <feComponentTransfer>
+      <feFuncR type="linear" slope="-1.012658" intercept="1"/>
+      <feFuncG type="linear" slope="-1.004219" intercept="1"/>
+      <feFuncB type="linear" slope="-0.983122" intercept="1"/>
+    </feComponentTransfer>
+  </filter>
+</svg>
 
 <script>
 (function () {
