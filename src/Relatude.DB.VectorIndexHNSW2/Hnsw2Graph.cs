@@ -487,10 +487,28 @@ internal sealed class Hnsw2Graph : IDisposable {
     }
     /// <summary>
     /// Every node id at or above a similarity, unranked — the query a semantic filter asks. A graph
-    /// answers "the nearest k", so this asks for a k wide enough to contain the answer: run the beam,
-    /// and if every candidate in it cleared the threshold then there are more above the threshold than
-    /// the beam could hold, so widen it and go again. It stops when the beam comes back with something
-    /// below the threshold, which means it has seen the edge of the above-threshold region.
+    /// answers "the nearest k", so a set needs three moves on top of it, each covering a failure mode
+    /// of the others:
+    /// <list type="bullet">
+    /// <item><b>A widening beam</b> finds the answer region and its stragglers: a beam explores
+    /// best-first through below-floor territory too, which matters because the selection heuristic
+    /// prunes redundant edges inside dense regions — some above-floor members hang off the region by
+    /// below-floor detours no flood with a small margin can cross. The beam widens (×4) while the
+    /// above-floor candidates crowd more than half of it, so the answer always ends up with
+    /// headroom.</item>
+    /// <item><b>The spill</b> keeps every candidate any beam round scored at or above the floor (less
+    /// a margin absorbing the int8 routing error): a beam <i>drops</i> what falls below its own worst
+    /// kept candidate, and a dropped node is already marked visited — without the spill it would be
+    /// lost to the walk entirely, and it is exactly the boundary members that get dropped.</item>
+    /// <item><b>One flood pass</b> then expands everything collected, sweeping in directly adjacent
+    /// above-floor nodes the final beam never entered — and everything is re-scored against the float
+    /// vectors <i>once</i>, at the end, so membership is always decided on full precision and the
+    /// re-scoring reads (a disk fan-out when the vectors are not mirrored) are paid one time, not per
+    /// widening round.</item>
+    /// </list>
+    /// A query whose answer is a large share of the index — or has no real floor at all — runs off
+    /// the top of the widening ladder into <see cref="tooWideToWalk"/> and is answered by the exact
+    /// parallel scan instead, which is both faster and exact there.
     /// </summary>
     public HashSet<int> SearchAbove(float[] query, float minSim, int ef) {
         var ids = new HashSet<int>();
@@ -498,33 +516,71 @@ internal sealed class Hnsw2Graph : IDisposable {
         var s = rentScratch();
         try {
             s.SetQuery(query);
-            for (var width = Math.Max(ef, 64); ; width = width > int.MaxValue / 4 ? int.MaxValue : width * 4) {
-                if (tooWideToWalk(width)) { // the walk would score more vectors than the index holds
+            var floodFloor = minSim - rangeFloodMargin;
+            var collected = s.Collected; // everything scored at or above the shell floor, for one exact re-scoring
+            List<Candidate> found;
+            var width = Math.Max(ef, 64);
+            while (true) {
+                if (tooWideToWalk(width)) { // off the ladder: the scan is cheaper, and exact
                     foreach (var hit in scanAll(query, minSim)) ids.Add(hit.NodeId);
                     return ids;
                 }
-                var found = beamSearch(width, s);
-                rerankExact(query, found);
+                collected.Clear(); // each round walks fresh; its spill covers everything narrower rounds saw
+                found = beamSearch(width, s, floodFloor, collected);
                 var above = 0;
                 foreach (var c in found) {
-                    if (c.Similarity >= minSim) {
-                        ids.Add(_nodes.NodeIdOf(c.Ordinal));
-                        above++;
-                    }
+                    if (c.Similarity >= minSim) above++;
                 }
-                // The answer is only well covered when it fits in half the beam: a beam that is
-                // mostly answer has no headroom, and the walk will have missed above-floor nodes
-                // just outside what it kept (seeing *one* below-floor candidate proves the beam
-                // touched the boundary, not that it covered it). So widen until the above-floor set
-                // stops crowding the beam — or the beam no longer fills, which means the index is
-                // exhausted.
-                if (found.Count >= width && above > width / 2) continue;
-                return ids;
+                // Widen until the above-floor set stops crowding the beam (or the beam no longer
+                // fills, which means the index is exhausted): a beam that is mostly answer has no
+                // headroom, and will have missed above-floor nodes just outside what it kept.
+                if (found.Count < width || above <= width / 2) break;
+                width = width > int.MaxValue / 4 ? int.MaxValue : width * 4;
             }
+            // The flood: expand everything collected, collecting (and expanding) every unvisited
+            // neighbour still at or above the shell floor. Re-expanding what the beam already
+            // expanded is harmless — those neighbours are visited, so it costs one edge-list read.
+            var work = s.FloodWork;
+            work.Clear();
+            foreach (var c in collected) work.Add(c.Ordinal);
+            // What the flood may score before an exact scan would have been the cheaper tool; going
+            // past this means the answer region rivals the index, and the scan answers that exactly.
+            var overhead = _routing.Resident ? 250 : 700;
+            var budget = Math.Max(4L * width, (long)_nodes.LiveCount * _dims / Math.Max(1, _threads) / (_dims + overhead));
+            long scored = 0;
+            var resident = _routing.Resident;
+            while (work.Count > 0) {
+                var current = work[^1];
+                work.RemoveAt(work.Count - 1);
+                var neighbours = _routing.NeighbourIds(_routing.Get(current));
+                collectUnvisited(neighbours, s);
+                if (!resident && s.ParallelPrefetch) _routing.Prefetch(s.ToLoad, _threads);
+                scored += s.Neighbours.Count;
+                foreach (var n in s.Neighbours) {
+                    var sim = quantSim(s.Query, s.QueryRescale, n);
+                    if (sim < floodFloor) continue; // outside the shell: neither kept nor expanded
+                    collected.Add(new(n, sim));
+                    work.Add(n);
+                }
+                if (scored > budget) {
+                    foreach (var hit in scanAll(query, minSim)) ids.Add(hit.NodeId);
+                    return ids;
+                }
+            }
+            rerankExact(query, collected); // the one exact pass; everything above was routing-space
+            foreach (var c in collected) {
+                if (c.Similarity >= minSim) ids.Add(_nodes.NodeIdOf(c.Ordinal));
+            }
+            return ids;
         } finally {
             returnScratch(s);
         }
     }
+    /// <summary>How far below the floor the spill and the flood reach — enough to absorb the int8
+    /// routing error many times over (measured well under 0.005 on unit vectors) and to cross a thin
+    /// below-floor gap between two above-floor regions. Everything collected is re-scored exactly,
+    /// so the margin costs shell expansions, never wrong answers.</summary>
+    const float rangeFloodMargin = 0.01f;
     /// <summary>Replaces every candidate's routing similarity with the exact float one — the numbers a
     /// caller sees are always full precision. With the vectors in memory this is a tight loop of SIMD
     /// dots; with them on disk the reads fan out over the cores, so the price of the smaller footprint
@@ -582,14 +638,16 @@ internal sealed class Hnsw2Graph : IDisposable {
         return scanCost <= walkCost;
     }
     /// <summary>Descends to layer 0 and explores a beam of <paramref name="width"/> candidates there,
-    /// scoring against the scratch's quantized query. Returns them worst first.</summary>
-    List<Candidate> beamSearch(int width, Hnsw2SearchScratch s) {
+    /// scoring against the scratch's quantized query. Returns them worst first. The optional spill
+    /// (see <see cref="searchLayer"/>) receives everything the layer-0 walk scores at or above
+    /// <paramref name="spillFloor"/>, kept or dropped.</summary>
+    List<Candidate> beamSearch(int width, Hnsw2SearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
         var entryPoints = descend(s);
         if (entryPoints.Count == 0) {
             s.Found.Clear();
             return s.Found;
         }
-        return searchLayer(s.Query, s.QueryRescale, 0, width, entryPoints, s);
+        return searchLayer(s.Query, s.QueryRescale, 0, width, entryPoints, s, spillFloor, spill);
     }
     /// <summary>Walks down from the entry point to layer 0 with a beam of one, which is where a graph
     /// search spends its logarithmic budget.</summary>
@@ -642,9 +700,13 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// worse than the worst result kept, holding at most <paramref name="ef"/> results. Returns them
     /// worst first, so the last entry is the best. The returned list is the scratch's — consumed
     /// before the next searchLayer call on the same scratch, never kept.
+    /// <para><paramref name="spill"/>, when given, receives <i>every</i> candidate scored at or above
+    /// <paramref name="spillFloor"/> — including the ones the beam drops. The range flood needs that:
+    /// a dropped candidate is already marked visited, so without the spill it would be lost to both
+    /// the beam and the flood, and it is exactly the boundary members of the answer that get dropped.</para>
     /// </summary>
     List<Candidate> searchLayer(ReadOnlySpan<sbyte> qq, float qr, int level, int ef, List<int> entryPoints,
-        Hnsw2SearchScratch s) {
+        Hnsw2SearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
         var candidates = s.Candidates; // best first: priority is the negated similarity
         var results = s.Results;       // worst first, capped at ef
         candidates.Clear();
@@ -654,6 +716,7 @@ internal sealed class Hnsw2Graph : IDisposable {
         foreach (var ep in entryPoints) {
             if (!_nodes.IsLive(ep) || !s.Visit(ep)) continue;
             var sim = quantSim(qq, qr, ep);
+            if (sim >= spillFloor) spill!.Add(new(ep, sim));
             candidates.Push(-sim, ep);
             results.Push(sim, ep);
         }
@@ -668,6 +731,7 @@ internal sealed class Hnsw2Graph : IDisposable {
             if (!_routing.Resident && s.ParallelPrefetch) _routing.Prefetch(s.ToLoad, _threads); // one read latency for the whole hop
             foreach (var n in s.Neighbours) {
                 var sim = quantSim(qq, qr, n);
+                if (sim >= spillFloor) spill!.Add(new(n, sim));
                 if (results.Count < ef) {
                     candidates.Push(-sim, n);
                     results.Push(sim, n);

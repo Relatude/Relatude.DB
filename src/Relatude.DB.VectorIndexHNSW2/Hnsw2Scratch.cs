@@ -27,6 +27,8 @@ internal sealed class Hnsw2SearchScratch {
     public readonly List<int> ToLoad = [];       // the subset of them not in memory (cached mode)
     public readonly List<int> EntryPoints = [];
     public readonly List<Candidate> Found = [];  // searchLayer's output, reused call to call
+    public readonly List<int> FloodWork = [];    // the range flood's stack of nodes to expand
+    public readonly List<Candidate> Collected = []; // what the flood keeps for the exact re-scoring
     /// <summary>The query, quantized once per search — the form the walk scores against.</summary>
     public sbyte[] Query = [];
     public float QueryRescale;
@@ -54,6 +56,8 @@ internal sealed class Hnsw2SearchScratch {
         Hash.Trim(keepCapacity);
         if (Found.Capacity > keepCapacity) { Found.Clear(); Found.TrimExcess(); }
         if (EntryPoints.Capacity > keepCapacity) { EntryPoints.Clear(); EntryPoints.TrimExcess(); }
+        if (FloodWork.Capacity > keepCapacity) { FloodWork.Clear(); FloodWork.TrimExcess(); }
+        if (Collected.Capacity > keepCapacity) { Collected.Clear(); Collected.TrimExcess(); }
     }
 }
 
