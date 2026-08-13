@@ -1,6 +1,6 @@
 ---
 name: relatude-db
-description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; the attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [EmbeddedMapProperty], [ReferenceProperty], [DisplayNameProperty], [AddressProperty]; the types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; the relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; or query methods WhereSearch, MatchesSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath. Also use for C# projects referencing Relatude.DB.* namespaces or NuGets, when designing node and relation models from interfaces, writing or debugging Relatude queries, wiring a server in Program.cs, or uploading files with FileUploadAsync. Use even when Relatude is never named but these patterns appear.
+description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; the attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [EmbeddedMapProperty], [ReferenceProperty], [DisplayNameProperty], [AddressProperty]; the types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; the relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; or query methods WhereSearch, MatchesSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath. Also use for media and file work: FileAdjustmentImage, FileAdjustmentVideo, FileAdjustmentMeta, ImageCropMode, GetUrl, TryParseUrlForContent, FileHandler, IsFileReady, FileConverters, SkiaImageConverter, FFMpegVideoConverter, FileUploadAsync, and chunked uploads with InitiateMultipartUploadAsync / AppendMultipartUploadAsync / FinalizeMultipartUploadAsync. Also use for C# projects referencing Relatude.DB.* namespaces or NuGets, when designing node and relation models from interfaces, writing or debugging Relatude queries, wiring a server in Program.cs, or writing the middleware that serves Relatude media URLs. Use even when Relatude is never named but these patterns appear.
 ---
 
 # Relatude.DB
@@ -21,7 +21,9 @@ This SKILL.md is the working knowledge for everyday modelling and querying. Read
 | `references/modelling-patterns.md` | You are designing a real model. Covers facet interfaces / multiple inheritance, the relation-vs-reference-vs-embedded decision, and a complete worked example domain in both flat and composed form. |
 | `references/queries.md` | You are writing anything beyond a simple `Where` — search, geo, facets, traversal, shortest path, includes/preloads, paging, cultures. |
 | `references/api-quickref.md` | You need the write surface: create/insert/update/delete/upsert variants, relating, transactions, locks, file upload and conversion. |
+| `references/files-and-media.md` | Anything to do with files: uploading (including chunked uploads of large files), generating media URLs with `FileAdjustment`, image/video conversion, and the middleware that serves it all. |
 | `references/setup.md` | You are adding Relatude to a project, wiring `Program.cs`, registering a datamodel source, or configuring storage in the admin UI. |
+| `references/configuration.md` | You need the detail: every field of `relatude.db.json`, every `ServerOptions` option and lifecycle event in fire order, and the two ways of registering a datamodel. |
 | `references/pitfalls.md` | Before finishing any non-trivial answer. It is the checklist of things that actually bite people, plus the source map. |
 
 ## The mental model
@@ -312,6 +314,102 @@ The moves worth knowing, all detailed in `references/queries.md`:
 
 Use `Count()` on the builder (answered from the index) rather than `Execute().Count()`. Use `Page(p, n)` rather than `Skip().Take()` so `TotalCount` comes back with the page.
 
+## Configuration and startup
+
+Two surfaces, and they compose. `references/configuration.md` has the full field list.
+
+**`relatude.db.json`** sits beside the app (in `DefaultDataFolderPath`, resolved against the content root) and owns everything that is not code: storage backends, index engines, file stores, AI providers, admin credentials, and the datamodel sources. **It is created from a default template if missing — and that template points at the bundled demo model**, so a store full of `Relatude.DB.Demo.Models` types means the file was never configured. The admin UI edits the same file and rewrites it wholesale.
+
+**`ServerOptions`** in `Program.cs` owns what only code can express — file converters and the lifecycle callbacks:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.FileConverters.Add(new SkiaImageConverter(1));      // no converters, no image/video conversion
+    options.OnServerSettingsInit = s => {                        // keep secrets out of the JSON file
+        s.MasterUserName = builder.Configuration["RelatudeDB:User"];
+        s.MasterPassword = builder.Configuration["RelatudeDB:Password"];
+        s.TokenEncryptionSecret = builder.Configuration["RelatudeDB:TokenSecret"];
+    };
+    options.OnDatamodelInit = (dm, container) => dm.AddNamespace<IVenue>();
+    options.OnStoreInit = db => db.RegisterTransactionPlugin(new AuditPlugin());
+    options.OnStoreOpenBackground = db => Seeder.SeedIfEmpty(db);   // never in OnStoreOpen — it blocks
+});
+```
+
+Fire order: `OnServerSettingsInit` → `OnContainerSettingsInit` → `OnStoreSettingsInit` → *JSON datamodel sources load* → `OnDatamodelInit` → `OnStoreInit` → `OnStoreOpen` / `OnStoreOpenBackground` → `OnStoreClose`. **Every callback's exceptions are caught and logged, never rethrown** — a callback that silently did nothing is a startup-log question, not a crash.
+
+### Two ways to register a datamodel
+
+They are additive: JSON sources load first, then `OnDatamodelInit` adds to the same `Datamodel`.
+
+```jsonc
+// relatude.db.json — no rebuild needed to change the model
+"DatamodelSources": [{
+  "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+  "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
+  "Reference": "VenueApp"            // assembly name; null = the entry assembly
+}]
+```
+
+```csharp
+// Program.cs — refactor-safe, fails at compile time instead of at boot
+options.OnDatamodelInit = (dm, container) => {
+    dm.AddNamespace<IVenue>();     // every node & relation type in that namespace
+    dm.Add<IEvent>();              // one type plus everything it references
+};
+```
+
+Prefer code when the model ships with the app; prefer JSON when the model must change without a rebuild or differs per deployment. Only `AssemblyNameReference`, `TypeNameReference` and `JsonFile` are implemented — the other three `DatamodelSourceType` values throw `NotImplementedException`.
+
+**Admin credentials are not created for you.** `MasterUserName` / `MasterPassword` are null until set, login throws "No master user configured on the server" until then, the stored user name must be **lowercase**, and without `TokenEncryptionSecret` every restart logs everyone out.
+
+## Files, media and URLs
+
+A `FileValue` property is a slot in the file store; the bytes never live in the node. Four steps get a file from disk to a browser, and `references/files-and-media.md` covers all of them properly.
+
+**1. Upload — after the node is stored.** `FileValue.PropertyPath` is `null` on an unsaved node, so insert first.
+
+```csharp
+await db.FileUploadAsync<IArticle>(article, a => a.Photo, stream, "cover.jpg");
+```
+
+Large files go in chunks instead — `InitiateMultipartUploadAsync` → `AppendMultipartUploadAsync` (**in order**) → `FinalizeMultipartUploadAsync`, guarded by `FileStoreSupportsMultipartUploads`. The session is in-memory, per store instance, and expires after 10 minutes idle.
+
+**2. Build a URL, describing the variant you want.** The adjustment is encoded *into* the URL — there is no server-side list of allowed sizes.
+
+```csharp
+var adj = new FileAdjustmentImage {
+    Width = 440, Height = 400,
+    CropMode = ImageCropMode.Fill,
+    RequestedFormat = FileFormat.Webp,
+    Quality = 85,
+};
+var url = db.GetUrl(article.Photo, adj);       // throws if the file slot is empty
+```
+
+`FileAdjustmentVideo` transcodes video; `FileAdjustmentMeta` returns conversion status and metadata as JSON. An *image* adjustment on a *video* file extracts a still frame — that is what `TimeOffsetMs` is for.
+
+**3. Conversion runs in the background.** The URL is not servable the moment you build it. Check `db.IsFileReady(path, adj, requestIfNot: true)`, and expect a generated status placeholder — not an error — while it runs. Converters must be registered at startup (`options.FileConverters.Add(new SkiaImageConverter(1))`), or every conversion fails.
+
+**4. Serve it from your own middleware.** Relatude.DB maps no file endpoint. The whole thing is `TryParseUrlForContent` plus `FileHandler.HandleFileAsync`, which gives you cache headers, `Content-Disposition` and HTTP range support (so video seeking works):
+
+```csharp
+public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+    if (RelatudeDBRuntime.IsReady) {
+        var url = http.Request.Path.Value + http.Request.QueryString;   // query string included!
+        if (ctx.Database.TryParseUrlForContent(url, out var c) && c.Stream != null) {
+            var result = await FileHandler.HandleFileAsync(
+                http, c.Stream, c.FileName, c.Attachment, c.ContentType, c.Cacheable);
+            await result.ExecuteAsync(http);
+            return;
+        }
+    }
+    await _next.Invoke(http);        // everything that is not ours falls through
+}
+```
+
+Register it **after** `UseStaticFiles()` — the default URL root is `/`, so it sees every request.
+
 ## Top pitfalls to watch for
 
 The full checklist is `references/pitfalls.md` — read it before finishing any non-trivial answer. The ones worth carrying in your head:
@@ -329,6 +427,12 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 - **`MatchesSearch` needs `IndexedByWords = true` and has no unindexed fallback**, unlike every other filter. It matches indexed *words*, so it will not find "waterproof" from `"proof"` — `Contains` will. And `PrefixSearch`/`InfixSearch` are about `term*`/`*term` wildcards in a search, not about the `StartsWith`/`Contains` methods.
 - **`Traverse` and `ShortestPath` work over relations only** — not references, not embedded data. Needing traversal is the signal to model the link as a relation.
 - **`Relate` appends to the bottom of the relation list, and relating an existing pair throws.** Order is preserved per side; change it with `MoveRelation…` / `SetRelationOrder`, not by re-relating.
+- **`relatude.db.json` is created with the demo model if missing**, and the admin UI rewrites the whole file when anything is saved from it.
+- **Datamodel source namespaces are matched exactly, not by prefix**, and three of the six source types are not implemented.
+- **A file can only be uploaded to a node that is already stored** — `FileValue.PropertyPath` is `null` before that — and `GetUrl` throws on an empty file slot.
+- **File conversion is asynchronous, and a not-ready variant serves a status placeholder rather than failing.** Never cache a response whose `UrlContent.Cacheable` is `false`.
+- **The `FileAdjustment` is the conversion cache key.** Identical parameters hit the cache; varying them per request means unbounded conversions. Use a few presets, and turn on `HashPropertyUrls` in production so only URLs you signed are honoured.
+- **`GetUrl(…, absolute: true)` throws `NotImplementedException`** in the current `DefaultUrlProvider`. Prefix the relative URL yourself.
 
 ## How to behave with this skill
 
@@ -338,5 +442,6 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 4. **Prefer builder methods to LINQ on result sets**, `Page` to `Skip`/`Take`, builder `Count()` to `Execute().Count()`, and `SelectId()` when only ids are needed.
 5. **Use the expression overloads** of `Relate`, `WhereRelates`, `Include`, `Preload` and `FileUploadAsync` — they are readable and type-checked.
 6. **Push back when a relationship does not fit the five shapes.** If the edge carries data, say so and promote it to a node type.
-7. **Recommend the admin UI datamodel browser** after any modelling change — it shows each type's parent chain, which is the fastest way to confirm facet interfaces really landed as parent node types and that a property really is indexed.
-8. **Do not fabricate.** The docs are thin and the API is pre-1.0. If something is not covered here or in the references, say so plainly and point at the mapped source path.
+7. **Treat media as a pipeline, not a call.** Whenever a user asks for thumbnails, resizing or video, cover all four steps: converters registered at startup, the adjustment preset, the readiness check, and the middleware that serves the URL. Skipping any one of them produces something that looks right and serves nothing. The adjustment fields are a fixed catalogue in `references/files-and-media.md` — do not invent options.
+8. **Recommend the admin UI datamodel browser** after any modelling change — it shows each type's parent chain, which is the fastest way to confirm facet interfaces really landed as parent node types and that a property really is indexed.
+9. **Do not fabricate.** The docs are thin and the API is pre-1.0. If something is not covered here or in the references, say so plainly and point at the mapped source path.

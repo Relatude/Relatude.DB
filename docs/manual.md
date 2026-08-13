@@ -1397,21 +1397,168 @@ app.Run();
 `AddRelatudeDB` lives in the default global namespace — no `using` required. `RelatudeDBContext` is
 injected by DI; `ctx.Database` is the `NodeStore`, which is the API surface for everything below.
 
-On first boot, open `/relatude.db` and point the admin UI at your model namespace by adding a
-**datamodel source**:
+### relatude.db.json
+
+Everything that is *not* code lives in `relatude.db.json`: storage backends, index engines, file
+stores, AI providers, admin credentials and datamodel sources. It sits in the root data folder —
+`ServerOptions.DefaultDataFolderPath` resolved against the app's content root, so by default beside
+the app — with `relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every start)
+as siblings.
+
+**If the file is missing it is created for you, from a default that points at the bundled demo
+model.** A store full of `Relatude.DB.Demo.Models` types means exactly that: the file was never
+configured. The admin UI edits the same file and rewrites it wholesale, so comments in a
+hand-written file survive being read but not being saved from the UI.
+
+One server holds N containers (databases); each container names the storage it uses by id:
 
 ```jsonc
 {
-  "Id": "...",
-  "Name": "VenueApp",
-  "Type": "AssemblyNameReference",   // or TypeNameReference | AssemblyFileReference | JsonFile | CSharpCodeFile
-  "Namespace": "VenueApp.Models",
-  "Reference": "VenueApp"            // assembly name or path
+  "MasterUserName": "admin",           // lowercase — see below
+  "MasterPassword": "…",               // plain text; prefer injecting these, see OnServerSettingsInit
+  "TokenEncryptionSecret": "…",        // without it, logins do not survive a restart
+  "DefaultStoreId": "8f6b…",           // which container ctx.Database resolves to
+  "DBAdminUIUrlPath": "/relatude.db",  // overrides the argument passed to UseRelatudeDB()
+
+  "ContainerSettings": [
+    {
+      "Id": "8f6b…",
+      "Name": "MyDatabase",
+      "AutoOpen": true,
+      "WaitUntilOpen": false,          // true blocks startup until the store is open
+
+      "IOSettings": [                  // storage backends this container may use
+        { "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.db" }
+      ],
+      "IoDatabase": "1a2b…",           // the transaction log — the source of truth
+      "IoIndexes": null,               // persisted index files; falls back to IoDatabase
+      "IoBackup": "1a2b…",
+      "IoLog": "1a2b…",
+      "AiProvider": null,              // id from the server-level AISettings array
+
+      "FileStoreSettings": [
+        { "Id": "…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2 }
+      ],
+
+      "DatamodelSources": [ /* below */ ],
+      "LocalSettings": { /* the engine knobs: index engines, flushing, caches, backups */ }
+    }
+  ]
 }
 ```
 
-The server scans that namespace, builds the datamodel, generates the proxy assembly and reloads.
-From then on the model is rebuilt automatically whenever the assembly loads.
+An `IOSettings` entry is a storage backend (`Memory`, `LocalDisk` or `AzureBlobStorage`); the `Io…`
+fields point at one by id. That indirection is what lets the log, the indexes and the file bytes
+live in different places without repeating connection details.
+
+`LocalSettings` is the per-store engine configuration — `PersistedValueIndexEngine` /
+`PersistedTextIndexEngine` / `PersistedSemanticIndexEngine`, the disk-flush policy, cache sizes,
+auto-backup retention, `EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has
+a working default; leave it out until you need it.
+
+### Options and events in Program.cs
+
+`ServerOptions` owns what only code can express — the file converters, the folder paths, an
+alternative settings store, and the lifecycle callbacks:
+
+```csharp
+builder.AddRelatudeDB(options => {
+
+    // Image and video conversion does not work without these
+    options.FileConverters.Add(new SkiaImageConverter(1));
+    options.FileConverters.Add(new FFMpegVideoConverter());
+
+    options.DefaultDataFolderPath = "data";          // relative to the content root, or absolute
+    options.DefaultTempFolderPath = "data/tmp";
+    options.SettingsLoader = new MySettingsLoader();  // replaces relatude.db.json entirely
+
+    // Keep secrets out of the JSON file
+    options.OnServerSettingsInit = s => {
+        s.MasterUserName = builder.Configuration["RelatudeDB:User"];
+        s.MasterPassword = builder.Configuration["RelatudeDB:Password"];
+        s.TokenEncryptionSecret = builder.Configuration["RelatudeDB:TokenSecret"];
+    };
+
+    options.OnDatamodelInit = (dm, container) => dm.AddNamespace<IVenue>();
+    options.OnStoreInit = db => db.RegisterTransactionPlugin(new AuditPlugin());
+    options.OnStoreOpenBackground = db => Seeder.SeedIfEmpty(db);
+});
+```
+
+They fire in this order:
+
+| Event | When | What it is for |
+|---|---|---|
+| `OnServerSettingsInit` | after the settings file is read | credentials, container list |
+| `OnContainerSettingsInit` | per container | IO providers, file stores, datamodel sources |
+| `OnStoreSettingsInit` | per container | the `LocalSettings` engine knobs |
+| `OnDatamodelInit` | after the JSON datamodel sources have loaded | add types from code |
+| `OnStoreInit` | store constructed, not yet open | transaction plugins, task runners |
+| `OnStoreOpen` | store open — **blocking** | light work only |
+| `OnStoreOpenBackground` | store open, on the thread pool | seeding, warm-up |
+| `OnStoreClose` | host shutdown | cleanup |
+
+Two things about these are worth knowing before you rely on them. **Every callback is wrapped in a
+try/catch by the server**: an exception inside one is written to the startup log and swallowed, so
+a callback that silently did nothing is a startup-log question rather than a crash. And **seeding
+belongs in `OnStoreOpenBackground`** — `OnStoreOpen` blocks the open, and while a store is opening
+every request gets a 503 progress page.
+
+### Two ways to register a datamodel
+
+The JSON sources load first, then `OnDatamodelInit` runs against the same `Datamodel` object — so
+the two are additive rather than alternatives.
+
+**From `relatude.db.json`**, when the model must change without a rebuild, or differs between
+deployments of the same binary:
+
+```jsonc
+"DatamodelSources": [
+  {
+    "Id": "...",
+    "Name": "VenueApp",
+    "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+    "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
+    "Reference": "VenueApp",           // assembly name; null means the entry assembly
+    "AutoDeduceRelations": false
+  }
+]
+```
+
+| `Type` | What it does |
+|---|---|
+| `AssemblyNameReference` | loads the assembly (or the entry assembly) and adds every type in `Namespace` |
+| `TypeNameReference` | adds the type named by `Reference`, plus everything it references |
+| `JsonFile` | reads a serialised `Datamodel` from `Reference` through the IO provider in `FileIO` |
+| `AssemblyFileReference`, `TypeNameFileReference`, `CSharpCodeFile` | declared, but throw `NotImplementedException` in the current build |
+
+**From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe,
+and it fails at compile time rather than at boot:
+
+```csharp
+options.OnDatamodelInit = (dm, container) => {
+    dm.AddNamespace<IVenue>();          // every node & relation type in IVenue's namespace
+    dm.Add<IEvent>();                   // one type, plus everything it references
+    dm.Add(typeof(IAttendee));
+    dm.AddAssembly(typeof(IVenue).Assembly, "VenueApp.Models.Sub");
+};
+```
+
+With more than one database, branch on the container the callback is given:
+
+```csharp
+options.OnDatamodelInit = (dm, container) => {
+    if (container.Name == "Catalog") dm.AddNamespace<IProduct>();
+    else dm.AddNamespace<IAuditEntry>();
+};
+```
+
+`AutoDeduceRelations` (off by default on both paths) decides what happens to a plain node-typed
+property with no relation declared: off, it becomes a `Reference`/`References`; on, it is turned
+into an auto-created relation, which is the old behaviour. Leave it off in new models.
+
+Either way the server builds the datamodel, generates the proxy assembly and reloads, and from then
+on the model is rebuilt automatically whenever the assembly loads.
 
 ### The admin UI
 
@@ -1425,8 +1572,13 @@ your way around it early.
 app.UseRelatudeDB("/admin/db");
 ```
 
-It has its own authentication. On first boot an admin user is created and the credentials are
-printed to the application log — grab them from there.
+It has its own authentication, and **nothing creates an admin user for you**. `MasterUserName` and
+`MasterPassword` are null until you set them — in `relatude.db.json`, or from configuration in
+`OnServerSettingsInit` — and until then logging in throws "No master user configured on the
+server." Three details cost people time: the stored user name must be **lowercase** (the check
+lowercases the input before comparing), the password is compared verbatim and stored in plain text,
+and without `TokenEncryptionSecret` the server uses a random per-process key, so every restart
+invalidates every session cookie.
 
 What you do in it:
 
@@ -1451,6 +1603,9 @@ Two habits worth forming:
 
 ### Programmatic / embedded
 
+Outside the server host — tests, an embedded store, an import tool — you build the `Datamodel`
+yourself and hand it to the store:
+
 ```csharp
 var datamodel = new Datamodel();
 datamodel.AddNamespace<IVenue>();        // every node & relation type in that namespace
@@ -1460,7 +1615,10 @@ datamodel.Add(typeof(IAttendee));
 ```
 
 `AddNamespace<T>` scans the assembly containing `T` and adds every type whose namespace matches
-`T`'s, skipping enums, static classes and anything marked `[Exclude]`.
+`T`'s exactly, skipping enums, static classes and anything marked `[Exclude]`. `Add<T>` also pulls
+in every type `T` references, unless you pass `includeAllReferencedModels: false`. Adding to a
+datamodel that has already initialised throws — which is why `OnDatamodelInit` is the window for
+this when you are running under the server.
 
 ### What the model builder validates
 
@@ -1671,44 +1829,143 @@ await db.FileUploadAsync<IVenue>(venue, v => v.Photo, bytes,  "sentrum.jpg");
 await db.FileUploadAsync(venue.Photo, @"/tmp/sentrum.jpg");
 ```
 
-Pass `noNodeUpdate: true` when bulk-uploading, then do one final `Update` at the end.
+The node has to be stored before any of this: `FileValue.PropertyPath` is what addresses the
+upload, and it is `null` on an unsaved node. The upload writes the bytes *and* the `FileValue` on
+the node, so there is no `Update` to make afterwards.
 
 ### Very large files
 
+Files too large to push through a single request go up in chunks — initiate once, append the
+chunks, finalize:
+
 ```csharp
 if (db.FileStoreSupportsMultipartUploads(venue.Photo)) {
-    var fileId = await db.InitiatePartialUploadAsync(venue.Photo, "walkthrough.mp4");
+    var uploadId = await db.InitiateMultipartUploadAsync(venue.Photo, "walkthrough.mp4");
     while (/* more data */) {
-        await db.AppendPartialUploadAsync(fileId, buffer, length);
+        await db.AppendMultipartUploadAsync(uploadId, buffer, length);   // strictly in order
     }
-    await db.FinalizePartialUploadAsync(fileId);
+    FileValue value = await db.FinalizeMultipartUploadAsync(uploadId);
+    // …or, on failure: await db.CancelMultipartUploadAsync(uploadId);
 }
 ```
+
+Four constraints are worth knowing before you build on this:
+
+- **Chunks must be appended in order**, one at a time per upload id. The store appends to an open
+  file and folds each chunk into a running hash, so parallel or out-of-order appends corrupt both.
+  Upload several *files* concurrently if you want throughput, not several chunks of one file.
+- **The session lives in memory on that store instance** and expires after 10 minutes of
+  inactivity, at which point the partial file is deleted.
+- **Not every file store supports it** — only those implementing `IFileStoreMultiPartSupport`.
+  That is what `FileStoreSupportsMultipartUploads` checks.
+- **The `FileValue` is only written onto the node at finalize**, so a cancelled or expired upload
+  leaves the node untouched.
 
 ### Serving and converting
 
 Ask the datastore for a URL, describing the output you want. Conversion runs asynchronously:
 
 ```csharp
-var path = venue.Photo.PropertyPath;
+var path = venue.Photo.PropertyPath!;
 
 var adjustment = new FileAdjustmentImage {
     Width = 1200,
     Height = 630,
-    CropMode = CropMode.Fill,
-    RequestedFormat = FileFormat.WebP,
+    CropMode = ImageCropMode.Fill,
+    RequestedFormat = FileFormat.Webp,
     Quality = 80
 };
 
 var url = db.Datastore.GetUrl(path, adjustment);
 
-bool ready = db.Datastore.IsFileReady(path, adjustment, startIfNotReady: true);
+bool ready = db.Datastore.IsFileReady(path, adjustment, requestIfNot: true);
 
-if (db.Datastore.TryGetProgressInfo(path, adjustment, true, out var progress)) { … }
+if (db.Datastore.TryGetConversionInfo(path, adjustment, true, out var progress)) { … }
 ```
 
 `FileAdjustmentVideo` is the equivalent for video, with `TargetBitRateInMbps`,
-`RequestedFormat = FileFormat.Mp4`, and so on.
+`RequestedFormat = FileFormat.Mp4`, and so on. `FileAdjustmentMeta` asks for the conversion status
+and extracted metadata as JSON instead of a converted file.
+
+Three things follow from conversion being asynchronous. **A URL you just built is usually not
+servable yet** — the conversion is queued, and `IsFileReady` is how you find out. **A variant that
+is not ready does not fail**: the store serves a generated status placeholder in the requested
+format, which is why you must not cache a response the store reports as uncacheable. And
+**converters have to be registered at startup** — `options.FileConverters.Add(new
+SkiaImageConverter(1))` for images, `new FFMpegVideoConverter()` for video — or every conversion
+comes back as "No converter available".
+
+### The middleware that serves it
+
+Serving the URL is a middleware you write; nothing maps a file endpoint for you. It is about thirty
+lines around `TryParseUrlForContent` and `FileHandler.HandleFileAsync`. This is
+`examples/Website.Simple/MiddelWare.cs` in full:
+
+```csharp
+using Relatude.DB.NodeServer;
+using Relatude.DB.Web;
+
+namespace Website.Simple;
+
+public class RelatudeDBMiddleware {
+    private readonly RequestDelegate _next;
+
+    public RelatudeDBMiddleware(RequestDelegate next) {
+        _next = next;
+    }
+    public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+        if (RelatudeDBRuntime.IsReady) {
+            var url = http.Request.Path.Value + http.Request.QueryString;
+            if (ctx.Database.TryParseUrlForContent(url, out var content)) {
+                var result = await handleRequest(http, content);
+                if (result != null) {
+                    await result.ExecuteAsync(http);
+                    return;
+                }
+            }
+        }
+        await _next.Invoke(http);
+    }
+    async Task<IResult?> handleRequest(HttpContext http, UrlContent content) {
+        return content.Id.Target switch {
+            UrlTarget.Property or UrlTarget.PropertyAdjusted => await handleFile(http, content),
+            UrlTarget.Node or UrlTarget.EmbeddedNode => await handlePage(http, content),
+            _ => null,
+        };
+    }
+    async Task<IResult?> handleFile(HttpContext http, UrlContent c) {
+        return await FileHandler.HandleFileAsync(http, c.Stream, c.FileName, c.Attachment, c.ContentType, c.Cacheable);
+    }
+    async Task<IResult?> handlePage(HttpContext http, UrlContent c) {
+        return Results.Json(c);
+    }
+}
+```
+
+Registered in `Program.cs` after the static-file middleware, because the default URL root for nodes
+and files is `/` and this therefore sees every request:
+
+```csharp
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.UseMiddleware<RelatudeDBMiddleware>();
+
+app.StartRelatudeDB();
+app.MapRelatudeDBAdmin();
+```
+
+Four things in there are load-bearing:
+
+- **The `RelatudeDBRuntime.IsReady` gate.** The store opens asynchronously, and without the gate
+  requests arriving during startup throw instead of falling through.
+- **`Path.Value + QueryString`, not `Path`.** The addressing payload lives in the query parameter,
+  so parsing the path alone silently matches nothing.
+- **Every non-match calls `_next`.** `TryParseUrlForContent` returns `false` rather than throwing
+  for URLs that are not the store's, which is what makes the fall-through clean.
+- **`handlePage` is yours to write.** `UrlTarget.Node` and `EmbeddedNode` hand you
+  `UrlContent.NodeData`; returning `Results.Json(c)` is the example being lazy, not a
+  recommendation. Return your own view, or `null` to fall through to MVC/Razor routing.
 
 ---
 ---

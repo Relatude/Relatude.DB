@@ -45,12 +45,34 @@ Read this before finishing any non-trivial Relatude.DB answer. These are the thi
 - **A property's own word index is written in the transaction; the node's combined text index usually is not.** So `MatchesSearch` sees a node as soon as `Insert` returns, while `WhereSearch` can miss it until the background text-indexing queue catches up — unless the node type sets `InstantTextIndexing = true`.
 - **`db.Context.Admin()` bypasses ACL filtering.** Trusted server code only — never hand it to a request handler.
 
+## Files and media
+
+Full treatment in `files-and-media.md`.
+
+- **A file can only be uploaded to a node that is already stored.** `FileValue.PropertyPath` is `null` before that, and every upload overload throws on it. Insert, re-read the node, then upload.
+- **`GetUrl` throws when the file slot is empty.** It reads the `FileValue` to build the file name and version id. Guard with `if (!file.IsEmpty)`.
+- **`GetUrl(…, absolute: true)` throws `NotImplementedException`** in the current `DefaultUrlProvider`. Build absolute URLs by prefixing the relative one.
+- **Pass `Path + QueryString` to `TryParseUrlForContent`, not `Path`.** The whole addressing payload lives in the query parameter, so parsing the path alone silently matches nothing.
+- **File conversion is asynchronous.** Check `IsFileReady(path, adj, requestIfNot: true)` rather than assuming a generated URL is immediately serveable.
+- **A variant that is not ready serves a generated status placeholder, not an error.** So an HTTP 200 does not mean you got the file — honour `UrlContent.Cacheable`, and never cache a `false`.
+- **The `FileAdjustment` is the conversion cache key.** Every field is hashed into it, so a one-pixel difference is a new conversion and a new cache entry. Use a few presets rather than adjustments built from request parameters, and turn on `HashPropertyUrls` in production so only URLs your code signed are served.
+- **Register file converters at startup** (`options.FileConverters.Add(...)`). Without them every conversion returns "No converter available".
+- **`FileType` and `Format` are derived from the file name**, not from the bytes. A wrong extension routes the file to the wrong converter.
+- **Multipart chunks must be appended in order**, one at a time per upload id. The session lives in memory on that store instance — so no load balancing across instances mid-upload — and expires after 10 minutes idle.
+- **Only file stores implementing `IFileStoreMultiPartSupport` accept chunked uploads.** Check `FileStoreSupportsMultipartUploads` first; otherwise you get "File store does not support multipart upload".
+- **Your media middleware must fall through.** The default URL root is `/`, so it sees every request; register it after `UseStaticFiles()` and always call `next` when `TryParseUrlForContent` returns `false`.
+
 ## Operational
 
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**
-- **The first-boot admin credentials are printed to the application log.**
-- **File conversion is asynchronous.** Check `IsFileReady(...)` rather than assuming a generated URL is immediately serveable.
+- **No admin user is created for you, and no credentials are printed anywhere.** Set `MasterUserName` / `MasterPassword` in `relatude.db.json` or from `OnServerSettingsInit`; the stored user name must be lowercase. Set `TokenEncryptionSecret` too, or every restart logs everyone out.
+- **A missing `relatude.db.json` is created from a default that points at the bundled demo model.** A store full of `Relatude.DB.Demo.Models` types means the file was never configured.
+- **The admin UI rewrites the whole settings file** when anything is saved from it, so comments and formatting in a hand-written file are lost.
+- **Startup lifecycle callbacks never crash the server.** Exceptions inside `OnStoreInit`, `OnDatamodelInit` and friends are caught and written to the startup log, so a callback that did nothing looks like a no-op.
+- **Seed in `OnStoreOpenBackground`, not `OnStoreOpen`** — the latter blocks the store from opening.
+- **Datamodel source namespaces match exactly, not by prefix**, and `AssemblyFileReference` / `TypeNameFileReference` / `CSharpCodeFile` throw `NotImplementedException`.
+- **`DBAdminUIUrlPath` in the settings file overrides the path passed to `UseRelatudeDB()`.**
 
 ## Where to look in the source
 
@@ -62,6 +84,10 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
 | Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
 | Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.ServerUI/` |
+| `ServerOptions`, startup order, lifecycle events | `src/Relatude.DB.NodeServer/NodeServer/RelatudeDBServer.cs` |
+| `relatude.db.json` shape and loading | `src/Relatude.DB.NodeServer/NodeServer/Settings/`, `ISettingsLoader.cs`, `Defaults.cs` |
+| Engine knobs per store | `src/Relatude.DB.DataStoreLocal/DataStores/SettingsLocal.cs` |
+| Datamodel sources | `src/Relatude.DB.NodeServer/NodeServer/DatamodelSource.cs`, `NodeStoreContainer.cs` |
 | Relation bases and One/Many properties | `src/Relatude.DB.NodeStore/Nodes/Relation.cs` |
 | `Reference<T>` / `References<T>` | `src/Relatude.DB.NodeStore/Nodes/Reference.cs`, `References.cs` |
 | Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
@@ -69,6 +95,12 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Store & transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
 | `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
+| File adjustments and conversion | `src/Relatude.DB.DataStore/FileConversion/` |
+| URL building and parsing | `src/Relatude.DB.DataStoreLocal/Web/DefaultUrlProvider.cs`, `src/Relatude.DB.DataStore/Web/` |
+| Upload, download, multipart sessions | `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Files.cs`, `DataStores/Uploads/` |
+| File stores | `src/Relatude.DB.FileStorage/DataStores/Files/` |
+| Serving files over HTTP | `src/Relatude.DB.NodeServer/Web/FileHandler.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
+| A working web app: middleware, media URLs, chunked upload | `examples/Website.Simple/` |
 
 Repository: https://github.com/Relatude/Relatude.DB

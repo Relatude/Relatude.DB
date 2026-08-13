@@ -10,6 +10,7 @@ How a model gets from your C# into a running engine, and what has to be configur
 - [The admin UI](#the-admin-ui)
 - [Programmatic / embedded registration](#programmatic--embedded-registration)
 - [Middleware order](#middleware-order)
+- [File converters](#file-converters)
 - [Upgrading](#upgrading)
 
 ## Targets
@@ -51,25 +52,42 @@ app.UseRelatudeDB("/admin/db");
 
 ## Pointing the server at your model
 
-On first boot, open `/relatude.db` and add a **datamodel source** pointing at your model namespace:
+Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` adds to the same datamodel. Full treatment in `configuration.md`.
 
-```json
-{
-  "Id": "...",
-  "Name": "VenueApp",
-  "Type": "AssemblyNameReference",   // or TypeNameReference | AssemblyFileReference | JsonFile | CSharpCodeFile
-  "Namespace": "VenueApp.Models",
-  "Reference": "VenueApp"            // assembly name or path
-}
+**From `relatude.db.json`** (or the same entry added through the admin UI), when the model should be changeable without a rebuild:
+
+```jsonc
+"DatamodelSources": [
+  {
+    "Id": "...",
+    "Name": "VenueApp",
+    "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+    "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
+    "Reference": "VenueApp"            // assembly name; null means the entry assembly
+  }
+]
 ```
 
-The server scans that namespace, builds the datamodel, generates the proxy assembly and reloads. From then on the model is **rebuilt automatically whenever the assembly loads** — you do not re-register after each code change.
+`AssemblyFileReference`, `TypeNameFileReference` and `CSharpCodeFile` are declared but throw `NotImplementedException` in the current build.
+
+**From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe, and it fails at compile time rather than at boot:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.OnDatamodelInit = (dm, container) => {
+        dm.AddNamespace<IVenue>();     // every node & relation type in that namespace
+        dm.Add<IEvent>();              // one type, plus everything it references
+    };
+});
+```
+
+Either way the server builds the datamodel, generates the proxy assembly and reloads. From then on the model is **rebuilt automatically whenever the assembly loads** — you do not re-register after each code change.
 
 ## The admin UI
 
 The admin UI is not an optional extra — it is where the parts of Relatude.DB that are not code get configured. **Your model lives in C#; the runtime lives in the admin UI.** Worth learning your way around it early, and worth telling users about when they ask why something is not working.
 
-It has its own authentication. On first boot an admin user is created and **the credentials are printed to the application log** — grab them from there.
+It has its own authentication, and **nothing creates an admin user for you**. `MasterUserName` and `MasterPassword` in `relatude.db.json` are null until you set them, and until then logging in throws "No master user configured on the server." Set them in the file, or inject them from configuration in `OnServerSettingsInit`. The stored user name must be **lowercase** — the check lowercases the input before comparing — and `TokenEncryptionSecret` should be set too, or every restart invalidates every session. Details in `configuration.md`.
 
 | Area | What it is for |
 |---|---|
@@ -103,6 +121,33 @@ For what the model builder validates at this point — and the errors you will s
 ## Middleware order
 
 `UseRelatudeDB` installs the engine's own startup-progress and auth middleware, so **call it after** your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`. Getting this wrong produces confusing auth behaviour on the admin UI rather than an obvious error.
+
+If you also serve media from the store, that is a middleware **you** write — nothing maps a file endpoint for you. It goes after the static-file middleware, because the default URL root for nodes and files is `/`, so it sees every request:
+
+```csharp
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.UseMiddleware<RelatudeDBMiddleware>();   // your own — see files-and-media.md
+
+app.StartRelatudeDB();                       // or app.UseRelatudeDB()
+app.MapRelatudeDBAdmin();
+```
+
+`StartRelatudeDB()` + `MapRelatudeDBAdmin()` is what `UseRelatudeDB()` does in one call; splitting them lets you place your own middleware in between.
+
+## File converters
+
+Image and video conversion only works if a converter is registered at startup. There is no default — without one, every adjusted URL serves an error placeholder reading "No converter available from JPEG to WEBP":
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.FileConverters.Add(new SkiaImageConverter(1));    // images
+    options.FileConverters.Add(new FFMpegVideoConverter());   // video (needs FFmpeg available)
+});
+```
+
+File **storage** providers are configured in the admin UI under File storage, not here.
 
 ## Upgrading
 

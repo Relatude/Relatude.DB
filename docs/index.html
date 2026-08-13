@@ -4,8 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Data Modelling &amp; Querying with Relatude.DB</title>
+<script>
+// Applied before first paint so an explicitly chosen theme does not flash the
+// other one. localStorage access itself can throw on file:// origins, so guard.
+(function () {
+  try {
+    var t = window.localStorage.getItem("relatude-manual-theme-v1");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
 <style>
+/* Light is the base palette. Dark is applied in two places: under the system
+   preference (unless the reader has explicitly chosen light), and under an
+   explicit data-theme="dark" set by the theme button. Keep the two dark blocks
+   in sync — they are deliberately identical. */
 :root {
+  color-scheme: light;
   --bg: #ffffff;
   --bg-side: #f7f8fa;
   --bg-code: #f6f8fa;
@@ -25,7 +40,8 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0f1116;
     --bg-side: #14161c;
     --bg-code: #171a21;
@@ -41,6 +57,23 @@
     --mark: #5c4a00;
     --mark-active: #8a6d00;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1116;
+  --bg-side: #14161c;
+  --bg-code: #171a21;
+  --bg-hover: #1e222b;
+  --bg-active: #232a3d;
+  --fg: #e3e6eb;
+  --fg-dim: #9aa3b2;
+  --fg-faint: #6e7787;
+  --accent: #7fa2ff;
+  --accent-soft: #22304f;
+  --border: #2a2f3a;
+  --border-soft: #21252e;
+  --mark: #5c4a00;
+  --mark-active: #8a6d00;
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -65,11 +98,23 @@ body {
   z-index: 40;
 }
 #brand {
-  padding: 16px 18px 12px;
+  position: relative;
+  padding: 16px 52px 12px 18px;
   border-bottom: 1px solid var(--border-soft);
 }
 #brand h1 { font-size: 14px; margin: 0 0 2px; letter-spacing: .01em; }
 #brand p { font-size: 11.5px; color: var(--fg-faint); margin: 0; }
+
+#theme {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--fg-dim);
+  font-size: 14px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+#theme:hover { color: var(--accent); border-color: var(--accent); }
+#theme:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 #searchwrap { padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
 #searchbox {
@@ -253,7 +298,10 @@ span.linenos { color: inherit; background-color: transparent; padding-left: 5px;
 td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
 span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
 .codehilite .hll { background-color: #ffffcc }
-.codehilite { background: #f8f8f8; }
+/* The Pygments wrapper must not paint its own background: the <pre> inside it
+   carries the themed background and the rounded corners, so a hardcoded light
+   fill here shows through at the corners in dark mode. */
+.codehilite { background: transparent; border-radius: 9px; }
 .codehilite .c { color: #3D7B7B; font-style: italic } /* Comment */
 .codehilite .err { border: 1px solid #FF0000 } /* Error */
 .codehilite .k { color: #008000; font-weight: bold } /* Keyword */
@@ -332,6 +380,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <div id="brand">
     <h1>Data Modelling &amp; Querying</h1>
     <p>Relatude.DB &middot; a practical manual</p>
+    <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
   </div>
   <div id="searchwrap">
     <div id="searchbox">
@@ -1828,19 +1877,206 @@ per concrete type, merged and re-sorted in memory — and re-merged every time y
 
 <p><code>AddRelatudeDB</code> lives in the default global namespace — no <code>using</code> required. <code>RelatudeDBContext</code> is
 injected by DI; <code>ctx.Database</code> is the <code>NodeStore</code>, which is the API surface for everything below.</p>
-<p>On first boot, open <code>/relatude.db</code> and point the admin UI at your model namespace by adding a
-<strong>datamodel source</strong>:</p>
-<div class="codehilite"><pre><span></span><code><span class="p">{</span><span class="w"></span>
-<span class="w">  </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"></span>
-<span class="w">  </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w"></span>
-<span class="w">  </span><span class="nt">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AssemblyNameReference&quot;</span><span class="p">,</span><span class="w">   </span><span class="err">//</span><span class="w"> </span><span class="err">or</span><span class="w"> </span><span class="err">TypeNameRe</span><span class="kc">feren</span><span class="err">ce</span><span class="w"> </span><span class="err">|</span><span class="w"> </span><span class="err">AssemblyFileRe</span><span class="kc">feren</span><span class="err">ce</span><span class="w"> </span><span class="err">|</span><span class="w"> </span><span class="err">Jso</span><span class="kc">n</span><span class="err">File</span><span class="w"> </span><span class="err">|</span><span class="w"> </span><span class="err">CSharpCodeFile</span><span class="w"></span>
-<span class="w">  </span><span class="nt">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp.Models&quot;</span><span class="p">,</span><span class="w"></span>
-<span class="w">  </span><span class="nt">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp&quot;</span><span class="w">            </span><span class="err">//</span><span class="w"> </span><span class="err">assembly</span><span class="w"> </span><span class="kc">na</span><span class="err">me</span><span class="w"> </span><span class="err">or</span><span class="w"> </span><span class="err">pa</span><span class="kc">t</span><span class="err">h</span><span class="w"></span>
-<span class="p">}</span><span class="w"></span>
+<h3 id="relatudedbjson">relatude.db.json<a class="anchor" href="#relatudedbjson" aria-label="Link to this section">#</a></h3>
+<p>Everything that is <em>not</em> code lives in <code>relatude.db.json</code>: storage backends, index engines, file
+stores, AI providers, admin credentials and datamodel sources. It sits in the root data folder —
+<code>ServerOptions.DefaultDataFolderPath</code> resolved against the app's content root, so by default beside
+the app — with <code>relatude.db/</code> (the data) and <code>relatude.db.temp/</code> (scratch, emptied at every start)
+as siblings.</p>
+<p><strong>If the file is missing it is created for you, from a default that points at the bundled demo
+model.</strong> A store full of <code>Relatude.DB.Demo.Models</code> types means exactly that: the file was never
+configured. The admin UI edits the same file and rewrites it wholesale, so comments in a
+hand-written file survive being read but not being saved from the UI.</p>
+<p>One server holds N containers (databases); each container names the storage it uses by id:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;MasterUserName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;admin&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// lowercase — see below</span>
+<span class="w">  </span><span class="nt">&quot;MasterPassword&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;…&quot;</span><span class="p">,</span><span class="w">               </span><span class="c1">// plain text; prefer injecting these, see OnServerSettingsInit</span>
+<span class="w">  </span><span class="nt">&quot;TokenEncryptionSecret&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;…&quot;</span><span class="p">,</span><span class="w">        </span><span class="c1">// without it, logins do not survive a restart</span>
+<span class="w">  </span><span class="nt">&quot;DefaultStoreId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8f6b…&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// which container ctx.Database resolves to</span>
+<span class="w">  </span><span class="nt">&quot;DBAdminUIUrlPath&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/relatude.db&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// overrides the argument passed to UseRelatudeDB()</span>
+
+<span class="w">  </span><span class="nt">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8f6b…&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyDatabase&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;AutoOpen&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;WaitUntilOpen&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">          </span><span class="c1">// true blocks startup until the store is open</span>
+
+<span class="w">      </span><span class="nt">&quot;IOSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">                  </span><span class="c1">// storage backends this container may use</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Local disk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IOType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;LocalDisk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;relatude.db&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;IoDatabase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// the transaction log — the source of truth</span>
+<span class="w">      </span><span class="nt">&quot;IoIndexes&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">               </span><span class="c1">// persisted index files; falls back to IoDatabase</span>
+<span class="w">      </span><span class="nt">&quot;IoBackup&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;IoLog&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;AiProvider&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">              </span><span class="c1">// id from the server-level AISettings array</span>
+
+<span class="w">      </span><span class="nt">&quot;FileStoreSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IoProviderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;StoreType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MultiFile&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;MultiFileFolderDepth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">],</span>
+
+<span class="w">      </span><span class="nt">&quot;DatamodelSources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="cm">/* below */</span><span class="w"> </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;LocalSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* the engine knobs: index engines, flushing, caches, backups */</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
 </code></pre></div>
 
-<p>The server scans that namespace, builds the datamodel, generates the proxy assembly and reloads.
-From then on the model is rebuilt automatically whenever the assembly loads.</p>
+<p>An <code>IOSettings</code> entry is a storage backend (<code>Memory</code>, <code>LocalDisk</code> or <code>AzureBlobStorage</code>); the <code>Io…</code>
+fields point at one by id. That indirection is what lets the log, the indexes and the file bytes
+live in different places without repeating connection details.</p>
+<p><code>LocalSettings</code> is the per-store engine configuration — <code>PersistedValueIndexEngine</code> /
+<code>PersistedTextIndexEngine</code> / <code>PersistedSemanticIndexEngine</code>, the disk-flush policy, cache sizes,
+auto-backup retention, <code>EnableTextIndexByDefault</code>, <code>DefaultCultureCode</code>, and so on. Every field has
+a working default; leave it out until you need it.</p>
+<h3 id="options-and-events-in-programcs">Options and events in Program.cs<a class="anchor" href="#options-and-events-in-programcs" aria-label="Link to this section">#</a></h3>
+<p><code>ServerOptions</code> owns what only code can express — the file converters, the folder paths, an
+alternative settings store, and the lifecycle callbacks:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">(</span><span class="n">options</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="c1">// Image and video conversion does not work without these</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">FileConverters</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">SkiaImageConverter</span><span class="p">(</span><span class="m">1</span><span class="p">));</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">FileConverters</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">FFMpegVideoConverter</span><span class="p">());</span>
+
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">DefaultDataFolderPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;data&quot;</span><span class="p">;</span><span class="w">          </span><span class="c1">// relative to the content root, or absolute</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">DefaultTempFolderPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;data/tmp&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">SettingsLoader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MySettingsLoader</span><span class="p">();</span><span class="w">  </span><span class="c1">// replaces relatude.db.json entirely</span>
+
+<span class="w">    </span><span class="c1">// Keep secrets out of the JSON file</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">OnServerSettingsInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">s</span><span class="p">.</span><span class="n">MasterUserName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Configuration</span><span class="p">[</span><span class="s">&quot;RelatudeDB:User&quot;</span><span class="p">];</span>
+<span class="w">        </span><span class="n">s</span><span class="p">.</span><span class="n">MasterPassword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Configuration</span><span class="p">[</span><span class="s">&quot;RelatudeDB:Password&quot;</span><span class="p">];</span>
+<span class="w">        </span><span class="n">s</span><span class="p">.</span><span class="n">TokenEncryptionSecret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Configuration</span><span class="p">[</span><span class="s">&quot;RelatudeDB:TokenSecret&quot;</span><span class="p">];</span>
+<span class="w">    </span><span class="p">};</span>
+
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">container</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">OnStoreInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">RegisterTransactionPlugin</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AuditPlugin</span><span class="p">());</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">OnStoreOpenBackground</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">Seeder</span><span class="p">.</span><span class="n">SeedIfEmpty</span><span class="p">(</span><span class="n">db</span><span class="p">);</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<p>They fire in this order:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>When</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OnServerSettingsInit</code></td>
+<td>after the settings file is read</td>
+<td>credentials, container list</td>
+</tr>
+<tr>
+<td><code>OnContainerSettingsInit</code></td>
+<td>per container</td>
+<td>IO providers, file stores, datamodel sources</td>
+</tr>
+<tr>
+<td><code>OnStoreSettingsInit</code></td>
+<td>per container</td>
+<td>the <code>LocalSettings</code> engine knobs</td>
+</tr>
+<tr>
+<td><code>OnDatamodelInit</code></td>
+<td>after the JSON datamodel sources have loaded</td>
+<td>add types from code</td>
+</tr>
+<tr>
+<td><code>OnStoreInit</code></td>
+<td>store constructed, not yet open</td>
+<td>transaction plugins, task runners</td>
+</tr>
+<tr>
+<td><code>OnStoreOpen</code></td>
+<td>store open — <strong>blocking</strong></td>
+<td>light work only</td>
+</tr>
+<tr>
+<td><code>OnStoreOpenBackground</code></td>
+<td>store open, on the thread pool</td>
+<td>seeding, warm-up</td>
+</tr>
+<tr>
+<td><code>OnStoreClose</code></td>
+<td>host shutdown</td>
+<td>cleanup</td>
+</tr>
+</tbody>
+</table>
+<p>Two things about these are worth knowing before you rely on them. <strong>Every callback is wrapped in a
+try/catch by the server</strong>: an exception inside one is written to the startup log and swallowed, so
+a callback that silently did nothing is a startup-log question rather than a crash. And <strong>seeding
+belongs in <code>OnStoreOpenBackground</code></strong> — <code>OnStoreOpen</code> blocks the open, and while a store is opening
+every request gets a 503 progress page.</p>
+<h3 id="two-ways-to-register-a-datamodel">Two ways to register a datamodel<a class="anchor" href="#two-ways-to-register-a-datamodel" aria-label="Link to this section">#</a></h3>
+<p>The JSON sources load first, then <code>OnDatamodelInit</code> runs against the same <code>Datamodel</code> object — so
+the two are additive rather than alternatives.</p>
+<p><strong>From <code>relatude.db.json</code></strong>, when the model must change without a rebuild, or differs between
+deployments of the same binary:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&quot;DatamodelSources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AssemblyNameReference&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// or TypeNameReference | JsonFile</span>
+<span class="w">    </span><span class="nt">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp.Models&quot;</span><span class="p">,</span><span class="w">    </span><span class="c1">// matched exactly, not by prefix</span>
+<span class="w">    </span><span class="nt">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// assembly name; null means the entry assembly</span>
+<span class="w">    </span><span class="nt">&quot;AutoDeduceRelations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">]</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th><code>Type</code></th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AssemblyNameReference</code></td>
+<td>loads the assembly (or the entry assembly) and adds every type in <code>Namespace</code></td>
+</tr>
+<tr>
+<td><code>TypeNameReference</code></td>
+<td>adds the type named by <code>Reference</code>, plus everything it references</td>
+</tr>
+<tr>
+<td><code>JsonFile</code></td>
+<td>reads a serialised <code>Datamodel</code> from <code>Reference</code> through the IO provider in <code>FileIO</code></td>
+</tr>
+<tr>
+<td><code>AssemblyFileReference</code>, <code>TypeNameFileReference</code>, <code>CSharpCodeFile</code></td>
+<td>declared, but throw <code>NotImplementedException</code> in the current build</td>
+</tr>
+</tbody>
+</table>
+<p><strong>From <code>Program.cs</code></strong>, which is the common case when the model ships with the app — refactor-safe,
+and it fails at compile time rather than at boot:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">container</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span><span class="w">          </span><span class="c1">// every node &amp; relation type in IVenue&#39;s namespace</span>
+<span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">Add</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">();</span><span class="w">                   </span><span class="c1">// one type, plus everything it references</span>
+<span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="k">typeof</span><span class="p">(</span><span class="n">IAttendee</span><span class="p">));</span>
+<span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">AddAssembly</span><span class="p">(</span><span class="k">typeof</span><span class="p">(</span><span class="n">IVenue</span><span class="p">).</span><span class="n">Assembly</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;VenueApp.Models.Sub&quot;</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre></div>
+
+<p>With more than one database, branch on the container the callback is given:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">container</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">container</span><span class="p">.</span><span class="n">Name</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;Catalog&quot;</span><span class="p">)</span><span class="w"> </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IProduct</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="k">else</span><span class="w"> </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IAuditEntry</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="p">};</span>
+</code></pre></div>
+
+<p><code>AutoDeduceRelations</code> (off by default on both paths) decides what happens to a plain node-typed
+property with no relation declared: off, it becomes a <code>Reference</code>/<code>References</code>; on, it is turned
+into an auto-created relation, which is the old behaviour. Leave it off in new models.</p>
+<p>Either way the server builds the datamodel, generates the proxy assembly and reloads, and from then
+on the model is rebuilt automatically whenever the assembly loads.</p>
 <h3 id="the-admin-ui">The admin UI<a class="anchor" href="#the-admin-ui" aria-label="Link to this section">#</a></h3>
 <p>The admin UI is not an optional extra — it is where the parts of Relatude.DB that are <em>not</em> code
 get configured. Your <strong>model</strong> lives in C#; the <strong>runtime</strong> lives in the admin UI. Worth knowing
@@ -1849,8 +2085,13 @@ your way around it early.</p>
 <div class="codehilite"><pre><span></span><code><span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">(</span><span class="s">&quot;/admin/db&quot;</span><span class="p">);</span><span class="w"></span>
 </code></pre></div>
 
-<p>It has its own authentication. On first boot an admin user is created and the credentials are
-printed to the application log — grab them from there.</p>
+<p>It has its own authentication, and <strong>nothing creates an admin user for you</strong>. <code>MasterUserName</code> and
+<code>MasterPassword</code> are null until you set them — in <code>relatude.db.json</code>, or from configuration in
+<code>OnServerSettingsInit</code> — and until then logging in throws "No master user configured on the
+server." Three details cost people time: the stored user name must be <strong>lowercase</strong> (the check
+lowercases the input before comparing), the password is compared verbatim and stored in plain text,
+and without <code>TokenEncryptionSecret</code> the server uses a random per-process key, so every restart
+invalidates every session cookie.</p>
 <p>What you do in it:</p>
 <table>
 <thead>
@@ -1900,6 +2141,8 @@ printed to the application log — grab them from there.</p>
   middleware, so call it <em>after</em> your own <code>UseCors</code> / <code>UseHttpsRedirection</code> / <code>UseAuthentication</code>.</li>
 </ul>
 <h3 id="programmatic-embedded">Programmatic / embedded<a class="anchor" href="#programmatic-embedded" aria-label="Link to this section">#</a></h3>
+<p>Outside the server host — tests, an embedded store, an import tool — you build the <code>Datamodel</code>
+yourself and hand it to the store:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">datamodel</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Datamodel</span><span class="p">();</span><span class="w"></span>
 <span class="n">datamodel</span><span class="p">.</span><span class="n">AddNamespace</span><span class="p">&lt;</span><span class="n">IVenue</span><span class="p">&gt;();</span><span class="w">        </span><span class="c1">// every node &amp; relation type in that namespace</span>
 <span class="c1">// or, one at a time:</span>
@@ -1908,7 +2151,10 @@ printed to the application log — grab them from there.</p>
 </code></pre></div>
 
 <p><code>AddNamespace&lt;T&gt;</code> scans the assembly containing <code>T</code> and adds every type whose namespace matches
-<code>T</code>'s, skipping enums, static classes and anything marked <code>[Exclude]</code>.</p>
+<code>T</code>'s exactly, skipping enums, static classes and anything marked <code>[Exclude]</code>. <code>Add&lt;T&gt;</code> also pulls
+in every type <code>T</code> references, unless you pass <code>includeAllReferencedModels: false</code>. Adding to a
+datamodel that has already initialised throws — which is why <code>OnDatamodelInit</code> is the window for
+this when you are running under the server.</p>
 <h3 id="what-the-model-builder-validates">What the model builder validates<a class="anchor" href="#what-the-model-builder-validates" aria-label="Link to this section">#</a></h3>
 <p>At <strong>build time</strong> (you find out on startup):</p>
 <ul>
@@ -2097,38 +2343,131 @@ transaction plugin rather than scattered through your call sites:</p>
 <span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileUploadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="s">@&quot;/tmp/sentrum.jpg&quot;</span><span class="p">);</span><span class="w"></span>
 </code></pre></div>
 
-<p>Pass <code>noNodeUpdate: true</code> when bulk-uploading, then do one final <code>Update</code> at the end.</p>
+<p>The node has to be stored before any of this: <code>FileValue.PropertyPath</code> is what addresses the
+upload, and it is <code>null</code> on an unsaved node. The upload writes the bytes <em>and</em> the <code>FileValue</code> on
+the node, so there is no <code>Update</code> to make afterwards.</p>
 <h3 id="very-large-files">Very large files<a class="anchor" href="#very-large-files" aria-label="Link to this section">#</a></h3>
+<p>Files too large to push through a single request go up in chunks — initiate once, append the
+chunks, finalize:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">FileStoreSupportsMultipartUploads</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
-<span class="w">    </span><span class="kt">var</span><span class="w"> </span><span class="n">fileId</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">InitiatePartialUploadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;walkthrough.mp4&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="kt">var</span><span class="w"> </span><span class="n">uploadId</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">InitiateMultipartUploadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;walkthrough.mp4&quot;</span><span class="p">);</span><span class="w"></span>
 <span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="cm">/* more data */</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
-<span class="w">        </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">AppendPartialUploadAsync</span><span class="p">(</span><span class="n">fileId</span><span class="p">,</span><span class="w"> </span><span class="n">buffer</span><span class="p">,</span><span class="w"> </span><span class="n">length</span><span class="p">);</span><span class="w"></span>
+<span class="w">        </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">AppendMultipartUploadAsync</span><span class="p">(</span><span class="n">uploadId</span><span class="p">,</span><span class="w"> </span><span class="n">buffer</span><span class="p">,</span><span class="w"> </span><span class="n">length</span><span class="p">);</span><span class="w">   </span><span class="c1">// strictly in order</span>
 <span class="w">    </span><span class="p">}</span><span class="w"></span>
-<span class="w">    </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FinalizePartialUploadAsync</span><span class="p">(</span><span class="n">fileId</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="n">FileValue</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FinalizeMultipartUploadAsync</span><span class="p">(</span><span class="n">uploadId</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// …or, on failure: await db.CancelMultipartUploadAsync(uploadId);</span>
 <span class="p">}</span><span class="w"></span>
 </code></pre></div>
 
+<p>Four constraints are worth knowing before you build on this:</p>
+<ul>
+<li><strong>Chunks must be appended in order</strong>, one at a time per upload id. The store appends to an open
+file and folds each chunk into a running hash, so parallel or out-of-order appends corrupt both.
+Upload several <em>files</em> concurrently if you want throughput, not several chunks of one file.</li>
+<li><strong>The session lives in memory on that store instance</strong> and expires after 10 minutes of
+inactivity, at which point the partial file is deleted.</li>
+<li><strong>Not every file store supports it</strong> — only those implementing <code>IFileStoreMultiPartSupport</code>.
+That is what <code>FileStoreSupportsMultipartUploads</code> checks.</li>
+<li><strong>The <code>FileValue</code> is only written onto the node at finalize</strong>, so a cancelled or expired upload
+leaves the node untouched.</li>
+</ul>
+
 <h3 id="serving-and-converting">Serving and converting<a class="anchor" href="#serving-and-converting" aria-label="Link to this section">#</a></h3>
 <p>Ask the datastore for a URL, describing the output you want. Conversion runs asynchronously:</p>
-<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">.</span><span class="n">PropertyPath</span><span class="p">;</span><span class="w"></span>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">venue</span><span class="p">.</span><span class="n">Photo</span><span class="p">.</span><span class="n">PropertyPath</span><span class="p">!;</span><span class="w"></span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">adjustment</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
 <span class="w">    </span><span class="n">Width</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="m">1200</span><span class="p">,</span><span class="w"></span>
 <span class="w">    </span><span class="n">Height</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="m">630</span><span class="p">,</span><span class="w"></span>
-<span class="w">    </span><span class="n">CropMode</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">CropMode</span><span class="p">.</span><span class="n">Fill</span><span class="p">,</span><span class="w"></span>
-<span class="w">    </span><span class="n">RequestedFormat</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">FileFormat</span><span class="p">.</span><span class="n">WebP</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="n">CropMode</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">ImageCropMode</span><span class="p">.</span><span class="n">Fill</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="n">RequestedFormat</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">FileFormat</span><span class="p">.</span><span class="n">Webp</span><span class="p">,</span><span class="w"></span>
 <span class="w">    </span><span class="n">Quality</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="m">80</span><span class="w"></span>
 <span class="p">};</span><span class="w"></span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">);</span><span class="w"></span>
 
-<span class="kt">bool</span><span class="w"> </span><span class="n">ready</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">IsFileReady</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="n">startIfNotReady</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span><span class="w"></span>
+<span class="kt">bool</span><span class="w"> </span><span class="n">ready</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">IsFileReady</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="n">requestIfNot</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span><span class="w"></span>
 
-<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">TryGetProgressInfo</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">progress</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"></span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">TryGetConversionInfo</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">progress</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"></span>
 </code></pre></div>
 
 <p><code>FileAdjustmentVideo</code> is the equivalent for video, with <code>TargetBitRateInMbps</code>,
-<code>RequestedFormat = FileFormat.Mp4</code>, and so on.</p>
+<code>RequestedFormat = FileFormat.Mp4</code>, and so on. <code>FileAdjustmentMeta</code> asks for the conversion status
+and extracted metadata as JSON instead of a converted file.</p>
+<p>Three things follow from conversion being asynchronous. <strong>A URL you just built is usually not
+servable yet</strong> — the conversion is queued, and <code>IsFileReady</code> is how you find out. <strong>A variant that
+is not ready does not fail</strong>: the store serves a generated status placeholder in the requested
+format, which is why you must not cache a response the store reports as uncacheable. And
+<strong>converters have to be registered at startup</strong> — <code>options.FileConverters.Add(new
+SkiaImageConverter(1))</code> for images, <code>new FFMpegVideoConverter()</code> for video — or every conversion
+comes back as "No converter available".</p>
+<h3 id="the-middleware-that-serves-it">The middleware that serves it<a class="anchor" href="#the-middleware-that-serves-it" aria-label="Link to this section">#</a></h3>
+<p>Serving the URL is a middleware you write; nothing maps a file endpoint for you. It is about thirty
+lines around <code>TryParseUrlForContent</code> and <code>FileHandler.HandleFileAsync</code>. This is
+<code>examples/Website.Simple/MiddelWare.cs</code> in full:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Web</span><span class="p">;</span>
+
+<span class="k">namespace</span><span class="w"> </span><span class="nn">Website.Simple</span><span class="p">;</span>
+
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">RelatudeDBMiddleware</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">private</span><span class="w"> </span><span class="k">readonly</span><span class="w"> </span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">_next</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="nf">RelatudeDBMiddleware</span><span class="p">(</span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">next</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">_next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">next</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">Invoke</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">IsReady</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Path</span><span class="p">.</span><span class="n">Value</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">QueryString</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handleRequest</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">);</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">await</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">ExecuteAsync</span><span class="p">(</span><span class="n">http</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">await</span><span class="w"> </span><span class="n">_next</span><span class="p">.</span><span class="n">Invoke</span><span class="p">(</span><span class="n">http</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handleRequest</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">content</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Id</span><span class="p">.</span><span class="n">Target</span><span class="w"> </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Property</span><span class="w"> </span><span class="n">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">PropertyAdjusted</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handleFile</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">),</span>
+<span class="w">            </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Node</span><span class="w"> </span><span class="n">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">EmbeddedNode</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handlePage</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">),</span>
+<span class="w">            </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
+<span class="w">        </span><span class="p">};</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handleFile</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">FileHandler</span><span class="p">.</span><span class="n">HandleFileAsync</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Stream</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">FileName</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Attachment</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">ContentType</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Cacheable</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handlePage</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Results</span><span class="p">.</span><span class="n">Json</span><span class="p">(</span><span class="n">c</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Registered in <code>Program.cs</code> after the static-file middleware, because the default URL root for nodes
+and files is <code>/</code> and this therefore sees every request:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">app</span><span class="p">.</span><span class="n">UseDefaultFiles</span><span class="p">();</span>
+<span class="n">app</span><span class="p">.</span><span class="n">UseStaticFiles</span><span class="p">();</span>
+
+<span class="n">app</span><span class="p">.</span><span class="n">UseMiddleware</span><span class="o">&lt;</span><span class="n">RelatudeDBMiddleware</span><span class="o">&gt;</span><span class="p">();</span>
+
+<span class="n">app</span><span class="p">.</span><span class="n">StartRelatudeDB</span><span class="p">();</span>
+<span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBAdmin</span><span class="p">();</span>
+</code></pre></div>
+
+<p>Four things in there are load-bearing:</p>
+<ul>
+<li><strong>The <code>RelatudeDBRuntime.IsReady</code> gate.</strong> The store opens asynchronously, and without the gate
+requests arriving during startup throw instead of falling through.</li>
+<li><strong><code>Path.Value + QueryString</code>, not <code>Path</code>.</strong> The addressing payload lives in the query parameter,
+so parsing the path alone silently matches nothing.</li>
+<li><strong>Every non-match calls <code>_next</code>.</strong> <code>TryParseUrlForContent</code> returns <code>false</code> rather than throwing
+for URLs that are not the store's, which is what makes the fall-through clean.</li>
+<li><strong><code>handlePage</code> is yours to write.</strong> <code>UrlTarget.Node</code> and <code>EmbeddedNode</code> hand you
+<code>UrlContent.NodeData</code>; returning <code>Results.Json(c)</code> is the example being lazy, not a
+recommendation. Return your own view, or <code>null</code> to fall through to MVC/Razor routing.</li>
+</ul>
 <hr />
 <h1 id="part-iii-querying">Part III — Querying<a class="anchor" href="#part-iii-querying" aria-label="Link to this section">#</a></h1>
 <h2 id="17-query-anatomy">17. Query anatomy<a class="anchor" href="#17-query-anatomy" aria-label="Link to this section">#</a></h2>
@@ -2818,8 +3157,11 @@ your build, read the source — it is small and well commented:</p>
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Introduction", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": []}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Uploading files", "id": "16-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "17. Query anatomy", "id": "17-query-anatomy", "children": [{"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "18. Filtering with Where", "id": "18-filtering-with-where", "children": []}, {"level": 2, "text": "19. Text and semantic search", "id": "19-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "20. Geo queries", "id": "20-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "21. Relation filters", "id": "21-relation-filters", "children": []}, {"level": 2, "text": "22. Eager loading: Include and Preload", "id": "22-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "23. Graph traversal and shortest path", "id": "23-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "24. Sorting, paging and result sets", "id": "24-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "25. Aggregates", "id": "25-aggregates", "children": []}, {"level": 2, "text": "26. Faceted search", "id": "26-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "27. Cultures, visibility and scoped stores", "id": "27-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "28. Pitfalls and gotchas", "id": "28-pitfalls-and-gotchas", "children": []}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
-  var KEY = "relatude-manual-state-v1";
+  var NAV = [{"level": 1, "text": "Introduction", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": []}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Uploading files", "id": "16-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "17. Query anatomy", "id": "17-query-anatomy", "children": [{"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "18. Filtering with Where", "id": "18-filtering-with-where", "children": []}, {"level": 2, "text": "19. Text and semantic search", "id": "19-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "20. Geo queries", "id": "20-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "21. Relation filters", "id": "21-relation-filters", "children": []}, {"level": 2, "text": "22. Eager loading: Include and Preload", "id": "22-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "23. Graph traversal and shortest path", "id": "23-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "24. Sorting, paging and result sets", "id": "24-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "25. Aggregates", "id": "25-aggregates", "children": []}, {"level": 2, "text": "26. Faceted search", "id": "26-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "27. Cultures, visibility and scoped stores", "id": "27-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "28. Pitfalls and gotchas", "id": "28-pitfalls-and-gotchas", "children": []}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  // v2: the default collapse state changed, and the key is versioned so readers
+  // carrying a v1 payload get the new default rather than their old tree.
+  var KEY = "relatude-manual-state-v2";
+  var THEME_KEY = "relatude-manual-theme-v1";
 
   var $nav      = document.getElementById("nav");
   var $results  = document.getElementById("results");
@@ -2832,6 +3174,7 @@ your build, read the source — it is small and well commented:</p>
   var $totop    = document.getElementById("totop");
   var $snav     = document.getElementById("searchnav");
   var $snavlbl  = document.getElementById("searchnavlabel");
+  var $theme    = document.getElementById("theme");
 
   // ------------------------------------------------------------- storage
   // Every localStorage touch goes through these. Browsers throw on access — not
@@ -2844,6 +3187,40 @@ your build, read the source — it is small and well commented:</p>
   function lsSet(k, v) {
     try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; }
   }
+
+  // ------------------------------------------------------------- theme
+  // Three states, cycled by the button: auto (follow the OS) → light → dark.
+  // "auto" removes the attribute so the prefers-color-scheme rule takes over.
+  var THEMES = {
+    auto:  { icon: "◐", label: "Theme: auto (follows your system) — click for light" },
+    light: { icon: "☀", label: "Theme: light — click for dark" },
+    dark:  { icon: "☾", label: "Theme: dark — click to follow your system" }
+  };
+  var THEME_ORDER = ["auto", "light", "dark"];
+
+  var theme = lsGet(THEME_KEY);
+  if (theme !== "light" && theme !== "dark") theme = "auto";
+
+  function applyTheme(t) {
+    theme = t;
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    $theme.textContent = THEMES[t].icon;
+    $theme.title = THEMES[t].label;
+    $theme.setAttribute("aria-label", THEMES[t].label);
+  }
+
+  applyTheme(theme);
+
+  $theme.addEventListener("click", function () {
+    var next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+    applyTheme(next);
+    if (next === "auto") {
+      try { window.localStorage.removeItem(THEME_KEY); } catch (e) {}
+    } else {
+      lsSet(THEME_KEY, next);
+    }
+  });
 
   // ------------------------------------------------------------- state
   var state = { active: null, scroll: 0, collapsed: [], navScroll: 0 };
@@ -2914,39 +3291,57 @@ your build, read the source — it is small and well commented:</p>
     return node;
   }
 
-  function toggleNode(node, id) {
-    node.classList.toggle("collapsed");
-    var i = state.collapsed.indexOf(id);
-    if (node.classList.contains("collapsed")) { if (i === -1) state.collapsed.push(id); }
-    else if (i !== -1) { state.collapsed.splice(i, 1); }
+  // ---------------------------------------------------------- accordion
+  // At most one branch is open at a time. Whatever opens a node — a twisty
+  // click, a menu link, or scrolling into the section — everything that is not
+  // on the path to that node closes. `branches` is every node that actually has
+  // children; leaves have nothing to open and are skipped.
+  var branches = [];
+
+  // The chain of .node elements from `node` up to the nav root, inclusive. The
+  // DOM alternates .node > .kids > .node, so the non-.node links are skipped.
+  function ancestorSet(node) {
+    var keep = {};
+    var n = node;
+    while (n && n !== $nav) {
+      if (n.classList && n.classList.contains("node")) keep[n.dataset.id] = true;
+      n = n.parentElement;
+    }
+    return keep;
+  }
+
+  function applyOpen(keep) {
+    state.collapsed = [];
+    branches.forEach(function (n) {
+      var open = keep[n.dataset.id] === true;
+      n.classList.toggle("collapsed", !open);
+      if (!open) state.collapsed.push(n.dataset.id);
+    });
     save();
+  }
+
+  function openPathTo(id) {
+    var row = rowById[id];
+    applyOpen(row ? ancestorSet(row.parentElement) : {});
+  }
+
+  function toggleNode(node, id) {
+    var keep = ancestorSet(node);
+    // Opening closes every branch off the path; closing leaves the ancestors
+    // open and just shuts this one (and anything under it).
+    if (!node.classList.contains("collapsed")) delete keep[id];
+    applyOpen(keep);
   }
 
   NAV.forEach(function (part) { $nav.appendChild(buildNode(part, 1)); });
 
-  // Level-3 groups start collapsed on a first visit, so the tree stays scannable.
-  if (!hadState) {
-    Array.prototype.forEach.call($nav.querySelectorAll(".lvl2"), function (n) {
-      if (n.querySelector(".kids")) {
-        n.classList.add("collapsed");
-        state.collapsed.push(n.dataset.id);
-      }
-    });
-  }
+  branches = Array.prototype.slice.call($nav.querySelectorAll(".node")).filter(function (n) {
+    return !!n.querySelector(".kids");
+  });
 
-  function expandAncestors(id) {
-    var row = rowById[id];
-    if (!row) return;
-    var n = row.parentElement;
-    while (n && n !== $nav) {
-      if (n.classList && n.classList.contains("node") && n.classList.contains("collapsed")) {
-        n.classList.remove("collapsed");
-        var i = state.collapsed.indexOf(n.dataset.id);
-        if (i !== -1) state.collapsed.splice(i, 1);
-      }
-      n = n.parentElement;
-    }
-  }
+  // The whole tree starts collapsed on a first visit, so the reader sees just
+  // the parts and opens what they want.
+  if (!hadState) applyOpen({});
 
   // ------------------------------------------------------- active section
   var targets = [];
@@ -2956,11 +3351,14 @@ your build, read the source — it is small and well commented:</p>
 
   function setActive(id, scrollNav) {
     if (state.active === id && !scrollNav) return;
+    var changed = state.active !== id;
     state.active = id;
     Object.keys(rowById).forEach(function (k) { rowById[k].classList.remove("active"); });
     var row = rowById[id];
     if (row) {
-      expandAncestors(id);
+      // Only re-shuffle the tree when the section actually changed — the scroll
+      // handler calls this on every frame.
+      if (changed) openPathTo(id);
       row.classList.add("active");
       if (scrollNav) {
         var r = row.getBoundingClientRect();
@@ -2982,10 +3380,18 @@ your build, read the source — it is small and well commented:</p>
     return best;
   }
 
+  // A smooth scroll fires scroll events for every heading it travels past.
+  // Without this the accordion would flap open and shut the whole way to the
+  // target, so scroll-driven tracking pauses until the jump settles. The
+  // deadline is the fallback for browsers without scrollend.
+  var navLockUntil = 0;
+  window.addEventListener("scrollend", function () { navLockUntil = 0; });
+
   function goTo(id) {
     var el = document.getElementById(id);
     if (!el) return;
     var y = el.getBoundingClientRect().top + window.scrollY - 16;
+    navLockUntil = Date.now() + 800;
     window.scrollTo({ top: y, behavior: "smooth" });
     setActive(id, true);
     // Some browsers refuse replaceState on file:// origins; the deep link is a
@@ -3004,8 +3410,10 @@ your build, read the source — it is small and well commented:</p>
       var h = document.documentElement.scrollHeight - window.innerHeight;
       $progress.style.width = (h > 0 ? (window.scrollY / h) * 100 : 0) + "%";
       $totop.classList.toggle("show", window.scrollY > 700);
-      var id = currentHeading();
-      if (id) setActive(id, true);
+      if (Date.now() >= navLockUntil) {
+        var id = currentHeading();
+        if (id) setActive(id, true);
+      }
       save();
     });
   }, { passive: true });

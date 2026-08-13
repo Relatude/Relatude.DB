@@ -26,7 +26,7 @@ public static class Engines {
     public const string SqliteVec = "sqlitevec";
     /// <summary>USearch: an HNSW graph in native memory — the other main answer to approximate search.</summary>
     public const string USearch = "usearch";
-    public const long LowMemCacheBytes = 8L * 1024 * 1024;
+    public const long LowMemCacheBytes = 8L * 1024 * 1024; 
 
     //public static readonly string[] All = [Memory, Native, Hnsw, HnswLowMem, SqliteVec, USearch];
     // Both HNSW configurations by default: they are one implementation run two ways, and the pair is

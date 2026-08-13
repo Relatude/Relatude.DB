@@ -16,6 +16,8 @@ The write surface. `db` is `ctx.Database`, a `NodeStore`. Query methods are in `
 - [Uploading files](#uploading-files)
 - [Serving and converting files](#serving-and-converting-files)
 
+Files get a reference file of their own — `files-and-media.md` — covering chunked uploads, the full `FileAdjustment` catalogue, URL options and the download middleware. What follows here is the short version.
+
 ## Create and insert
 
 ```csharp
@@ -217,6 +219,8 @@ db.RegisterTransactionPlugin(myPlugin);   // INodeTransactionPlugin: BeforeExecu
 
 ## Uploading files
 
+The node must already be stored — `FileValue.PropertyPath` is `null` until then, and every upload path throws on it.
+
 ```csharp
 // From a local path, by expression — the readable form
 await db.FileUploadAsync<IVenue>(venue, v => v.Photo, @"/tmp/sentrum.jpg");
@@ -229,42 +233,46 @@ await db.FileUploadAsync<IVenue>(venue, v => v.Photo, bytes, "sentrum.jpg");
 await db.FileUploadAsync(venue.Photo, @"/tmp/sentrum.jpg");
 ```
 
-Pass `noNodeUpdate: true` when bulk-uploading, then do one final `Update` at the end.
+The upload writes the bytes *and* the `FileValue` on the node, so there is no `Update` to make afterwards.
 
 ### Very large files
 
 ```csharp
 if (db.FileStoreSupportsMultipartUploads(venue.Photo)) {
-    var fileId = await db.InitiatePartialUploadAsync(venue.Photo, "walkthrough.mp4");
+    var uploadId = await db.InitiateMultipartUploadAsync(venue.Photo, "walkthrough.mp4");
     while (/* more data */) {
-        await db.AppendPartialUploadAsync(fileId, buffer, length);
+        await db.AppendMultipartUploadAsync(uploadId, buffer, length);   // strictly in order
     }
-    await db.FinalizePartialUploadAsync(fileId);
+    FileValue value = await db.FinalizeMultipartUploadAsync(uploadId);
+    // …or, on failure: await db.CancelMultipartUploadAsync(uploadId);
 }
 ```
 
+Chunks must be appended in order, the session lives in memory on that store instance, and it expires after 10 minutes idle. Full treatment, plus the HTTP endpoints and the browser side: `files-and-media.md`.
+
 ## Serving and converting files
 
-Ask the datastore for a URL, describing the output you want. **Conversion runs asynchronously**, so check readiness rather than assuming the URL is immediately serveable.
+Ask the store for a URL, describing the output you want. **Conversion runs asynchronously**, so check readiness rather than assuming the URL is immediately serveable.
 
 ```csharp
-var path = venue.Photo.PropertyPath;
+var path = venue.Photo.PropertyPath!;
 
 var adjustment = new FileAdjustmentImage {
     Width = 1200,
     Height = 630,
-    CropMode = CropMode.Fill,
-    RequestedFormat = FileFormat.WebP,
+    CropMode = ImageCropMode.Fill,
+    RequestedFormat = FileFormat.Webp,
     Quality = 80
 };
 
-var url = db.Datastore.GetUrl(path, adjustment);
+var url = db.GetUrl(venue.Photo, adjustment);      // or db.Datastore.GetUrl(path, adjustment)
 
-bool ready = db.Datastore.IsFileReady(path, adjustment, startIfNotReady: true);
+bool ready = db.IsFileReady(path, adjustment, requestIfNot: true);
+db.EnsureConversionRequested(path, adjustment);
 
-if (db.Datastore.TryGetProgressInfo(path, adjustment, true, out var progress)) { … }
+if (db.TryGetConversionInfo(path, adjustment, queueConversionIfNotRequested: true, out var progress)) { … }
 ```
 
-`FileAdjustmentVideo` is the equivalent for video, with `TargetBitRateInMbps`, `RequestedFormat = FileFormat.Mp4`, and so on.
+`FileAdjustmentVideo` is the equivalent for video, with `TargetBitRateInMbps`, `RequestedFormat = FileFormat.Mp4`, and so on. `FileAdjustmentMeta` returns conversion status and metadata as JSON.
 
-Image and video converters are registered at startup — see `setup.md`.
+Image and video converters are registered at startup — see `setup.md`. Serving the URL is a middleware you write — see `files-and-media.md`.
