@@ -110,7 +110,6 @@ body {
 
 /* ------------------------------------------------------------------ header */
 header { text-align: center; }
-.logo { width: 236px; max-width: 62%; height: auto; display: block; margin: 0 auto; filter: var(--logo-filter); }
 .tagline {
   margin: 18px 0 0;
   font-size: 20px;
@@ -130,7 +129,7 @@ header { text-align: center; }
 .video {
   /* 5% wider than before, with the same 5% given back as side padding, so the clip
      still renders at 62% of the column but now has a gutter around it. */
-  margin: 22px auto 0;
+  margin: 0 auto;
   width: 67%;
   padding: 0 2.5%;
   overflow: hidden;
@@ -208,9 +207,22 @@ header { text-align: center; }
   white-space: nowrap;
 }
 
+/* -------------------------------------------------------------- logo (foot) */
+.logo-link {
+  display: block;
+  width: fit-content;
+  max-width: 60%;   /* the cap lives here: a % max-width on the image itself would
+                       resolve against this shrink-to-fit box and halve the logo */
+  margin: 46px auto 0;
+  opacity: .85;
+  transition: opacity .15s ease;
+}
+.logo-link:hover { opacity: 1; }
+.logo { width: 189px; max-width: 100%; height: auto; display: block; filter: var(--logo-filter); }
+
 /* ------------------------------------------------------------------ footer */
 footer {
-  margin: 46px 0 0;
+  margin: 30px 0 0;
   padding-top: 22px;
   border-top: 1px solid var(--border);
   text-align: center;
@@ -272,6 +284,10 @@ footer a:hover { color: var(--fg); }
     <a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a> &middot;
     <a href="https://relatude.com">relatude.com</a>
   </footer>
+
+  <a class="logo-link" href="https://relatude.com" aria-label="relatude.com">
+    <img class="logo" src="logo-relatude.svg" alt="Relatude">
+  </a>
 
 </div>
 
