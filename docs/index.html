@@ -36,6 +36,9 @@
   --fg-dim: #656d76;
   --fg-faint: #8b949e;
   --border: #d8dce3;
+  --border-soft: #e8ebef;
+  --border-btn: #b7bfcb;   /* buttons carry a stronger edge than the other panels */
+  --bg-code: #f6f8fa;
   --hover: #ececf0;
   --video-filter: brightness(1.07595);
   --logo-filter: none;
@@ -51,6 +54,9 @@
     --fg-dim: #9aa3b2;
     --fg-faint: #6e7787;
     --border: #2a2f3a;
+    --border-soft: #21252e;
+    --border-btn: #454d5c;
+    --bg-code: #171a21;
     --hover: #1e222b;
     --video-filter: url(#video-dark);
     --logo-filter: invert(1);
@@ -64,6 +70,9 @@
   --fg-dim: #9aa3b2;
   --fg-faint: #6e7787;
   --border: #2a2f3a;
+  --border-soft: #21252e;
+  --border-btn: #454d5c;
+  --bg-code: #171a21;
   --hover: #1e222b;
   --video-filter: url(#video-dark);
   --logo-filter: invert(1);
@@ -119,8 +128,11 @@ header { text-align: center; }
 
 /* ------------------------------------------------------------------- video */
 .video {
+  /* 5% wider than before, with the same 5% given back as side padding, so the clip
+     still renders at 62% of the column but now has a gutter around it. */
   margin: 22px auto 0;
-  width: 62%;
+  width: 67%;
+  padding: 0 2.5%;
   overflow: hidden;
   background: var(--bg);
 }
@@ -132,17 +144,17 @@ header { text-align: center; }
   opacity: 1;
   transition: opacity .18s ease;
   /* Feather all four edges to transparent so the clip melts into the page instead
-     of ending on a hard rectangle. The two gradients are intersected: 11% of the
-     width and 20% of the height are the same number of pixels at 16:9, so the
+     of ending on a hard rectangle. The two gradients are intersected: 5.5% of the
+     width and 10% of the height are the same number of pixels at 16:9, so the
      fade is even all the way round. The mask is applied after the colour filter,
      so the soft edge reveals the page ground in either theme. */
   -webkit-mask-image:
-    linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%),
-    linear-gradient(to bottom, transparent 0, #000 20%, #000 80%, transparent 100%);
+    linear-gradient(to right, transparent 0, #000 5.5%, #000 94.5%, transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 10%, #000 90%, transparent 100%);
   -webkit-mask-composite: source-in;
   mask-image:
-    linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%),
-    linear-gradient(to bottom, transparent 0, #000 20%, #000 80%, transparent 100%);
+    linear-gradient(to right, transparent 0, #000 5.5%, #000 94.5%, transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 10%, #000 90%, transparent 100%);
   mask-composite: intersect;
 }
 
@@ -163,7 +175,7 @@ header { text-align: center; }
 }
 .btn {
   padding: 9px 18px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-btn);
   border-radius: 9px;
   background: var(--surface);
   color: var(--fg);
@@ -179,20 +191,22 @@ header { text-align: center; }
 .btn .arrow { font-size: 11px; color: var(--fg-faint); margin-left: 5px; }
 
 /* ------------------------------------------------------------------ install */
+/* Same treatment as a code block in intro.html / manual.html: --bg-code ground,
+   soft border, 9px radius, 12.8px mono at 1.55. */
 .install {
   margin: 12px 0 0;
-  padding: 11px 14px;
+  padding: 13px 16px;
   text-align: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: 9px;
-  background: var(--surface);
+  background: var(--bg-code);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 12.8px;
+  line-height: 1.55;
   color: var(--fg);
   overflow-x: auto;
   white-space: nowrap;
 }
-.install .prompt { color: var(--fg-faint); user-select: none; }
 
 /* ------------------------------------------------------------------ footer */
 footer {
@@ -220,8 +234,6 @@ footer a:hover { color: var(--fg); }
 <div class="wrap">
 
   <header>
-    <img class="logo" src="logo-relatude.svg" alt="Relatude.DB">
-
     <div class="video">
       <!-- No loop attribute: the script below restarts it after a pause on the last frame. -->
       <video id="clip" src="relatude.db.mp4" autoplay muted playsinline preload="auto"></video>
@@ -252,7 +264,7 @@ footer a:hover { color: var(--fg); }
     <a class="btn" href="https://relatude.com">relatude.com</a>
   </nav>
 
-    <div class="install"><span class="prompt">$ </span>dotnet add package Relatude.DB.Server</div>
+    <div class="install">dotnet add package Relatude.DB.Server</div>
   </div>
 
   <footer>
