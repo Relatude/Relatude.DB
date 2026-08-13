@@ -8,9 +8,10 @@ object back, and the links between objects are real, navigable relations instead
 have to join on.
 
 It runs in-process inside your ASP.NET Core app, so a query is a method call — typically
-sub-millisecond, because the graph is held in memory and persisted to an append-only log. Full-text
-(BM25) search, semantic/vector search, faceted search, file and image handling and an admin UI are
-part of the engine, not extra services you have to run.
+sub-millisecond, because the graph is held in memory and persisted to an append-only log. (A remote
+server setup is supported too, and you can move to it later on — the model and the queries stay the
+same.) Full-text (BM25) search, semantic/vector search, faceted search, file and image handling and
+an admin UI are part of the engine, not extra services you have to run.
 
 > **Pre-1.0.** The public API still moves in small ways. Source and examples:
 > [github.com/Relatude/Relatude.DB](https://github.com/Relatude/Relatude.DB)
