@@ -9,6 +9,10 @@ using VectorIndexBenchmarks.Harness;
 //   native        Relatude NativeVectorIndex   — disk segments, IVF clusters, byte-budgeted block cache
 //   hnsw          Relatude HnswVectorIndex     — disk records, HNSW graph, upper layers in memory
 //   hnsw-lowmem   the same in LowMemoryMode    — the graph on disk too, read through small caches
+//   hnsw2         Relatude Hnsw2VectorIndex    — the graph resident in flat int8 arenas, floats
+//                                                mirrored when the budget allows, else re-score reads
+//   hnsw2-lowmem  the same in LowMemoryMode    — the graph on disk behind a small cache of
+//                                                quarter-size routing records
 //   sqlitevec     sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
 //   usearch       USearch                      — an HNSW graph in native memory, top-k only
 //
@@ -35,7 +39,7 @@ using VectorIndexBenchmarks.Harness;
 //   --hnsw-ef=64                 search effort (expansionSearch) — their accuracy dial
 //   --min-sim=<f>                the similarity floor the searches pass down (default: the
 //                                similarity of the 500th exact neighbour, ~500 candidates)
-//   --engines=all|<list>         all = memory,native,hnsw,hnsw-lowmem,usearch; also native-exact,
+//   --engines=all|<list>         all = memory,native,hnsw,hnsw-lowmem,hnsw2,hnsw2-lowmem,usearch; also native-exact,
 //                                native-lowmem and sqlitevec. sqlite-vec scans every vector on every
 //                                query, and hnsw-lowmem indexes at a fraction of the speed, so both
 //                                dominate the runtime — drop them for quick iterations.

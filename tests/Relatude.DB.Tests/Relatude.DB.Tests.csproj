@@ -29,6 +29,7 @@
 	  <ProjectReference Include="..\..\src\Relatude.DB.TextIndex\Relatude.DB.TextIndex.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.VectorIndexHNSW\Relatude.DB.VectorIndexHNSW.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.VectorIndexHNSW2\Relatude.DB.VectorIndexHNSW2.csproj" />
 	</ItemGroup>
 
 </Project>
