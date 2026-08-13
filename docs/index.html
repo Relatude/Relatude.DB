@@ -208,24 +208,24 @@ header { text-align: center; }
 }
 
 /* -------------------------------------------------------------- logo (foot) */
+/* Sits at the right end of the footer row: sized so the wordmark's letters are
+   about the height of the 12px text opposite it, and always at full strength. */
 .logo-link {
   display: block;
-  width: fit-content;
-  max-width: 60%;   /* the cap lives here: a % max-width on the image itself would
-                       resolve against this shrink-to-fit box and halve the logo */
-  margin: 46px auto 0;
-  opacity: .85;
-  transition: opacity .15s ease;
 }
-.logo-link:hover { opacity: 1; }
-.logo { width: 189px; max-width: 100%; height: auto; display: block; filter: var(--logo-filter); }
+.logo { width: 66px; height: auto; display: block; filter: var(--logo-filter); }
 
 /* ------------------------------------------------------------------ footer */
 footer {
-  margin: 30px 0 0;
-  padding-top: 22px;
+  margin: 46px 0 0;
+  padding: 9px 10px 0;   /* the small side padding sets the text and the logo just
+                            inside the ends of the rule, not flush with them */
   border-top: 1px solid var(--border);
-  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
   font-size: 12px;
   color: var(--fg-faint);
 }
@@ -236,6 +236,9 @@ footer a:hover { color: var(--fg); }
   .wrap { padding: 48px 20px 60px; }
   .tagline { font-size: 18px; }
   .video { width: 100%; }   /* 62% of a phone screen is too small to read */
+  /* the footer row wraps here, so centre both lines instead of pinning the logo
+     to the left edge of its own line */
+  footer { justify-content: center; text-align: center; }
 }
 </style>
 </head>
@@ -280,14 +283,12 @@ footer a:hover { color: var(--fg); }
   </div>
 
   <footer>
-    Pre-1.0 &mdash; the public API still moves in small ways. &middot;
-    <a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a> &middot;
-    <a href="https://relatude.com">relatude.com</a>
+    <span>
+      Pre-1.0 &mdash; the public API still moves in small ways. &middot;
+      <a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a>
+    </span>
+    <a class="logo-link" href="https://relatude.com" aria-label="relatude.com"><img class="logo" src="logo-relatude.svg" alt="Relatude"></a>
   </footer>
-
-  <a class="logo-link" href="https://relatude.com" aria-label="relatude.com">
-    <img class="logo" src="logo-relatude.svg" alt="Relatude">
-  </a>
 
 </div>
 
