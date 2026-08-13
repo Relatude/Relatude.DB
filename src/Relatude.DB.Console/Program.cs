@@ -18,7 +18,7 @@ public static class Program {
             System.Console.Error.WriteLine("error: " + err.Message);
             return 2;
         }
-        Con.Initialize(args.Flag("quiet"), args.Flag("verbose"));
+        Output.Initialize(args.Flag("quiet"), args.Flag("verbose"));
         if (args.Command == "help") {
             Help.Write(args.Positional.FirstOrDefault());
             return 0;
@@ -34,20 +34,20 @@ public static class Program {
         try {
             return await runAsync(args);
         } catch (UsageException err) {
-            Con.Error(err.Message);
-            Con.Info(Help.Knows(args.Command) ? "Try: relatude help " + args.Command : "Try: relatude help");
+            Output.Error(err.Message);
+            Output.Info(Help.Knows(args.Command) ? "Try: relatude help " + args.Command : "Try: relatude help");
             return 2;
         } catch (CliException err) {
-            Con.Error(err.Message);
-            if (Con.Verbose && err.InnerException != null) Con.Info(err.InnerException.ToString());
+            Output.Error(err.Message);
+            if (Output.Verbose && err.InnerException != null) Output.Info(err.InnerException.ToString());
             return 1;
         } catch (Exception err) {
-            Con.Error(err.Message);
-            if (Con.Verbose) Con.Info(err.ToString());
-            else Con.Info("Run again with --verbose for the full exception.");
+            Output.Error(err.Message);
+            if (Output.Verbose) Output.Info(err.ToString());
+            else Output.Info("Run again with --verbose for the full exception.");
             return 1;
         } finally {
-            Con.Flush();
+            Output.Flush();
         }
     }
 
@@ -69,8 +69,8 @@ public static class Program {
     static Task<int> version(CommandArgs args) {
         args.Accept();
         var v = typeof(Relatude.DB.Nodes.NodeStore).Assembly.GetName().Version?.ToString() ?? "unknown";
-        if (args.Flag("json")) Con.Json(new { Version = v });
-        else Con.WriteLine("Relatude.DB " + v);
+        if (args.Flag("json")) Output.Json(new { Version = v });
+        else Output.WriteLine("Relatude.DB " + v);
         return Task.FromResult(0);
     }
 }

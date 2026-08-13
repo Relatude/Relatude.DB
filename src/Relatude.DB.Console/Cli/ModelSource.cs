@@ -59,7 +59,7 @@ public static class ModelSource {
                     + string.Join(", ", assemblies.Select(a => a.GetName().Name))
                     + ". Name them with --namespace or --model-type.");
             }
-            Con.Info($"Detected {added} model type(s) in {string.Join(", ", assemblies.Select(a => a.GetName().Name))}."
+            Output.Info($"Detected {added} model type(s) in {string.Join(", ", assemblies.Select(a => a.GetName().Name))}."
                 + " Use --namespace or --model-type to select them explicitly.");
             return;
         }
@@ -118,7 +118,7 @@ public static class ModelSource {
             return assembly.GetTypes();
         } catch (ReflectionTypeLoadException err) { // a missing dependency should not hide the types that did load
             var missing = err.LoaderExceptions.Select(e => e?.Message).Where(m => m != null).Distinct().Take(3);
-            Con.Warn("Some types in " + assembly.GetName().Name + " could not be loaded: " + string.Join(" ", missing));
+            Output.Warn("Some types in " + assembly.GetName().Name + " could not be loaded: " + string.Join(" ", missing));
             return err.Types.Where(t => t != null)!;
         }
     }
@@ -177,7 +177,7 @@ public static class ModelSource {
             else throw new UsageException("--source not found: " + full);
         }
         if (files.Count == 0) throw new UsageException("No .cs files found in " + string.Join(", ", sources));
-        Con.Info($"Compiling {files.Count} source file(s) in memory.");
+        Output.Info($"Compiling {files.Count} source file(s) in memory.");
         var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
         var trees = files.Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, f))
             .Prepend(CSharpSyntaxTree.ParseText(ImplicitUsings, parseOptions, "ImplicitUsings.g.cs"));

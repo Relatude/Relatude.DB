@@ -2736,9 +2736,8 @@ one go** — that is the built-in reference, and it is the same text this sectio
 The query given to `query` is the *text* form of the query API — the form the HTTP API and the admin
 UI send. It reads like the typed API of [Part III](#part-iii--querying): a node type followed by
 method calls, with `--param` values referenced by name. Results are printed as JSON in the same shape
-a client would receive. One shape does not survive that trip: projecting into an anonymous object
-(`Select(a => new { … })`) needs a type to construct and there is none when the result is JSON, so
-select a single member or query the nodes and read the members off the result.
+a client would receive; a projection (`Select(a => new { a.Name, a.Price })`) becomes one JSON object
+per row, keyed by the member names as they were written in the query.
 
 ### What it does not do
 

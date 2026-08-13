@@ -3191,9 +3191,8 @@ one go</strong> — that is the built-in reference, and it is the same text this
 <p>The query given to <code>query</code> is the <em>text</em> form of the query API — the form the HTTP API and the admin
 UI send. It reads like the typed API of <a href="#part-iii-querying">Part III</a>: a node type followed by
 method calls, with <code>--param</code> values referenced by name. Results are printed as JSON in the same shape
-a client would receive. One shape does not survive that trip: projecting into an anonymous object
-(<code>Select(a =&gt; new { … })</code>) needs a type to construct and there is none when the result is JSON, so
-select a single member or query the nodes and read the members off the result.</p>
+a client would receive; a projection (<code>Select(a =&gt; new { a.Name, a.Price })</code>) becomes one JSON object
+per row, keyed by the member names as they were written in the query.</p>
 <h3 id="what-it-does-not-do">What it does not do<a class="anchor" href="#what-it-does-not-do" aria-label="Link to this section">#</a></h3>
 <p><code>insert</code> sets scalar members only: text, numbers, bool, guid, dates, timespan, enums (by name or
 number), arrays of those, and geo coordinates as <code>[latitude, longitude]</code>. Relations, references,

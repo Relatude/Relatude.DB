@@ -60,25 +60,25 @@ public static class InitCommand {
         File.WriteAllText(path, SettingsReader.Serialize(settings));
 
         if (args.Flag("json")) {
-            Con.Json(new { File = path, Database = container.Name, container.Id, DataFolder = Path.Combine(target.Root, dataPath) });
+            Output.Json(new { File = path, Database = container.Name, container.Id, DataFolder = Path.Combine(target.Root, dataPath) });
             return Task.FromResult(0);
         }
-        Con.WriteLine("Wrote " + path);
-        Con.Table([
+        Output.WriteLine("Wrote " + path);
+        Output.Table([
             ("database", container.Name ?? "-"),
             ("data folder", Path.Combine(target.Root, dataPath)),
             ("model", modelNamespace == null ? "not set" : modelNamespace + " in " + (assemblyName ?? "(entry assembly)")),
             ("admin user", args.Get("user") == null ? "not set" : args.Get("user")!),
         ]);
-        Con.WriteLine();
+        Output.WriteLine();
         if (modelNamespace == null) {
-            Con.WriteLine("Next: add your model namespace to DatamodelSources, or register it in code with");
-            Con.WriteLine("options.OnDatamodelInit. Re-run with --namespace <ns> --force to have it written for you.");
+            Output.WriteLine("Next: add your model namespace to DatamodelSources, or register it in code with");
+            Output.WriteLine("options.OnDatamodelInit. Re-run with --namespace <ns> --force to have it written for you.");
         } else {
-            Con.WriteLine("Next: check it with \"relatude validate\", then open it with \"relatude info\".");
+            Output.WriteLine("Next: check it with \"relatude validate\", then open it with \"relatude info\".");
         }
         if (args.Get("user") == null) {
-            Con.WriteLine("MasterUserName and MasterPassword are empty: the admin UI cannot be logged into until they are set.");
+            Output.WriteLine("MasterUserName and MasterPassword are empty: the admin UI cannot be logged into until they are set.");
         }
         return Task.FromResult(0);
     }

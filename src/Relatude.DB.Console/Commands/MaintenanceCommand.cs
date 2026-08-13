@@ -29,36 +29,36 @@ public static class MaintenanceCommand {
         switch (action) {
             case "flush":
                 await store.MaintenanceAsync(MaintenanceAction.FlushDisk);
-                Con.WriteLine("Flushed to disk.");
+                Output.WriteLine("Flushed to disk.");
                 break;
             case "truncate-log": {
                     if (before.LogTruncatableActions == 0) {
-                        Con.WriteLine("Nothing to truncate: the log holds the current state only.");
+                        Output.WriteLine("Nothing to truncate: the log holds the current state only.");
                         break;
                     }
-                    Con.Info("Truncating " + Con.Bytes(before.LogFileSize) + " of log, "
+                    Output.Info("Truncating " + Output.Bytes(before.LogFileSize) + " of log, "
                         + before.LogTruncatableActions.ToString("N0") + " action(s) can go...");
                     var newKey = datastore.FileKeys.WAL_NextFileKey(datastore.IO);
                     datastore.RewriteStore(true, newKey, datastore.IO); // hot swap: the store continues on the new file
                     var deleted = args.Flag("delete-old") ? datastore.DeleteOldLogs() : 0;
                     var after = host.Info();
-                    Con.WriteLine("Log truncated: " + Con.Bytes(before.LogFileSize) + " -> " + Con.Bytes(after.LogFileSize)
+                    Output.WriteLine("Log truncated: " + Output.Bytes(before.LogFileSize) + " -> " + Output.Bytes(after.LogFileSize)
                         + "  (" + (after.LogFileKey ?? newKey) + ")");
-                    Con.WriteLine(deleted > 0 ? deleted + " old log file(s) deleted."
+                    Output.WriteLine(deleted > 0 ? deleted + " old log file(s) deleted."
                         : "The previous log file is kept" + (args.Flag("delete-old") ? "." : ", pass --delete-old to remove it."));
                     break;
                 }
             case "save-state":
                 datastore.SaveIndexStates(false, false);
-                Con.WriteLine("State and index files written, so the next start reads them instead of replaying the log.");
+                Output.WriteLine("State and index files written, so the next start reads them instead of replaying the log.");
                 break;
             case "update-caches":
                 await store.MaintenanceAsync(MaintenanceAction.UpdatePersistedCaches);
-                Con.WriteLine("Persisted caches updated.");
+                Output.WriteLine("Persisted caches updated.");
                 break;
             case "clear-cache":
                 await store.MaintenanceAsync(MaintenanceAction.ClearCache | MaintenanceAction.GarbageCollect);
-                Con.WriteLine("Caches cleared.");
+                Output.WriteLine("Caches cleared.");
                 break;
             case "backup":
                 backup(args, host);
@@ -77,11 +77,11 @@ public static class MaintenanceCommand {
         var truncate = args.Flag("truncate");
         var keepForever = args.Flag("keep-forever");
         var fileKey = datastore.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
-        Con.Info("Writing backup to " + fileKey + "...");
+        Output.Info("Writing backup to " + fileKey + "...");
         if (truncate) datastore.RewriteStore(false, fileKey, io); // rewritten: current state only
         else datastore.CopyStore(fileKey, io); // copied: the whole history
         var size = io.GetFileSizeOrZeroIfUnknown(fileKey);
-        Con.WriteLine("Backup written: " + fileKey + (size > 0 ? "  " + Con.Bytes(size) : string.Empty)
+        Output.WriteLine("Backup written: " + fileKey + (size > 0 ? "  " + Output.Bytes(size) : string.Empty)
             + (truncate ? "  (current state only)" : "  (full history)")
             + (keepForever ? "  (excluded from backup rotation)" : string.Empty));
     }
@@ -114,10 +114,10 @@ public static class MaintenanceCommand {
                 if (io.DoesNotExistOrIsEmpty(key)) continue;
                 io.DeleteFileIfItExists(key);
                 deleted++;
-                Con.Detail("Deleted " + key);
+                Output.Detail("Deleted " + key);
             }
         }
-        Con.WriteLine("Deleted " + deleted + " state and index file(s). The next start rebuilds them from the log.");
+        Output.WriteLine("Deleted " + deleted + " state and index file(s). The next start rebuilds them from the log.");
         return 0;
     }
 }

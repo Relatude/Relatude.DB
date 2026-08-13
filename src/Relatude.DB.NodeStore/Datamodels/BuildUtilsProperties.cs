@@ -494,6 +494,18 @@ internal static class BuildUtilsProperties {
         }
         return true;
     }
+    // The nested side classes (One, Many, OneFrom, ManyTo...) are nested inside the generic relation class,
+    // so their generic arguments are the relation's ([TFrom, TTo]), not the side's. Only OneProperty<T> /
+    // ManyProperty<T> further up the base chain names the type this particular side relates to.
+    static Type getRelatedTypeOfRelationProperty(Type propValueType, MemberInfo m) {
+        for (var t = propValueType; t != null; t = t.BaseType) {
+            if (!t.IsGenericType) continue;
+            var def = t.GetGenericTypeDefinition();
+            if (def == typeof(OneProperty<>) || def == typeof(ManyProperty<>)) return t.GetGenericArguments()[0];
+        }
+        throw new Exception("Could not determine type of related for " + m.DeclaringType?.FullName + "." + m.Name
+            + " - " + propValueType.FullName + " does not inherit from " + nameof(OneProperty<object>) + " or " + nameof(ManyProperty<object>) + ".");
+    }
     static RelationPropertyModel getRelationPropertyModel(RelationPropertyAttribute attr, MemberInfo m, Type valueType) {
         var r = new RelationPropertyModel();
         r.TextIndexRelatedContent = attr.TextIndexRelatedContent;
@@ -509,14 +521,11 @@ internal static class BuildUtilsProperties {
             }
             var propValueType = pi.PropertyType; // FromToNodes: inherits from OneProperty / ManyProperty
             r.FromTargetToSource = isRelationPropertyFromTargetToSource(relationType, propValueType);
-            var propValueTypeBaseType = propValueType.BaseType;
-            if (propValueTypeBaseType == null) throw new Exception("Could not determine base type for " + m.DeclaringType?.FullName + "." + m.Name + " - " + propValueType.FullName + ".");
-            typeOfRelated = propValueTypeBaseType.GetGenericArguments()[0];
+            typeOfRelated = getRelatedTypeOfRelationProperty(propValueType, m);
             if (valueType.InheritsFromOrImplements<IManyProperty>()) {
                 r.IsMany = true;
             } else if (valueType.InheritsFromOrImplements<IOneProperty>()) {
                 r.IsMany = false;
-                typeOfRelated = m.DeclaringType!;
             } else {
                 throw new Exception("Could not determine relation type for " + m.DeclaringType?.FullName + "." + m.Name);
             }

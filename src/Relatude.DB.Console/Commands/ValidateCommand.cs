@@ -107,7 +107,7 @@ public static class ValidateCommand {
 
     static int report(CommandArgs args, List<string> problems, List<string> warnings, Datamodel? dm, Target target) {
         if (args.Flag("json")) {
-            Con.Json(new {
+            Output.Json(new {
                 Valid = problems.Count == 0,
                 Problems = problems,
                 Warnings = warnings,
@@ -118,20 +118,20 @@ public static class ValidateCommand {
         }
         if (dm != null) {
             var filter = new SchemaFilter { IncludeNative = args.Flag("include-native") };
-            Con.WriteLine($"{SchemaView.NodeTypes(dm, filter).Count()} node type(s), "
+            Output.WriteLine($"{SchemaView.NodeTypes(dm, filter).Count()} node type(s), "
                 + $"{SchemaView.Relations(dm, filter).Count()} relation(s), {dm.Properties.Count} propert(ies)");
         }
-        foreach (var p in problems) Con.WriteLine("  problem  " + p);
-        foreach (var w in warnings) Con.WriteLine("  warning  " + w);
-        Con.WriteLine();
+        foreach (var p in problems) Output.WriteLine("  problem  " + p);
+        foreach (var w in warnings) Output.WriteLine("  warning  " + w);
+        Output.WriteLine();
         if (problems.Count == 0) {
-            Con.WriteLine(warnings.Count == 0
+            Output.WriteLine(warnings.Count == 0
                 ? "The model is valid."
                 : "The model is valid, with " + warnings.Count + " warning(s).");
             return 0;
         }
-        Con.WriteLine(problems.Count + " problem(s) found. The database will not open with this model.");
-        if (dm == null) Con.Info(target.Describe()); // nothing was read: say where it looked
+        Output.WriteLine(problems.Count + " problem(s) found. The database will not open with this model.");
+        if (dm == null) Output.Info(target.Describe()); // nothing was read: say where it looked
         return 1;
     }
 }

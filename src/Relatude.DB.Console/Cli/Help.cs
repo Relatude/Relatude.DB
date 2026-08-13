@@ -93,9 +93,8 @@ public static class Help {
                                     passed as such, everything else as a string
             --raw                   do not indent the JSON
 
-          Projecting into an anonymous object (Select(a => new { ... })) is not supported when the
-          result comes back as JSON, which is the case here and for the HTTP API. Select one member
-          (Select(a => a.Name)), or query the nodes and read the members off the result.
+          A projection (Select(a => new { a.Name, a.Price })) comes back as a JSON object per row,
+          with the member names exactly as they were written in the query.
         {{databaseOptions}}
         {{modelOptions}}
         {{globalOptions}}
@@ -230,12 +229,12 @@ public static class Help {
 
     /// <summary>Every command's help in one go: "relatude help all", the whole reference in one read.</summary>
     static void writeAll() {
-        Con.WriteLine("relatude - complete command reference");
+        Output.WriteLine("relatude - complete command reference");
         foreach (var (name, text) in _commands) {
-            Con.WriteLine();
-            Con.WriteLine(new string('-', 78));
-            Con.WriteLine();
-            Con.WriteLine(text);
+            Output.WriteLine();
+            Output.WriteLine(new string('-', 78));
+            Output.WriteLine();
+            Output.WriteLine(text);
         }
     }
 
@@ -245,14 +244,14 @@ public static class Help {
             return;
         }
         if (command != null && _commands.TryGetValue(command, out var text)) {
-            Con.WriteLine(text);
+            Output.WriteLine(text);
             return;
         }
         if (command != null && command.Length > 0) {
-            Con.WriteLine("No help for \"" + command + "\".");
-            Con.WriteLine();
+            Output.WriteLine("No help for \"" + command + "\".");
+            Output.WriteLine();
         }
-        Con.WriteLine($"""
+        Output.WriteLine($"""
         relatude - command line tool for Relatude.DB
 
         Usage: relatude <command> [options]

@@ -20,10 +20,10 @@ public static class QueryCommand {
         var parameters = args.GetAll("param").Select(parseParameter).ToList();
         var target = Target.Resolve(args);
         using var host = await StoreHost.OpenAsync(args, target);
-        Con.Detail("Query: " + query);
+        Output.Detail("Query: " + query);
         var options = args.Flag("raw")
-            ? new JsonSerializerOptions(Con.JsonOptions) { WriteIndented = false }
-            : Con.JsonOptions;
+            ? new JsonSerializerOptions(Output.JsonOptions) { WriteIndented = false }
+            : Output.JsonOptions;
         string json;
         try {
             // the result is enumerated lazily, so serializing is still part of running the query
@@ -32,7 +32,7 @@ public static class QueryCommand {
         } catch (Exception err) {
             throw new CliException(describe(err, host, query), err);
         }
-        Con.WriteLine(json);
+        Output.WriteLine(json);
         return 0;
     }
 
@@ -59,15 +59,6 @@ public static class QueryCommand {
     static string describe(Exception err, StoreHost host, string query) {
         var message = err.Message;
         for (var e = err.InnerException; e != null; e = e.InnerException) message += Environment.NewLine + e.Message;
-        var keyNotFound = err is KeyNotFoundException
-            || (err as System.Text.Json.JsonException)?.InnerException is KeyNotFoundException;
-        if (keyNotFound && query.Contains("new", StringComparison.OrdinalIgnoreCase)) {
-            // the JSON result path builds the projection through a constructor it does not have for an
-            // anonymous type, so this shape only works from typed code
-            message += Environment.NewLine + "Projecting into an anonymous object (Select(a => new { ... })) is not "
-                + "supported when the result is returned as JSON. Select a single member instead "
-                + "(Select(a => a.Name)), or query the nodes and pick the members from the result.";
-        }
         var firstWord = new string([.. query.TakeWhile(char.IsLetterOrDigit)]);
         if (firstWord.Length > 0 && !host.Datamodel.NodeTypesByShortName.ContainsKey(firstWord)
             && !host.Datamodel.NodeTypesByFullName.ContainsKey(firstWord)) {

@@ -34,12 +34,12 @@ public static class CodeGenCommand {
         var relationIds = relations.Select(r => r.Id).ToHashSet();
         var code = ModelGen.GenerateCSharpModelCode(dm, attributes, t => ids.Contains(t.Id), r => relationIds.Contains(r.Id));
         if (outFile == null) {
-            Con.Write(code);
+            Output.Write(code);
             return Task.FromResult(0);
         }
         var path = Path.GetFullPath(outFile, Directory.GetCurrentDirectory());
         write(path, code, args.Flag("force"));
-        Con.Info($"Wrote {nodeTypes.Count} node type(s) and {relations.Count} relation(s) to {path}");
+        Output.Info($"Wrote {nodeTypes.Count} node type(s) and {relations.Count} relation(s) to {path}");
         return Task.FromResult(0);
     }
 
@@ -58,7 +58,7 @@ public static class CodeGenCommand {
             write(Path.Combine(folder, r.CodeName + ".cs"), code, force);
             written++;
         }
-        Con.Info($"Wrote {written} file(s) to {folder}");
+        Output.Info($"Wrote {written} file(s) to {folder}");
         return 0;
     }
     static void write(string path, string code, bool force) {

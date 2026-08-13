@@ -25,7 +25,7 @@ public static class SchemaCommand {
         switch (format) {
             case "text": SchemaView.WriteText(dm, filter); break;
             case "md" or "markdown": SchemaView.WriteMarkdown(dm, filter); break;
-            case "json": Con.Json(SchemaView.BuildJson(dm, filter)); break;
+            case "json": Output.Json(SchemaView.BuildJson(dm, filter)); break;
             default: throw new UsageException("--format takes text, md or json, not \"" + format + "\".");
         }
         return Task.FromResult(0);

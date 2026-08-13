@@ -105,13 +105,13 @@ public sealed class Target {
         if (_probingRegistered) return;
         _probingRegistered = true;
         var folders = ProbeFolders;
-        if (folders.Length > 0) Con.Detail("Probing for application assemblies in:" + string.Join("", folders.Select(f => Environment.NewLine + "  " + f)));
+        if (folders.Length > 0) Output.Detail("Probing for application assemblies in:" + string.Join("", folders.Select(f => Environment.NewLine + "  " + f)));
         AssemblyLoadContext.Default.Resolving += (context, name) => {
             if (name.Name == null) return null;
             foreach (var folder in folders) {
                 var file = Path.Combine(folder, name.Name + ".dll");
                 if (!File.Exists(file)) continue;
-                Con.Detail("Loading " + file);
+                Output.Detail("Loading " + file);
                 return context.LoadFromAssemblyPath(file);
             }
             return null;

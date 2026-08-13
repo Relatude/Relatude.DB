@@ -42,7 +42,7 @@ public sealed class StoreHost : IDisposable {
                 + Environment.NewLine + "Write a new one with: relatude init --force");
         }
         target.RegisterAssemblyProbing();
-        Con.Info("Opening " + target.SettingsPath);
+        Output.Info("Opening " + target.SettingsPath);
 
         RelatudeDBServerSettings? serverSettings = null;
         Guid selected = Guid.Empty;
@@ -60,7 +60,7 @@ public sealed class StoreHost : IDisposable {
                 if (args.Flag("no-ai")) c.AiProvider = null;
             },
             OnStoreSettingsInit = (local, _) => {
-                local.WriteSystemLogConsole = !Con.Quiet && Con.Verbose;
+                local.WriteSystemLogConsole = !Output.Quiet && Output.Verbose;
                 if (args.Flag("allow-background")) return;
                 local.AutoBackUp = false;
                 local.AutoTruncate = false;
@@ -99,7 +99,7 @@ public sealed class StoreHost : IDisposable {
             server.Shutdown();
             throw new CliException("The database did not open. State: " + (container.Store?.State.ToString() ?? "not initialized"));
         }
-        Con.Info($"Database \"{container.Settings.Name}\" is open.");
+        Output.Info($"Database \"{container.Settings.Name}\" is open.");
         return new StoreHost { Server = server, Container = container, ServerSettings = serverSettings };
     }
 
@@ -128,7 +128,7 @@ public sealed class StoreHost : IDisposable {
             Thread.Sleep(50);
             info = Store.Datastore.GetInfo();
         }
-        if (!info.IsFresh) Con.Warn("The database stayed busy: some of the numbers below are stale or missing.");
+        if (!info.IsFresh) Output.Warn("The database stayed busy: some of the numbers below are stale or missing.");
         return info;
     }
 
@@ -136,7 +136,7 @@ public sealed class StoreHost : IDisposable {
         try {
             Server.Shutdown();
         } catch (Exception err) {
-            Con.Warn("Closing the database failed: " + err.Message);
+            Output.Warn("Closing the database failed: " + err.Message);
         }
     }
 

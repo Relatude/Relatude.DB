@@ -84,21 +84,34 @@ internal sealed class QueryStringEvaluater {
         }
         // a collection of this type is more complicated...
         if (data is ObjectCollection oc) {
+            // a projection has to be materialised into something. A caller with a type to fill - an
+            // anonymous type from the typed API, a record - gets it constructed; a caller asking for object
+            // (JSON results and untyped queries) has no such type, and gets the members as a bag instead.
+            var asBag = typeof(T) == typeof(object);
             ConstructorInfo? ctor = null;
-            var n = 0;
-            Dictionary<string, int>? propNameById = null;
+            Dictionary<string, int>? argIndexByName = null;
             // room for optimazation here...
             foreach (var o in oc.Objects) {
                 if (o is ObjectData od) {
-                    if (ctor == null) ctor = typeof(T).GetConstructors().Single();
-                    if (propNameById == null) propNameById = ctor.GetParameters().ToDictionary(p => p.Name == null ? "" : p.Name, p => n++);
-                    var values = od.GetValues(n=>_store.Mapper.CreateObjectFromNodeData(n, null));
-                    yield return (T)createAnonymousInstance(values!, propNameById, ctor);
+                    var values = od.GetValues(n => _store.Mapper.CreateObjectFromNodeData(n, null));
+                    if (asBag) {
+                        yield return (T)(object)createValueBag(values);
+                        continue;
+                    }
+                    if (ctor == null) {
+                        ctor = projectionConstructor(typeof(T));
+                        var parameters = ctor.GetParameters();
+                        argIndexByName = new Dictionary<string, int>(parameters.Length);
+                        for (var i = 0; i < parameters.Length; i++) argIndexByName[parameters[i].Name ?? string.Empty] = i;
+                    }
+                    yield return (T)createAnonymousInstance(values, argIndexByName!, ctor);
                 } else if (o is IStoreNodeData no) {
                     yield return _store.Mapper.CreateObjectFromNodeData<T>(no.NodeData, null);
                 } else if (o is IEnumerable<IStoreNodeData> os) {
                     var t = typeof(T);
-                    if (t.IsArray) {
+                    if (t == typeof(object)) { // no type to fill, as above: the mapped nodes are the value
+                        yield return (T)(object)os.Select(nd => _store.Mapper.CreateObjectFromNodeData(nd.NodeData, null)).ToList();
+                    } else if (t.IsArray) {
                         var tNode = typeof(T).GetElementType();
                         if (tNode == null) throw new NotSupportedException();
                         var array = Array.CreateInstance(tNode, os.Count());
@@ -124,10 +137,42 @@ internal sealed class QueryStringEvaluater {
         throw new NotSupportedException();
     }
 
-    static object createAnonymousInstance(Tuple<string, object>[] values, Dictionary<string, int> propNameById, ConstructorInfo ctor) {
+    /// <summary>
+    /// The projected members of one row, by name. This is what a projection becomes when the caller has no
+    /// type to construct: it serializes as a JSON object, and reads as a dictionary from code.
+    /// </summary>
+    static Dictionary<string, object?> createValueBag(Tuple<string, object?>[] values) {
+        var bag = new Dictionary<string, object?>(values.Length);
+        foreach (var v in values) bag[v.Item1] = v.Item2; // indexer, not Add: a projection may repeat a name
+        return bag;
+    }
+    /// <summary>The constructor a projected row is built with, with an explanation when there is none to use.</summary>
+    static ConstructorInfo projectionConstructor(Type type) {
+        var ctors = type.GetConstructors();
+        var problem = ctors.Length switch {
+            0 => "it has no public constructor",
+            1 when ctors[0].GetParameters().Length == 0 => "its only constructor takes no arguments",
+            1 => null,
+            _ => "it has more than one public constructor",
+        };
+        if (problem != null) {
+            throw new NotSupportedException("A projected query (Select(x => new { ... })) cannot be returned as "
+                + type.FullName + " because " + problem + ". Project into an anonymous type or a record whose "
+                + "constructor takes the projected members, or read the result as object to get the members by name.");
+        }
+        return ctors[0];
+    }
+    static object createAnonymousInstance(Tuple<string, object?>[] values, Dictionary<string, int> propNameById, ConstructorInfo ctor) {
         // temporary solution, should be replaced with a more efficient code
-        object[] args = new object[values.Length];
-        foreach (var v in values) args[propNameById[v.Item1]] = v.Item2;
+        object?[] args = new object?[ctor.GetParameters().Length];
+        foreach (var v in values) {
+            if (!propNameById.TryGetValue(v.Item1, out var index)) {
+                throw new NotSupportedException("The projected member \"" + v.Item1 + "\" has no matching constructor "
+                    + "argument on " + ctor.DeclaringType?.FullName + ". Project into an anonymous type or a record "
+                    + "with the same members, or read the result as object to get the members by name.");
+            }
+            args[index] = v.Item2;
+        }
         foreach (var p in ctor.GetParameters()) {
             if (p.Name == null) throw new NotSupportedException("Parameter name is null.");
             var arg = args[propNameById[p.Name]];

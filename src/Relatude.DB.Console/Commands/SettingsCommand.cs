@@ -21,7 +21,7 @@ public static class SettingsCommand {
         var selected = args.Flag("all") ? containers : [SettingsReader.SelectContainer(settings, target.Store)];
 
         if (args.Flag("json")) {
-            Con.Json(new {
+            Output.Json(new {
                 File = target.SettingsPath,
                 ContentRoot = target.Root,
                 Server = new {
@@ -37,8 +37,8 @@ public static class SettingsCommand {
             });
             return Task.FromResult(0);
         }
-        Con.WriteLine("Settings  " + target.SettingsPath);
-        Con.Table([
+        Output.WriteLine("Settings  " + target.SettingsPath);
+        Output.Table([
             ("server", settings.Name ?? "-"),
             ("content root", target.Root),
             ("admin UI", settings.DBAdminUIUrlPath ?? "/" + Defaults.AdminUrlRoot),
@@ -47,9 +47,9 @@ public static class SettingsCommand {
             ("databases", containers.Length.ToString()),
         ]);
         foreach (var c in selected) {
-            Con.WriteLine();
-            Con.WriteLine("Database \"" + c.Name + "\"" + (c.Id == settings.DefaultStoreId ? "  (default)" : string.Empty));
-            Con.Table([
+            Output.WriteLine();
+            Output.WriteLine("Database \"" + c.Name + "\"" + (c.Id == settings.DefaultStoreId ? "  (default)" : string.Empty));
+            Output.Table([
                 ("id", c.Id.ToString()),
                 ("auto open", c.AutoOpen + (c.WaitUntilOpen ? ", blocking start up" : string.Empty)),
                 ("log", provider(c, c.IoDatabase, target)),
@@ -60,8 +60,8 @@ public static class SettingsCommand {
             ]);
             var local = c.LocalSettings;
             if (local != null) {
-                Con.WriteLine("  engines");
-                Con.Table([
+                Output.WriteLine("  engines");
+                Output.Table([
                     ("value index", local.PersistedValueIndexEngine + (local.UsePersistedValueIndexesByDefault ? ", persisted by default" : ", memory by default")),
                     ("text index", local.PersistedTextIndexEngine + (local.EnableTextIndexByDefault ? ", enabled by default" : ", off by default")),
                     ("semantic index", local.PersistedSemanticIndexEngine + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
@@ -75,25 +75,25 @@ public static class SettingsCommand {
                 ], "    ");
             }
             if (c.FileStoreSettings is { Length: > 0 }) {
-                Con.WriteLine("  file stores");
-                Con.Table(c.FileStoreSettings.Select(f => (f.StoreType.ToString(), provider(c, f.IoProviderId, target))), "    ");
+                Output.WriteLine("  file stores");
+                Output.Table(c.FileStoreSettings.Select(f => (f.StoreType.ToString(), provider(c, f.IoProviderId, target))), "    ");
             }
             var ai = settings.AISettings?.FirstOrDefault(a => a.Id == c.AiProvider);
             if (ai != null) {
-                Con.WriteLine("  AI provider");
-                Con.Table([
+                Output.WriteLine("  AI provider");
+                Output.Table([
                     ("name", ai.Name ?? "-"),
                     ("type", ai.TypeName ?? "-"),
                     ("embedding model", ai.EmbeddingModel ?? "-"),
                     ("key", string.IsNullOrEmpty(ai.ApiKey) ? "not set" : "set (not shown)"),
                 ], "    ");
             }
-            Con.WriteLine("  datamodel sources");
+            Output.WriteLine("  datamodel sources");
             if (c.DatamodelSources is { Length: > 0 }) {
-                Con.Table(c.DatamodelSources.Select(s => (s.Name ?? s.Id.ToString(),
+                Output.Table(c.DatamodelSources.Select(s => (s.Name ?? s.Id.ToString(),
                     s.Type + "  " + (s.Reference ?? "(entry assembly)") + (s.Namespace == null ? string.Empty : "  namespace " + s.Namespace))), "    ");
             } else {
-                Con.WriteLine("    none - the database has no datamodel");
+                Output.WriteLine("    none - the database has no datamodel");
             }
             writeFiles(c, target);
         }
@@ -107,16 +107,16 @@ public static class SettingsCommand {
         try {
             files = new FileKeyUtility(c.LocalSettings?.FilePrefix).GetAllFiles(io);
         } catch (Exception err) {
-            Con.Warn("Could not list the database files: " + err.Message);
+            Output.Warn("Could not list the database files: " + err.Message);
             return;
         }
-        Con.WriteLine("  files");
+        Output.WriteLine("  files");
         if (files.Length == 0) {
-            Con.WriteLine("    none yet - the database has never been opened");
+            Output.WriteLine("    none yet - the database has never been opened");
             return;
         }
-        Con.Table(files.OrderBy(f => f.Key).Select(f => (f.Key, Con.Bytes(f.Size) + "   " + f.LastModifiedUtc.ToString("u"))), "    ");
-        Con.WriteLine("    " + files.Length + " file(s), " + Con.Bytes(files.Sum(f => f.Size)));
+        Output.Table(files.OrderBy(f => f.Key).Select(f => (f.Key, Output.Bytes(f.Size) + "   " + f.LastModifiedUtc.ToString("u"))), "    ");
+        Output.WriteLine("    " + files.Length + " file(s), " + Output.Bytes(files.Sum(f => f.Size)));
     }
 
     static object describeJson(NodeStoreContainerSettings c, RelatudeDBServerSettings settings, Target target) {
@@ -170,7 +170,7 @@ public static class SettingsCommand {
         try {
             return IOSettings.Create(io, target.Root);
         } catch (Exception err) {
-            Con.Detail("Could not create the IO provider: " + err.Message);
+            Output.Detail("Could not create the IO provider: " + err.Message);
             return null;
         }
     }

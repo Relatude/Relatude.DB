@@ -62,10 +62,10 @@ public static class WriteCommands {
         } catch (Exception err) {
             throw new CliException("The transaction was rejected: " + err.Message, err);
         }
-        if (args.Flag("json")) Con.Json(new { Inserted = ids.Count, Type = nodeType.FullName, Ids = ids });
+        if (args.Flag("json")) Output.Json(new { Inserted = ids.Count, Type = nodeType.FullName, Ids = ids });
         else {
-            Con.WriteLine("Inserted " + ids.Count + " " + nodeType.CodeName + " node(s):");
-            foreach (var id in ids) Con.WriteLine("  " + id);
+            Output.WriteLine("Inserted " + ids.Count + " " + nodeType.CodeName + " node(s):");
+            foreach (var id in ids) Output.WriteLine("  " + id);
         }
         return 0;
     }
@@ -96,8 +96,8 @@ public static class WriteCommands {
         } catch (Exception err) {
             throw new CliException("The transaction was rejected: " + err.Message, err);
         }
-        if (args.Flag("json")) Con.Json(new { Deleted = deleted.Count, Ids = deleted });
-        else Con.WriteLine("Deleted " + deleted.Count + " node(s).");
+        if (args.Flag("json")) Output.Json(new { Deleted = deleted.Count, Ids = deleted });
+        else Output.WriteLine("Deleted " + deleted.Count + " node(s).");
         return 0;
     }
 
