@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndexHNSW2;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>A cheap handle to one routing record's bytes: the array that holds it and the offset it
 /// starts at. In resident mode that is a slice of a pinned arena chunk, in cached mode a cache

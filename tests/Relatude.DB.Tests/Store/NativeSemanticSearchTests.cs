@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.VectorIndex;
+using Relatude.DB.VectorIndex.ISV;
 using Relatude.Utils;
 
 namespace Relatude.Store;

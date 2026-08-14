@@ -1,6 +1,6 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.VectorIndexHNSW;
+using Relatude.DB.VectorIndex.HNSW;
 
 namespace Relatude.Indexes;
 
@@ -235,9 +235,9 @@ public class HnswVectorIndexTests {
     [TestMethod]
     public void EdgeLogCarriesGraphChangesBetweenStateSaves() {
         // A WAL-flush checkpoint appends the changed neighbour lists to the edge log instead of writing
-        // them in place, so the graph file is deliberately behind between state saves. What must hold is
-        // that a reopen sees the same graph either way — through the log's overlay before a state save,
-        // and out of the graph file after one.
+        // them in place, so the routing file is deliberately behind between state saves. What must hold
+        // is that a reopen sees the same graph either way — through the log's replay before a state
+        // save, and out of the routing file after one.
         var r = new Random(4242);
         const int dims = 64, count = 10_000;
         var options = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
@@ -264,7 +264,7 @@ public class HnswVectorIndexTests {
         using (var index = create(_folder, options)) {
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(count, index.Count);
-            index.ClearCache(); // every record now comes off the disk, where the log is the only correct copy
+            index.ClearCache(); // in cached mode every record now comes off the disk; resident mode replayed the log at open
             assertFindsItself(index, reference, 5000);
             index.SaveStateForMemoryIndexes(11, walId); // the full checkpoint applies the log and drops it
         }
@@ -299,12 +299,10 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void ParallelLinkingIsDeterministic() {
-        // Linking a new node writes back to every neighbour it attached to, and layer 0 does those
-        // concurrently on the grounds that they are independent. If that were wrong — if one link could
-        // see another's write — the graph would come out slightly different from run to run. Building the
-        // same vectors twice and comparing the files byte for byte is the direct test of it: identical
-        // input, identical layer assignment (the seed is fixed), so identical output or a race.
+    public void SequentialBuildIsDeterministic() {
+        // Sequential adds draw their levels from a fixed seed and link one at a time, so building the
+        // same vectors twice must produce byte-identical files; a difference means a hidden source of
+        // nondeterminism (or a race) somewhere in the write path.
         var dims = 48;
         var count = 4_000;
         var walId = Guid.NewGuid();
@@ -338,16 +336,15 @@ public class HnswVectorIndexTests {
     [TestMethod]
     public void EdgeLogSurvivesEviction() {
         // The awkward combination: a cache too small to hold the index, and edges that live in the log
-        // rather than in the graph file. Evicting such a record would throw away the only correct copy of
-        // its neighbour list, so the eviction has to keep the list — and the state save afterwards has to
-        // find it there rather than in the record it no longer has.
+        // rather than in the routing file. Evicting such a record would throw away the only correct copy
+        // of its neighbour list, so the eviction has to keep the list — and the state save afterwards has
+        // to find it there rather than in the record it no longer has.
         var r = new Random(31337);
         const int dims = 64, count = 8_000;
         var options = new HnswVectorIndexOptions {
             MinVectorsForGraphSearch = 1,
-            MaxCacheBytes = 512 * 1024, // room for a sixth of the index
-            MaxRoutingCacheBytes = 0,   // and nothing pinned either
-            EfConstruction = 32,        // a cheaper graph; this test is about the edges surviving, not their quality
+            MaxMemoryBytes = 700 * 1024, // low-memory territory: a cache budget of a fraction of the index
+            EfConstruction = 32,         // a cheaper graph; this test is about the edges surviving, not their quality
         };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
@@ -430,7 +427,7 @@ public class HnswVectorIndexTests {
         index.SaveStateForMemoryIndexes(2, walId); // the state save compacts
         Assert.AreEqual(count / 2, index.Count);
         Assert.IsTrue(index.GetTotalDiskSize() < full * 0.75, "compaction did not reclaim the deleted records");
-        Assert.AreEqual(1, Directory.GetFiles(_folder, "graph_*.bin").Length, "the replaced generation was not deleted");
+        Assert.AreEqual(1, Directory.GetFiles(_folder, "routing_*.bin").Length, "the replaced generation was not deleted");
         // and the surviving half still answers correctly
         var query = reference.Keys.First();
         CollectionAssert.AreEqual(bruteForceTopK(reference, reference[query], 10),
@@ -446,8 +443,8 @@ public class HnswVectorIndexTests {
             for (var id = 1; id <= 100; id++) index.Add(id, randomUnit(r, 24));
             index.SaveStateForMemoryIndexes(1, walId);
         }
-        var graph = Directory.GetFiles(_folder, "graph_*.bin").Single();
-        using (var fs = new FileStream(graph, FileMode.Open, FileAccess.ReadWrite)) {
+        var routing = Directory.GetFiles(_folder, "routing_*.bin").Single();
+        using (var fs = new FileStream(routing, FileMode.Open, FileAccess.ReadWrite)) {
             fs.SetLength(fs.Length / 2); // torn file, as after a crash mid-write
         }
         using (var index = create(_folder)) {
@@ -495,11 +492,11 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void TinyCacheStillCorrect() {
+    public void TinyBudgetStillCorrect() {
         var r = new Random(3);
         const int dims = 64, count = 1000;
-        // Nothing stays in memory: every hop and every scan chunk goes to the file.
-        var options = new HnswVectorIndexOptions { MaxCacheBytes = 1024, MaxRoutingCacheBytes = 0, MinVectorsForGraphSearch = 1 };
+        // Next to nothing stays in memory: every hop goes through a tiny cache, every re-score to the file.
+        var options = new HnswVectorIndexOptions { MaxMemoryBytes = 64 * 1024, MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using var index = create(_folder, options);
@@ -513,9 +510,75 @@ public class HnswVectorIndexTests {
         var cold = index.Search(reference[10], 0, 10, 0);
         Assert.AreEqual(10, cold.Count);
         Assert.AreEqual(10, cold[0].NodeId);
-        index.MaxCacheBytes = 64L * 1024 * 1024; // adjustable at runtime
+        index.MaxMemoryBytes = 64L * 1024 * 1024; // adjustable at runtime
         CollectionAssert.AreEqual(bruteForceTopK(reference, reference[10], 10),
             index.Search(reference[10], 0, 10, 0).Select(h => h.NodeId).ToList());
+    }
+
+    [TestMethod]
+    public void QuantizedTierServesFloatsFromDisk() {
+        // A budget with room for the routing graph but not the float vectors: the walk runs in
+        // memory and the exact re-scoring reads the vector file. Scores must stay full precision,
+        // and the tier choice must survive a reopen.
+        var r = new Random(606);
+        const int dims = 96, count = 4_000;
+        var options = new HnswVectorIndexOptions {
+            MinVectorsForGraphSearch = 1,
+            // graph core is ~250 B/vector here (~1 MB total), floats are ~384 B/vector (~1.5 MB)
+            MaxMemoryBytes = 1_400 * 1024,
+        };
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            for (var id = 1; id <= count; id++) {
+                var v = randomUnit(r, dims);
+                reference[id] = v;
+                index.Add(id, v);
+            }
+            index.SaveStateForMemoryIndexes(1, walId);
+            assertRecall(index, 2000);
+        }
+        using (var index = create(_folder, options)) {
+            index.ReadStateForMemoryIndexes(walId);
+            Assert.AreEqual(count, index.Count);
+            assertRecall(index, 123);
+            assertRecall(index, 3999);
+        }
+
+        void assertRecall(HnswVectorIndex index, int probe) {
+            var query = reference[probe];
+            var hits = index.Search(query, 0, 10, 0);
+            Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
+            Assert.IsTrue(hits[0].Similarity > 0.999f, "the returned score must be the exact float score");
+            var overlap = hits.Select(h => h.NodeId).Intersect(bruteForceTopK(reference, query, 10)).Count();
+            Assert.IsTrue(overlap >= 8, $"recall@10 too low for {probe}: {overlap}");
+        }
+    }
+
+    [TestMethod]
+    public void SingleThreadOptionStillCorrect() {
+        // MaxThreads = 1 forces every parallel fan-out — batch build, scans, re-scoring reads —
+        // down its sequential path; the answers must be the same.
+        var r = new Random(52);
+        const int dims = 32, count = 3_000;
+        var options = new HnswVectorIndexOptions { MaxThreads = 1, MinVectorsForGraphSearch = 1 };
+        var walId = Guid.NewGuid();
+        var reference = new Dictionary<int, float[]>();
+        var items = new List<(int nodeId, float[] vector)>();
+        for (var id = 1; id <= count; id++) {
+            var v = randomUnit(r, dims);
+            reference[id] = v;
+            items.Add((id, v));
+        }
+        using var index = create(_folder, options);
+        index.ReadStateForMemoryIndexes(walId);
+        index.AddRange(items);
+        Assert.AreEqual(count, index.Count);
+        var hits = index.Search(reference[1500], 0, 10, 0);
+        Assert.AreEqual(1500, hits[0].NodeId);
+        Assert.IsTrue(hits[0].Similarity > 0.999f);
+        Assert.AreEqual(count, index.Search(reference[1500], 0, int.MaxValue, -1).Count); // exact scan path
     }
 
     [TestMethod]
@@ -527,9 +590,8 @@ public class HnswVectorIndexTests {
         const int dims = 64, centers = 60, perCenter = 100;
         const int count = centers * perCenter;
         var options = new HnswVectorIndexOptions {
-            LowMemoryMode = true,
             MinVectorsForGraphSearch = 1,
-            MaxCacheBytes = 256 * 1024,              // a fraction of the index: eviction runs constantly
+            MaxMemoryBytes = 400 * 1024,             // a fraction of the index: eviction runs constantly
             MemTableFlushThresholdBytes = 64 * 1024, // and the memtable spills constantly
         };
         var walId = Guid.NewGuid();
@@ -591,7 +653,7 @@ public class HnswVectorIndexTests {
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         var normal = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
-        var lowMem = new HnswVectorIndexOptions { LowMemoryMode = true, MinVectorsForGraphSearch = 1 };
+        var lowMem = new HnswVectorIndexOptions { MaxMemoryBytes = HnswVectorIndexOptions.LowMemoryThresholdBytes, MinVectorsForGraphSearch = 1 };
         using (var index = create(_folder, normal)) { // written by the normal mode
             index.ReadStateForMemoryIndexes(walId);
             for (var id = 1; id <= count; id++) {
@@ -714,14 +776,13 @@ public class HnswVectorIndexTests {
 
     [TestMethod]
     public void AddRangeInLowMemoryMode() {
-        // The batch build's parallel workers against the on-disk graph: pending upper slots, the
-        // keyed record cache and constant eviction, all at once.
+        // The batch build's workers against the on-disk graph: pending upper slots, the keyed record
+        // cache and constant eviction, all at once.
         var r = new Random(818);
         const int dims = 48, count = 4000;
         var options = new HnswVectorIndexOptions {
-            LowMemoryMode = true,
             MinVectorsForGraphSearch = 1,
-            MaxCacheBytes = 256 * 1024,
+            MaxMemoryBytes = 400 * 1024,
             MemTableFlushThresholdBytes = 64 * 1024,
         };
         var walId = Guid.NewGuid();

@@ -1,11 +1,11 @@
 using System.Buffers.Binary;
 
-namespace Relatude.DB.VectorIndexHNSW2;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>
 /// The index's durable root: which generation of the graph files is live, how many records of each
 /// of them are committed, where a search enters the graph, the WAL file the data belongs to and the
-/// timestamp of the last durable position (<see cref="Hnsw2VectorIndex.PersistedTimestamp"/>).
+/// timestamp of the last durable position (<see cref="HnswVectorIndex.PersistedTimestamp"/>).
 /// Written via a temp file and an atomic replace, and only after the files it describes are fsynced —
 /// a crash mid-write leaves the previous manifest in place, never a half-written one. A missing,
 /// corrupt or foreign-WAL manifest resets the index to empty so the WAL replay rebuilds it.

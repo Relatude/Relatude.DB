@@ -2,7 +2,7 @@ using Microsoft.Win32.SafeHandles;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>
 /// Writes one segment file. Per-cluster record counts must be known up front (they determine the

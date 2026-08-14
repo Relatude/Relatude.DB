@@ -5,8 +5,6 @@
          reached through InternalsVisibleTo), the two disk indexes each in their own assembly -->
     <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
     <ProjectReference Include="..\..\src\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
-    <ProjectReference Include="..\..\src\Relatude.DB.VectorIndexHNSW\Relatude.DB.VectorIndexHNSW.csproj" />
-    <ProjectReference Include="..\..\src\Relatude.DB.VectorIndexHNSW2\Relatude.DB.VectorIndexHNSW2.csproj" />
   </ItemGroup>
 
   <ItemGroup>

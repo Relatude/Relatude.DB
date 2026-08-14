@@ -2,7 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>SIMD helpers. All similarity math is plain dot products since the vectors are unit length.</summary>
 internal static class VectorMath {

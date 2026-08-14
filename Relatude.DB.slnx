@@ -42,8 +42,6 @@
     <Project Path="src/Relatude.DB.NodeStore/Relatude.DB.NodeStore.csproj" />
     <Project Path="src/Relatude.DB.TextIndex/Relatude.DB.TextIndex.csproj" />
     <Project Path="src/Relatude.DB.VectorIndex/Relatude.DB.VectorIndex.csproj" Id="769f8091-3dd8-4107-9bf8-4bad46082faa" />
-    <Project Path="src/Relatude.DB.VectorIndexHNSW/Relatude.DB.VectorIndexHNSW.csproj" />
-    <Project Path="src/Relatude.DB.VectorIndexHNSW2/Relatude.DB.VectorIndexHNSW2.csproj" />
   </Folder>
   <Folder Name="/Nuget/">
     <File Path="nuget/build.bat" />

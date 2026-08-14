@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>
 /// The cluster centroids of a trained index generation: a K x Dims matrix of unit vectors from a

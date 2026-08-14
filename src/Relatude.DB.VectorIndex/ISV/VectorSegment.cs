@@ -2,7 +2,7 @@ using Microsoft.Win32.SafeHandles;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>
 /// One immutable segment file of vectors, grouped into per-cluster blocks so a search only reads

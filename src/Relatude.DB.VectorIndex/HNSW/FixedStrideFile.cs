@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Relatude.DB.VectorIndexHNSW2;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>
 /// An array of fixed-size records on disk, addressed by index. All the graph's files are one of

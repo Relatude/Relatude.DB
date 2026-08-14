@@ -4,12 +4,12 @@ using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
-namespace Relatude.DB.VectorIndexHNSW;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>SIMD helpers. All similarity math is plain dot products since the vectors are unit
-/// length. Deliberately a copy of the same file in Relatude.DB.VectorIndex rather than a shared
-/// dependency: the two vector index projects are independent plugin assemblies, and this is a
-/// handful of stable lines that neither should have to reference the other for.</summary>
+/// length. Deliberately a copy of the same file in the other vector index projects rather than a
+/// shared dependency: the vector index projects are independent plugin assemblies, and this is a
+/// handful of stable lines that none of them should have to reference another for.</summary>
 internal static class VectorMath {
     /// <summary>Dot product of two equal-length spans. Four independent accumulators keep the
     /// multiply pipeline busy; a single reduction per step would stall it. On x64 the multiply and
@@ -69,6 +69,7 @@ internal static class VectorMath {
         for (; i < n; i++) sum += a[i] * b[i];
         return sum;
     }
+
     // ---- int8 routing math -------------------------------------------------------------------------
     // The walk scores candidates against a per-vector-scaled int8 copy: a quarter of the memory
     // traffic and, on AVX2, sixteen multiply-adds per instruction. Exactness is not lost — the walk
@@ -138,6 +139,18 @@ internal static class VectorMath {
         }
         for (; i < n; i++) sum += a[i] * b[i];
         return sum;
+    }
+
+    /// <summary>Hints the CPU to pull the given position of a resident chunk into cache. The walk
+    /// knows the address of every neighbour it is about to score (a flat arena, not a hash map), so
+    /// issuing these while collecting the hop's neighbours hides most of the RAM latency behind the
+    /// scoring of the previous ones — the single biggest win of the resident layout. A no-op on
+    /// hardware without the instruction.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static unsafe void Prefetch(byte[] chunk, int offset) {
+        if (Sse.IsSupported) {
+            fixed (byte* p = &chunk[offset]) Sse.Prefetch0(p);
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

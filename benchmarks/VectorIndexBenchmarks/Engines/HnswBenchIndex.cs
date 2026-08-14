@@ -1,25 +1,21 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.VectorIndexHNSW;
+using Relatude.DB.VectorIndex.HNSW;
 
 namespace VectorIndexBenchmarks.Engines;
 
 /// <summary>
-/// The disk-based HNSW index (<see cref="HnswVectorIndex"/>): the same storage discipline as
-/// <see cref="NativeBenchIndex"/> — vectors in a file, only the routing structure in memory, a
-/// byte-budgeted cache over what it reads, and a per-WAL-flush durability hook — but it finds the
-/// neighbours by walking a proximity graph instead of by probing the nearest clusters.
+/// The Relatude HNSW index (<see cref="HnswVectorIndex"/>): the graph a search walks — int8 vectors
+/// and neighbour lists — lives in flat, prefetch-friendly memory whenever the general budget
+/// (<c>MaxMemoryBytes</c>) allows, with the float vectors mirrored too when they fit and read from
+/// their own file only for exact re-scoring when they do not; at or below the low-memory budget
+/// threshold the graph stays on disk behind a small cache of routing records a quarter the size of
+/// float records.
 ///
-/// <para>It is the interesting row of this table: USearch already shows what an HNSW graph does when
-/// the whole thing is in memory, and the IVF index shows what disk residency costs an index that
-/// reads a fixed share of the data. This one is the combination — a graph whose vectors live on disk —
-/// so reading it next to those two separates the algorithm from where the data sits.</para>
-///
-/// <para><b>Dials.</b> Its effort is <c>EfSearch</c>, not a fraction of the index, so it takes the
-/// harness's HNSW options (<c>--hnsw-m</c>, <c>--hnsw-ef-add</c>, <c>--hnsw-ef</c>) rather than
-/// <c>--accuracy</c> — the same numbers USearch gets, which makes those two directly comparable at
-/// matched settings and comparable to the IVF index at matched recall.</para>
+/// <para>Reading it next to USearch at matched dials (<c>--hnsw-m</c>, <c>--hnsw-ef-add</c>,
+/// <c>--hnsw-ef</c>) shows what a persistent, WAL-bound index gives up (or does not) against a pure
+/// in-memory library.</para>
 /// </summary>
 public sealed class HnswBenchIndex : SemanticBenchIndex {
     readonly HnswVectorIndex _index;

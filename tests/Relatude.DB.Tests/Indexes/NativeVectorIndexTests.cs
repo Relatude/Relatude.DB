@@ -1,7 +1,7 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.VectorIndex;
+using Relatude.DB.VectorIndex.ISV;
 
 namespace Relatude.Indexes;
 

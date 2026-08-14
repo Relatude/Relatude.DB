@@ -1,6 +1,5 @@
-using Relatude.DB.VectorIndex;
-using Relatude.DB.VectorIndexHNSW;
-using Relatude.DB.VectorIndexHNSW2;
+using Relatude.DB.VectorIndex.HNSW;
+using Relatude.DB.VectorIndex.ISV;
 using VectorIndexBenchmarks.Engines;
 
 namespace VectorIndexBenchmarks.Harness;
@@ -17,19 +16,13 @@ public static class Engines {
     /// --engines shows what the cache budget actually buys.</summary>
     public const string NativeLowMem = "native-lowmem";
     /// <summary>The disk-based HNSW index: the same storage design as <see cref="Native"/>, walking a
-    /// proximity graph instead of probing the nearest clusters.</summary>
-    public const string Hnsw = "hnsw";
-    /// <summary>The HNSW index in <c>LowMemoryMode</c>: the graph stays on disk and is read through
-    /// small caches, which is the configuration that shows what a graph walk really costs when it
-    /// has to go to the disk for every hop — and what that buys back in resident memory.</summary>
-    public const string HnswLowMem = "hnsw-lowmem";
-    /// <summary>The second-generation HNSW index: the same graph algorithm as <see cref="Hnsw"/>
-    /// rebuilt for response time — the routing graph (int8 vectors + edges) resident in flat,
-    /// prefetch-friendly memory, the float vectors mirrored too when the budget allows and read from
-    /// their own file for exact re-scoring when it does not.</summary>
+    /// proximity graph instead of probing the nearest clusters — the routing graph (int8 vectors +
+    /// edges) resident in flat, prefetch-friendly memory, the float vectors mirrored too when the
+    /// budget allows and read from their own file for exact re-scoring when it does not.</summary>
     public const string Hnsw2 = "hnsw2";
-    /// <summary>The same index in <c>LowMemoryMode</c>: the graph on disk behind a small cache of
-    /// routing records — a quarter of the bytes per hop that caching float records costs.</summary>
+    /// <summary>The same index with <c>MaxMemoryBytes</c> pinned to the low-memory threshold, which
+    /// keeps the graph on disk behind a small cache of routing records — a quarter of the bytes per
+    /// hop that caching float records costs.</summary>
     public const string Hnsw2LowMem = "hnsw2-lowmem";
     /// <summary>sqlite-vec: a vec0 virtual table in an ordinary SQLite file, exact by design.</summary>
     public const string SqliteVec = "sqlitevec";
@@ -37,12 +30,9 @@ public static class Engines {
     public const string USearch = "usearch";
     public const long LowMemCacheBytes = 8L * 1024 * 1024;
 
-    //public static readonly string[] All = [Memory, Native, Hnsw, HnswLowMem, Hnsw2, Hnsw2LowMem, SqliteVec, USearch];
-    // Both configurations of both HNSW implementations by default: each pair is one implementation
-    // run two ways (the memory budget priced outright), and the hnsw/hnsw2 rows are the same
-    // algorithm under two layouts — reading all four next to each other is the point.
-    //public static readonly string[] All = [Memory, Native, Hnsw, HnswLowMem, Hnsw2, Hnsw2LowMem, USearch];
-    public static readonly string[] All = [Memory, Native, Hnsw, Hnsw2, Hnsw2LowMem, USearch];
+    // Both configurations of the HNSW index by default: the pair is one implementation run two
+    // ways, with the memory budget priced outright.
+    public static readonly string[] All = [Memory, Native, Hnsw2, Hnsw2LowMem, USearch];
 
     /// <summary>A fixed log id: an index binds its data to the WAL file it belongs to, and the
     /// benchmark's reopen step has to present the same one or the index resets itself.</summary>
@@ -53,10 +43,8 @@ public static class Engines {
         Native => "NativeVectorIndex",
         NativeExact => "NativeVectorIndex (exact)",
         NativeLowMem => $"NativeVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
-        Hnsw => "HnswVectorIndex",
-        HnswLowMem => "HnswVectorIndex (low memory)",
-        Hnsw2 => "Hnsw2VectorIndex",
-        Hnsw2LowMem => "Hnsw2VectorIndex (low memory)",
+        Hnsw2 => "HnswVectorIndex",
+        Hnsw2LowMem => "HnswVectorIndex (low memory)",
         SqliteVec => "sqlite-vec",
         USearch => "USearch (HNSW)",
         _ => name,
@@ -68,10 +56,8 @@ public static class Engines {
         Native => "disk segments, IVF clusters, cached blocks; searches the nearest clusters only (Relatude.DB.VectorIndex)",
         NativeExact => "the same disk index probing every cluster (accuracy 1): exact, and reading every block",
         NativeLowMem => $"the same disk index with its block cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
-        Hnsw => "disk records, HNSW graph, upper layers in memory; walks to the query (Relatude.DB.VectorIndexHNSW)",
-        HnswLowMem => "the same graph index in LowMemoryMode: the graph stays on disk, read through small caches",
-        Hnsw2 => "the HNSW graph resident in flat int8 arenas, floats mirrored or read only to re-score (Relatude.DB.VectorIndexHNSW2)",
-        Hnsw2LowMem => "the same index in LowMemoryMode: the graph on disk behind a small cache of quarter-size routing records",
+        Hnsw2 => "the HNSW graph resident in flat int8 arenas, floats mirrored or read only to re-score (Relatude.DB.VectorIndex)",
+        Hnsw2LowMem => "the same index at the low-memory budget: the graph on disk behind a small cache of quarter-size routing records",
         SqliteVec => "third party: a vec0 virtual table in a SQLite file, exact KNN by full scan (asg017/sqlite-vec)",
         USearch => "third party: an HNSW graph in native memory, top-k only (unum-cloud/USearch)",
         _ => name,
@@ -98,25 +84,13 @@ public static class Engines {
                 // that says nothing about the index, so it is off for every configuration
                 ValidateNormalized = false,
             }),
-            // the graph index takes the HNSW dials rather than --accuracy, so it and USearch are
-            // configured identically and the algorithm is the only thing that differs between them
-            Hnsw or HnswLowMem => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new HnswVectorIndexOptions {
+            // the HNSW index takes the same dials as USearch, so the two graph rows are configured
+            // identically; MaxMemoryBytes is its one budget, mapped from --cache like the other
+            // indexes' cache budgets (low-mem pins it to the threshold at which the index keeps the
+            // graph on disk)
+            Hnsw2 or Hnsw2LowMem => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new HnswVectorIndexOptions {
                 Dimensions = corpus.Dimensions,
-                LowMemoryMode = name == HnswLowMem, // budgets left null: the mode's own small defaults
-                MaxCacheBytes = name == HnswLowMem ? null : options.CacheBytes,
-                Connectivity = (int)options.HnswConnectivity,
-                EfConstruction = (int)options.HnswExpansionAdd,
-                EfSearch = (int)options.HnswExpansionSearch,
-                ValidateNormalized = false,
-            }),
-            // the second HNSW implementation takes the same dials as the first, so hnsw, hnsw2 and
-            // usearch are configured identically; MaxMemoryBytes is its one budget, mapped from
-            // --cache like the other indexes' cache budgets (low-mem leaves it null: the mode's
-            // own small default)
-            Hnsw2 or Hnsw2LowMem => new Hnsw2BenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new Hnsw2VectorIndexOptions {
-                Dimensions = corpus.Dimensions,
-                LowMemoryMode = name == Hnsw2LowMem,
-                MaxMemoryBytes = name == Hnsw2LowMem ? null : options.CacheBytes,
+                MaxMemoryBytes = name == Hnsw2LowMem ? HnswVectorIndexOptions.LowMemoryThresholdBytes : options.CacheBytes,
                 Connectivity = (int)options.HnswConnectivity,
                 EfConstruction = (int)options.HnswExpansionAdd,
                 EfSearch = (int)options.HnswExpansionSearch,

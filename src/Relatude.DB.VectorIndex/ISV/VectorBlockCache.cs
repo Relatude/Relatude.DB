@@ -1,4 +1,4 @@
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>
 /// Byte-budgeted LRU cache over the packed vector blocks read from segment files. The budget is

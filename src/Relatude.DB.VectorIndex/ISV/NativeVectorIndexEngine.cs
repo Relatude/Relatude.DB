@@ -3,7 +3,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
-namespace Relatude.DB.VectorIndex;
+namespace Relatude.DB.VectorIndex.ISV;
 
 /// <summary>
 /// Semantic index engine backed by the disk-based <see cref="NativeVectorIndex"/>, one index folder

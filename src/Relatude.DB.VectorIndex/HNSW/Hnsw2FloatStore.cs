@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndexHNSW2;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>
 /// The float vectors, one fixed-stride record per ordinal, in their own file — deliberately apart

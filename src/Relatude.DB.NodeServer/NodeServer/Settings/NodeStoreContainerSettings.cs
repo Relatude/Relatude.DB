@@ -15,6 +15,16 @@ public class FileStoreSettings {
     public int? MultiFileFolderDepth { get; set; }
     public FileStoreEngine StoreType { get; set; } = FileStoreEngine.SingleFile;
 }
+public enum AIIndexType {
+    Memory,
+    MemoryTurboQuant,
+    DiskISV,
+    DiskHNSW,
+}
+public class AiIndexSettings {
+    public AIIndexType IndexType { get; } = AIIndexType.Memory;
+    public double MemoryLimitInMb { get; set; } = 100;
+}
 public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public IOSettings[]? IOSettings { get; set; }
     public Guid? IoDatabase { get; set; }
@@ -24,6 +34,7 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public Guid? IoBackup { get; set; }
     public Guid? IoLog { get; set; }
     public Guid? AiProvider { get; set; }
+    public AiIndexSettings AiSettings { get; set; } = new AiIndexSettings();
     public DatamodelSource[]? DatamodelSources { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

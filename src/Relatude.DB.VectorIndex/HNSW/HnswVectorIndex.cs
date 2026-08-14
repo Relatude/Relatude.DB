@@ -4,65 +4,65 @@ using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
 using System.Diagnostics;
 
-namespace Relatude.DB.VectorIndexHNSW;
+namespace Relatude.DB.VectorIndex.HNSW;
 
 /// <summary>
-/// A persistent, disk-based vector index for semantic search built on an HNSW graph: cosine
-/// similarity over L2-normalized embeddings of one fixed length (both are enforced), computed as SIMD
-/// dot products. Same contract, same settings and the same durability protocol as the IVF-based
-/// <c>NativeVectorIndex</c> — a different way of finding the neighbours.
+/// A persistent vector index for semantic search built on an HNSW graph: cosine similarity over
+/// L2-normalized embeddings of one fixed length (both are enforced), computed as SIMD dot products.
+/// The second take on the idea, built for response time: the graph a search walks — int8 vectors and
+/// neighbour lists — lives in flat, prefetch-friendly memory whenever
+/// <see cref="HnswVectorIndexOptions.MaxMemoryBytes"/> allows, and in a file behind a small cache
+/// when it does not (or the budget sits at or below
+/// <see cref="HnswVectorIndexOptions.LowMemoryThresholdBytes"/>). Same contract and the same
+/// durability protocol as the other disk vector indexes.
 ///
 /// <para><b>Search.</b> Vectors are linked into a layered proximity graph. A query enters at the top
 /// layer, descends greedily to the query's neighbourhood, then explores a beam of
-/// <see cref="HnswVectorIndexOptions.EfSearch"/> candidates at layer 0. It therefore looks at a number
-/// of vectors that grows logarithmically with the index rather than at a fixed share of it, which is
-/// what makes it faster than probing clusters — and it is why the two indexes should be compared at
-/// matched recall rather than at matched settings. Below
+/// <see cref="HnswVectorIndexOptions.EfSearch"/> candidates at layer 0, scoring int8 copies of the
+/// vectors; the final candidates are re-scored against the full-precision floats, so a result is
+/// never approximate in score, only in coverage. Below
 /// <see cref="HnswVectorIndexOptions.MinVectorsForGraphSearch"/> every search is an exact parallel
-/// scan instead, which at those sizes is faster and exact. Scored vectors are always exact
-/// full-precision floats: <c>ef</c> only controls how much of the graph is covered, so a result is
-/// never approximate in score, only in coverage.</para>
+/// scan instead, which at those sizes is faster and exact.</para>
 ///
 /// <para><b>Storage.</b> The index owns a folder with an atomically swapped manifest and one
-/// generation of data files: a record file holding each node's vector <i>together with</i> its layer-0
-/// neighbour list, so one positional read serves a graph hop, two small files for the node identities
-/// and the layers above 0, and an append-only log of recent edge changes. The two small ones are read
-/// into memory at open and stay there — they are what an IVF index's centroids are, the structure a
-/// search routes through — and they cost about 40 MB per million vectors against gigabytes of vector
-/// data left on disk. Records read from disk land in a byte-budgeted cache
-/// (<see cref="MaxCacheBytes"/>, adjustable at runtime).</para>
+/// generation of data files: the float vectors in one file, the routing records (a node's int8
+/// vector <i>together with</i> its layer-0 neighbour list, so one small read serves a graph hop) in
+/// another, two small files for the node identities and the layers above 0, and an append-only log
+/// of recent edge changes. Keeping the floats apart from the routing graph is what the low-memory
+/// configuration is bought with: a graph hop reads a quarter of the bytes the float record would
+/// cost, and a cache of routing records holds four times the nodes per byte.</para>
 ///
 /// <para><b>Writes.</b> An insert links the new node into the graph, which rewrites the neighbour
 /// lists of the nodes it attached to; changed records are held in memory and written at the next
 /// durable checkpoint (or earlier once they pass
-/// <see cref="HnswVectorIndexOptions.MemTableFlushThresholdBytes"/>). Those rewrites are scattered all
-/// over the file and there are tens of them per inserted vector, so a WAL-flush checkpoint appends them
-/// to the edge log in one sequential write and a state save is what folds them into the graph file:
-/// the frequent path is the cheap one, and the periodic path carries the cost. A delete only marks the
-/// record dead — traversals skip dead ordinals — and the space is reclaimed by a compaction at a state
-/// save once the dead share passes
+/// <see cref="HnswVectorIndexOptions.MemTableFlushThresholdBytes"/>). Those rewrites are scattered
+/// all over the file and there are tens of them per inserted vector, so a WAL-flush checkpoint
+/// appends them to the edge log in one sequential write and a state save is what folds them into the
+/// routing file: the frequent path is the cheap one, and the periodic path carries the cost. A
+/// delete only marks the record dead — traversals skip dead ordinals — and the space is reclaimed by
+/// a compaction at a state save once the dead share passes
 /// <see cref="HnswVectorIndexOptions.CompactionDeadFraction"/>.</para>
 ///
-/// <para><b>Durability.</b> Unlike the IVF index's immutable segments these files are updated in
-/// place, so the manifest's record count is what commits them: it records the live generation, its
-/// committed record count and the timestamp and WAL file id the data corresponds to, and is replaced
-/// atomically after the files are fsynced. Records past that count were allocated after the last
-/// checkpoint, so an open ignores them and the replay re-adds those vectors. A missing, corrupt or
-/// foreign-WAL manifest — or any unreadable data file, or a graph written with different layout
-/// settings — resets the index to empty (position 0) and the startup loader replays the missing part
-/// of the WAL; partially written data never crashes the process.</para>
+/// <para><b>Durability.</b> These files are updated in place, so the manifest's record count is what
+/// commits them: it records the live generation, its committed record count and the timestamp and
+/// WAL file id the data corresponds to, and is replaced atomically after the files are fsynced.
+/// Records past that count were allocated after the last checkpoint, so an open ignores them and the
+/// replay re-adds those vectors. A missing, corrupt or foreign-WAL manifest — or any unreadable data
+/// file, or a graph written with different layout settings — resets the index to empty (position 0)
+/// and the startup loader replays the missing part of the WAL; partially written data never crashes
+/// the process.</para>
 /// </summary>
 public class HnswVectorIndex : ISemanticIndex, IDisposable {
     readonly SetRegister _sets;
     readonly AIEngine? _ai;
     readonly HnswVectorIndexOptions _options;
     readonly Action<string>? _log;
-    readonly HnswPaths _paths;
+    readonly Hnsw2Paths _paths;
     readonly ReaderWriterLockSlim _lock = new();
     readonly int _configuredDims;
 
     // mutable state, guarded by _lock:
-    HnswGraph? _graph;               // null until the dimensions are known (no vector added yet)
+    Hnsw2Graph? _graph;              // null until the dimensions are known (no vector added yet)
     readonly List<string> _pendingRetire = []; // files a compaction replaced, deletable after the next manifest write
     // Replay ops buffered by RegisterAdd/RemoveDuringStateLoad, applied as parallel batches; per id
     // the last op wins and an empty vector means remove. Drained before anything else runs.
@@ -95,14 +95,19 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     public long PersistedTimestamp => _persistedTimestamp;
     // This index carries its own position in the manifest; nothing to flag on the first commit.
     public void FlagFirstCommit() { }
-    /// <summary>Byte budget of the graph-record cache; adjustable at runtime.</summary>
-    public long MaxCacheBytes {
-        get => _graph?.MaxCacheBytes ?? _options.ResolvedMaxCacheBytes;
+    /// <summary>The general memory budget (see
+    /// <see cref="HnswVectorIndexOptions.MaxMemoryBytes"/>); adjustable at runtime. Raising it takes
+    /// full effect at the next open (a graph opened on-disk stays on-disk until then); lowering it
+    /// drops the float mirror and shrinks the cache immediately.</summary>
+    public long MaxMemoryBytes {
+        get => _options.MaxMemoryBytes;
         set {
-            _options.MaxCacheBytes = value;
-            if (_graph != null) _graph.MaxCacheBytes = value;
+            _options.MaxMemoryBytes = value;
+            _graph?.SetMemoryBudget(value);
         }
     }
+    /// <summary>Approximately what the index holds in memory right now, all structures included.</summary>
+    public long CurrentMemoryBytes => _graph?.MemoryBytes ?? 0;
     /// <summary>Search effort as a fraction of <see cref="HnswVectorIndexOptions.EfSearch"/>, see
     /// <see cref="HnswVectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
@@ -213,7 +218,7 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
             if (Math.Abs(squared - 1f) > 0.02f) throw new ArgumentException("Vectors must be L2-normalized (unit length); cosine similarity is computed as a dot product. ");
         }
     }
-    void spillIfNeeded(HnswGraph graph) {
+    void spillIfNeeded(Hnsw2Graph graph) {
         if (graph.DirtyBytes >= _options.ResolvedMemTableFlushThresholdBytes) {
             // spill to keep memory bounded during bulk loads; no manifest write, so the
             // durable position is unchanged and the WAL still covers these ops
@@ -232,9 +237,9 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         if (adds == null) return;
         var graph = ensureGraph();
         // Chunks sized so one chunk's unflushed records stay well inside the memtable budget — the
-        // spill check only runs between chunks, and a chunk of pinned-dirty records larger than the
-        // cache budget would leave the evictor nothing to evict.
-        var recordBytes = Math.Max(1L, (long)_dims * 4 + 300);
+        // spill check only runs between chunks, and a chunk of unevictable dirty records larger than
+        // the budget would leave nothing to spill.
+        var recordBytes = Math.Max(1L, (long)_dims * 5 + 300); // the float vector, the int8 copy, edges
         var chunkSize = (int)Math.Clamp(_options.ResolvedMemTableFlushThresholdBytes / 2 / recordBytes, 256, 4096);
         for (var i = 0; i < adds.Count; i += chunkSize) {
             var n = Math.Min(chunkSize, adds.Count - i);
@@ -484,22 +489,22 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
-    HnswGraph ensureGraph() {
+    Hnsw2Graph ensureGraph() {
         if (_graph != null) return _graph;
         _generation = _generation == 0 ? 1 : _generation + 1;
-        _graph = HnswGraph.Create(_paths, _generation, _dims, _options);
+        _graph = Hnsw2Graph.Create(_paths, _generation, _dims, _options);
         return _graph;
     }
-    /// <summary>The cheap checkpoint: new records to the graph file, changed neighbour lists appended to
-    /// the edge log, everything fsynced, then the manifest claims it — including how much of the log is
-    /// durable.</summary>
+    /// <summary>The cheap checkpoint: new records to their files, changed neighbour lists appended to
+    /// the edge log, everything fsynced, then the manifest claims it — including how much of the log
+    /// is durable.</summary>
     void flushAndSync() {
         if (_graph == null) return;
         _graph.Flush();
         _graph.Fsync(); // the data has to be on the disk before the manifest claims it
     }
     /// <summary>
-    /// The full checkpoint: the edge log's contents written into the graph file where they belong, so
+    /// The full checkpoint: the edge log's contents written into the routing file where they belong, so
     /// the log can be dropped. The order is what makes it crash-safe — the log is only discarded after
     /// a manifest that no longer claims any of it, so a crash mid-sequence either replays entries that
     /// are already applied (applying a neighbour list twice changes nothing) or ignores a log the
@@ -536,8 +541,8 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
     }
     void writeManifest(long timestamp, Guid walFileId) {
         var graph = _graph;
-        var (m, m0, maxLevels) = HnswGraph.Layout(_options);
-        new HnswManifest {
+        var (m, m0, maxLevels) = Hnsw2Graph.Layout(_options);
+        new Hnsw2Manifest {
             WalFileId = walFileId,
             Timestamp = timestamp,
             Dimensions = _dims,
@@ -573,17 +578,17 @@ public class HnswVectorIndex : ISemanticIndex, IDisposable {
         Directory.CreateDirectory(_paths.Folder);
         closeCurrentState();
         _walFileId = requiredWalFileId ?? Guid.Empty; // the log file this index is now bound to
-        var m = HnswManifest.TryRead(_paths.Manifest);
+        var m = Hnsw2Manifest.TryRead(_paths.Manifest);
         if (m != null && (requiredWalFileId == null || (m.WalFileId != Guid.Empty && m.WalFileId == requiredWalFileId.Value))) {
             try {
                 if (_configuredDims != 0 && m.Dimensions != 0 && m.Dimensions != _configuredDims) {
                     throw new InvalidDataException($"The stored dimensions ({m.Dimensions}) do not match the configured dimensions ({_configuredDims}). ");
                 }
-                var (mm, m0, maxLevels) = HnswGraph.Layout(_options);
+                var (mm, m0, maxLevels) = Hnsw2Graph.Layout(_options);
                 if (m.Dimensions != 0 && (m.Connectivity != mm || m.ConnectivityLevel0 != m0 || m.MaxLevels != maxLevels)) {
                     throw new InvalidDataException($"The stored graph is laid out for connectivity {m.Connectivity}/{m.ConnectivityLevel0} over {m.MaxLevels} layers, the configuration asks for {mm}/{m0} over {maxLevels}. ");
                 }
-                if (m.Dimensions != 0) _graph = HnswGraph.Open(_paths, m, _options);
+                if (m.Dimensions != 0) _graph = Hnsw2Graph.Open(_paths, m, _options);
                 _dims = m.Dimensions != 0 ? m.Dimensions : _configuredDims;
                 _generation = m.Generation;
                 _persistedTimestamp = m.Timestamp;
