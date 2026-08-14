@@ -50,7 +50,10 @@ public static partial class FromBytes {
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
-                if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+                if (allProps.ContainsKey(id)) {
+                    value = forceValueType(propDef.PropertyType, value);
+                    if(value!=null) values.Add(id, value);
+                }
             }
         }
         // add defaults for missing props
@@ -83,7 +86,10 @@ public static partial class FromBytes {
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
-                if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+                if (allProps.ContainsKey(id)) {
+                    value = forceValueType(propDef.PropertyType, value);
+                    if (value != null) values.Add(id, value);
+                }
             }
         }
         // add defaults for missing props
@@ -125,7 +131,10 @@ public static partial class FromBytes {
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
-                if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+                if (allProps.ContainsKey(id)) {
+                    value = forceValueType(propDef.PropertyType, value);
+                    if (value != null) values.Add(id, value);
+                }
             }
         }
         // add defaults for missing props
@@ -168,7 +177,10 @@ public static partial class FromBytes {
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
-                if (allProps.ContainsKey(id)) values.Add(id, forceValueType(propDef.PropertyType, value));
+                if (allProps.ContainsKey(id)) {
+                    value = forceValueType(propDef.PropertyType, value);
+                    if (value != null) values.Add(id, value);
+                }
             }
         }
         // add defaults for missing props
@@ -244,7 +256,7 @@ public static partial class FromBytes {
         return propDef.CreateInnerNodeDataMap(propertyPath, nodes);
     }
 
-    static object forceValueType(PropertyType valueType, object value) {
+    static object? forceValueType(PropertyType valueType, object value) {
         if (value is null) throw new Exception("Internal error. Property values cannot be null. ");
         return valueType switch {
             PropertyType.Boolean => BooleanPropertyModel.ForceValueType(value, out _),
@@ -268,7 +280,8 @@ public static partial class FromBytes {
             PropertyType.File => FilePropertyModel.ForceValueType(value, out _),
             PropertyType.Embedded => EmbeddedPropertyModel.ForceValueType(value, out _),
             PropertyType.Reference => ReferencePropertyModel.ForceValueType(value, out _),
-            _ => throw new NotSupportedException("It is not possible to force type \"" + valueType + "\". "),
+           _=> null
+            //_ => throw new NotSupportedException("It is not possible to force type \"" + valueType + "\". "),
         };
     }
 }
