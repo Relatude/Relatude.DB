@@ -2,10 +2,8 @@
     public enum DatamodelSourceType {
         AssemblyNameReference = 0,
         TypeNameReference = 1,
-        AssemblyFileReference = 2,
-        TypeNameFileReference = 3,
-        JsonFile = 4,
-        CSharpCodeFile = 5,
+        JsonFile = 2,
+        CSharpCodeFile = 3,
     }
     public class DatamodelSource {
         public Guid Id { get; set; }

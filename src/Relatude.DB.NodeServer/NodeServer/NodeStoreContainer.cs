@@ -334,10 +334,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 var type = Type.GetType(source.Reference!);
                 dm.Add(type!, true, source.AutoDeduceRelations);
                 break;
-            case DatamodelSourceType.AssemblyFileReference:
-                throw new NotImplementedException();
-            case DatamodelSourceType.TypeNameFileReference:
-                throw new NotImplementedException();
             case DatamodelSourceType.JsonFile: {
                     if (source.FileIO == null) throw new Exception("FileIO is required for JsonFile DatamodelSource");
                     if (!server.TryGetIO(source.FileIO.Value, out var io)) throw new Exception("FileIO not found for JsonFile DatamodelSource");
