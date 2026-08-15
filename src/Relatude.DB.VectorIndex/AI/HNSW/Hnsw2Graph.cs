@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// The HNSW graph itself: a hierarchy of navigable small-world layers over the vectors, and the

@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>SIMD helpers. All similarity math is plain dot products since the vectors are unit
 /// length. Deliberately a copy of the same file in the other vector index projects rather than a

@@ -3,9 +3,8 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
+using Relatude.DB.AI.ISV;
 using Relatude.DB.Nodes;
-using Relatude.DB.VectorIndex;
-using Relatude.DB.VectorIndex.ISV;
 using Relatude.Utils;
 
 namespace Relatude.Store;

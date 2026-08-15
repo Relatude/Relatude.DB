@@ -1,4 +1,4 @@
-namespace Relatude.DB.VectorIndex.ISV;
+namespace Relatude.DB.AI.ISV;
 
 /// <summary>Tuning knobs for <see cref="NativeVectorIndex"/>. All sizes are in bytes.</summary>
 public sealed class NativeVectorIndexOptions {

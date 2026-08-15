@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// The edge regions changed since the last state save, as a sequential append-only log.

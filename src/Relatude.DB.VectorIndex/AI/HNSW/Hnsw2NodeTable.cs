@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// The graph's topology above layer 0, and the identity of every record: for each ordinal the node

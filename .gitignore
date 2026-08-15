@@ -378,3 +378,6 @@ nuget.exe
 /examples/Website.Simple/relatude.db2
 /examples/Website.Sqlite/shop.sqlite*
 /examples/Website.Simple/relatude.db22
+/examples/Website.Simple/appsettings.json
+/examples/Website.Simple/appsettings.Development.json
+/nuget/Output

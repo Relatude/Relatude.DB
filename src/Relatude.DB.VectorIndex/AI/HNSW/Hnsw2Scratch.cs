@@ -1,4 +1,4 @@
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>A node under consideration during a walk: its ordinal and its similarity to the query.</summary>
 internal readonly record struct Candidate(int Ordinal, float Similarity);

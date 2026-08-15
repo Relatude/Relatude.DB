@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Relatude.DB.VectorIndex.ISV;
+namespace Relatude.DB.AI.ISV;
 
 /// <summary>
 /// The index's durable root: which segment files are live, the centroid generation they are

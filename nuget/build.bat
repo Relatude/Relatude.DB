@@ -2,6 +2,24 @@
 
 @echo off
 cls
+setlocal
+
+:: Packages built here:
+::   - one per .nuspec in this folder, packed with nuget.exe from the Release output
+::   - Relatude.DB.Tool, the "relatude" command line tool, packed with dotnet pack
+::     (a dotnet tool package bundles its whole dependency closure, so it cannot be
+::      described by a .nuspec listing loose dlls like the library packages are)
+
+set "solution=..\Relatude.DB.slnx"
+set "toolProject=..\src\Relatude.DB.Console\Relatude.DB.Console.csproj"
+set "apikeyFile=..\..\Relatude.DB.Secrets\nuget_apikey.txt"
+
+:: nuget.exe ships next to this script, only fall back to one on the PATH
+if exist "%~dp0nuget.exe" (
+    set "nugetExe=%~dp0nuget.exe"
+) else (
+    set "nugetExe=nuget"
+)
 
 :: Delete Output folder if it exists
 if exist Output (
@@ -31,7 +49,7 @@ for /f "usebackq tokens=3 delims=<>" %%v in (`findstr /ri "<\s*Version\s*>" "%cs
 
 :gotVersion
 if not defined version (
-    echo ERROR: Could not find a <Version> tag in %csproj%!
+    echo ERROR: Could not find a ^<Version^> tag in %csproj%!
     pause
     exit /b 1
 )
@@ -46,19 +64,55 @@ goto :trimEnd
 
 echo Detected version: %version%
 
+:: Warn if the command line tool carries a different version number
+set "toolVersion="
+for /f "usebackq tokens=3 delims=<>" %%v in (`findstr /ri "<\s*Version\s*>" "%toolProject%"`) do (
+    set "toolVersion=%%v"
+    goto :gotToolVersion
+)
+:gotToolVersion
+if defined toolVersion if not "%toolVersion%"=="%version%" (
+    echo WARNING: %toolProject% says %toolVersion%, packing it as %version% anyway.
+)
+
 :: Prompt the user for the version number
-set /p tag=Enter subversion tag (ie: -alpha): 
+set /p tag=Enter subversion tag (ie: -alpha):
 
 :: If the user pressed enter (tag is empty), set it to -alpha
 if "%tag%"=="" set "tag=-alpha"
 
-:: Build the solution
-dotnet build ..\Relatude.DB.slnx --configuration Release
+set "fullVersion=%version%%tag%"
+echo.
+echo Building and packing %fullVersion% ...
+echo.
 
-:: Pack the NuGet packages using the entered version
-for %%f in (.\*.nuspec) do (
-    nuget pack %%f -OutputDirectory Output\ -Version %version%%tag%
+:: Build the solution
+dotnet build %solution% --configuration Release
+if errorlevel 1 (
+    echo ERROR: Build failed, nothing was packed.
+    pause
+    exit /b 1
 )
+
+:: Pack the library NuGet packages using the entered version
+for %%f in (.\*.nuspec) do (
+    call :packNuspec "%%f"
+    if errorlevel 1 goto :packFailed
+)
+
+:: Pack the command line tool. dotnet pack, not nuget pack: PackAsTool in the csproj
+:: publishes the tool and bundles every dependency under tools\net8.0\any.
+:: This rebuilds the referenced projects with the tagged version, so it runs after the
+:: nuspec packing above, which picks its dlls straight out of bin\Release.
+echo.
+echo Packing %toolProject% ...
+dotnet pack "%toolProject%" --configuration Release -p:Version=%fullVersion% --output Output\
+if errorlevel 1 goto :packFailed
+
+echo.
+echo Packages in Output:
+for %%f in (Output\*.nupkg) do echo   %%~nxf
+echo.
 
 :: Ask whether to publish NuGets
 set /p publish=Do you want to publish the NuGet packages to nuget.org? (Y/N):
@@ -69,19 +123,49 @@ if /I NOT "%publish%"=="Y" (
 )
 
 :: Read API key from apikey.txt
-if not exist ../../Relatude.DB.Secrets/nuget_apikey.txt (
-    echo ERROR: ../../Relatude.DB.Secrets/nuget_apikey.txt not found!
+if not exist "%apikeyFile%" (
+    echo ERROR: %apikeyFile% not found!
     echo Please create a file named nuget_apikey.txt in the Secrets and put your NuGet API key inside.
     pause
     exit /b 1
 )
 
 :: Outside of version control, so never exposed publicly
-set /p apikey=<../../Relatude.DB.Secrets/nuget_apikey.txt
+set /p apikey=<"%apikeyFile%"
 
 :: Push all generated packages to nuget.org
+set "pushFailed="
 for %%f in (Output\*.nupkg) do (
-    dotnet nuget push %%f --source "https://api.nuget.org/v3/index.json" --api-key %apikey%
+    call :pushPackage "%%f"
 )
+if defined pushFailed (
+    echo.
+    echo ERROR: One or more packages failed to publish, see the output above.
+    pause
+    exit /b 1
+)
+
+echo.
+echo Published %fullVersion% to nuget.org.
 :: Pause so the window stays open after execution
 pause
+exit /b 0
+
+:packNuspec
+echo.
+echo Packing %~nx1 ...
+"%nugetExe%" pack %1 -OutputDirectory Output\ -Version %fullVersion%
+exit /b %errorlevel%
+
+:pushPackage
+echo.
+echo Pushing %~nx1 ...
+dotnet nuget push %1 --source "https://api.nuget.org/v3/index.json" --api-key %apikey% --skip-duplicate
+if errorlevel 1 set "pushFailed=1"
+exit /b 0
+
+:packFailed
+echo.
+echo ERROR: Packing failed, nothing was published.
+pause
+exit /b 1

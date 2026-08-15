@@ -14,7 +14,21 @@
 		<ToolCommandName>relatude</ToolCommandName>
 		<PackageId>Relatude.DB.Tool</PackageId>
 		<Description>Command line tool for Relatude.DB: inspect the datamodel, run queries, generate model code and run maintenance on a local database.</Description>
+		<!-- package metadata, kept in sync with the .nuspec files in \nuget -->
+		<Authors>Ole Gulbrandsen</Authors>
+		<PackageProjectUrl>https://www.github.com/relatude/relatude.db</PackageProjectUrl>
+		<PackageTags>Database ORM CMS dotnet-tool</PackageTags>
+		<PackageIcon>icon.png</PackageIcon>
+		<PackageReadmeFile>readme.md</PackageReadmeFile>
+		<PackageLicenseFile>license.txt</PackageLicenseFile>
+		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\readme.md" Pack="true" PackagePath="readme.md" Visible="false" />
+		<None Include="..\..\LICENSE.txt" Pack="true" PackagePath="license.txt" Visible="false" />
+		<None Include="..\..\nuget\icon.png" Pack="true" PackagePath="icon.png" Visible="false" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<!-- the server library is an ASP.NET Core library; its settings and container handling is reused as is -->

@@ -2,7 +2,7 @@ using Relatude.DB.AI;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// Semantic index engine backed by <see cref="HnswVectorIndex"/>, one index folder per semantic

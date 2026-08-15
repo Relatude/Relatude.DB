@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// The index's durable root: which generation of the graph files is live, how many records of each

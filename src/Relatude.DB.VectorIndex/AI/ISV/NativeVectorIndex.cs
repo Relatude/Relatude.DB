@@ -5,7 +5,7 @@ using Relatude.DB.DataStores.Sets;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace Relatude.DB.VectorIndex.ISV;
+namespace Relatude.DB.AI.ISV;
 
 /// <summary>
 /// A persistent, disk-based vector index for semantic search: cosine similarity over L2-normalized

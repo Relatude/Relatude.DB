@@ -1,7 +1,7 @@
 using Relatude.DB.AI;
+using Relatude.DB.AI.HNSW;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
-using Relatude.DB.VectorIndex.HNSW;
 
 namespace VectorIndexBenchmarks.Engines;
 

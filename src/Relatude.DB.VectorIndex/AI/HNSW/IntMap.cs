@@ -1,4 +1,4 @@
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// An open-addressing int → int map, replacing a <c>Dictionary&lt;int, int&gt;</c> where one entry

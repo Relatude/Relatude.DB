@@ -1,5 +1,5 @@
-using Relatude.DB.VectorIndex.HNSW;
-using Relatude.DB.VectorIndex.ISV;
+using Relatude.DB.AI.HNSW;
+using Relatude.DB.AI.ISV;
 using VectorIndexBenchmarks.Engines;
 
 namespace VectorIndexBenchmarks.Harness;

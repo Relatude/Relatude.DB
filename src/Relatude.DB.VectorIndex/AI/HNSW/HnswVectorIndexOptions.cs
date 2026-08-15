@@ -1,4 +1,4 @@
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>Tuning knobs for <see cref="HnswVectorIndex"/>. All sizes are in bytes.
 ///

@@ -4,7 +4,7 @@ using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
 using System.Diagnostics;
 
-namespace Relatude.DB.VectorIndex.HNSW;
+namespace Relatude.DB.AI.HNSW;
 
 /// <summary>
 /// A persistent vector index for semantic search built on an HNSW graph: cosine similarity over

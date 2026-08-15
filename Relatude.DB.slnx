@@ -27,7 +27,7 @@
     <Project Path="benchmarks/Benchmark.Relatude.DB/Benchmark.Relatude.DB.csproj" />
     <Project Path="benchmarks/Benchmark.SQLite/Benchmark.SQLite.csproj" />
   </Folder>
-  <Folder Name="/Database/">
+  <Folder Name="/Core/">
     <Project Path="src/Relatude.DB.Common/Relatude.DB.Common.csproj" />
     <Project Path="src/Relatude.DB.DataStore/Relatude.DB.DataStore.csproj" />
     <Project Path="src/Relatude.DB.DataStoreLocal/Relatude.DB.DataStoreLocal.csproj" />
