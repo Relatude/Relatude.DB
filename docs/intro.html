@@ -590,6 +590,10 @@ model:</p>
 else has a sensible default, and the file is normally written for you by the admin UI at
 <code>/relatude.db</code> — datamodel sources, file storage, backups, indexing, Azure blob, Lucene and AI
 provider settings all live there.</p>
+<p>Any of it can be overridden per environment from standard ASP.NET configuration: a <code>RelatudeDB</code>
+section with the same shape as the file — in <code>appsettings.json</code>, <code>appsettings.Development.json</code>,
+environment variables or user secrets — wins over <code>relatude.db.json</code>, and what it supplies is never
+written back to the file. Credentials belong there, not in the file.</p>
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
 <p>One fluent builder, LINQ-style expressions, <code>Execute()</code> at the end.</p>
