@@ -43,6 +43,7 @@ app.Run();
 - `AddRelatudeDB` lives in the **default global namespace** — no `using` required.
 - `RelatudeDBContext` is injected by DI; **`ctx.Database` is the `NodeStore`**, which is the API surface for everything in `api-quickref.md` and `queries.md`.
 - File converters are registered here, at startup. They are what make image and video conversion work when serving files.
+- Runtime settings live in `relatude.db.json` beside the app; a `RelatudeDB` section in standard configuration (appsettings.json, `appsettings.{Environment}.json`, environment variables, user secrets) overrides it key by key and is never written back to the file — the right place for credentials and per-environment differences. Details in `configuration.md`.
 
 Move the admin UI by passing a path:
 

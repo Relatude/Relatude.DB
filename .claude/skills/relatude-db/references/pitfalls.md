@@ -66,9 +66,11 @@ Full treatment in `files-and-media.md`.
 
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**
-- **No admin user is created for you, and no credentials are printed anywhere.** Set `MasterUserName` / `MasterPassword` in `relatude.db.json` or from `OnServerSettingsInit`; the stored user name must be lowercase. Set `TokenEncryptionSecret` too, or every restart logs everyone out.
+- **No admin user is created for you, and no credentials are printed anywhere.** Set `MasterUserName` / `MasterPassword` in `relatude.db.json` or — better — in the `RelatudeDB` configuration section (user secrets, environment variables); the stored user name must be lowercase. Set `TokenEncryptionSecret` too, or every restart logs everyone out.
 - **A missing `relatude.db.json` is created from a default that points at the bundled demo model.** A store full of `Relatude.DB.Demo.Models` types means the file was never configured.
 - **The admin UI rewrites the whole settings file** when anything is saved from it, so comments and formatting in a hand-written file are lost.
+- **Any setting can be overridden from the `RelatudeDB` configuration section** (appsettings, `appsettings.{Environment}.json`, environment variables, user secrets), and overridden values are stripped before saves so they never land in `relatude.db.json`. Consequences: an admin-UI edit to an overridden key does not stick, overlays cannot remove elements or set null, and unknown keys are startup-log warnings — see `configuration.md`.
+- **Values set in `OnServerSettingsInit` are written into `relatude.db.json`** when the admin UI saves settings. Put secrets in the configuration section instead — only section-supplied values are stripped from saves.
 - **Startup lifecycle callbacks never crash the server.** Exceptions inside `OnStoreInit`, `OnDatamodelInit` and friends are caught and written to the startup log, so a callback that did nothing looks like a no-op.
 - **Seed in `OnStoreOpenBackground`, not `OnStoreOpen`** — the latter blocks the store from opening.
 - **Datamodel source namespaces match exactly, not by prefix**, and `AssemblyFileReference` / `TypeNameFileReference` / `CSharpCodeFile` throw `NotImplementedException`.

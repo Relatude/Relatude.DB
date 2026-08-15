@@ -316,27 +316,29 @@ Use `Count()` on the builder (answered from the index) rather than `Execute().Co
 
 ## Configuration and startup
 
-Two surfaces, and they compose. `references/configuration.md` has the full field list.
+Three surfaces, and they compose. `references/configuration.md` has the full field list.
 
 **`relatude.db.json`** sits beside the app (in `DefaultDataFolderPath`, resolved against the content root) and owns everything that is not code: storage backends, index engines, file stores, AI providers, admin credentials, and the datamodel sources. **It is created from a default template if missing — and that template points at the bundled demo model**, so a store full of `Relatude.DB.Demo.Models` types means the file was never configured. The admin UI edits the same file and rewrites it wholesale.
+
+**The `RelatudeDB` configuration section** overrides the file from standard ASP.NET configuration — appsettings.json, `appsettings.{Environment}.json`, environment variables, user secrets. Same shape as `relatude.db.json`, merged key by key (array elements match on `Id`, else position), values coerced from strings, unknown keys warned about at startup. Overridden values are stripped again before saves, so **credentials belong here, not in the file** — and an admin-UI edit to an overridden key does not stick.
+
+```jsonc
+// appsettings.Development.json
+{ "RelatudeDB": { "MasterUserName": "admin", "ContainerSettings": [{ "LocalSettings": { "AutoBackUp": false } }] } }
+```
 
 **`ServerOptions`** in `Program.cs` owns what only code can express — file converters and the lifecycle callbacks:
 
 ```csharp
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter(1));      // no converters, no image/video conversion
-    options.OnServerSettingsInit = s => {                        // keep secrets out of the JSON file
-        s.MasterUserName = builder.Configuration["RelatudeDB:User"];
-        s.MasterPassword = builder.Configuration["RelatudeDB:Password"];
-        s.TokenEncryptionSecret = builder.Configuration["RelatudeDB:TokenSecret"];
-    };
     options.OnDatamodelInit = (dm, container) => dm.AddNamespace<IVenue>();
     options.OnStoreInit = db => db.RegisterTransactionPlugin(new AuditPlugin());
     options.OnStoreOpenBackground = db => Seeder.SeedIfEmpty(db);   // never in OnStoreOpen — it blocks
 });
 ```
 
-Fire order: `OnServerSettingsInit` → `OnContainerSettingsInit` → `OnStoreSettingsInit` → *JSON datamodel sources load* → `OnDatamodelInit` → `OnStoreInit` → `OnStoreOpen` / `OnStoreOpenBackground` → `OnStoreClose`. **Every callback's exceptions are caught and logged, never rethrown** — a callback that silently did nothing is a startup-log question, not a crash.
+Fire order: *file read, `RelatudeDB` section merged* → `OnServerSettingsInit` → `OnContainerSettingsInit` → `OnStoreSettingsInit` → *JSON datamodel sources load* → `OnDatamodelInit` → `OnStoreInit` → `OnStoreOpen` / `OnStoreOpenBackground` → `OnStoreClose`. **Every callback's exceptions are caught and logged, never rethrown** — a callback that silently did nothing is a startup-log question, not a crash. Values a callback sets are written back to the file on admin-UI saves; only configuration-section values are stripped.
 
 ### Two ways to register a datamodel
 
@@ -428,6 +430,7 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 - **`Traverse` and `ShortestPath` work over relations only** — not references, not embedded data. Needing traversal is the signal to model the link as a relation.
 - **`Relate` appends to the bottom of the relation list, and relating an existing pair throws.** Order is preserved per side; change it with `MoveRelation…` / `SetRelationOrder`, not by re-relating.
 - **`relatude.db.json` is created with the demo model if missing**, and the admin UI rewrites the whole file when anything is saved from it.
+- **The `RelatudeDB` configuration section wins over `relatude.db.json` and is stripped from saves** — an admin-UI edit to an overridden key does not stick, and overlays cannot remove elements or set null.
 - **Datamodel source namespaces are matched exactly, not by prefix**, and three of the six source types are not implemented.
 - **A file can only be uploaded to a node that is already stored** — `FileValue.PropertyPath` is `null` before that — and `GetUrl` throws on an empty file slot.
 - **File conversion is asynchronous, and a not-ready variant serves a status placeholder rather than failing.** Never cache a response whose `UrlContent.Cacheable` is `false`.

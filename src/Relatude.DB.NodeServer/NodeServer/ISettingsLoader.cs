@@ -9,6 +9,7 @@ public interface ISettingsLoader {
 }
 public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
     public static JsonSerializerOptions? PrettyJsonOptions = null;
+    public static JsonSerializerOptions JsonOptions => getOptions();
     static JsonSerializerOptions getOptions() {
         if (PrettyJsonOptions == null) {
             PrettyJsonOptions = new JsonSerializerOptions {

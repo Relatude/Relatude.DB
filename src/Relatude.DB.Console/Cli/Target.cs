@@ -11,10 +11,12 @@ namespace Relatude.DB.Cli;
 /// </summary>
 public sealed class Target {
     public const string SettingsFileOption = "settings";
-    public static readonly string[] Options = ["project", SettingsFileOption, "data", "bin", "assembly", "store"];
+    public static readonly string[] Options = ["project", SettingsFileOption, "data", "bin", "assembly", "store", "environment"];
 
     public required string Root { get; init; }
     public required string SettingsPath { get; init; }
+    /// <summary>Environment name for appsettings.{Environment}.json overrides, as the server resolves it.</summary>
+    public required string EnvironmentName { get; init; }
     public string? ProjectFile { get; init; }
     public required string[] ProbeFolders { get; init; }
     public required string[] AssemblyFiles { get; init; }
@@ -66,6 +68,10 @@ public sealed class Target {
             ProbeFolders = bins,
             AssemblyFiles = assemblies,
             Store = args.Get("store"),
+            EnvironmentName = args.Get("environment")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? "Production",
         };
     }
     static string? findRootWithSettingsFile(string start) {
@@ -134,6 +140,7 @@ public sealed class Target {
         var lines = new List<(string, string)> {
             ("content root", Root),
             ("settings", SettingsPath + (SettingsExists ? string.Empty : "  (does not exist)")),
+            ("environment", EnvironmentName),
         };
         if (ProjectFile != null) lines.Add(("project", ProjectFile));
         foreach (var f in ProbeFolders) lines.Add(("assemblies", f));

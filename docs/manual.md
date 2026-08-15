@@ -1460,6 +1460,55 @@ live in different places without repeating connection details.
 auto-backup retention, `EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has
 a working default; leave it out until you need it.
 
+### Overriding settings from configuration
+
+Any setting in `relatude.db.json` can be overridden from standard ASP.NET configuration. At startup
+the server reads the `RelatudeDB` section — from `appsettings.json`,
+`appsettings.{Environment}.json`, environment variables, user secrets, or any other configuration
+source the host has — and merges it over the loaded file. The section has the same shape as
+`relatude.db.json`; there is no separate schema to learn.
+
+```jsonc
+// appsettings.Development.json
+{
+  "RelatudeDB": {
+    "MasterUserName": "admin",
+    "ContainerSettings": [
+      { "LocalSettings": { "AutoBackUp": false } }
+    ]
+  }
+}
+```
+
+The same keys work as environment variables (`RelatudeDB__MasterPassword=…`) and as user secrets
+(`dotnet user-secrets set RelatudeDB:TokenEncryptionSecret …`). That is the intended home for
+credentials: user secrets in development, environment variables or a vault in production, and
+`relatude.db.json` never holds them at all.
+
+The merge rules:
+
+- Objects merge key by key; scalars replace. Keys are case-insensitive, and values are coerced to
+  the setting's type (`"true"`, `"2.5"`, enum names).
+- Array elements are matched on `Id` when the overlay element gives one, on position otherwise;
+  unmatched elements are appended. An overlay can change and add, but not remove — and it cannot
+  set a value to null (a JSON null is invisible to the configuration system).
+- A key that matches no setting, a read-only setting, or a value that does not parse is reported as
+  a warning at startup and skipped. A typo never fails the boot, but it is never silent either.
+- The startup log lists every overridden key path — paths only, never values. Overriding `Id` or
+  `DefaultStoreId` re-identifies an object instead of reconfiguring it, and draws an explicit
+  warning.
+
+**Overridden values never reach the file.** The admin UI saves settings back to `relatude.db.json`
+wholesale; before that write the server restores every overridden key to the value the file had, so
+a secret supplied through configuration is not baked into the file by the next save. The flip side:
+while a key is overridden, editing it in the admin UI has no lasting effect — configuration wins
+again on the next load. The startup log tells you which keys are in that state.
+
+The overlay is applied after the settings file is read and before `OnServerSettingsInit` fires, so
+every callback sees the merged settings. `ServerOptions.ConfigurationSectionName` renames the
+section; set it to `null` to turn the overlay off. A custom `SettingsLoader` is composed with, not
+replaced: the overlay applies to whatever the loader returns.
+
 ### Options and events in Program.cs
 
 `ServerOptions` owns what only code can express — the file converters, the folder paths, an
@@ -1476,11 +1525,11 @@ builder.AddRelatudeDB(options => {
     options.DefaultTempFolderPath = "data/tmp";
     options.SettingsLoader = new MySettingsLoader();  // replaces relatude.db.json entirely
 
-    // Keep secrets out of the JSON file
+    // Secrets belong in the RelatudeDB configuration section (previous section) — it is merged in
+    // automatically and stripped again before saves. This callback also works, but what it sets is
+    // written back to relatude.db.json when the admin UI saves settings.
     options.OnServerSettingsInit = s => {
-        s.MasterUserName = builder.Configuration["RelatudeDB:User"];
-        s.MasterPassword = builder.Configuration["RelatudeDB:Password"];
-        s.TokenEncryptionSecret = builder.Configuration["RelatudeDB:TokenSecret"];
+        s.TokenCookieName = "MyToken";
     };
 
     options.OnDatamodelInit = (dm, container) => dm.AddNamespace<IVenue>();
@@ -1577,9 +1626,9 @@ app.UseRelatudeDB("/admin/db");
 ```
 
 It has its own authentication, and **nothing creates an admin user for you**. `MasterUserName` and
-`MasterPassword` are null until you set them — in `relatude.db.json`, or from configuration in
-`OnServerSettingsInit` — and until then logging in throws "No master user configured on the
-server." Three details cost people time: the stored user name must be **lowercase** (the check
+`MasterPassword` are null until you set them — in `relatude.db.json`, or better, in the `RelatudeDB`
+configuration section (user secrets, environment variables) — and until then logging in throws "No
+master user configured on the server." Three details cost people time: the stored user name must be **lowercase** (the check
 lowercases the input before comparing), the password is compared verbatim and stored in plain text,
 and without `TokenEncryptionSecret` the server uses a random per-process key, so every restart
 invalidates every session cookie.
@@ -2728,7 +2777,11 @@ relatude info --store "Reporting"        # when the file holds more than one dat
 ```
 
 The folder holding `relatude.db.json` is treated as the application's content root, exactly as the
-server treats it, so every relative path inside the file resolves to the same place.
+server treats it, so every relative path inside the file resolves to the same place. The `RelatudeDB`
+configuration section is applied too — the tool reads `appsettings.json`,
+`appsettings.{environment}.json` and environment variables from that root, so it works on the same
+effective settings the server would run with. `--environment` picks the environment (default:
+`DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` or `Production`).
 
 **Where the model is.** The datamodel is *not* stored in the database files — it lives in your code,
 which is why the tool has to load it. In order of preference:

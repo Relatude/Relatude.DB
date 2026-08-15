@@ -19,6 +19,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- the server library is an ASP.NET Core library -->
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.GraphQL\Relatude.DB.GraphQL.csproj" />

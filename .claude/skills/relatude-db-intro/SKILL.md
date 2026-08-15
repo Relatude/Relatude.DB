@@ -177,6 +177,11 @@ Everything else has a sensible default, and the file is normally written by the 
 UI at `/relatude.db` (datamodel sources, file storage, backups, indexing, Azure blob,
 Lucene, AI provider) rather than by hand.
 
+Worth one sentence when setup comes up: a `RelatudeDB` section in standard configuration
+(appsettings.json, `appsettings.{Environment}.json`, environment variables, user secrets)
+overrides the file key by key and is never written back to it — credentials and
+per-environment differences go there, not in `relatude.db.json`.
+
 ## 4. Query API
 
 One fluent builder, LINQ-style expressions, `Execute()` at the end.

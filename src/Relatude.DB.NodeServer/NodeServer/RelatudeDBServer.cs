@@ -69,6 +69,7 @@ public partial class RelatudeDBServer {
     IIOProvider? _tempIO;
     public IIOProvider TempIO => Validator.ThrowIfNull(_tempIO);
     ISettingsLoader? _settingsLoader;
+    SettingsOverlay? _settingsOverlay;
     Dictionary<Guid, IIOProvider> _ios = [];
     Dictionary<string, AIEngine> _ais = [];
     public void ResetIOAndAIProviders() {
@@ -145,6 +146,11 @@ public partial class RelatudeDBServer {
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         _serverSettings = await _settingsLoader.ReadAsync();
         Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
+        if (options.ConfigurationSectionName != null) {
+            _settingsOverlay = SettingsOverlay.Create(app.Configuration, options.ConfigurationSectionName,
+                Log, msg => { Log(msg); Console.Error.WriteLine("relatude.db: " + msg); });
+            if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
+        }
         if (_serverSettings.DBAdminUIUrlPath != null) setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
         RaiseEventServerSettingsInit(_serverSettings);
         if (_serverSettings.ContainerSettings != null) {
@@ -213,7 +219,8 @@ public partial class RelatudeDBServer {
 
     public void UpdateWAFServerSettingsFile() {
         _serverSettings.ContainerSettings = Containers.Values.Select(c => c.Settings).ToArray();
-        _settingsLoader!.WriteAsync(_serverSettings).Wait();
+        var settingsToWrite = _settingsOverlay == null ? _serverSettings : _settingsOverlay.RemoveOverridesBeforeSave(_serverSettings);
+        _settingsLoader!.WriteAsync(settingsToWrite).Wait();
         if (Containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = Containers[_serverSettings.DefaultStoreId];
     }
     public NodeStore GetStore(Guid storeId) {
@@ -399,10 +406,17 @@ public class ServerOptions {
     public Action<NodeStore>? OnStoreOpenBackground { get; set; }
 
     /// <summary>
-    /// Custom storage for server settings. 
+    /// Custom storage for server settings.
     /// If not set, settings will be stored in a file named "relatude.db.json" in the root data folder.
     /// </summary>
     public ISettingsLoader? SettingsLoader { get; set; } = null;
+    /// <summary>
+    /// Name of the configuration section that is merged over the loaded settings, giving appsettings.json,
+    /// appsettings.{Environment}.json, environment variables and user secrets the last word.
+    /// The section has the same shape as relatude.db.json. Overridden values are never written back to the
+    /// settings file. Set to null to disable. Defaults to "RelatudeDB".
+    /// </summary>
+    public string? ConfigurationSectionName { get; set; } = SettingsOverlay.DefaultSectionName;
     /// <summary>
     /// Default relative or absolute path to default data folder
     /// </summary>

@@ -165,6 +165,33 @@ A persisted default combined with a `Memory` engine silently leaves that index i
 
 `FilePrefix` prefixes every file this store owns, which is what lets two containers share one folder.
 
+## Overriding settings from configuration
+
+Any setting in `relatude.db.json` can be overridden from standard ASP.NET configuration. At startup the server merges the `RelatudeDB` section — from `appsettings.json`, `appsettings.{Environment}.json`, environment variables, user secrets, Key Vault, anything the host reads — over the loaded file. The section has the same shape as `relatude.db.json`.
+
+```jsonc
+// appsettings.Development.json
+{
+  "RelatudeDB": {
+    "MasterUserName": "admin",
+    "ContainerSettings": [ { "LocalSettings": { "AutoBackUp": false } } ]
+  }
+}
+```
+
+Environment variable form: `RelatudeDB__MasterPassword=…`. User secrets: `dotnet user-secrets set RelatudeDB:TokenEncryptionSecret …`. **This is the intended home for credentials** — user secrets in development, environment variables or a vault in production, and `relatude.db.json` never holds them.
+
+Merge rules:
+
+- Objects merge key by key; scalars replace. Keys are case-insensitive; values are coerced to the setting's type (`"true"`, `"2.5"`, enum names).
+- Array elements match on `Id` when the overlay element gives one, on position otherwise; unmatched elements are appended. Overlays can change and add but not remove, and cannot set null (a JSON null is invisible to `IConfiguration`).
+- Unrecognized keys, read-only keys and unparsable values are warned about at startup and skipped — never a crash, never silent.
+- The startup log lists every overridden key path (paths only, never values). Overriding `Id` or `DefaultStoreId` re-identifies an object and draws an explicit warning.
+
+**Overridden values are never written back to the file.** Before the admin UI's wholesale save, the server restores every overridden key to the file's own value (`SettingsOverlay.RemoveOverridesBeforeSave`), so configuration-supplied secrets do not leak into `relatude.db.json`. Consequence: while a key is overridden, editing it in the admin UI has no lasting effect — configuration wins on the next load.
+
+The overlay applies after `SettingsLoader.ReadAsync()` and before `OnServerSettingsInit`, so callbacks see merged settings, and it composes with a custom `SettingsLoader`. `ServerOptions.ConfigurationSectionName` renames the section; `null` disables it.
+
 ## ServerOptions
 
 Everything configurable from `Program.cs`:
@@ -182,6 +209,9 @@ builder.AddRelatudeDB(options => {
 
     // Replace the JSON file entirely (database-backed settings, key vault, tests…)
     options.SettingsLoader = new MySettingsLoader();
+
+    // The configuration section merged over the settings ("RelatudeDB"; null disables)
+    options.ConfigurationSectionName = "RelatudeDB";
 
     // Lifecycle callbacks — see the order below
     options.OnServerSettingsInit    = settings => { };
@@ -210,6 +240,8 @@ temp folder emptied
         ↓
 SettingsLoader.ReadAsync()                 ← relatude.db.json read (created if missing)
         ↓
+RelatudeDB configuration section merged    ← appsettings, environment variables, user secrets
+        ↓
 OnServerSettingsInit(serverSettings)       ← last chance to change credentials, container list
         ↓
    for each container:
@@ -232,15 +264,7 @@ app.Lifetime.ApplicationStopping → Shutdown() → OnStoreClose(store)
 
 Two consequences worth carrying:
 
-- **The settings callbacks let you keep secrets out of the JSON file.** `OnServerSettingsInit` runs after the file is read and before anything uses it, so this is the idiomatic place to inject credentials from configuration or environment variables:
-
-  ```csharp
-  options.OnServerSettingsInit = s => {
-      s.MasterUserName = builder.Configuration["RelatudeDB:User"];
-      s.MasterPassword = builder.Configuration["RelatudeDB:Password"];
-      s.TokenEncryptionSecret = builder.Configuration["RelatudeDB:TokenSecret"];
-  };
-  ```
+- **Secrets belong in the `RelatudeDB` configuration section**, not in `OnServerSettingsInit`. Both run before anything uses the settings, but only section-supplied values are stripped again before saves — what a callback sets is written into `relatude.db.json` the next time the admin UI saves settings.
 
 - **`OnStoreOpenBackground` is where seeding goes.** `OnStoreOpen` blocks the open, so heavy work there delays every request behind the startup progress page.
 
@@ -323,7 +347,7 @@ Off by default, on both paths. When **off**, a plain node-typed property with no
 
 ## Admin UI authentication
 
-**There is no auto-created admin user, and no credentials are printed anywhere.** `MasterUserName` and `MasterPassword` are `null` until you set them, and logging in without them throws "No master user configured on the server." Set them in `relatude.db.json`, or — better — from configuration in `OnServerSettingsInit`.
+**There is no auto-created admin user, and no credentials are printed anywhere.** `MasterUserName` and `MasterPassword` are `null` until you set them, and logging in without them throws "No master user configured on the server." Set them in `relatude.db.json`, or — better — in the `RelatudeDB` configuration section (user secrets in development, environment variables in production).
 
 Three details that cost people time:
 
@@ -345,6 +369,8 @@ Failed logins are rate limited per IP (30 per minute). Only the admin UI and its
 - **`WaitUntilOpen: false` means requests can arrive before the store is open**, answered with a 503 progress page. Gate your own middleware on `RelatudeDBRuntime.IsReady`.
 - **A `Memory` index engine plus `UsePersisted…IndexesByDefault: true` silently keeps that index in memory.** The startup log says so; nothing else will.
 - **File converters are code-only.** No JSON setting adds them.
+- **A key overridden from configuration cannot be changed in the admin UI** — the edit is stripped before the save and configuration wins on the next load. The startup log lists the overridden paths.
+- **Configuration overlays cannot remove array elements or set a value to null.** Change the file itself for that.
 
 ## Where to look in the source
 
@@ -354,6 +380,7 @@ Failed logins are rate limited per IP (30 per minute). Only the admin UI and its
 | Server / container settings shape | `src/Relatude.DB.NodeServer/NodeServer/Settings/` |
 | Engine knobs | `src/Relatude.DB.DataStoreLocal/DataStores/SettingsLocal.cs` |
 | Reading and writing the JSON file | `src/Relatude.DB.NodeServer/NodeServer/ISettingsLoader.cs` |
+| Configuration section overlay, strip-on-write | `src/Relatude.DB.NodeServer/NodeServer/Settings/SettingsOverlay.cs` |
 | Defaults (file names, folders, admin path) | `src/Relatude.DB.NodeServer/Defaults.cs` |
 | Datamodel sources and how each is loaded | `src/Relatude.DB.NodeServer/NodeServer/DatamodelSource.cs`, `NodeStoreContainer.cs` |
 | Adding types from code | `src/Relatude.DB.NodeStore/Datamodels/DatamodelExtensions.cs` |

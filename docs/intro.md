@@ -167,6 +167,11 @@ else has a sensible default, and the file is normally written for you by the adm
 `/relatude.db` — datamodel sources, file storage, backups, indexing, Azure blob, Lucene and AI
 provider settings all live there.
 
+Any of it can be overridden per environment from standard ASP.NET configuration: a `RelatudeDB`
+section with the same shape as the file — in `appsettings.json`, `appsettings.Development.json`,
+environment variables or user secrets — wins over `relatude.db.json`, and what it supplies is never
+written back to the file. Credentials belong there, not in the file.
+
 ---
 
 ## 4. Querying

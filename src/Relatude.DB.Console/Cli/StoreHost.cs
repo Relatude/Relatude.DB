@@ -74,8 +74,9 @@ public sealed class StoreHost : IDisposable {
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions {
             ContentRootPath = target.Root,
             ApplicationName = "relatude",
-            EnvironmentName = "Production",
+            EnvironmentName = target.EnvironmentName,
         });
+        AppConfig.AddTo(builder.Configuration, target);
         builder.Services.AddSingleton<IServer, NoServer>(); // the host is built for its content root, never started
         var app = builder.Build();
         var server = new RelatudeDBServer(string.Empty);

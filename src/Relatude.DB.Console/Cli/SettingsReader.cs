@@ -11,6 +11,8 @@ namespace Relatude.DB.Cli;
 /// <summary>
 /// Reads relatude.db.json without opening anything and without writing to it: the server's own loader
 /// creates a default file when none is there, which is not what a read only command should do.
+/// The RelatudeDB configuration section (appsettings, environment variables) is merged in, so the
+/// result is the effective settings, the same the server would run with.
 /// </summary>
 public static class SettingsReader {
     static JsonSerializerOptions options() {
@@ -29,12 +31,14 @@ public static class SettingsReader {
         var json = File.ReadAllText(target.SettingsPath);
         if (json.Trim().Length == 0) throw new CliException("The settings file is empty: " + target.SettingsPath);
         json = json.Replace("\"PersistedQueueStoreEngine\": \"BuiltIn\",", "\"PersistedQueueStoreEngine\": \"Native\","); // as the server does
+        RelatudeDBServerSettings settings;
         try {
-            return JsonSerializer.Deserialize<RelatudeDBServerSettings>(json, options())
+            settings = JsonSerializer.Deserialize<RelatudeDBServerSettings>(json, options())
                 ?? throw new CliException("The settings file could not be read: " + target.SettingsPath);
         } catch (JsonException err) {
             throw new CliException("The settings file is not valid JSON: " + target.SettingsPath + Environment.NewLine + err.Message, err);
         }
+        return AppConfig.ApplyOverlay(settings, target);
     }
     public static string Serialize(RelatudeDBServerSettings settings) => JsonSerializer.Serialize(settings, options());
 

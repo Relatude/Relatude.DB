@@ -26,6 +26,10 @@ public static class Help {
         --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
         --data <folder>       content root the settings paths are resolved against
         --store <name|id>     which database in the settings file (default: DefaultStoreId)
+        --environment <name>  environment for the RelatudeDB section in appsettings.json,
+                              appsettings.{environment}.json and environment variables, which
+                              overrides relatude.db.json (default: DOTNET_ENVIRONMENT,
+                              ASPNETCORE_ENVIRONMENT or Production)
         --no-ai               open without the configured AI provider
         --allow-background    keep auto backup, auto truncate, index state snapshots and the task
                               queue enabled while the command runs (off by default)
@@ -38,6 +42,10 @@ public static class Help {
         --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
         --data <folder>       content root the settings paths are resolved against
         --store <name|id>     which database in the settings file (default: DefaultStoreId)
+        --environment <name>  environment for the RelatudeDB section in appsettings.json,
+                              appsettings.{environment}.json and environment variables, which
+                              overrides relatude.db.json (default: DOTNET_ENVIRONMENT,
+                              ASPNETCORE_ENVIRONMENT or Production)
     """;
     const string globalOptions = """
 
