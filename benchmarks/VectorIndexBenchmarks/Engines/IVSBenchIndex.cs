@@ -6,22 +6,22 @@ using Relatude.DB.DataStores.Sets;
 namespace VectorIndexBenchmarks.Engines;
 
 /// <summary>
-/// The disk-based vector index (<see cref="NativeVectorIndex"/>): vectors live in immutable
+/// The disk-based vector index (<see cref="IVSVectorIndex"/>): vectors live in immutable
 /// segment files, only ids, offsets and centroids stay in memory, and a search probes the
-/// <see cref="NativeVectorIndexOptions.Accuracy"/> fraction of clusters nearest the query, serving
+/// <see cref="VectorIndexOptions.Accuracy"/> fraction of clusters nearest the query, serving
 /// hot blocks from a byte-budgeted cache. It is the only implementation here with a per-WAL-flush
-/// durability hook: <see cref="NativeVectorIndex.MakeDurable"/> writes just the delta.
+/// durability hook: <see cref="IVSVectorIndex.MakeDurable"/> writes just the delta.
 /// </summary>
-public sealed class NativeBenchIndex : SemanticBenchIndex {
-    readonly NativeVectorIndex _index;
+public sealed class IVSBenchIndex : SemanticBenchIndex {
+    readonly IVSVectorIndex _index;
     readonly string _dir;
 
-    public NativeBenchIndex(string dir, Guid walId, AIEngine ai, NativeVectorIndexOptions options) {
+    public IVSBenchIndex(string dir, Guid walId, AIEngine ai, VectorIndexOptions options) {
         Directory.CreateDirectory(dir);
         _dir = dir;
         // A disabled set cache (size 0), for the same reason as the in-memory index: the filter
         // phase must reach the index on every call.
-        _index = new NativeVectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
+        _index = new IVSVectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
         _index.ReadStateForMemoryIndexes(walId);
     }
     protected override ISemanticIndex Index => _index;

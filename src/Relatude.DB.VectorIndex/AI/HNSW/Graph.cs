@@ -8,9 +8,9 @@ namespace Relatude.DB.AI.HNSW;
 /// <summary>
 /// The HNSW graph itself: a hierarchy of navigable small-world layers over the vectors, and the
 /// insert, delete and search walks over it. Owns one generation of the files —
-/// <see cref="Hnsw2FloatStore"/> for the float vectors, <see cref="Hnsw2RoutingStore"/> for the int8
-/// vectors and layer-0 edges, <see cref="Hnsw2NodeTable"/> for the identity and the layers above,
-/// <see cref="Hnsw2EdgeLog"/> for the edges a cheap checkpoint has not yet written into place.
+/// <see cref="FloatStore"/> for the float vectors, <see cref="RoutingStore"/> for the int8
+/// vectors and layer-0 edges, <see cref="NodeTable"/> for the identity and the layers above,
+/// <see cref="EdgeLog"/> for the edges a cheap checkpoint has not yet written into place.
 ///
 /// <para><b>Search.</b> A query enters at the single top-layer node and descends greedily, one layer
 /// at a time; at layer 0 it runs a beam of <c>ef</c> candidates until the beam stops improving. The
@@ -19,7 +19,7 @@ namespace Relatude.DB.AI.HNSW;
 /// anything is returned, so a result is never approximate in score, only in coverage (which
 /// <c>ef</c> controls). With the graph resident the walk is pure memory: no residency checks, no
 /// hashing, and the next candidates' vectors are prefetched while the current one is scored. Below
-/// <see cref="HnswVectorIndexOptions.MinVectorsForGraphSearch"/> — or wherever a scan would be
+/// <see cref="VectorIndexOptions.MinVectorsForGraphSearch"/> — or wherever a scan would be
 /// cheaper than the walk — every search is an exact parallel scan instead.</para>
 ///
 /// <para><b>Inserts.</b> Linking a node searches each layer and then rewrites the neighbour lists of
@@ -28,24 +28,24 @@ namespace Relatude.DB.AI.HNSW;
 /// its stored worst edge before loading anything — the selection heuristic, with its pairwise dot
 /// products, only runs for challengers that can actually win. Inserts arrive one at a time through
 /// <see cref="Upsert"/> or as a batch through <see cref="UpsertChunk"/>, which links its items on
-/// every core (bounded by <see cref="HnswVectorIndexOptions.MaxThreads"/>): node lists are guarded
+/// every core (bounded by <see cref="VectorIndexOptions.MaxThreads"/>): node lists are guarded
 /// by striped locks, and the searches inside tolerate the same torn neighbour lists a crash can
 /// leave — a mix of valid ordinals, never garbage.</para>
 ///
-/// <para><b>Memory.</b> The graph spends <see cref="HnswVectorIndexOptions.MaxMemoryBytes"/> in
+/// <para><b>Memory.</b> The graph spends <see cref="VectorIndexOptions.MaxMemoryBytes"/> in
 /// order of what memory buys most: the routing graph first, the float mirror second. An index that
 /// outgrows the float mirror drops it mid-run and re-scores from the file instead; an index whose
 /// routing graph would not fit at open (or one whose budget is at or below
-/// <see cref="HnswVectorIndexOptions.LowMemoryThresholdBytes"/>) runs with the graph on disk, read
+/// <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/>) runs with the graph on disk, read
 /// through a small cache — and because a routing record is a quarter of a float record, that cache
 /// holds four times the nodes per byte that caching the floats would.</para>
 /// </summary>
-internal sealed class Hnsw2Graph : IDisposable {
-    readonly HnswVectorIndexOptions _options;
-    readonly Hnsw2FloatStore _floats;
-    readonly Hnsw2RoutingStore _routing;
-    readonly Hnsw2NodeTable _nodes;
-    readonly Hnsw2EdgeLog _edges;
+internal sealed class Graph : IDisposable {
+    readonly VectorIndexOptions _options;
+    readonly FloatStore _floats;
+    readonly RoutingStore _routing;
+    readonly NodeTable _nodes;
+    readonly EdgeLog _edges;
     readonly int _dims;
     readonly int _m;        // neighbours per layer above 0
     readonly int _m0;       // neighbours at layer 0
@@ -58,8 +58,8 @@ internal sealed class Hnsw2Graph : IDisposable {
     readonly object[] _stripes = new object[256];
     // Walk and insert scratch, pooled: searches run concurrently under the index's read lock, and a
     // batch build runs one inserter per core, each renting its own set.
-    readonly ConcurrentBag<Hnsw2SearchScratch> _scratchPool = [];
-    readonly ConcurrentBag<Hnsw2InsertScratch> _insertPool = [];
+    readonly ConcurrentBag<HnswSearchScratch> _scratchPool = [];
+    readonly ConcurrentBag<HnswInsertScratch> _insertPool = [];
     int _pooledScratches;
     int _pooledInserts;
     long _memoryBudget;
@@ -85,8 +85,8 @@ internal sealed class Hnsw2Graph : IDisposable {
     public bool GraphResident => _routing.Resident;
     public string[] Paths => [_floats.Path, _routing.Path, .. _nodes.Paths, _edges.Path];
 
-    Hnsw2Graph(Hnsw2FloatStore floats, Hnsw2RoutingStore routing, Hnsw2NodeTable nodes, Hnsw2EdgeLog edges,
-        long generation, int dims, int m, int m0, int maxLevels, HnswVectorIndexOptions options) {
+    Graph(FloatStore floats, RoutingStore routing, NodeTable nodes, EdgeLog edges,
+        long generation, int dims, int m, int m0, int maxLevels, VectorIndexOptions options) {
         _floats = floats;
         _routing = routing;
         _nodes = nodes;
@@ -104,12 +104,12 @@ internal sealed class Hnsw2Graph : IDisposable {
         for (var i = 0; i < _stripes.Length; i++) _stripes[i] = new();
     }
 
-    Hnsw2SearchScratch rentScratch() {
+    HnswSearchScratch rentScratch() {
         if (!_scratchPool.TryTake(out var s)) return new();
         Interlocked.Decrement(ref _pooledScratches);
         return s;
     }
-    void returnScratch(Hnsw2SearchScratch s) {
+    void returnScratch(HnswSearchScratch s) {
         if (Interlocked.Increment(ref _pooledScratches) > 16) {
             Interlocked.Decrement(ref _pooledScratches); // over the cap: let this one go to the collector
             return;
@@ -117,13 +117,13 @@ internal sealed class Hnsw2Graph : IDisposable {
         s.Trim();
         _scratchPool.Add(s);
     }
-    Hnsw2InsertScratch rentInsert() {
+    HnswInsertScratch rentInsert() {
         if (!_insertPool.TryTake(out var ws)) ws = new();
         else Interlocked.Decrement(ref _pooledInserts);
         ws.Prepare(_m0);
         return ws;
     }
-    void returnInsert(Hnsw2InsertScratch ws) {
+    void returnInsert(HnswInsertScratch ws) {
         ws.Search.ParallelPrefetch = true;
         if (Interlocked.Increment(ref _pooledInserts) > 32) {
             Interlocked.Decrement(ref _pooledInserts);
@@ -136,7 +136,7 @@ internal sealed class Hnsw2Graph : IDisposable {
 
     /// <summary>The layout parameters a set of files is written with; a change to any of them means
     /// the stored files cannot be read and the index has to be rebuilt.</summary>
-    internal static (int m, int m0, int maxLevels) Layout(HnswVectorIndexOptions options) {
+    internal static (int m, int m0, int maxLevels) Layout(VectorIndexOptions options) {
         var m = Math.Clamp(options.Connectivity, 4, 512);
         var m0 = options.ConnectivityLevel0 > 0 ? Math.Clamp(options.ConnectivityLevel0, m, 1024) : m * 2;
         var maxLevels = Math.Clamp(options.MaxLevels, 2, 16);
@@ -151,10 +151,10 @@ internal sealed class Hnsw2Graph : IDisposable {
     }
     /// <summary>Decides where an index of <paramref name="vectors"/> vectors sits in memory under the
     /// options' budget: the routing graph resident when it fits (never with a budget at or below
-    /// <see cref="HnswVectorIndexOptions.LowMemoryThresholdBytes"/> — a budget that small says
+    /// <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/> — a budget that small says
     /// footprint is the point, and a resident graph cannot be evicted once it grows past it), the
     /// float vectors mirrored too when the whole thing fits.</summary>
-    static (bool resident, bool mirrorFloats) residency(HnswVectorIndexOptions options, int vectors, int dims, int m, int m0) {
+    static (bool resident, bool mirrorFloats) residency(VectorIndexOptions options, int vectors, int dims, int m, int m0) {
         if (options.LowMemoryMode) return (false, false);
         var budget = options.MaxMemoryBytes;
         var core = (long)vectors * graphBytesPerVector(dims, m, m0);
@@ -165,16 +165,16 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// identity table, the pending writes and the scratch.</summary>
     static long cacheBudgetOf(long memoryBudget) => Math.Max(2L * 1024 * 1024, memoryBudget * 3 / 4);
 
-    public static Hnsw2Graph Create(Hnsw2Paths paths, long generation, int dims, HnswVectorIndexOptions options) {
+    public static Graph Create(HnswPaths paths, long generation, int dims, VectorIndexOptions options) {
         var (m, m0, maxLevels) = Layout(options);
         var (resident, mirror) = residency(options, 0, dims, m, m0);
-        var floats = Hnsw2FloatStore.Create(paths.Vectors(generation), generation, dims, mirror);
-        Hnsw2RoutingStore? routing = null;
-        Hnsw2NodeTable? nodes = null;
+        var floats = FloatStore.Create(paths.Vectors(generation), generation, dims, mirror);
+        RoutingStore? routing = null;
+        NodeTable? nodes = null;
         try {
-            routing = Hnsw2RoutingStore.Create(paths.Routing(generation), generation, dims, m0, resident, cacheBudgetOf(options.MaxMemoryBytes));
-            nodes = Hnsw2NodeTable.Create(paths.Nodes(generation), paths.Upper(generation), generation, m, maxLevels, upperOnDisk: !resident);
-            var edges = Hnsw2EdgeLog.Create(paths.Edges(generation), generation, m0);
+            routing = RoutingStore.Create(paths.Routing(generation), generation, dims, m0, resident, cacheBudgetOf(options.MaxMemoryBytes));
+            nodes = NodeTable.Create(paths.Nodes(generation), paths.Upper(generation), generation, m, maxLevels, upperOnDisk: !resident);
+            var edges = EdgeLog.Create(paths.Edges(generation), generation, m0);
             return new(floats, routing, nodes, edges, generation, dims, m, m0, maxLevels, options);
         } catch {
             nodes?.Dispose();
@@ -186,19 +186,19 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// <summary>Opens the generation the manifest points at, laid out with the parameters the manifest
     /// recorded (not the current options — the caller has already checked they agree), and replays the
     /// durable part of the edge log over it.</summary>
-    public static Hnsw2Graph Open(Hnsw2Paths paths, Hnsw2Manifest m, HnswVectorIndexOptions options) {
+    public static Graph Open(HnswPaths paths, Manifest m, VectorIndexOptions options) {
         var m0 = m.ConnectivityLevel0;
         var threads = Math.Min(options.ResolvedMaxThreads, Environment.ProcessorCount);
         var (resident, mirror) = residency(options, m.NextOrdinal, m.Dimensions, m.Connectivity, m0);
-        var floats = Hnsw2FloatStore.Open(paths.Vectors(m.Generation), m.Generation, m.Dimensions, mirror, m.NextOrdinal, threads);
-        Hnsw2RoutingStore? routing = null;
-        Hnsw2NodeTable? nodes = null;
+        var floats = FloatStore.Open(paths.Vectors(m.Generation), m.Generation, m.Dimensions, mirror, m.NextOrdinal, threads);
+        RoutingStore? routing = null;
+        NodeTable? nodes = null;
         try {
-            routing = Hnsw2RoutingStore.Open(paths.Routing(m.Generation), m.Generation, m.Dimensions, m0, resident,
+            routing = RoutingStore.Open(paths.Routing(m.Generation), m.Generation, m.Dimensions, m0, resident,
                 cacheBudgetOf(options.MaxMemoryBytes), m.NextOrdinal, threads);
-            nodes = Hnsw2NodeTable.Open(paths.Nodes(m.Generation), paths.Upper(m.Generation), m.Generation,
+            nodes = NodeTable.Open(paths.Nodes(m.Generation), paths.Upper(m.Generation), m.Generation,
                 m.Connectivity, m.MaxLevels, upperOnDisk: !resident, m.NextOrdinal, m.NextUpperSlot, m.EntryOrdinal, m.MaxLevel);
-            var edges = Hnsw2EdgeLog.Open(paths.Edges(m.Generation), m.Generation, m0, m.EdgeLogEntries);
+            var edges = EdgeLog.Open(paths.Edges(m.Generation), m.Generation, m0, m.EdgeLogEntries);
             routing.LoadOverlay(edges.Replay(m.EdgeLogEntries));
             return new(floats, routing, nodes, edges, m.Generation, m.Dimensions, m.Connectivity, m0, m.MaxLevels, options);
         } catch {
@@ -304,11 +304,11 @@ internal sealed class Hnsw2Graph : IDisposable {
         enforceBudget();
     }
     /// <summary>How many linkers a batch may run. With the graph resident, one per core up to
-    /// <see cref="HnswVectorIndexOptions.MaxThreads"/>. With the graph cached, every worker walks a
+    /// <see cref="VectorIndexOptions.MaxThreads"/>. With the graph cached, every worker walks a
     /// beam whose working set is several megabytes of records, and a worker whose records keep
     /// getting evicted by the other workers does not run slower — it stops progressing at all — so
     /// the cache budget decides: one worker per 16 MB of it (raise
-    /// <see cref="HnswVectorIndex.MaxMemoryBytes"/> for the duration of a bulk load to buy the
+    /// <see cref="VectorIndex.MaxMemoryBytes"/> for the duration of a bulk load to buy the
     /// parallelism back — it is adjustable at runtime).</summary>
     int buildParallelism() {
         if (_routing.Resident) return _threads;
@@ -317,7 +317,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// <summary>Links one freshly allocated node into the graph: the descent, the per-layer beam
     /// search, the neighbour selection and the back-edges. Runs concurrently with other linkers
     /// during a batch — everything mutable it touches is either its own scratch or stripe-locked.</summary>
-    void linkInto(int ordinal, int level, int entry, int topLevel, Hnsw2InsertScratch ws) {
+    void linkInto(int ordinal, int level, int entry, int topLevel, HnswInsertScratch ws) {
         if (entry < 0 || !_nodes.IsLive(entry)) return; // the first live node has nothing to link to
         var own = _routing.Get(ordinal); // freshly allocated: always in memory
         var qq = _routing.Q(own);
@@ -367,7 +367,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// better than its worst edge the same way. Only a challenger that can win pays for the
     /// re-selection heuristic — which is what keeps a well-connected node from collecting a crowd of
     /// mutually similar edges and losing its long-range ones.</summary>
-    void link(int neighbour, float simToNew, int level, int newOrdinal, int max, Hnsw2InsertScratch ws) {
+    void link(int neighbour, float simToNew, int level, int newOrdinal, int max, HnswInsertScratch ws) {
         Span<int> upperBuffer = stackalloc int[_nodes.UpperWords];
         lock (stripeOf(neighbour)) {
             scoped ReadOnlySpan<int> ids;
@@ -413,7 +413,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// leaving a node under-connected. The pairwise comparisons run on the int8 vectors, like every
     /// other routing decision.
     /// </summary>
-    int selectNeighbours(List<Candidate> candidates, int max, int self, int[] outIds, float[] outSims, Hnsw2InsertScratch ws) {
+    int selectNeighbours(List<Candidate> candidates, int max, int self, int[] outIds, float[] outSims, HnswInsertScratch ws) {
         var sorted = ws.SelectSorted;
         sorted.Clear();
         foreach (var c in candidates) {
@@ -467,7 +467,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// <summary>The best candidates for a query, unordered and not yet paged — at least
     /// <paramref name="wanted"/> of them where the index has that many above
     /// <paramref name="minSim"/>, scored exactly. Exact below
-    /// <see cref="HnswVectorIndexOptions.MinVectorsForGraphSearch"/>, a graph walk above it.</summary>
+    /// <see cref="VectorIndexOptions.MinVectorsForGraphSearch"/>, a graph walk above it.</summary>
     public List<VectorHit> SearchRanked(float[] query, int wanted, float minSim, int ef) {
         if (_nodes.LiveCount == 0 || wanted <= 0) return [];
         var width = Math.Max(ef, wanted);
@@ -624,7 +624,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// units of one dimension's worth of dot product, and it is smaller with the graph resident (no
     /// residency checks, no hashing, prefetched memory) than with it cached. Preferring the scan where
     /// it is faster is free accuracy — it is also the exact answer. Always true below
-    /// <see cref="HnswVectorIndexOptions.MinVectorsForGraphSearch"/>.
+    /// <see cref="VectorIndexOptions.MinVectorsForGraphSearch"/>.
     /// </summary>
     bool tooWideToWalk(int width) {
         if (_nodes.LiveCount < _options.MinVectorsForGraphSearch) return true;
@@ -642,7 +642,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// scoring against the scratch's quantized query. Returns them worst first. The optional spill
     /// (see <see cref="searchLayer"/>) receives everything the layer-0 walk scores at or above
     /// <paramref name="spillFloor"/>, kept or dropped.</summary>
-    List<Candidate> beamSearch(int width, Hnsw2SearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
+    List<Candidate> beamSearch(int width, HnswSearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
         var entryPoints = descend(s);
         if (entryPoints.Count == 0) {
             s.Found.Clear();
@@ -652,7 +652,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     }
     /// <summary>Walks down from the entry point to layer 0 with a beam of one, which is where a graph
     /// search spends its logarithmic budget.</summary>
-    List<int> descend(Hnsw2SearchScratch s) {
+    List<int> descend(HnswSearchScratch s) {
         var entryPoints = s.EntryPoints;
         entryPoints.Clear();
         var entry = _nodes.EntryOrdinal;
@@ -670,7 +670,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// improves on where we stand. No beam, no visited set — a strictly improving walk cannot cycle,
     /// so the layers above 0 cost a handful of dot products and no bookkeeping at all.</summary>
     (int best, float bestSim) greedyOnLayer(ReadOnlySpan<sbyte> qq, float qr, int level, int current, float currentSim,
-        Hnsw2SearchScratch s) {
+        HnswSearchScratch s) {
         Span<int> upperBuffer = stackalloc int[_nodes.UpperWords];
         var resident = _routing.Resident;
         while (true) {
@@ -707,7 +707,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// the beam and the flood, and it is exactly the boundary members of the answer that get dropped.</para>
     /// </summary>
     List<Candidate> searchLayer(ReadOnlySpan<sbyte> qq, float qr, int level, int ef, List<int> entryPoints,
-        Hnsw2SearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
+        HnswSearchScratch s, float spillFloor = float.PositiveInfinity, List<Candidate>? spill = null) {
         var candidates = s.Candidates; // best first: priority is the negated similarity
         var results = s.Results;       // worst first, capped at ef
         candidates.Clear();
@@ -756,7 +756,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// each accepted neighbour's vector is prefetched here, so by the time the scoring loop reaches
     /// it the memory is already on its way; with the graph cached the non-resident ones are collected
     /// for one parallel read instead.</summary>
-    void collectUnvisited(ReadOnlySpan<int> neighbours, Hnsw2SearchScratch s) {
+    void collectUnvisited(ReadOnlySpan<int> neighbours, HnswSearchScratch s) {
         s.Neighbours.Clear();
         s.ToLoad.Clear();
         var resident = _routing.Resident;
@@ -878,7 +878,7 @@ internal sealed class Hnsw2Graph : IDisposable {
     /// lose reachability to some nodes and with it a little recall. That is the standard trade HNSW
     /// makes for an O(1) delete, and the way back from it is a rebuild rather than a compaction.</para>
     /// </summary>
-    public Hnsw2Graph CompactTo(long newGeneration, Hnsw2Paths paths) {
+    public Graph CompactTo(long newGeneration, HnswPaths paths) {
         var count = _nodes.NextOrdinal;
         var remap = new int[count];
         var next = 0;

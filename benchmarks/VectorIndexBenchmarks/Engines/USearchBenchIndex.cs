@@ -31,14 +31,15 @@ public sealed class USearchBenchIndex : IBenchVectorIndex {
     readonly USearchIndex _index;
     readonly string _path;
 
-    public USearchBenchIndex(string dir, int dimensions, ulong connectivity, ulong expansionAdd, ulong expansionSearch) {
+    public USearchBenchIndex(string dir, int dimensions, int connectivity, int expansionAdd, int expansionSearch) {
         Directory.CreateDirectory(dir);
         _path = Path.Combine(dir, "usearch.bin");
         // Cosine over the same unit vectors everyone else gets. Reopening is the file constructor;
-        // a fresh run starts from the configured parameters.
+        // a fresh run starts from the configured parameters. The binding takes its dials as ulong;
+        // the harness keeps them as plain ints, so the conversion happens here and nowhere else.
         _index = File.Exists(_path)
             ? new USearchIndex(_path)
-            : new USearchIndex(MetricKind.Cos, ScalarKind.Float32, (ulong)dimensions, connectivity, expansionAdd, expansionSearch);
+            : new USearchIndex(MetricKind.Cos, ScalarKind.Float32, (ulong)dimensions, (ulong)connectivity, (ulong)expansionAdd, (ulong)expansionSearch);
     }
 
     public Features Supported => Features.None;

@@ -36,10 +36,10 @@ public static class LateBindings {
         switch (engine) {
             case PersistedValueIndexEngine.Memory:
                 throw new Exception("The Memory engine is not a persisted value index engine. Please use Sqlite or Native.");
-            case PersistedValueIndexEngine.Sqlite:
-                return create<IValueIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath]);
             case PersistedValueIndexEngine.Native:
                 return new NativeKvIndexStore(indexPath);
+            case PersistedValueIndexEngine.Sqlite:
+                return create<IValueIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath]);
             default:
                 throw new Exception("Unknown PersistedValueIndexEngine: " + engine);
         }
@@ -48,10 +48,10 @@ public static class LateBindings {
         return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.LuceneTextIndexEngine", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
     }
     public static ITextIndexEngine CreateNativeTextIndexEngine(string indexPath) {
-        return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.TextIndexEngine", "Relatude.DB.TextIndex", "Relatude.DB.Plugins.TextIndex", [indexPath]);
+        return new TextIndexEngine(indexPath);
     }
     public static ISemanticIndexEngine CreateNativeSemanticIndexEngine(string indexPath) {
-        return create<ISemanticIndexEngine>("Relatude.DB.VectorIndex.ISV.NativeVectorIndexEngine", "Relatude.DB.VectorIndex", "Relatude.DB.Plugins.VectorIndex", [indexPath]);
+        return new ISVEngine(indexPath);
     }
     /// <summary>
     /// A SQLite engine serving only the FTS5 word indexes, for a configuration whose value indexes

@@ -8,7 +8,7 @@ namespace Relatude.DB.AI.HNSW;
 /// id it holds, its top layer and whether it is still live, plus the neighbour lists of the layers
 /// above 0. The identity is held in memory and mirrored to a fixed-stride file; the upper-layer
 /// adjacency is mirrored in memory too, unless the index runs with the graph on disk (a budget at
-/// or below <see cref="HnswVectorIndexOptions.LowMemoryThresholdBytes"/>, or a graph that no longer
+/// or below <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/>, or a graph that no longer
 /// fits it), where it is read from its file per hop and only the unflushed lists are held (see
 /// below).
 ///
@@ -32,7 +32,7 @@ namespace Relatude.DB.AI.HNSW;
 /// watermark say "every slot below me is on disk". The descent reads a handful of slots per search,
 /// so the cost is one small positional read per upper hop.</para>
 /// </summary>
-internal sealed class Hnsw2NodeTable : IDisposable {
+internal sealed class NodeTable : IDisposable {
     internal const int NodesFileKind = 3;
     internal const int UpperFileKind = 4;
     const int nodeWords = 3;                 // [nodeId][level and flags][upper slot]
@@ -81,7 +81,7 @@ internal sealed class Hnsw2NodeTable : IDisposable {
     public long ResidentBytes =>
         (long)_nodeId.Length * 12 + (long)_ordinalOf.Count * 16
         + (_upperOnDisk ? _pendingUpper!.Count * (long)(UpperWords * 4 + 48) : (long)_upper.Length * 4);
-    Hnsw2NodeTable(FixedStrideFile nodesFile, FixedStrideFile upperFile, int connectivity, int maxLevels, bool upperOnDisk) {
+    NodeTable(FixedStrideFile nodesFile, FixedStrideFile upperFile, int connectivity, int maxLevels, bool upperOnDisk) {
         _nodesFile = nodesFile;
         _upperFile = upperFile;
         Connectivity = connectivity;
@@ -94,7 +94,7 @@ internal sealed class Hnsw2NodeTable : IDisposable {
         }
     }
 
-    public static Hnsw2NodeTable Create(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels, bool upperOnDisk) {
+    public static NodeTable Create(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels, bool upperOnDisk) {
         var upperWords = 1 + 2 * connectivity;
         var nodes = FixedStrideFile.Create(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], 0);
         try {
@@ -108,11 +108,11 @@ internal sealed class Hnsw2NodeTable : IDisposable {
     /// <summary>Opens the two files and reads the committed part into memory (the upper adjacency
     /// stays on disk in on-disk mode), then rebuilds the derived lookups. Anything past the
     /// manifest's counts is uncommitted scratch and ignored.</summary>
-    public static Hnsw2NodeTable Open(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels,
+    public static NodeTable Open(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels,
         bool upperOnDisk, int committedOrdinals, int committedUpperSlots, int expectedEntry, int expectedMaxLevel) {
         var upperWords = 1 + 2 * connectivity;
         var nodes = FixedStrideFile.Open(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], committedOrdinals);
-        Hnsw2NodeTable table;
+        NodeTable table;
         try {
             var upper = FixedStrideFile.Open(upperPath, UpperFileKind, generation, upperWords * 4, [connectivity, maxLevels], committedUpperSlots);
             table = new(nodes, upper, connectivity, maxLevels, upperOnDisk);

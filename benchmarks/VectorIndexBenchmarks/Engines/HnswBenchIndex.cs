@@ -6,7 +6,7 @@ using Relatude.DB.DataStores.Sets;
 namespace VectorIndexBenchmarks.Engines;
 
 /// <summary>
-/// The Relatude HNSW index (<see cref="HnswVectorIndex"/>): the graph a search walks — int8 vectors
+/// The Relatude HNSW index (<see cref="VectorIndex"/>): the graph a search walks — int8 vectors
 /// and neighbour lists — lives in flat, prefetch-friendly memory whenever the general budget
 /// (<c>MaxMemoryBytes</c>) allows, with the float vectors mirrored too when they fit and read from
 /// their own file only for exact re-scoring when they do not; at or below the low-memory budget
@@ -18,15 +18,15 @@ namespace VectorIndexBenchmarks.Engines;
 /// in-memory library.</para>
 /// </summary>
 public sealed class HnswBenchIndex : SemanticBenchIndex {
-    readonly HnswVectorIndex _index;
+    readonly VectorIndex _index;
     readonly string _dir;
 
-    public HnswBenchIndex(string dir, Guid walId, AIEngine ai, HnswVectorIndexOptions options) {
+    public HnswBenchIndex(string dir, Guid walId, AIEngine ai, VectorIndexOptions options) {
         Directory.CreateDirectory(dir);
         _dir = dir;
         // A disabled set cache (size 0), for the same reason as the other Relatude indexes: the
         // filter phase must reach the index on every call.
-        _index = new HnswVectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
+        _index = new VectorIndex(new SetRegister(0), "bench", "bench", dir, ai, options);
         _index.ReadStateForMemoryIndexes(walId);
     }
     protected override ISemanticIndex Index => _index;

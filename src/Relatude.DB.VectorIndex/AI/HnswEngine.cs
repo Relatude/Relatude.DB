@@ -1,40 +1,40 @@
-using Relatude.DB.AI;
+using Relatude.DB.AI.HNSW;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 
-namespace Relatude.DB.AI.HNSW;
+namespace Relatude.DB.AI;
 
 /// <summary>
-/// Semantic index engine backed by <see cref="HnswVectorIndex"/>, one index folder per semantic
-/// index under <c>&lt;indexFolder&gt;/vectorindex-hnsw2</c>. Same shape as the other vector index
+/// Semantic index engine backed by <see cref="VectorIndex"/>, one index folder per semantic
+/// index under <c>&lt;indexFolder&gt;/vectorindex-hnsw</c>. Same shape as the other vector index
 /// engines: the engine is only a factory and folder owner — each index is driven by the data store
 /// through the memory-index protocol (<see cref="IIndex.SaveStateForMemoryIndexes"/> and friends)
 /// and carries its own durable position — timestamp and WAL file id — in its manifest, so there is
 /// no engine-level transaction or WAL marker; see <see cref="ISemanticIndexEngine"/>.
 /// </summary>
-public class Hnsw2VectorIndexEngine : ISemanticIndexEngine {
+public class HnswEngine : ISemanticIndexEngine {
     // deliberately its own folder name: the first HNSW engine's files live under "vectorindex", and
     // the two write incompatible formats, so sharing the folder would just trade resets back and forth
-    const string folderKey = "vectorindex-hnsw2";
+    const string folderKey = "vectorindex-hnsw";
     readonly string _folderPath;
-    readonly HnswVectorIndexOptions _defaults;
-    readonly Dictionary<string, HnswVectorIndex> _indexes = [];
-    public Hnsw2VectorIndexEngine(string baseIndexFolderPath) : this(baseIndexFolderPath, null) { }
-    public Hnsw2VectorIndexEngine(string baseIndexFolderPath, HnswVectorIndexOptions? defaultOptions) {
+    readonly VectorIndexOptions _defaults;
+    readonly Dictionary<string, VectorIndex> _indexes = [];
+    public HnswEngine(string baseIndexFolderPath) : this(baseIndexFolderPath, null) { }
+    public HnswEngine(string baseIndexFolderPath, VectorIndexOptions? defaultOptions) {
         _folderPath = Path.Combine(baseIndexFolderPath, folderKey);
         if (!Directory.Exists(_folderPath)) Directory.CreateDirectory(_folderPath);
         _defaults = defaultOptions ?? new();
     }
-    public string Name => "HNSW2 Vector";
+    public string Name => "HNSW Vector";
     public ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log) {
         if (_indexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var folder = Path.Combine(_folderPath, id.ToLowerInvariant());
-        var index = new HnswVectorIndex(sets, id, friendlyName, folder, ai, cloneDefaults(), log);
+        var index = new VectorIndex(sets, id, friendlyName, folder, ai, cloneDefaults(), log);
         _indexes[id] = index;
         return index;
     }
     // every index gets its own copy so runtime tuning of one (memory budget, accuracy) stays local to it
-    HnswVectorIndexOptions cloneDefaults() => new() {
+    VectorIndexOptions cloneDefaults() => new() {
         Dimensions = _defaults.Dimensions,
         MaxMemoryBytes = _defaults.MaxMemoryBytes,
         MaxThreads = _defaults.MaxThreads,

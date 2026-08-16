@@ -109,9 +109,11 @@ public static class BenchRunner {
         // ---- Accuracy against the exact answers ----------------------------------------------------
         // Measured here, on the freshly loaded corpus the exact neighbours were computed from, and
         // before any phase changes it. An approximate index trades recall for speed, so the search
-        // rates below only mean something next to this.
-        Progress.Phase("measuring recall");
-        measureAccuracy(result, bench, corpus);
+        // rates below only mean something next to this. A sweep that records neither skips both.
+        if (!options.SkipSearches) {
+            Progress.Phase("measuring recall");
+            measureAccuracy(result, bench, corpus);
+        }
 
         // ---- One durability checkpoint after a small delta -----------------------------------------
         // Where the two designs differ most: the in-memory index writes a state file containing
@@ -139,17 +141,19 @@ public static class BenchRunner {
         // ---- Searches -------------------------------------------------------------------------------
         // The first two carry a minimum similarity, which is how a semantic query is normally asked
         // and lets both implementations discard a vector before it reaches their top-k structure.
-        searchPhase(result, "Top10", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count);
-        searchPhase(result, "Top100", q => bench.SearchRanked(q, DeepPageSize, DeepMaxHitsEvaluated, corpus.MinSimilarity).Count);
-        // No floor: every vector in the index is a candidate for the page, so nothing can be
-        // discarded early and the whole corpus passes through the ranking.
-        searchPhase(result, "NoFloor", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, -1f).Count);
-        // The unranked path a semantic WhereSearch filter uses. A pure top-k library has no such
-        // query, so it is skipped rather than emulated with a k of the whole index, which would
-        // measure a query nobody would write.
-        if (bench.Supported.HasFlag(Features.UnrankedFilter))
-            searchPhase(result, "Filter", q => bench.SearchIds(q, corpus.MinSimilarity).Count);
-        else result.Unsupported.Add("Filter");
+        if (!options.SkipSearches) {
+            searchPhase(result, "Top10", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, corpus.MinSimilarity).Count);
+            searchPhase(result, "Top100", q => bench.SearchRanked(q, DeepPageSize, DeepMaxHitsEvaluated, corpus.MinSimilarity).Count);
+            // No floor: every vector in the index is a candidate for the page, so nothing can be
+            // discarded early and the whole corpus passes through the ranking.
+            searchPhase(result, "NoFloor", q => bench.SearchRanked(q, PageSize, MaxHitsEvaluated, -1f).Count);
+            // The unranked path a semantic WhereSearch filter uses. A pure top-k library has no such
+            // query, so it is skipped rather than emulated with a k of the whole index, which would
+            // measure a query nobody would write.
+            if (bench.Supported.HasFlag(Features.UnrankedFilter))
+                searchPhase(result, "Filter", q => bench.SearchIds(q, corpus.MinSimilarity).Count);
+            else result.Unsupported.Add("Filter");
+        }
 
         // ---- Footprint of an index that has been serving -------------------------------------------
         // The steady state of a running store, and the only place a read-through cache shows up: the

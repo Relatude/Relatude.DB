@@ -17,8 +17,8 @@ public class NativeVectorIndexTests {
     public void Cleanup() {
         try { Directory.Delete(_folder, true); } catch { }
     }
-    static NativeVectorIndex create(string folder, NativeVectorIndexOptions? options = null, AIEngine? ai = null) {
-        return new NativeVectorIndex(new SetRegister(10_000_000), "test-index", "Test Vector Index", folder, ai, options);
+    static IVSVectorIndex create(string folder, VectorIndexOptions? options = null, AIEngine? ai = null) {
+        return new IVSVectorIndex(new SetRegister(10_000_000), "test-index", "Test Vector Index", folder, ai, options);
     }
     static float[] randomUnit(Random r, int dims) {
         var v = new float[dims];
@@ -151,7 +151,7 @@ public class NativeVectorIndexTests {
     public void ClusteredSearchAndAccuracy() {
         var r = new Random(2024);
         const int dims = 32, centers = 40, perCenter = 100;
-        var options = new NativeVectorIndexOptions {
+        var options = new VectorIndexOptions {
             MinVectorsForClustering = 1000,
             TargetVectorsPerCluster = 64,
         };
@@ -228,7 +228,7 @@ public class NativeVectorIndexTests {
     public void SpillsToDiskDuringBulkLoad() {
         var r = new Random(5);
         const int dims = 16, count = 500;
-        var options = new NativeVectorIndexOptions { MemTableFlushThresholdBytes = 4096 }; // spill every ~36 adds
+        var options = new VectorIndexOptions { MemTableFlushThresholdBytes = 4096 }; // spill every ~36 adds
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using (var index = create(_folder, options)) {
@@ -284,7 +284,7 @@ public class NativeVectorIndexTests {
     public void TinyCacheStillCorrect() {
         var r = new Random(3);
         const int dims = 64, count = 1000;
-        var options = new NativeVectorIndexOptions { MaxCacheBytes = 1024 }; // nothing fits: every search reads disk
+        var options = new VectorIndexOptions { MaxCacheBytes = 1024 }; // nothing fits: every search reads disk
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using var index = create(_folder, options);

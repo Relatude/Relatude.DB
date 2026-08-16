@@ -1,6 +1,6 @@
 namespace Relatude.DB.AI.HNSW;
 
-/// <summary>Tuning knobs for <see cref="HnswVectorIndex"/>. All sizes are in bytes.
+/// <summary>Tuning knobs for <see cref="VectorIndex"/>. All sizes are in bytes.
 ///
 /// <para>One knob decides where the index sits between speed and footprint.
 /// <see cref="MaxMemoryBytes"/> is the general budget: roughly how much memory the whole index may
@@ -11,7 +11,7 @@ namespace Relatude.DB.AI.HNSW;
 /// memory and reads floats only to re-score the final candidates; with less than that — or a budget
 /// at or below <see cref="LowMemoryThresholdBytes"/>, which says footprint is the point — the graph
 /// stays on disk outright and is read through a small cache.</para></summary>
-public sealed class HnswVectorIndexOptions {
+public sealed class VectorIndexOptions {
     /// <summary>Vector length. When null it is taken from the AI engine settings, or locked to the
     /// length of the first vector added. Every vector must have this exact length (throws if not).</summary>
     public int? Dimensions { get; set; }
@@ -31,7 +31,7 @@ public sealed class HnswVectorIndexOptions {
     /// What does not fit stays on disk; at or below <see cref="LowMemoryThresholdBytes"/> the graph
     /// stays on disk outright, read through a small cache. Defaults to 100 MB. A budget is a target
     /// rather than a hard wall — dirty state that is not yet flushed cannot be evicted — and it is
-    /// adjustable at runtime through <see cref="HnswVectorIndex.MaxMemoryBytes"/>.</summary>
+    /// adjustable at runtime through <see cref="VectorIndex.MaxMemoryBytes"/>.</summary>
     public long MaxMemoryBytes { get; set; } = 100L * 1024 * 1024;
     /// <summary>The most threads the index may use for its parallel work: batch builds, exact scans,
     /// mirror loading at open, re-scoring reads and prefetch fan-outs. Null uses every core. A single
@@ -82,7 +82,7 @@ public sealed class HnswVectorIndexOptions {
     public int CompactionMinDeadRecords { get; set; } = 4_096;
     /// <summary>Seed for the layer assignment of new nodes. Null uses a fixed seed, so a given
     /// order of sequential adds always produces the same graph. Batched adds
-    /// (<see cref="HnswVectorIndex.AddRange"/>, and the WAL replay that uses it) keep the layer
+    /// (<see cref="VectorIndex.AddRange"/>, and the WAL replay that uses it) keep the layer
     /// assignment deterministic but link in parallel, so their edge choice can differ run to run —
     /// statistically equivalent graphs, not bit-identical files.</summary>
     public int? RandomSeed { get; set; }

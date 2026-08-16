@@ -5,7 +5,7 @@ namespace Relatude.DB.AI.HNSW;
 /// <summary>
 /// The index's durable root: which generation of the graph files is live, how many records of each
 /// of them are committed, where a search enters the graph, the WAL file the data belongs to and the
-/// timestamp of the last durable position (<see cref="HnswVectorIndex.PersistedTimestamp"/>).
+/// timestamp of the last durable position (<see cref="VectorIndex.PersistedTimestamp"/>).
 /// Written via a temp file and an atomic replace, and only after the files it describes are fsynced —
 /// a crash mid-write leaves the previous manifest in place, never a half-written one. A missing,
 /// corrupt or foreign-WAL manifest resets the index to empty so the WAL replay rebuilds it.
@@ -15,7 +15,7 @@ namespace Relatude.DB.AI.HNSW;
 /// so an open ignores them and the replay re-adds those vectors. That is what makes updating the
 /// files in place safe without a second copy of the data.</para>
 /// </summary>
-internal sealed class Hnsw2Manifest {
+internal sealed class Manifest {
     const long Magic = 0x324D_5648_4244_5452; // "RTDBHVM2", changes with breaking format changes
     const int Version = 1;
     const int totalBytes = 8 + 4 + 16 + 8 + 4 + 8 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 8;
@@ -35,10 +35,10 @@ internal sealed class Hnsw2Manifest {
     public int MaxLevels;
     /// <summary>Durable entries of the edge log — neighbour lists the routing file has not received
     /// yet. Anything the log holds beyond this was not durable when the manifest was written, so it
-    /// is not replayed. See <see cref="Hnsw2EdgeLog"/>.</summary>
+    /// is not replayed. See <see cref="EdgeLog"/>.</summary>
     public int EdgeLogEntries;
 
-    public static Hnsw2Manifest? TryRead(string path) {
+    public static Manifest? TryRead(string path) {
         try {
             if (!File.Exists(path)) return null;
             var bytes = File.ReadAllBytes(path);
@@ -47,7 +47,7 @@ internal sealed class Hnsw2Manifest {
             if (BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(8)) != Version) return null;
             if (BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(bytes.Length - 8)) != Hash.Fnv1a(bytes.AsSpan(0, bytes.Length - 8))) return null;
             var pos = 12;
-            var m = new Hnsw2Manifest { WalFileId = new Guid(bytes.AsSpan(pos, 16)) };
+            var m = new Manifest { WalFileId = new Guid(bytes.AsSpan(pos, 16)) };
             pos += 16;
             m.Timestamp = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(pos)); pos += 8;
             m.Dimensions = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(pos)); pos += 4;
@@ -101,7 +101,7 @@ internal sealed class Hnsw2Manifest {
 }
 
 /// <summary>The file names of one generation of graph files inside an index folder.</summary>
-internal sealed class Hnsw2Paths(string folder) {
+internal sealed class HnswPaths(string folder) {
     public string Folder => folder;
     public string Manifest => Path.Combine(folder, "manifest.bin");
     /// <summary>The float vectors, one fixed-stride record per ordinal. Read for exact re-scoring

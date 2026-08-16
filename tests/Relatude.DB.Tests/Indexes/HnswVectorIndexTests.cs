@@ -16,8 +16,8 @@ public class HnswVectorIndexTests {
     public void Cleanup() {
         try { Directory.Delete(_folder, true); } catch { }
     }
-    static HnswVectorIndex create(string folder, HnswVectorIndexOptions? options = null, AIEngine? ai = null) {
-        return new HnswVectorIndex(new SetRegister(10_000_000), "test-index", "Test HNSW Index", folder, ai, options);
+    static VectorIndex create(string folder, VectorIndexOptions? options = null, AIEngine? ai = null) {
+        return new VectorIndex(new SetRegister(10_000_000), "test-index", "Test HNSW Index", folder, ai, options);
     }
     static float[] randomUnit(Random r, int dims) {
         var v = new float[dims];
@@ -154,7 +154,7 @@ public class HnswVectorIndexTests {
         const int dims = 64, centers = 100, perCenter = 100;
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
-        var options = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var options = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
         using (var index = create(_folder, options)) {
             index.ReadStateForMemoryIndexes(walId);
             var id = 1;
@@ -240,7 +240,7 @@ public class HnswVectorIndexTests {
         // save, and out of the routing file after one.
         var r = new Random(4242);
         const int dims = 64, count = 10_000;
-        var options = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var options = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using (var index = create(_folder, options)) {
@@ -290,7 +290,7 @@ public class HnswVectorIndexTests {
 
         long logBytes() => new FileInfo(Directory.GetFiles(_folder, "edges_*.log").Single()).Length;
 
-        void assertFindsItself(HnswVectorIndex index, Dictionary<int, float[]> vectors, int probe) {
+        void assertFindsItself(VectorIndex index, Dictionary<int, float[]> vectors, int probe) {
             var hits = index.Search(vectors[probe], 0, 10, 0);
             Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself, so the graph is intact");
             var overlap = hits.Select(h => h.NodeId).Intersect(bruteForceTopK(vectors, vectors[probe], 10)).Count();
@@ -319,7 +319,7 @@ public class HnswVectorIndexTests {
 
         Dictionary<string, byte[]> build(string folder) {
             Directory.CreateDirectory(folder);
-            using (var index = create(folder, new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 })) {
+            using (var index = create(folder, new VectorIndexOptions { MinVectorsForGraphSearch = 1 })) {
                 index.ReadStateForMemoryIndexes(walId);
                 for (var id = 1; id <= count; id++) index.Add(id, vectors[id - 1]);
                 index.SaveStateForMemoryIndexes(1, walId);
@@ -341,7 +341,7 @@ public class HnswVectorIndexTests {
         // to find it there rather than in the record it no longer has.
         var r = new Random(31337);
         const int dims = 64, count = 8_000;
-        var options = new HnswVectorIndexOptions {
+        var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
             MaxMemoryBytes = 700 * 1024, // low-memory territory: a cache budget of a fraction of the index
             EfConstruction = 32,         // a cheaper graph; this test is about the edges surviving, not their quality
@@ -367,7 +367,7 @@ public class HnswVectorIndexTests {
             assertFindsItself(index, reference, 7999);
         }
 
-        void assertFindsItself(HnswVectorIndex index, Dictionary<int, float[]> vectors, int probe) {
+        void assertFindsItself(VectorIndex index, Dictionary<int, float[]> vectors, int probe) {
             var hits = index.Search(vectors[probe], 0, 10, 0);
             Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself, so the graph is intact");
             var overlap = hits.Select(h => h.NodeId).Intersect(bruteForceTopK(vectors, vectors[probe], 10)).Count();
@@ -379,7 +379,7 @@ public class HnswVectorIndexTests {
     public void SpillsToDiskDuringBulkLoad() {
         var r = new Random(5);
         const int dims = 16, count = 500;
-        var options = new HnswVectorIndexOptions { MemTableFlushThresholdBytes = 4096 }; // spill constantly
+        var options = new VectorIndexOptions { MemTableFlushThresholdBytes = 4096 }; // spill constantly
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using (var index = create(_folder, options)) {
@@ -408,7 +408,7 @@ public class HnswVectorIndexTests {
     public void CompactionReclaimsDeletedRecords() {
         var r = new Random(1234);
         const int dims = 32, count = 400;
-        var options = new HnswVectorIndexOptions { CompactionMinDeadRecords = 10, CompactionDeadFraction = 0.2f };
+        var options = new VectorIndexOptions { CompactionMinDeadRecords = 10, CompactionDeadFraction = 0.2f };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using var index = create(_folder, options);
@@ -468,23 +468,23 @@ public class HnswVectorIndexTests {
         // index resets to position 0 and the store replays the log into a graph of the new shape.
         var r = new Random(77);
         var walId = Guid.NewGuid();
-        using (var index = create(_folder, new HnswVectorIndexOptions { Connectivity = 16 })) {
+        using (var index = create(_folder, new VectorIndexOptions { Connectivity = 16 })) {
             index.ReadStateForMemoryIndexes(walId);
             for (var id = 1; id <= 100; id++) index.Add(id, randomUnit(r, 24));
             index.SaveStateForMemoryIndexes(1, walId);
         }
-        using (var index = create(_folder, new HnswVectorIndexOptions { Connectivity = 32 })) {
+        using (var index = create(_folder, new VectorIndexOptions { Connectivity = 32 })) {
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(0, index.PersistedTimestamp);
             Assert.AreEqual(0, index.Count);
         }
         // the same settings as the write, on the other hand, must open cleanly
-        using (var index = create(_folder, new HnswVectorIndexOptions { Connectivity = 32 })) {
+        using (var index = create(_folder, new VectorIndexOptions { Connectivity = 32 })) {
             index.ReadStateForMemoryIndexes(walId);
             for (var id = 1; id <= 100; id++) index.Add(id, randomUnit(r, 24));
             index.SaveStateForMemoryIndexes(2, walId);
         }
-        using (var index = create(_folder, new HnswVectorIndexOptions { Connectivity = 32 })) {
+        using (var index = create(_folder, new VectorIndexOptions { Connectivity = 32 })) {
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(2, index.PersistedTimestamp);
             Assert.AreEqual(100, index.Count);
@@ -496,7 +496,7 @@ public class HnswVectorIndexTests {
         var r = new Random(3);
         const int dims = 64, count = 1000;
         // Next to nothing stays in memory: every hop goes through a tiny cache, every re-score to the file.
-        var options = new HnswVectorIndexOptions { MaxMemoryBytes = 64 * 1024, MinVectorsForGraphSearch = 1 };
+        var options = new VectorIndexOptions { MaxMemoryBytes = 64 * 1024, MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         using var index = create(_folder, options);
@@ -522,7 +522,7 @@ public class HnswVectorIndexTests {
         // and the tier choice must survive a reopen.
         var r = new Random(606);
         const int dims = 96, count = 4_000;
-        var options = new HnswVectorIndexOptions {
+        var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
             // graph core is ~250 B/vector here (~1 MB total), floats are ~384 B/vector (~1.5 MB)
             MaxMemoryBytes = 1_400 * 1024,
@@ -546,7 +546,7 @@ public class HnswVectorIndexTests {
             assertRecall(index, 3999);
         }
 
-        void assertRecall(HnswVectorIndex index, int probe) {
+        void assertRecall(VectorIndex index, int probe) {
             var query = reference[probe];
             var hits = index.Search(query, 0, 10, 0);
             Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
@@ -562,7 +562,7 @@ public class HnswVectorIndexTests {
         // down its sequential path; the answers must be the same.
         var r = new Random(52);
         const int dims = 32, count = 3_000;
-        var options = new HnswVectorIndexOptions { MaxThreads = 1, MinVectorsForGraphSearch = 1 };
+        var options = new VectorIndexOptions { MaxThreads = 1, MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         var items = new List<(int nodeId, float[] vector)>();
@@ -589,7 +589,7 @@ public class HnswVectorIndexTests {
         var r = new Random(777);
         const int dims = 64, centers = 60, perCenter = 100;
         const int count = centers * perCenter;
-        var options = new HnswVectorIndexOptions {
+        var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
             MaxMemoryBytes = 400 * 1024,             // a fraction of the index: eviction runs constantly
             MemTableFlushThresholdBytes = 64 * 1024, // and the memtable spills constantly
@@ -634,7 +634,7 @@ public class HnswVectorIndexTests {
             for (var id = 201; id <= 300; id++) Assert.IsFalse(hits.Any(h => h.NodeId == id), "a removed id resurfaced");
         }
 
-        void assertRecall(HnswVectorIndex index, int probe) {
+        void assertRecall(VectorIndex index, int probe) {
             var query = reference[probe];
             var hits = index.Search(query, 0, 10, 0);
             Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
@@ -652,8 +652,8 @@ public class HnswVectorIndexTests {
         const int dims = 48, count = 1200;
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
-        var normal = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
-        var lowMem = new HnswVectorIndexOptions { MaxMemoryBytes = HnswVectorIndexOptions.LowMemoryThresholdBytes, MinVectorsForGraphSearch = 1 };
+        var normal = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var lowMem = new VectorIndexOptions { MaxMemoryBytes = VectorIndexOptions.LowMemoryThresholdBytes, MinVectorsForGraphSearch = 1 };
         using (var index = create(_folder, normal)) { // written by the normal mode
             index.ReadStateForMemoryIndexes(walId);
             for (var id = 1; id <= count; id++) {
@@ -724,7 +724,7 @@ public class HnswVectorIndexTests {
         var r = new Random(1717);
         const int dims = 64, centers = 50, perCenter = 100;
         const int count = centers * perCenter;
-        var options = new HnswVectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var options = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
         var items = new List<(int nodeId, float[] vector)>();
@@ -764,7 +764,7 @@ public class HnswVectorIndexTests {
             Assert.IsFalse(index.Search(reference[2500], 0, int.MaxValue, -1).Any(h => h.NodeId == 30), "the removed id resurfaced");
         }
 
-        void assertRecall(HnswVectorIndex index, int probe) {
+        void assertRecall(VectorIndex index, int probe) {
             var query = reference[probe];
             var hits = index.Search(query, 0, 10, 0);
             Assert.AreEqual(probe, hits[0].NodeId, "a vector must find itself first");
@@ -780,7 +780,7 @@ public class HnswVectorIndexTests {
         // cache and constant eviction, all at once.
         var r = new Random(818);
         const int dims = 48, count = 4000;
-        var options = new HnswVectorIndexOptions {
+        var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
             MaxMemoryBytes = 400 * 1024,
             MemTableFlushThresholdBytes = 64 * 1024,

@@ -17,7 +17,7 @@ internal readonly record struct Candidate(int Ordinal, float Similarity);
 /// open-addressing hash whose memory is independent of the index size, because not spending memory
 /// is that mode's whole point.</para>
 /// </summary>
-internal sealed class Hnsw2SearchScratch {
+internal sealed class HnswSearchScratch {
     public readonly VisitedStamps Stamps = new();
     public readonly VisitedSet Hash = new();
     public bool UseStamps;
@@ -65,8 +65,8 @@ internal sealed class Hnsw2SearchScratch {
 /// output buffers, and the link path's candidate list. One per inserting worker — a sequential
 /// insert rents one, a batch build rents one per parallel worker — so nothing an insert touches is
 /// shared mutable state.</summary>
-internal sealed class Hnsw2InsertScratch {
-    public readonly Hnsw2SearchScratch Search = new();
+internal sealed class HnswInsertScratch {
+    public readonly HnswSearchScratch Search = new();
     public readonly List<Candidate> LinkCandidates = [];
     public readonly List<Candidate> SelectSorted = [];
     public readonly List<int> SelectKept = [];

@@ -1,4 +1,3 @@
-using Relatude.DB.AI;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
@@ -18,10 +17,10 @@ namespace Relatude.DB.AI.ISV;
 /// What stays permanently in memory is O(vectors) small — ids, offsets and centroids — never the
 /// vector data itself.</para>
 ///
-/// <para><b>Search.</b> Below <see cref="NativeVectorIndexOptions.MinVectorsForClustering"/> every
+/// <para><b>Search.</b> Below <see cref="VectorIndexOptions.MinVectorsForClustering"/> every
 /// search is an exact parallel scan. Above it, vectors are k-means clustered (IVF): segments store
 /// vectors grouped into per-cluster blocks, and a search ranks all centroids exactly, then probes
-/// only the best <see cref="NativeVectorIndexOptions.Accuracy"/> fraction of clusters, reading just
+/// only the best <see cref="VectorIndexOptions.Accuracy"/> fraction of clusters, reading just
 /// those byte ranges. Probed blocks land in a byte-budgeted LRU cache
 /// (<see cref="MaxCacheBytes"/>, adjustable at runtime), so hot clusters are served from memory.
 /// Scored vectors are always exact full-precision floats — accuracy only controls how many
@@ -33,11 +32,11 @@ namespace Relatude.DB.AI.ISV;
 /// empty (position 0) and the startup loader replays the missing part of the WAL; partially
 /// written data never crashes the process.</para>
 /// </summary>
-public class NativeVectorIndex : ISemanticIndex, IDisposable {
+public class IVSVectorIndex : ISemanticIndex, IDisposable {
     const long MemSegmentId = -1; // owner marker for vectors still in the memtable
     readonly SetRegister _sets;
     readonly AIEngine? _ai;
-    readonly NativeVectorIndexOptions _options;
+    readonly VectorIndexOptions _options;
     readonly Action<string>? _log;
     readonly string _folder;
     readonly VectorBlockCache _cache;
@@ -62,8 +61,8 @@ public class NativeVectorIndex : ISemanticIndex, IDisposable {
     bool _opened;
     long _stateId = SetRegister.NewStateId();
 
-    public NativeVectorIndex(SetRegister sets, string uniqueKey, string friendlyName, string folderPath,
-        AIEngine? ai = null, NativeVectorIndexOptions? options = null, Action<string>? log = null) {
+    public IVSVectorIndex(SetRegister sets, string uniqueKey, string friendlyName, string folderPath,
+        AIEngine? ai = null, VectorIndexOptions? options = null, Action<string>? log = null) {
         _sets = sets;
         UniqueKey = uniqueKey;
         FriendlyName = friendlyName;
@@ -90,7 +89,7 @@ public class NativeVectorIndex : ISemanticIndex, IDisposable {
             _cache.MaxBytes = value;
         }
     }
-    /// <summary>Fraction of clusters probed per search, see <see cref="NativeVectorIndexOptions.Accuracy"/>.</summary>
+    /// <summary>Fraction of clusters probed per search, see <see cref="VectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
         get => _options.Accuracy;
         set => _options.Accuracy = Math.Clamp(value, 0.01f, 1f);

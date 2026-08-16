@@ -6,7 +6,7 @@ namespace Relatude.DB.AI.HNSW;
 
 /// <summary>A cheap handle to one routing record's bytes: the array that holds it and the offset it
 /// starts at. In resident mode that is a slice of a pinned arena chunk, in cached mode a cache
-/// entry's own array — either way the accessors on <see cref="Hnsw2RoutingStore"/> read it in place,
+/// entry's own array — either way the accessors on <see cref="RoutingStore"/> read it in place,
 /// nothing is decoded and nothing is copied.</summary>
 internal readonly struct RoutingRef(byte[] data, int offset) {
     public readonly byte[] Data = data;
@@ -17,7 +17,7 @@ internal readonly struct RoutingRef(byte[] data, int offset) {
 /// The routing graph: for every ordinal one fixed-size record holding the node's <b>int8</b> vector,
 /// its dequantization scale and its layer-0 neighbour list — everything a graph hop needs, in about
 /// a quarter of the bytes of the float vector. The float vectors live in their own file
-/// (<see cref="Hnsw2FloatStore"/>) and are only read to re-score final candidates, so the walk — the
+/// (<see cref="FloatStore"/>) and are only read to re-score final candidates, so the walk — the
 /// latency-critical chain of dependent accesses — runs entirely over these small records.
 ///
 /// <para>A record is laid out as
@@ -44,7 +44,7 @@ internal readonly struct RoutingRef(byte[] data, int offset) {
 /// (<see cref="ConsolidateBehind"/>). In cached mode a behind record that gets evicted parks its
 /// edge region in an overlay first — otherwise the eviction would drop the only correct copy.</para>
 /// </summary>
-internal sealed class Hnsw2RoutingStore : IDisposable {
+internal sealed class RoutingStore : IDisposable {
     internal const int FileKind = 2;
     const long entryOverhead = 72; // entry object, array header, the dictionary slot — roughly
     const int ChunkShift = 12;     // 4096 ordinals per arena chunk
@@ -113,7 +113,7 @@ internal sealed class Hnsw2RoutingStore : IDisposable {
         }
     }
 
-    Hnsw2RoutingStore(FixedStrideFile file, int dimensions, int neighbourCapacity, bool resident, long maxCacheBytes) {
+    RoutingStore(FixedStrideFile file, int dimensions, int neighbourCapacity, bool resident, long maxCacheBytes) {
         _file = file;
         Dimensions = dimensions;
         NeighbourCapacity = neighbourCapacity;
@@ -131,7 +131,7 @@ internal sealed class Hnsw2RoutingStore : IDisposable {
     static int strideOf(int dimensions, int neighbourCapacity) =>
         dimensions + ((4 - (dimensions & 3)) & 3) + 4 + 4 * (1 + 2 * neighbourCapacity);
 
-    public static Hnsw2RoutingStore Create(string path, long generation, int dimensions, int neighbourCapacity,
+    public static RoutingStore Create(string path, long generation, int dimensions, int neighbourCapacity,
         bool resident, long maxCacheBytes) {
         var file = FixedStrideFile.Create(path, FileKind, generation, strideOf(dimensions, neighbourCapacity), [dimensions, neighbourCapacity], 0);
         return new(file, dimensions, neighbourCapacity, resident, maxCacheBytes);
@@ -139,10 +139,10 @@ internal sealed class Hnsw2RoutingStore : IDisposable {
     /// <summary>Opens the committed records; in resident mode the whole file is mirrored into the
     /// arena on every core, which is a straight sequential read — no decoding, the disk layout is
     /// the memory layout.</summary>
-    public static Hnsw2RoutingStore Open(string path, long generation, int dimensions, int neighbourCapacity,
+    public static RoutingStore Open(string path, long generation, int dimensions, int neighbourCapacity,
         bool resident, long maxCacheBytes, int committedRecords, int maxThreads) {
         var file = FixedStrideFile.Open(path, FileKind, generation, strideOf(dimensions, neighbourCapacity), [dimensions, neighbourCapacity], committedRecords);
-        var store = new Hnsw2RoutingStore(file, dimensions, neighbourCapacity, resident, maxCacheBytes);
+        var store = new RoutingStore(file, dimensions, neighbourCapacity, resident, maxCacheBytes);
         try {
             store.ensureCapacity(committedRecords - 1);
             store._nextOrdinal = committedRecords;
@@ -333,7 +333,7 @@ internal sealed class Hnsw2RoutingStore : IDisposable {
     /// <para>Does not fsync; <see cref="Fsync"/> is the durable point. Flushed records stay in
     /// memory, in cached mode now unpinned and evictable.</para>
     /// </summary>
-    public void FlushDirty(Hnsw2EdgeLog? edgeLog) {
+    public void FlushDirty(EdgeLog? edgeLog) {
         if (_dirtyEdges.Count > 0) {
             var rewritten = new int[_dirtyEdges.Count];
             _dirtyEdges.CopyTo(rewritten);

@@ -1,24 +1,24 @@
-using Relatude.DB.AI;
+using Relatude.DB.AI.ISV;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
-namespace Relatude.DB.AI.ISV;
+namespace Relatude.DB.AI;
 
 /// <summary>
-/// Semantic index engine backed by the disk-based <see cref="NativeVectorIndex"/>, one index folder
+/// Semantic index engine backed by the disk-based <see cref="IVSVectorIndex"/>, one index folder
 /// per semantic index under <c>&lt;indexFolder&gt;/vectorindex</c>. The engine is only a factory and
 /// folder owner: each index is driven by the data store through the memory-index protocol
 /// (<see cref="IIndex.SaveStateForMemoryIndexes"/> and friends) and carries its own durable
 /// position — timestamp and WAL file id — in its manifest, so there is no engine-level transaction
 /// or WAL marker; see <see cref="ISemanticIndexEngine"/>.
 /// </summary>
-public class NativeVectorIndexEngine : ISemanticIndexEngine {
+public class ISVEngine : ISemanticIndexEngine {
     readonly string _folderPath;
-    readonly NativeVectorIndexOptions _defaults;
-    readonly Dictionary<string, NativeVectorIndex> _indexes = [];
-    public NativeVectorIndexEngine(string baseIndexFolderPath) : this(baseIndexFolderPath, null) { }
-    public NativeVectorIndexEngine(string baseIndexFolderPath, NativeVectorIndexOptions? defaultOptions) {
+    readonly VectorIndexOptions _defaults;
+    readonly Dictionary<string, IVSVectorIndex> _indexes = [];
+    public ISVEngine(string baseIndexFolderPath) : this(baseIndexFolderPath, null) { }
+    public ISVEngine(string baseIndexFolderPath, VectorIndexOptions? defaultOptions) {
         _folderPath = Path.Combine(baseIndexFolderPath, FileKeyUtility.IndexEngine_VectorIndexFolderKey);
         if (!Directory.Exists(_folderPath)) Directory.CreateDirectory(_folderPath);
         _defaults = defaultOptions ?? new();
@@ -27,12 +27,12 @@ public class NativeVectorIndexEngine : ISemanticIndexEngine {
     public ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log) {
         if (_indexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var folder = Path.Combine(_folderPath, FileKeyUtility.IndexEngine_VectorIndexIndexFolderKey(id));
-        var index = new NativeVectorIndex(sets, id, friendlyName, folder, ai, cloneDefaults(), log);
+        var index = new IVSVectorIndex(sets, id, friendlyName, folder, ai, cloneDefaults(), log);
         _indexes[id] = index;
         return index;
     }
     // every index gets its own copy so runtime tuning of one (cache budget, accuracy) stays local to it
-    NativeVectorIndexOptions cloneDefaults() => new() {
+    VectorIndexOptions cloneDefaults() => new() {
         Dimensions = _defaults.Dimensions,
         MaxCacheBytes = _defaults.MaxCacheBytes,
         Accuracy = _defaults.Accuracy,

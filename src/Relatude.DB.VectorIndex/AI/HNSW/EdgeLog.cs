@@ -22,7 +22,7 @@ namespace Relatude.DB.AI.HNSW;
 /// then drops the log — so a crash anywhere in that sequence either replays entries that are already
 /// applied (they are idempotent) or ignores a log the manifest no longer claims.</para>
 /// </summary>
-internal sealed class Hnsw2EdgeLog : IDisposable {
+internal sealed class EdgeLog : IDisposable {
     internal const int FileKind = 5;
     readonly FixedStrideFile _file;
     readonly int _capacity;    // neighbour slots per entry, i.e. the layer-0 degree
@@ -37,17 +37,17 @@ internal sealed class Hnsw2EdgeLog : IDisposable {
     public long FileLength => _file.FileLength;
     public bool HasPending => _pending.Count > 0;
 
-    Hnsw2EdgeLog(FixedStrideFile file, int capacity) {
+    EdgeLog(FixedStrideFile file, int capacity) {
         _file = file;
         _capacity = capacity;
         _regionWords = 1 + 2 * capacity;
         _words = 1 + _regionWords;
     }
-    public static Hnsw2EdgeLog Create(string path, long generation, int neighbourCapacity) {
+    public static EdgeLog Create(string path, long generation, int neighbourCapacity) {
         var words = 2 + 2 * neighbourCapacity;
         return new(FixedStrideFile.Create(path, FileKind, generation, words * 4, [neighbourCapacity], 0), neighbourCapacity);
     }
-    public static Hnsw2EdgeLog Open(string path, long generation, int neighbourCapacity, int committedEntries) {
+    public static EdgeLog Open(string path, long generation, int neighbourCapacity, int committedEntries) {
         var words = 2 + 2 * neighbourCapacity;
         var file = FixedStrideFile.Open(path, FileKind, generation, words * 4, [neighbourCapacity], committedEntries);
         return new(file, neighbourCapacity) { _entries = committedEntries };

@@ -5,7 +5,7 @@ namespace Relatude.DB.AI.ISV;
 /// <summary>
 /// The index's durable root: which segment files are live, the centroid generation they are
 /// partitioned by, the WAL file the data belongs to, and the timestamp of the last durable position
-/// (<see cref="NativeVectorIndex.PersistedTimestamp"/>). Written via a temp file and an atomic
+/// (<see cref="IVSVectorIndex.PersistedTimestamp"/>). Written via a temp file and an atomic
 /// replace, and only after the files it references are fsynced — a crash mid-write leaves the
 /// previous manifest in place, never a half-written one. A missing, corrupt or foreign-WAL manifest
 /// resets the index to empty so the WAL replay rebuilds it.

@@ -1,12 +1,12 @@
 namespace Relatude.DB.AI.ISV;
 
-/// <summary>Tuning knobs for <see cref="NativeVectorIndex"/>. All sizes are in bytes.</summary>
-public sealed class NativeVectorIndexOptions {
+/// <summary>Tuning knobs for <see cref="IVSVectorIndex"/>. All sizes are in bytes.</summary>
+public sealed class VectorIndexOptions {
     /// <summary>Vector length. When null it is taken from the AI engine settings, or locked to the
     /// length of the first vector added. Every vector must have this exact length (throws if not).</summary>
     public int? Dimensions { get; set; }
     /// <summary>Byte budget for the in-memory cache of vector blocks read from disk. Adjustable at
-    /// runtime through <see cref="NativeVectorIndex.MaxCacheBytes"/>.</summary>
+    /// runtime through <see cref="IVSVectorIndex.MaxCacheBytes"/>.</summary>
     public long MaxCacheBytes { get; set; } = 256L * 1024 * 1024;
     /// <summary>Search accuracy in (0..1]: the fraction of clusters probed per search. 1 probes every
     /// cluster (exact search), lower values are proportionally faster but may miss hits whose cluster

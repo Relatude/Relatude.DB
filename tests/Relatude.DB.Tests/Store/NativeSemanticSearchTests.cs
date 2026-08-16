@@ -25,7 +25,7 @@ public class NativeSemanticSearchTests {
             };
             var io = new IOProviderDisk(Path.Combine(folder, "db"));
             var engineFolder = Path.Combine(folder, "indexes");
-            Func<IndexEngines> engines = () => new IndexEngines(semantic: new NativeVectorIndexEngine(engineFolder));
+            Func<IndexEngines> engines = () => new IndexEngines(semantic: new ISVEngine(engineFolder));
 
             var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, io, null, null, null, AIEngine.CreateDummy(), engines);
             var store = new NodeStore(storeData);
@@ -68,7 +68,7 @@ public class NativeSemanticSearchTests {
                 UsePersistedSemanticIndexesByDefault = false, // memory index, even with an engine configured
             };
             var engineFolder = Path.Combine(folder, "indexes");
-            Func<IndexEngines> engines = () => new IndexEngines(semantic: new NativeVectorIndexEngine(engineFolder));
+            Func<IndexEngines> engines = () => new IndexEngines(semantic: new ISVEngine(engineFolder));
             var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, new IOProviderDisk(Path.Combine(folder, "db")), null, null, null, AIEngine.CreateDummy(), engines);
             var store = new NodeStore(storeData);
             var articles = Helper.GenerateArticles(10);

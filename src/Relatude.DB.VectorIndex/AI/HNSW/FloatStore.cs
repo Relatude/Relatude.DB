@@ -5,7 +5,7 @@ namespace Relatude.DB.AI.HNSW;
 /// <summary>
 /// The float vectors, one fixed-stride record per ordinal, in their own file — deliberately apart
 /// from the routing graph. A walk never reads these: it scores int8 copies out of
-/// <see cref="Hnsw2RoutingStore"/>, and only the final candidates are re-scored here, so the exact
+/// <see cref="RoutingStore"/>, and only the final candidates are re-scored here, so the exact
 /// numbers the caller sees always come from full-precision floats while the latency-critical loop
 /// moves a quarter of the bytes. Exact scans read this file too — pure sequential vector data with
 /// no edges interleaved.
@@ -16,7 +16,7 @@ namespace Relatude.DB.AI.HNSW;
 /// read positionally on demand. The mirror can be dropped mid-run when the index outgrows the
 /// budget — the tail moves into its own map and nothing else changes.</para>
 /// </summary>
-internal sealed class Hnsw2FloatStore : IDisposable {
+internal sealed class FloatStore : IDisposable {
     internal const int FileKind = 1;
     const int ChunkShift = 12; // 4096 ordinals per mirror chunk, matching the routing store
     const int ChunkOrdinals = 1 << ChunkShift;
@@ -53,20 +53,20 @@ internal sealed class Hnsw2FloatStore : IDisposable {
     public long UnflushedBytes =>
         _tail != null ? TailBytes : _appendedFrom < 0 ? 0 : (long)(_nextOrdinal - _appendedFrom) * Dimensions * 4;
 
-    Hnsw2FloatStore(FixedStrideFile file, int dimensions, bool mirror) {
+    FloatStore(FixedStrideFile file, int dimensions, bool mirror) {
         _file = file;
         Dimensions = dimensions;
         if (mirror) _chunks = [];
         else _tail = [];
     }
-    public static Hnsw2FloatStore Create(string path, long generation, int dimensions, bool mirror) {
+    public static FloatStore Create(string path, long generation, int dimensions, bool mirror) {
         var file = FixedStrideFile.Create(path, FileKind, generation, dimensions * 4, [dimensions], 0);
         return new(file, dimensions, mirror);
     }
-    public static Hnsw2FloatStore Open(string path, long generation, int dimensions, bool mirror,
+    public static FloatStore Open(string path, long generation, int dimensions, bool mirror,
         int committedRecords, int maxThreads) {
         var file = FixedStrideFile.Open(path, FileKind, generation, dimensions * 4, [dimensions], committedRecords);
-        var store = new Hnsw2FloatStore(file, dimensions, mirror);
+        var store = new FloatStore(file, dimensions, mirror);
         try {
             store._nextOrdinal = committedRecords;
             if (mirror && committedRecords > 0) store.mirrorFromFile(committedRecords, maxThreads);
