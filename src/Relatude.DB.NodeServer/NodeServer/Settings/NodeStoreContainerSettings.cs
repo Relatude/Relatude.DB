@@ -17,7 +17,7 @@ public class FileStoreSettings {
 }
 public enum AIIndexType {
     Memory,
-    MemoryTurboQuant,
+    //MemoryTurboQuant,
     DiskISV,
     DiskHNSW,
 }

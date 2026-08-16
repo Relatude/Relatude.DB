@@ -59,8 +59,10 @@ var defaults = new BenchOptions {
 // one finishes. Everything the defaults above set that is not an axis here (dimensions, clusters,
 // the HNSW dials) stays fixed across the whole sweep and is repeated on every row.
 var matrix = new MatrixOptions {
+    //VectorCounts = [500, 1_000, 10_000],  // --matrix-n
+    //CacheMB = [10, 100], // --matrix-cache
     VectorCounts = [500, 1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000],  // --matrix-n
-    CacheMB = [10, 100, 500], // --matrix-cache
+    CacheMB = [10, 100, 500, 2000], // --matrix-cache
     EngineNames = [Engines.Memory, Engines.IVS, Engines.Hnsw],          // --engines
     CsvPath = "vector-matrix.csv",                                      // --csv
     HtmlPath = "vector-matrix.html",                                    // --html
