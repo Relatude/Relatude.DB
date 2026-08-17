@@ -64,7 +64,7 @@ public static class SettingsCommand {
                 Output.Table([
                     ("value index", local.PersistedValueIndexEngine + (local.UsePersistedValueIndexesByDefault ? ", persisted by default" : ", memory by default")),
                     ("text index", local.PersistedTextIndexEngine + (local.EnableTextIndexByDefault ? ", enabled by default" : ", off by default")),
-                    ("semantic index", local.PersistedSemanticIndexEngine + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
+                    ("semantic index", (c.AISettings?.IndexType ?? Relatude.DB.Common.AIIndexType.Memory) + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
                     ("task queue", local.PersistedQueueStoreEngine + (local.AutoDequeTasks ? ", running" : ", not running")),
                     ("file store", local.DefaultFileStoreEngine.ToString()),
                     ("index folder", local.PersistedValueIndexFolderPath ?? "(with the index provider)"),
@@ -78,7 +78,7 @@ public static class SettingsCommand {
                 Output.WriteLine("  file stores");
                 Output.Table(c.FileStoreSettings.Select(f => (f.StoreType.ToString(), provider(c, f.IoProviderId, target))), "    ");
             }
-            var ai = settings.AISettings?.FirstOrDefault(a => a.Id == c.AiProvider);
+            var ai = c.AISettings;
             if (ai != null) {
                 Output.WriteLine("  AI provider");
                 Output.Table([
@@ -86,6 +86,8 @@ public static class SettingsCommand {
                     ("type", ai.TypeName ?? "-"),
                     ("embedding model", ai.EmbeddingModel ?? "-"),
                     ("key", string.IsNullOrEmpty(ai.ApiKey) ? "not set" : "set (not shown)"),
+                    ("index type", ai.IndexType.ToString()),
+                    ("index cache", ai.IndexCacheSizeInMb.HasValue ? ai.IndexCacheSizeInMb.Value + " MB" : "(engine default)"),
                 ], "    ");
             }
             Output.WriteLine("  datamodel sources");
@@ -120,7 +122,7 @@ public static class SettingsCommand {
     }
 
     static object describeJson(NodeStoreContainerSettings c, RelatudeDBServerSettings settings, Target target) {
-        var ai = settings.AISettings?.FirstOrDefault(a => a.Id == c.AiProvider);
+        var ai = c.AISettings;
         return new {
             c.Id,
             c.Name,
@@ -145,9 +147,11 @@ public static class SettingsCommand {
             DatamodelSources = (c.DatamodelSources ?? []).Select(s => new {
                 s.Id, s.Name, Type = s.Type.ToString(), s.Reference, s.Namespace, s.AutoDeduceRelations,
             }).ToArray(),
-            AiProvider = ai == null ? null : new {
-                ai.Id, ai.Name, ai.TypeName, ai.EmbeddingModel,
+            AISettings = ai == null ? null : new {
+                ai.Name, ai.TypeName, ai.EmbeddingModel,
                 ApiKeySet = !string.IsNullOrEmpty(ai.ApiKey),
+                IndexType = ai.IndexType.ToString(),
+                ai.IndexCacheSizeInMb,
             },
         };
     }

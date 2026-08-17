@@ -1910,7 +1910,7 @@ hand-written file survive being read but not being saved from the UI.</p>
 <span class="w">      </span><span class="nt">&quot;IoIndexes&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">               </span><span class="c1">// persisted index files; falls back to IoDatabase</span>
 <span class="w">      </span><span class="nt">&quot;IoBackup&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;IoLog&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;AiProvider&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">              </span><span class="c1">// id from the server-level AISettings array</span>
+<span class="w">      </span><span class="nt">&quot;AISettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">              </span><span class="c1">// per-database AI provider; required for semantic search</span>
 
 <span class="w">      </span><span class="nt">&quot;FileStoreSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IoProviderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1a2b…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;StoreType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MultiFile&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;MultiFileFolderDepth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">}</span>
@@ -1927,9 +1927,12 @@ hand-written file survive being read but not being saved from the UI.</p>
 fields point at one by id. That indirection is what lets the log, the indexes and the file bytes
 live in different places without repeating connection details.</p>
 <p><code>LocalSettings</code> is the per-store engine configuration — <code>PersistedValueIndexEngine</code> /
-<code>PersistedTextIndexEngine</code> / <code>PersistedSemanticIndexEngine</code>, the disk-flush policy, cache sizes,
-auto-backup retention, <code>EnableTextIndexByDefault</code>, <code>DefaultCultureCode</code>, and so on. Every field has
-a working default; leave it out until you need it.</p>
+<code>PersistedTextIndexEngine</code>, the disk-flush policy, cache sizes, auto-backup retention,
+<code>EnableTextIndexByDefault</code>, <code>DefaultCultureCode</code>, and so on. Every field has a working default;
+leave it out until you need it.</p>
+<p><code>AISettings</code> configures the container's own AI provider (embeddings and completions) and its
+semantic index: <code>IndexType</code> picks the vector index engine (<code>Memory</code>, <code>IVS</code> or <code>HNSW</code>) and
+<code>IndexCacheSizeInMb</code> sets the disk engines' memory budget (unset = engine default).</p>
 <h3 id="overriding-settings-from-configuration">Overriding settings from configuration<a class="anchor" href="#overriding-settings-from-configuration" aria-label="Link to this section">#</a></h3>
 <p>Any setting in <code>relatude.db.json</code> can be overridden from standard ASP.NET configuration. At startup
 the server reads the <code>RelatudeDB</code> section — from <code>appsettings.json</code>,

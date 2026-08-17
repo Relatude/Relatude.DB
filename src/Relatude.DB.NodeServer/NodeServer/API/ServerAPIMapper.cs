@@ -184,12 +184,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
-            if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
+            if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
         });
         app.MapPost(path("cancel-opening"), (Guid storeId) => {
             try {
                 container(storeId).CloseIfOpen();
-                if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOAndAIProviders();
+                if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
             } catch { }
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());

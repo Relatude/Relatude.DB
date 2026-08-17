@@ -1,4 +1,4 @@
-﻿namespace Relatude.DB.Common;
+namespace Relatude.DB.Common;
 
 public enum AIProviderCacheType {
     None = 0,
@@ -6,7 +6,8 @@ public enum AIProviderCacheType {
     Memory = 2,
     Sqlite = 3,
 }
-public enum AIProviderIndexType {
-    Flat = 0,
-    TurboQuant = 1,
+public enum AIIndexType {
+    Memory = 0,
+    IVS = 1,
+    HNSW = 2,
 }

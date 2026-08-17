@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Configuration;
+using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
 
@@ -151,14 +153,26 @@ public class SettingsOverlayTests {
     }
 
     [TestMethod]
-    public void ReadOnlyKey_WarnsAndIsIgnored() {
+    public void AiSettingsOverride_AppliesPerContainerAndIsStrippedOnSave() {
+        var file = fileSettings();
+        file.ContainerSettings![0].AISettings = new AIProviderSettings { IndexType = AIIndexType.Memory };
         var (overlay, _, warnings) = create(new() {
-            ["RelatudeDB:ContainerSettings:0:AiSettings:IndexType"] = "DiskHNSW",
-            ["RelatudeDB:MasterUserName"] = "configuser",
+            ["RelatudeDB:ContainerSettings:0:AISettings:ApiKey"] = "configsecret",
+            ["RelatudeDB:ContainerSettings:0:AISettings:IndexType"] = "HNSW",
+            ["RelatudeDB:ContainerSettings:0:AISettings:IndexCacheSizeInMb"] = "64",
         });
-        overlay!.Apply(fileSettings());
-        Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "read-only");
+        var applied = overlay!.Apply(file);
+        var ai = applied.ContainerSettings![0].AISettings!;
+        Assert.AreEqual("configsecret", ai.ApiKey);
+        Assert.AreEqual(AIIndexType.HNSW, ai.IndexType);
+        Assert.AreEqual(64d, ai.IndexCacheSizeInMb);
+        Assert.AreEqual(0, warnings.Count);
+
+        var stripped = overlay.RemoveOverridesBeforeSave(applied);
+        var strippedAi = stripped.ContainerSettings![0].AISettings!;
+        Assert.IsNull(strippedAi.ApiKey, "a configuration-supplied secret must not reach the file");
+        Assert.AreEqual(AIIndexType.Memory, strippedAi.IndexType);
+        Assert.IsNull(strippedAi.IndexCacheSizeInMb);
     }
 
     [TestMethod]

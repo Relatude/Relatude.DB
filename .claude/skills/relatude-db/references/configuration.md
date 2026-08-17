@@ -50,18 +50,6 @@ One server, N containers (databases), each with its own IO providers, file store
   "DefaultStoreId": "8f6b…",              // which container RelatudeDBContext.Database resolves to
   "DBAdminUIUrlPath": "/relatude.db",     // overrides the argument passed to UseRelatudeDB()
 
-  "AISettings": [                          // optional; required for semantic/vector search
-    {
-      "Id": "…",
-      "Name": "OpenAI",
-      "TypeName": "…",
-      "ApiKey": "…",
-      "EmbeddingModel": "text-embedding-3-small",
-      "ModelDimensions": 1536,
-      "DefaultSemanticRatio": 0.5
-    }
-  ],
-
   "ContainerSettings": [
     {
       "Id": "8f6b…",
@@ -83,7 +71,17 @@ One server, N containers (databases), each with its own IO providers, file store
       "IoBackup": "1a2b…",
       "IoLog": "1a2b…",
       "IoDatabaseSecondary": null,
-      "AiProvider": null,                  // id from AISettings above
+
+      "AISettings": {                      // optional; required for semantic/vector search; per database
+        "Name": "OpenAI",
+        "TypeName": "…",
+        "ApiKey": "…",
+        "EmbeddingModel": "text-embedding-3-small",
+        "ModelDimensions": 1536,
+        "DefaultSemanticRatio": 0.5,
+        "IndexType": "Memory",             // Memory | IVS | HNSW — the semantic (vector) index engine
+        "IndexCacheSizeInMb": null         // memory budget for IVS/HNSW; null = engine default
+      },
 
       "FileStoreSettings": [               // where FileValue bytes live
         {
@@ -117,7 +115,6 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `DefaultStoreId` | Which container `RelatudeDBContext.Database` resolves to. |
 | `DBAdminUIUrlPath` | Admin UI path. **Applied after** `UseRelatudeDB("/x")`, so the file wins. |
 | `ContainerSettings` | The databases. |
-| `AISettings` | Embedding/completion providers. |
 | `DBSettingsFilePath` | Declared but never read in the current build. Ignore it. |
 
 ## Container level
@@ -148,12 +145,13 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 |---|---|---|
 | `PersistedValueIndexEngine` | `Memory`, `Sqlite`, `Native` | `Native` |
 | `PersistedTextIndexEngine` | `Memory`, `Sqlite`, `Lucene`, `Native` | `Native` |
-| `PersistedSemanticIndexEngine` | `Memory`, `Native` | `Native` |
 | `PersistedQueueStoreEngine` | `Memory`, `Native`, `Sqlite` | `Native` |
 | `UsePersisted…IndexesByDefault` | bool | `true` |
 | `PersistedValueIndexFolderPath` | path | beside the data |
 
-A persisted default combined with a `Memory` engine silently leaves that index in memory — the store logs a note when it spots the combination, and it is worth reading, because an unexpectedly in-memory index only shows up later as a slow start. Semantic indexes exist only when an AI provider is configured.
+A persisted default combined with a `Memory` engine silently leaves that index in memory — the store logs a note when it spots the combination, and it is worth reading, because an unexpectedly in-memory index only shows up later as a slow start.
+
+The semantic (vector) index engine is not chosen here but on the container's `AISettings`: `IndexType` picks `Memory` (in-memory flat index, persisted through state files), `IVS` (disk-based IVF index) or `HNSW` (disk-based HNSW graph index), and `IndexCacheSizeInMb` sets the engine's memory budget (unset = engine default: 256 MB for IVS, 100 MB for HNSW). Semantic indexes exist only when `AISettings` is configured.
 
 **Durability and flushing** — the defaults favour throughput; raise them for stricter durability:
 

@@ -20,8 +20,6 @@ public class NativeSemanticSearchTests {
         try {
             var settings = new SettingsLocal() {
                 EnableSemanticIndexByDefault = true,
-                // the dummy AI settings pick no index type, so this default routes to the engine:
-                UsePersistedSemanticIndexesByDefault = true,
             };
             var io = new IOProviderDisk(Path.Combine(folder, "db"));
             var engineFolder = Path.Combine(folder, "indexes");
@@ -59,17 +57,14 @@ public class NativeSemanticSearchTests {
     }
 
     [TestMethod]
-    public void PersistedOffFallsBackToMemoryIndex() {
+    public void NoEngineFallsBackToMemoryIndex() {
         var folder = Path.Combine(Path.GetTempPath(), "RelatudeDB_NativeSemanticSearchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try {
             var settings = new SettingsLocal() {
                 EnableSemanticIndexByDefault = true,
-                UsePersistedSemanticIndexesByDefault = false, // memory index, even with an engine configured
             };
-            var engineFolder = Path.Combine(folder, "indexes");
-            Func<IndexEngines> engines = () => new IndexEngines(semantic: new ISVEngine(engineFolder));
-            var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, new IOProviderDisk(Path.Combine(folder, "db")), null, null, null, AIEngine.CreateDummy(), engines);
+            var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, new IOProviderDisk(Path.Combine(folder, "db")), null, null, null, AIEngine.CreateDummy(), null);
             var store = new NodeStore(storeData);
             var articles = Helper.GenerateArticles(10);
             store.Insert(articles);
@@ -78,11 +73,6 @@ public class NativeSemanticSearchTests {
             var search = UtilsText.GetSemanticExtract((DataStoreLocal)store.Datastore, nodeData);
             Assert.AreEqual(1, store.Query<Article>().Search(search, 1, 1, false, 200, null).Execute().Count());
             store.Dispose();
-            // the engine was never asked to open an index: no per-index folder, no data files
-            var vectorFolder = Path.Combine(engineFolder, "vectorindex");
-            if (Directory.Exists(vectorFolder)) {
-                Assert.AreEqual(0, Directory.GetFileSystemEntries(vectorFolder).Length, "the disk vector engine should be unused when UsePersistedSemanticIndexesByDefault is off");
-            }
         } finally {
             try { Directory.Delete(folder, true); } catch { }
         }

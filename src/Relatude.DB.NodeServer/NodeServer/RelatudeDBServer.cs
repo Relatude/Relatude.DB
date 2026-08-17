@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Hosting.Server;
-using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
@@ -19,9 +18,9 @@ namespace Relatude.DB.NodeServer;
 /// </summary>
 /// <remarks>The <see cref="RelatudeDBServer"/> class provides functionality to initialize, configure, and manage
 /// database containers, authentication, and other server-related operations. It supports automatic opening of database
-/// containers, event handling for store lifecycle events, and integration with I/O and AI providers.  This class is
+/// containers, event handling for store lifecycle events, and integration with I/O providers.  This class is
 /// designed to be the central entry point for interacting with the Relatude database system. It includes methods for
-/// starting the server, managing containers, and retrieving resources such as I/O and AI providers.  <para> To use this
+/// starting the server, managing containers, and retrieving resources such as I/O providers.  <para> To use this
 /// class, ensure that the server is properly initialized by calling <see cref="StartAsync"/>. Attempting to access
 /// certain properties or methods before initialization may result in exceptions. </para></remarks>
 public partial class RelatudeDBServer {
@@ -71,13 +70,8 @@ public partial class RelatudeDBServer {
     ISettingsLoader? _settingsLoader;
     SettingsOverlay? _settingsOverlay;
     Dictionary<Guid, IIOProvider> _ios = [];
-    Dictionary<string, AIEngine> _ais = [];
-    public void ResetIOAndAIProviders() {
+    public void ResetIOProviders() {
         lock (_ios) _ios.Clear();
-        lock (_ais) {
-            foreach (var ai in _ais.Values) ai.Dispose();
-            _ais.Clear();
-        }
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
@@ -181,17 +175,11 @@ public partial class RelatudeDBServer {
         app.Lifetime.ApplicationStopping.Register(Shutdown);
     }
     /// <summary>Disposes every database container (flushing pending writes and committing the
-    /// index engines) and releases the AI providers. Called automatically on host shutdown.</summary>
+    /// index engines). Called automatically on host shutdown.</summary>
     public void Shutdown() {
         Log("Server shutting down, disposing databases.");
         foreach (var container in Containers.Values) {
             try { container.Dispose(); } catch (Exception err) { Log("Error disposing \"" + container.Settings.Name + "\": " + err.Message); }
-        }
-        lock (_ais) {
-            foreach (var ai in _ais.Values) {
-                try { ai.Dispose(); } catch { }
-            }
-            _ais.Clear();
         }
     }
     int _remaingToAutoOpenCount = 0;
@@ -309,31 +297,6 @@ public partial class RelatudeDBServer {
             return _ios.TryGetValue(ioId, out io);
         }
     }
-    public bool TryGetAI(Guid id, string? filePrefix, [MaybeNullWhen(false)] out AIEngine ai, string? fallBackAiPath) {
-        lock (_ais) {
-            if (_ais.TryGetValue(id + filePrefix, out ai)) return true;
-            var settings = _serverSettings.AISettings?.FirstOrDefault(s => s.Id == id);
-            if (settings == null) return false;
-            string? folderPath = settings.FilePath;
-            if (string.IsNullOrEmpty(folderPath)) folderPath = fallBackAiPath;
-            if (!string.IsNullOrEmpty(folderPath)) {
-                if (!Path.IsPathRooted(folderPath)) {
-                    folderPath = _rootDataFolderPath.SuperPathCombine(folderPath);
-                }
-                if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
-            } else {
-                throw new Exception($"AIProvider {settings.Name} [{id}] does not have a valid file path set.");
-            }
-            ai = AIProviderFactory.Create(settings, folderPath, filePrefix);
-            try {
-                _ais.Add(id + filePrefix, ai);
-            } catch (Exception ex) {
-                var msg = $"Failed to create AIProvider {settings.Name} [{id}]: {ex.Message}";
-                throw new Exception(msg, ex);
-            }
-            return _ais.TryGetValue(id + filePrefix, out ai);
-        }
-    }
     public IIOProvider? GetOrNullIO(Guid? id) {
         if (id == null) return null;
         return GetIO(id.Value);
@@ -341,10 +304,6 @@ public partial class RelatudeDBServer {
     public IIOProvider GetIO(Guid id) {
         if (!TryGetIO(id, out var io)) throw new Exception("IOProvider not found");
         return io;
-    }
-    public AIEngine GetAI(Guid id, string? filePrefix, string? fallBackAiPath) {
-        if (!TryGetAI(id, filePrefix, out var ai, fallBackAiPath)) throw new Exception("AIProvider not found");
-        return ai;
     }
     internal void MapAdminAPI(WebApplication app) {
         if (_api != null) throw new Exception("API already mapped.");

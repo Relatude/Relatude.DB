@@ -90,7 +90,6 @@ public class AIEngine {
     }
     public static AIEngine CreateDummy() {
         var settings = new AIProviderSettings() {
-            Id = Guid.NewGuid(),
             TypeName = nameof(DummyAIProvider),
         };
         var provider = new DummyAIProvider();

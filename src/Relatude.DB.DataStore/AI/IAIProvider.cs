@@ -7,7 +7,6 @@ public interface IAIProvider : IDisposable {
     //Task<string> GetChatCompletionAsync(ChatMessage[] conversation);
 }
 public class AIProviderSettings {
-    public Guid Id { get; set; }
     public string? TypeName { get; set; }
     public string? Name { get; set; }
     public string? FilePath { get; set; }
@@ -28,6 +27,7 @@ public class AIProviderSettings {
     public int GetMaxCountInBatch() => MaxCountInBatch ?? 500;
     public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;
 
-    public AIProviderCacheType? CacheType { get; set; }
-    //public AIProviderIndexType? IndexType { get; set; }
+    public AIProviderCacheType? CacheType { get; set; } = AIProviderCacheType.Native;
+    public AIIndexType IndexType { get; set; } = AIIndexType.Memory;
+    public double? IndexCacheSizeInMb { get; set; }
 }

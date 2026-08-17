@@ -16,7 +16,6 @@ namespace VectorIndexBenchmarks.Harness;
 public static class BenchAiEngine {
     public static AIEngine Create(Corpus corpus) {
         var settings = new AIProviderSettings {
-            Id = Guid.Empty,
             TypeName = nameof(BenchAiProvider),
             ModelDimensions = corpus.Dimensions,
         };

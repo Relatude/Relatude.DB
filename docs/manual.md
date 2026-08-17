@@ -1438,7 +1438,7 @@ One server holds N containers (databases); each container names the storage it u
       "IoIndexes": null,               // persisted index files; falls back to IoDatabase
       "IoBackup": "1a2b…",
       "IoLog": "1a2b…",
-      "AiProvider": null,              // id from the server-level AISettings array
+      "AISettings": null,              // per-database AI provider; required for semantic search
 
       "FileStoreSettings": [
         { "Id": "…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2 }
@@ -1456,9 +1456,13 @@ fields point at one by id. That indirection is what lets the log, the indexes an
 live in different places without repeating connection details.
 
 `LocalSettings` is the per-store engine configuration — `PersistedValueIndexEngine` /
-`PersistedTextIndexEngine` / `PersistedSemanticIndexEngine`, the disk-flush policy, cache sizes,
-auto-backup retention, `EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has
-a working default; leave it out until you need it.
+`PersistedTextIndexEngine`, the disk-flush policy, cache sizes, auto-backup retention,
+`EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has a working default;
+leave it out until you need it.
+
+`AISettings` configures the container's own AI provider (embeddings and completions) and its
+semantic index: `IndexType` picks the vector index engine (`Memory`, `IVS` or `HNSW`) and
+`IndexCacheSizeInMb` sets the disk engines' memory budget (unset = engine default).
 
 ### Overriding settings from configuration
 

@@ -18,15 +18,6 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
         _register = sets;
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
-        //var indexType = ai.Settings.IndexType ?? AIProviderIndexType.Flat;
-        //_index = indexType switch {
-        //    AIProviderIndexType.Flat => new FlatMemoryVectorIndex(),
-        //    //AIProviderIndexType.HnswVector => new HnswVectorIndex(),
-        //    //AIProviderIndexType.FlatDisk => new FlatDiskVectorIndex(),
-        //    AIProviderIndexType.TurboQuant =>
-        //    ai.Settings.ModelDimensions.HasValue ? new TurboQuantVectorIndex(ai.Settings.ModelDimensions.Value, log) :
-        //    throw new Exception("AI model dimensions must be specified in settings to create a semantic index. "),
-        //};
         _ai = ai;
         newSetState();
         _io = io;

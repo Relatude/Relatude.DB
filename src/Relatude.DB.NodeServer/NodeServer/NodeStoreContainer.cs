@@ -74,16 +74,18 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         // below any of the IO providers above (PersistedValueIndexFolderPath can point anywhere),
         // so the loop alone can leave engine data behind - and this method exists to force a full
         // rebuild from the log. Deleting the whole folder covers every engine subfolder at once.
-        if (usesPersistedIndexEngines(settingsLocal)) {
+        if (usesPersistedIndexEngines(settingsLocal, semanticIndexType())) {
             var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase), fileKeyUtil);
             if (Directory.Exists(indexFolder)) Directory.Delete(indexFolder, true);
         }
     }
 
-    static bool usesPersistedIndexEngines(SettingsLocal local)
+    AIIndexType semanticIndexType() => settings.AISettings?.IndexType ?? AIIndexType.Memory;
+
+    static bool usesPersistedIndexEngines(SettingsLocal local, AIIndexType semanticIndexType)
         => local.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory
         || local.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory
-        || local.PersistedSemanticIndexEngine != PersistedSemanticIndexEngine.Memory;
+        || semanticIndexType != AIIndexType.Memory;
 
     /// <summary>
     /// The local disk folder for the plugins that own their storage: the index engines, the sqlite
@@ -115,13 +117,13 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// kind stays in memory (memory indexes persist themselves through state files).
     ///
     /// <para>The engines are independent: each index kind picks its own, and every combination of
-    /// <see cref="SettingsLocal.PersistedValueIndexEngine"/> and
-    /// <see cref="SettingsLocal.PersistedTextIndexEngine"/> is supported. The one case that is not
-    /// simply "one engine per kind" is SQLite text: the word indexes are FTS5 tables inside a SQLite
-    /// database, so when the values are SQLite too, a single instance fills both roles and all index
-    /// data commits in one SQLite transaction (<see cref="IndexEngines"/> de-duplicates the
-    /// lifecycle calls by reference); otherwise a standalone SQLite engine holds the word index
-    /// tables on its own.</para>
+    /// <see cref="SettingsLocal.PersistedValueIndexEngine"/>,
+    /// <see cref="SettingsLocal.PersistedTextIndexEngine"/> and the AI settings' index type is
+    /// supported. The one case that is not simply "one engine per kind" is SQLite text: the word
+    /// indexes are FTS5 tables inside a SQLite database, so when the values are SQLite too, a single
+    /// instance fills both roles and all index data commits in one SQLite transaction
+    /// (<see cref="IndexEngines"/> de-duplicates the lifecycle calls by reference); otherwise a
+    /// standalone SQLite engine holds the word index tables on its own.</para>
     ///
     /// <para>The returned factory runs once per data-store initialization — which happens again when
     /// a bad state file forces a reload — so it must build fresh engine instances every time.
@@ -129,15 +131,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// misconfigured path is reported by <see cref="Initialize"/> rather than from deep inside the
     /// data store constructor.</para>
     /// </summary>
-    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog, bool hasAiProvider) {
+    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog, AIProviderSettings? aiSettings) {
         var valueEngine = local.PersistedValueIndexEngine;
         var textEngine = local.PersistedTextIndexEngine;
-        // semantic indexes only exist when an AI provider is configured, and unlike value/text
-        // indexes they have no per-property persisted override — so unless the store default asks
-        // for persisted semantic indexes, the engine is never loaded and no folder is claimed
-        var semanticEngine = hasAiProvider && local.UsePersistedSemanticIndexesByDefault
-            ? local.PersistedSemanticIndexEngine : PersistedSemanticIndexEngine.Memory;
-        if (!usesPersistedIndexEngines(local)) {
+        var semanticEngine = aiSettings?.IndexType ?? AIIndexType.Memory;
+        var semanticCacheSizeInMb = aiSettings?.IndexCacheSizeInMb;
+        if (!usesPersistedIndexEngines(local, semanticEngine)) {
             toLog.Add("Index engines: none. All indexes are in memory, persisted through state files.");
             return null;
         }
@@ -148,10 +147,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             toLog.Add("Note: UsePersistedValueIndexesByDefault is on while PersistedValueIndexEngine is Memory, so value indexes stay in memory.");
         if (local.UsePersistedTextIndexesByDefault && textEngine == PersistedTextIndexEngine.Memory)
             toLog.Add("Note: UsePersistedTextIndexesByDefault is on while PersistedTextIndexEngine is Memory, so word indexes stay in memory.");
-        if (local.UsePersistedSemanticIndexesByDefault && local.PersistedSemanticIndexEngine == PersistedSemanticIndexEngine.Memory && hasAiProvider)
-            toLog.Add("Note: UsePersistedSemanticIndexesByDefault is on while PersistedSemanticIndexEngine is Memory, so semantic indexes stay in memory.");
-        if (!local.UsePersistedSemanticIndexesByDefault && local.PersistedSemanticIndexEngine != PersistedSemanticIndexEngine.Memory && hasAiProvider)
-            toLog.Add("Note: UsePersistedSemanticIndexesByDefault is off, so semantic indexes stay in memory (PersistedSemanticIndexEngine is " + local.PersistedSemanticIndexEngine + ").");
         return () => {
             var value = valueEngine == PersistedValueIndexEngine.Memory ? null
                 : LateBindings.CreateValueIndexEngine(valueEngine, indexPath);
@@ -164,11 +159,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 PersistedTextIndexEngine.Native => LateBindings.CreateNativeTextIndexEngine(indexPath),
                 _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngine),
             };
-            ISemanticIndexEngine? semantic = semanticEngine switch {
-                PersistedSemanticIndexEngine.Memory => null,
-                PersistedSemanticIndexEngine.Native => LateBindings.CreateNativeSemanticIndexEngine(indexPath),
-                _ => throw new Exception("Unknown PersistedSemanticIndexEngine: " + semanticEngine),
-            };
+            var semantic = semanticEngine == AIIndexType.Memory ? null
+                : LateBindings.CreateSemanticIndexEngine(semanticEngine, indexPath, semanticCacheSizeInMb);
             return new IndexEngines(value, text, semantic);
         };
     }
@@ -186,6 +178,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         return ioLog;
     }
     public void Initialize() {
+        AIEngine? ai = null;
         try {
             if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
@@ -222,13 +215,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             var ioBackup = server.GetOrNullIO(settings.IoBackup);
             var ioLog = server.GetOrNullIO(settings.IoLog);
-            AIEngine? ai = null;
-            if (settings.AiProvider.HasValue && settings.AiProvider != Guid.Empty) {
-                ai = server.GetAI(settings.AiProvider.Value, local.FilePrefix, localDiskFolder);
+            if (settings.AISettings != null) {
+                var aiFolder = settings.AISettings.FilePath;
+                if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
+                if (!Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
+                if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder);
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, local.FilePrefix);
             }
 
             List<string> toLog = new();
-            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog, ai != null);
+            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog, settings.AISettings);
 
             IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
@@ -276,6 +272,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Store = new NodeStore(datastore);
             server?.RaiseEventStoreInit(this, Store);
         } catch {
+            if (Store == null && ai != null) {
+                try { ai.Dispose(); } catch { }
+            }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;
         }

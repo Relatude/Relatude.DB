@@ -17,15 +17,17 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="Common\**" />
+	  <EmbeddedResource Remove="Common\**" />
+	  <None Remove="Common\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<InternalsVisibleTo Include="Relatude.DB.Tests" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="Common\" />
 	</ItemGroup>
 
 </Project>

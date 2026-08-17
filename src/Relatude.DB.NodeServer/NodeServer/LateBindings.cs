@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.AI;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
@@ -50,8 +51,21 @@ public static class LateBindings {
     public static ITextIndexEngine CreateNativeTextIndexEngine(string indexPath) {
         return new TextIndexEngine(indexPath);
     }
-    public static ISemanticIndexEngine CreateNativeSemanticIndexEngine(string indexPath) {
-        return new ISVEngine(indexPath);
+    public static ISemanticIndexEngine CreateSemanticIndexEngine(AIIndexType indexType, string indexPath, double? cacheSizeInMb) {
+        switch (indexType) {
+            case AIIndexType.IVS: {
+                    var options = new Relatude.DB.AI.ISV.VectorIndexOptions();
+                    if (cacheSizeInMb.HasValue) options.MaxCacheBytes = (long)(cacheSizeInMb.Value * 1024 * 1024);
+                    return new ISVEngine(indexPath, options);
+                }
+            case AIIndexType.HNSW: {
+                    var options = new Relatude.DB.AI.HNSW.VectorIndexOptions();
+                    if (cacheSizeInMb.HasValue) options.MaxMemoryBytes = (long)(cacheSizeInMb.Value * 1024 * 1024);
+                    return new HnswEngine(indexPath, options);
+                }
+            default:
+                throw new Exception("The " + indexType + " index type is not a persisted semantic index engine.");
+        }
     }
     /// <summary>
     /// A SQLite engine serving only the FTS5 word indexes, for a configuration whose value indexes

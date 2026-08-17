@@ -1,5 +1,4 @@
-﻿using Relatude.DB.AI;
-using Relatude.DB.DataStores;
+﻿using Relatude.DB.DataStores;
 
 namespace Relatude.DB.NodeServer.Settings;
 public class RelatudeDBServerSettings {
@@ -32,9 +31,6 @@ public class RelatudeDBServerSettings {
 
     // Each database container settings
     public NodeStoreContainerSettings[]? ContainerSettings { get; set; }
-
-    // Database settings
-    public AIProviderSettings[]? AISettings { get; set; }
 
     public static RelatudeDBServerSettings CreateDefault() {
         var io = new IOSettings() {

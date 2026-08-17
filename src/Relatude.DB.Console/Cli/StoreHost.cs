@@ -57,7 +57,7 @@ public sealed class StoreHost : IDisposable {
                 // only the selected container is opened, and the command waits for it
                 c.AutoOpen = c.Id == selected;
                 c.WaitUntilOpen = true;
-                if (args.Flag("no-ai")) c.AiProvider = null;
+                if (args.Flag("no-ai")) c.AISettings = null;
             },
             OnStoreSettingsInit = (local, _) => {
                 local.WriteSystemLogConsole = !Output.Quiet && Output.Verbose;

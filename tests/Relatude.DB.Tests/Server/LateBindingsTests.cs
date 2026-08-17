@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.NodeServer;
 using System.Reflection;
@@ -30,7 +31,7 @@ public class LateBindingsTests {
     [TestMethod]
     public void EveryLateBoundTypeResolves() {
         var all = bindings();
-        Assert.IsTrue(all.Length >= 7, "Only " + all.Length + " bindings were read from LateBindings.cs, "
+        Assert.IsTrue(all.Length >= 6, "Only " + all.Length + " bindings were read from LateBindings.cs, "
             + "so this test is not checking what it is meant to check. Has the call shape changed?");
         var failures = new List<string>();
         foreach (var (typeName, module, nuget) in all) {
@@ -47,12 +48,15 @@ public class LateBindingsTests {
     }
 
     [TestMethod]
-    public void NativeSemanticIndexEngineCanBeCreated() {
+    public void SemanticIndexEnginesCanBeCreated() {
         var folder = Path.Combine(Path.GetTempPath(), "relatude.db.tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try {
-            var engine = LateBindings.CreateNativeSemanticIndexEngine(folder);
-            Assert.IsInstanceOfType(engine, typeof(ISemanticIndexEngine));
+            var ivs = LateBindings.CreateSemanticIndexEngine(AIIndexType.IVS, folder, 64);
+            Assert.IsInstanceOfType(ivs, typeof(ISemanticIndexEngine));
+            var hnsw = LateBindings.CreateSemanticIndexEngine(AIIndexType.HNSW, folder, 64);
+            Assert.IsInstanceOfType(hnsw, typeof(ISemanticIndexEngine));
+            Assert.ThrowsException<Exception>(() => LateBindings.CreateSemanticIndexEngine(AIIndexType.Memory, folder, null));
         } finally {
             try { Directory.Delete(folder, true); } catch { }
         }

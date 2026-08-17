@@ -219,9 +219,7 @@ internal static class IndexFactory {
         var def = store._definition;
         var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
         var uniqueKey = getUniqueKey(p, cultureCode, subKey);
-        // the store default decides: persisted (engine) or memory. Off, or on without a configured
-        // engine, falls back to the in-memory index, like the other kinds.
-        if (store.Settings.UsePersistedSemanticIndexesByDefault && store.Engines.Semantic != null) {
+        if (store.Engines.Semantic != null) {
             var name = store.Engines.Semantic.Name + " Semantic Index " + classDef.CodeName + "." + p.Model.CodeName;
             return store.Engines.Semantic.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
         }

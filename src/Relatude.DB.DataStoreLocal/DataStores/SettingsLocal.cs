@@ -62,7 +62,6 @@ public class SettingsLocal {
 
     public bool UsePersistedValueIndexesByDefault { get; set; } = true;
     public bool UsePersistedTextIndexesByDefault { get; set; } = true;
-    public bool UsePersistedSemanticIndexesByDefault { get; set; } = true;
 
     public PersistedValueIndexEngine PersistedValueIndexEngine { get; set; } = PersistedValueIndexEngine.Native;
     public string? PersistedValueIndexFolderPath { get; set; }
@@ -71,7 +70,6 @@ public class SettingsLocal {
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
     public PersistedTextIndexEngine PersistedTextIndexEngine { get; set; } = PersistedTextIndexEngine.Native;
-    public PersistedSemanticIndexEngine PersistedSemanticIndexEngine { get; set; } = PersistedSemanticIndexEngine.Native;
 
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
@@ -88,10 +86,6 @@ public enum PersistedValueIndexEngine {
     Memory = 0,
     Sqlite = 1,
     Native = 2,
-}
-public enum PersistedSemanticIndexEngine {
-    Memory = 0,
-    Native = 1, // the built-in disk vector index (Relatude.DB.VectorIndex)
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,
