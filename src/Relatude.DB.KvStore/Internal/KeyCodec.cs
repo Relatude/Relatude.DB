@@ -97,9 +97,10 @@ internal static class KeyCodec
         if (t == typeof(byte[])) return (new ByteArrayCodec(), 18);
         if (t == typeof(GeoCoordinate)) return (new GeoCoordinateCodec(), 19);
         if(t == typeof(float[])) return (new FloatArrayCodec(), 20);
+        if (t == typeof(decimal)) return (new DecimalCodec(), 21);
         throw new NotSupportedException(
             $"Type '{t}' is not supported as an index value. Supported: integral types, bool, char, " +
-            "float, double, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], float[], GeoCoordinate.");
+            "float, double, decimal, DateTime, DateTimeOffset, TimeSpan, Guid, string, byte[], float[], GeoCoordinate.");
     }
 
     private sealed class Int32Codec : IKeyCodec<int>
@@ -263,38 +264,37 @@ internal static class KeyCodec
 
     private sealed class DateTimeCodec : IKeyCodec<DateTime>
     {
-        // Ordered by Ticks; Kind is carried in a trailing byte so it round-trips
-        // without affecting the ordering of distinct instants.
-        public int FixedSize => 9;
-        public int GetMaxSize(DateTime value) => 9;
+        // The key is the ticks alone. DateTime equality and ordering (==, CompareTo) ignore Kind,
+        // so carrying Kind in the key would make two equal values (same ticks, different kinds)
+        // distinct keys - a query constant with Kind Unspecified would then miss a stored Utc
+        // value. Decoded values come back as Utc, matching the engine's normalization on write.
+        public int FixedSize => 8;
+        public int GetMaxSize(DateTime value) => 8;
         public int Encode(Span<byte> dst, DateTime value)
         {
             BinaryPrimitives.WriteUInt64BigEndian(dst, (ulong)value.Ticks);
-            dst[8] = (byte)value.Kind;
-            return 9;
+            return 8;
         }
         public DateTime Decode(ReadOnlySpan<byte> src)
-            => new((long)BinaryPrimitives.ReadUInt64BigEndian(src), (DateTimeKind)src[8]);
+            => new((long)BinaryPrimitives.ReadUInt64BigEndian(src), DateTimeKind.Utc);
     }
 
     private sealed class DateTimeOffsetCodec : IKeyCodec<DateTimeOffset>
     {
-        // Ordered by the UTC instant; the offset is carried for round-tripping.
-        public int FixedSize => 10;
-        public int GetMaxSize(DateTimeOffset value) => 10;
+        // The key is the UTC instant alone. DateTimeOffset equality and ordering (==, CompareTo)
+        // follow the instant and ignore the offset, so including the offset in the key would make
+        // two equal values (same instant, different offsets) distinct keys - equality lookups and
+        // duplicate grouping would then disagree with the in-memory value index. Decoded values
+        // come back with a zero offset; the original offset lives in the node payload, not here.
+        public int FixedSize => 8;
+        public int GetMaxSize(DateTimeOffset value) => 8;
         public int Encode(Span<byte> dst, DateTimeOffset value)
         {
             BinaryPrimitives.WriteUInt64BigEndian(dst, (ulong)value.UtcTicks);
-            BinaryPrimitives.WriteUInt16BigEndian(dst[8..], (ushort)((short)value.Offset.TotalMinutes ^ 0x8000));
-            return 10;
+            return 8;
         }
         public DateTimeOffset Decode(ReadOnlySpan<byte> src)
-        {
-            long utcTicks = (long)BinaryPrimitives.ReadUInt64BigEndian(src);
-            short offsetMinutes = (short)(BinaryPrimitives.ReadUInt16BigEndian(src[8..]) ^ 0x8000);
-            var offset = TimeSpan.FromMinutes(offsetMinutes);
-            return new DateTimeOffset(utcTicks + offset.Ticks, offset);
-        }
+            => new((long)BinaryPrimitives.ReadUInt64BigEndian(src), TimeSpan.Zero);
     }
 
     private sealed class GeoCoordinateCodec : IKeyCodec<GeoCoordinate>
@@ -380,6 +380,81 @@ internal static class KeyCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float FromOrderedBits(uint bits)
             => BitConverter.UInt32BitsToSingle((bits & 0x8000_0000u) != 0 ? bits ^ 0x8000_0000u : ~bits);
+    }
+
+    private sealed class DecimalCodec : IKeyCodec<decimal>
+    {
+        // The key is the value scaled to the fixed denominator 10^28 (the maximum decimal scale):
+        // a signed 192-bit integer in offset-binary big-endian, so the unsigned byte-wise order
+        // equals the numeric order. Scaling to a common denominator canonicalizes the
+        // representation - 1.0m and 1.00m carry different scale bits but are the same value, and
+        // must produce identical key bytes for equality in both tree and hash layouts (decimal
+        // ==, CompareTo and GetHashCode all compare the value, never the representation).
+        // Range: |value| <= (2^96-1) * 10^28 < 2^191, so 192 bits always fit.
+        // Decoding returns the smallest-scale representation of the value; the original scale
+        // representation is not kept, matching how the in-memory index treats equal values as one.
+        public int FixedSize => 24;
+        public int GetMaxSize(decimal value) => 24;
+        public int Encode(Span<byte> dst, decimal value)
+        {
+            Span<int> bits = stackalloc int[4];
+            decimal.GetBits(value, bits);
+            var scale = (bits[3] >> 16) & 0xFF;
+            var negative = bits[3] < 0;
+            ulong m0 = (uint)bits[0] | ((ulong)(uint)bits[1] << 32); // low 64 bits of the magnitude
+            ulong m1 = (uint)bits[2];                                // middle 64 bits
+            ulong m2 = 0;                                            // high 64 bits
+            for (var i = scale; i < 28; i++) // magnitude *= 10 until the denominator is 10^28
+            {
+                var h0 = Math.BigMul(m0, 10UL, out m0);
+                var h1 = Math.BigMul(m1, 10UL, out m1);
+                m1 += h0;
+                if (m1 < h0) h1++;
+                m2 = m2 * 10 + h1; // cannot overflow: the final magnitude stays below 2^191
+            }
+            if (negative) // two's complement negation (negative zero collapses onto zero)
+            {
+                m0 = ~m0; m1 = ~m1; m2 = ~m2;
+                if (++m0 == 0 && ++m1 == 0) ++m2;
+            }
+            BinaryPrimitives.WriteUInt64BigEndian(dst, m2 ^ 0x8000_0000_0000_0000ul);
+            BinaryPrimitives.WriteUInt64BigEndian(dst[8..], m1);
+            BinaryPrimitives.WriteUInt64BigEndian(dst[16..], m0);
+            return 24;
+        }
+        public decimal Decode(ReadOnlySpan<byte> src)
+        {
+            var m2 = BinaryPrimitives.ReadUInt64BigEndian(src) ^ 0x8000_0000_0000_0000ul;
+            var m1 = BinaryPrimitives.ReadUInt64BigEndian(src[8..]);
+            var m0 = BinaryPrimitives.ReadUInt64BigEndian(src[16..]);
+            var negative = (long)m2 < 0;
+            if (negative) // back from two's complement to the magnitude
+            {
+                m0 = ~m0; m1 = ~m1; m2 = ~m2;
+                if (++m0 == 0 && ++m1 == 0) ++m2;
+            }
+            // shrink the magnitude until it fits the 96-bit decimal mantissa; every division is
+            // exact because the magnitude is a valid mantissa times a power of ten
+            var scale = 28;
+            while (m2 != 0 || m1 > uint.MaxValue)
+            {
+                var r2 = m2 % 10; m2 /= 10;
+                var n1 = ((UInt128)r2 << 64) | m1;
+                m1 = (ulong)(n1 / 10);
+                var n0 = ((UInt128)(n1 % 10) << 64) | m0;
+                m0 = (ulong)(n0 / 10);
+                scale--;
+            }
+            var m = ((UInt128)m1 << 64) | m0;
+            while (scale > 0) // then strip trailing zeros for the smallest-scale representation
+            {
+                var (q, r) = UInt128.DivRem(m, 10);
+                if (r != 0) break;
+                m = q;
+                scale--;
+            }
+            return new decimal((int)(uint)(ulong)m, (int)(uint)((ulong)m >> 32), (int)(uint)(ulong)(m >> 64), negative, (byte)scale);
+        }
     }
 
     private sealed class TimeSpanCodec : IKeyCodec<TimeSpan>

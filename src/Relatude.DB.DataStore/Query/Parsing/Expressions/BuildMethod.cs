@@ -445,8 +445,13 @@ sealed class InRangeMethodDef : MethodDef {
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
         if (e.Subject == null) throw new NullReferenceException();
         var path = (e.Subject as VariableReferenceToken)?.Name ?? throw new NullReferenceException();
-        return new RangeExpression(path, e.Arguments[0].ToString(), e.Arguments[1].ToString());
+        return new RangeExpression(path, boundValue(e.Arguments[0]), boundValue(e.Arguments[1]));
     }
+    // keep the token's typed value (parameter-bound DateTime, ticks number string, string literal):
+    // token.ToString() renders parameter values with the current culture, which cannot be parsed
+    // back reliably and drops sub-second precision
+    static object boundValue(TokenBase token) =>
+        token is ValueConstantToken vc && vc.DirectValue != null ? vc.DirectValue : token.ToString();
 }
 
 sealed class ContainsMethodDef : MethodDef {

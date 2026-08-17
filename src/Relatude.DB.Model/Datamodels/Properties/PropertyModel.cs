@@ -41,6 +41,14 @@ public abstract class PropertyModel {
             case PropertyType.Any:
                 break;
             case PropertyType.Boolean:
+                if (anyFormat is bool valueBoolGiven) {
+                    value = valueBoolGiven;
+                    return true;
+                }
+                if (bool.TryParse(anyFormat.ToString(), out var valueBool)) {
+                    value = valueBool;
+                    return true;
+                }
                 break;
             case PropertyType.Double:
                 if (double.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueDouble)) {
@@ -48,9 +56,70 @@ public abstract class PropertyModel {
                     return true;
                 }
                 break;
+            case PropertyType.Float:
+                if (float.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueFloat)) {
+                    value = valueFloat;
+                    return true;
+                }
+                break;
+            case PropertyType.Decimal:
+                if (decimal.TryParse(anyFormat.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var valueDecimal)) {
+                    value = valueDecimal;
+                    return true;
+                }
+                break;
             case PropertyType.Integer:
                 if (int.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueInt)) {
                     value = valueInt;
+                    return true;
+                }
+                break;
+            case PropertyType.Long:
+                if (long.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueLong)) {
+                    value = valueLong;
+                    return true;
+                }
+                break;
+            case PropertyType.DateTime:
+                // longs are UTC ticks (the wire format of query constants), strings are invariant culture
+                if (anyFormat is DateTime valueDateTimeGiven) {
+                    value = valueDateTimeGiven;
+                    return true;
+                }
+                if (long.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var dtTicks)) {
+                    value = new DateTime(dtTicks, DateTimeKind.Utc);
+                    return true;
+                }
+                if (DateTime.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueDateTime)) {
+                    value = valueDateTime.Kind == DateTimeKind.Utc ? valueDateTime : DateTime.SpecifyKind(valueDateTime, DateTimeKind.Utc);
+                    return true;
+                }
+                break;
+            case PropertyType.DateTimeOffset:
+                if (anyFormat is DateTimeOffset valueDtoGiven) {
+                    value = valueDtoGiven;
+                    return true;
+                }
+                if (long.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var dtoTicks)) {
+                    value = new DateTimeOffset(dtoTicks, TimeSpan.Zero);
+                    return true;
+                }
+                if (DateTimeOffset.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var valueDto)) {
+                    value = valueDto;
+                    return true;
+                }
+                break;
+            case PropertyType.TimeSpan:
+                if (anyFormat is TimeSpan valueTimeSpanGiven) {
+                    value = valueTimeSpanGiven;
+                    return true;
+                }
+                if (long.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var tsTicks)) {
+                    value = new TimeSpan(tsTicks);
+                    return true;
+                }
+                if (TimeSpan.TryParse(anyFormat.ToString(), CultureInfo.InvariantCulture, out var valueTimeSpan)) {
+                    value = valueTimeSpan;
                     return true;
                 }
                 break;

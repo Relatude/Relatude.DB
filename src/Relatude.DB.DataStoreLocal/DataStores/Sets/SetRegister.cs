@@ -480,9 +480,11 @@ public class SetRegister(long maxSize) {
     public IdSet OrderBy<T>(IValueIndex<T> index, IdSet unsorted, bool descending) where T : notnull {
         var key = new SetCacheKey(descending ? SetOperation.OrderByDescending : SetOperation.OrderByAscending, [index.StateId, unsorted.StateId], null);
         return createOrLookup(key, () => {
+            // the index comparer (ordinal for strings): the default comparer is culture sensitive
+            // and would order the same data differently than every other index operation
             IEnumerable<int> sorted;
-            if (descending) sorted = unsorted.Enumerate().OrderByDescending(id => index.GetValue(id));
-            else sorted = unsorted.Enumerate().OrderBy(id => index.GetValue(id));
+            if (descending) sorted = unsorted.Enumerate().OrderByDescending(id => index.GetValue(id), ValueIndex<T>.comparer);
+            else sorted = unsorted.Enumerate().OrderBy(id => index.GetValue(id), ValueIndex<T>.comparer);
             return new FixedOrderedSet(sorted, unsorted.Count);
         });
     }

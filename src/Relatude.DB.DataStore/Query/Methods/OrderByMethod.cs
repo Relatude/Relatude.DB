@@ -21,7 +21,11 @@ public class OrderByMethod(IExpression input, LambdaExpression lambda, bool desc
         else if (v is decimal) order = reorder<decimal>(values.Values!, descending);
         else if (v is long) order = reorder<long>(values.Values!, descending);
         else if (v is DateTime) order = reorder<DateTime>(values.Values!, descending);
+        else if (v is DateTimeOffset) order = reorder<DateTimeOffset>(values.Values!, descending);
         else if (v is TimeSpan) order = reorder<TimeSpan>(values.Values!, descending);
+        else if (v is bool) order = reorder<bool>(values.Values!, descending);
+        else if (v is Guid) order = reorder<Guid>(values.Values!, descending);
+        else if (v is byte) order = reorder<byte>(values.Values!, descending);
         else if (v is Relatude.DB.Common.GeoCoordinate) throw new Exception("OrderBy does not support GeoCoordinate values (the index order is a space filling curve, not a meaningful sort order). Order by distance instead: OrderBy(x => x.Location.DistanceTo(center)). ");
         else throw new Exception("OrderBy does not support the type of the values in the collection. ");
         return coll.ReOrder(order);
@@ -31,8 +35,11 @@ public class OrderByMethod(IExpression input, LambdaExpression lambda, bool desc
         public T Value = (T)rec;
     }
     IEnumerable<int> reorder<T>(IEnumerable<object> values, bool descending) {
+        // strings sort ordinally, matching ValueIndex<T>.comparer: the index path (TryOrderByIndexes)
+        // and this materialized fallback must order identically, and culture comparison is not stable
+        var comparer = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal : Comparer<T>.Default;
         var casted = values.Select((v, i) => new Rec<T>(i, v));
-        var sorted = descending ? casted.OrderByDescending(v => v.Value) : casted.OrderBy(v => v.Value);
+        var sorted = descending ? casted.OrderByDescending(v => v.Value, comparer) : casted.OrderBy(v => v.Value, comparer);
         return sorted.Select(x => x.Index);
     }
     public override string ToString() => input + ".OrderBy(" + lambda + ")";

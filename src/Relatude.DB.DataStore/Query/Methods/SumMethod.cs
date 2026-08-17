@@ -65,6 +65,14 @@ public class SumMethod : IExpression {
                 }
                 return sum;
             }
+            if (firstValue is long) {
+                long sum = 0;
+                foreach (var o in data.Values) {
+                    rowVars.Set(lambdaParamaterName, o);
+                    sum += (long)_lambda.Evaluate(rowVars)!;
+                }
+                return sum;
+            }
             throw new Exception("Sum is not supported for type " + firstValue?.GetType());
         }
         throw new NotImplementedException();

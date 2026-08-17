@@ -189,6 +189,7 @@ internal sealed class QueryStringBuilder {
         if (value is bool b) return b.ToString().ToLower();
         if (value is DateTime dt) return dt.Ticks.ToString();
         if (value is DateTimeOffset dto) return dto.UtcTicks.ToString(); // the server reads the long as UTC ticks, so the instant is preserved
+        if (value is TimeSpan ts) return ts.Ticks.ToString(); // the server reads the long as ticks
         if (value is Relatude.DB.Common.GeoCoordinate geo) return geo.ToString().ToStringLiteral(); // "lat, lon", parsed back via GeoCoordinate.TryParse
         if (value is Enum e)
             return Convert.ToInt32(e).ToString();

@@ -109,6 +109,24 @@ public class OperatorExpression : IExpression {
                 _ => throw operatorException(v1, op, v2),
             };
         }
+        if (v1 is DateTimeOffset dto1 && v2 is DateTimeOffset dto2) {
+            return op switch {
+                Operator.Equal => dto1 == dto2,
+                Operator.NotEqual => dto1 != dto2,
+                Operator.Greater => dto1 > dto2,
+                Operator.Smaller => dto1 < dto2,
+                Operator.GreaterOrEqual => dto1 >= dto2,
+                Operator.SmallerOrEqual => dto1 <= dto2,
+                _ => throw operatorException(v1, op, v2),
+            };
+        }
+        if (v1 is Guid guid1 && v2 is Guid guid2) {
+            return op switch {
+                Operator.Equal => guid1 == guid2,
+                Operator.NotEqual => guid1 != guid2,
+                _ => throw operatorException(v1, op, v2), // order comparisons on guids are not meaningful
+            };
+        }
         if (v1 is Relatude.DB.Common.GeoCoordinate g1 && v2 is Relatude.DB.Common.GeoCoordinate g2) {
             return op switch {
                 Operator.Equal => g1 == g2,

@@ -100,6 +100,14 @@ public static class OperatorUtil {
         } else if (i1 is DateTime || i2 is DateTime) {
             o1 = i1 is long l1 ? new DateTime(l1, DateTimeKind.Utc) : Convert.ToDateTime(i1);
             o2 = i2 is long l2 ? new DateTime(l2, DateTimeKind.Utc) : Convert.ToDateTime(i2);
+        } else if (i1 is DateTimeOffset || i2 is DateTimeOffset) {
+            // longs are UTC ticks (see QueryStringBuilder), matching the DateTime convention above
+            o1 = i1 is DateTimeOffset dto1 ? dto1 : new DateTimeOffset(Convert.ToInt64(i1), TimeSpan.Zero);
+            o2 = i2 is DateTimeOffset dto2 ? dto2 : new DateTimeOffset(Convert.ToInt64(i2), TimeSpan.Zero);
+        } else if (i1 is TimeSpan || i2 is TimeSpan) {
+            // longs are ticks, so a serialized TimeSpan constant compares correctly against the property
+            o1 = i1 is TimeSpan ts1 ? ts1 : new TimeSpan(Convert.ToInt64(i1));
+            o2 = i2 is TimeSpan ts2 ? ts2 : new TimeSpan(Convert.ToInt64(i2));
         } else if (i1 is long || i2 is long) {
             o1 = Convert.ToInt64(i1);
             o2 = Convert.ToInt64(i2);
@@ -109,9 +117,6 @@ public static class OperatorUtil {
         } else if (i1 is byte || i2 is byte) {
             o1 = Convert.ToByte(i1);
             o2 = Convert.ToByte(i2);
-        } else if (i1 is TimeSpan || i2 is TimeSpan) {
-            o1 = (TimeSpan)i1;
-            o2 = (TimeSpan)i2;
         } else if (i1 == null || i2 == null) {
             throw new Exception("Cannot compare null with non-null. ");
         } else {
