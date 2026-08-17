@@ -20,7 +20,7 @@ public abstract class ValueIndexEngineBase : IndexEngineBase, IValueIndexEngine 
         var index = CreateValueIndex<T>(sets, id, friendlyName, type, out var justCreated);
         RegisterManagedIndex(id, index, justCreated);
         // The engine (not IndexFactory) applies the add/remove optimization wrapper so that it can
-        // flush the wrapper's queued remove at commit and discard it on rollback; memory indexes
+        // flush the wrapper's queued remove at every commit and rollback boundary; memory indexes
         // are wrapped by IndexFactory and keep their fully lazy queue.
         var optimized = new OptimizedValueIndex<T>(index);
         RegisterQueue("v:" + id, optimized.Queue);

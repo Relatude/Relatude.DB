@@ -88,7 +88,7 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
         if (_items is int[] arr) {
             int index;
             for (index = 0; index < arr.Length; index++) if (arr[index] == item) break;
-            if (index == arr.Length) throw new Exception(item + " not found. ");
+            if (index == arr.Length) return false; // throw new Exception(item + " not found. ");
             int[] newArr = new int[arr.Length - 1];
             if (index > 0) Array.Copy(arr, 0, newArr, 0, index);
             if (index < arr.Length - 1) Array.Copy(arr, index + 1, newArr, index, arr.Length - index - 1);
@@ -96,12 +96,12 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
         } else if (_items is List<int> list) {
             int index;
             for (index = 0; index < list.Count; index++) if (list[index] == item) break;
-            if (index == list.Count) throw new Exception(item + " not found. ");
+            if (index == list.Count) return false; // throw new Exception(item + " not found. ");
             list.RemoveAt(index);
         } else if (_items is HashSet<int> hashSet) {
-            if (!hashSet.Remove(item)) throw new Exception(item + " not found. ");
+            if (!hashSet.Remove(item)) return false; // throw new Exception(item + " not found. ");
         } else if (_items is DenseBitSet bits) {
-            if (!bits.Remove(item)) throw new Exception(item + " not found. ");
+            if (!bits.Remove(item)) return false; // throw new Exception(item + " not found. ");
         }
         return true;
     }
