@@ -12,6 +12,17 @@ namespace Relatude.DB.Datamodels;
 // Extensions neede for building model from types and compiling model classes
 internal static class BuildUtilsProperties {
     public static PropertyModel CreatePropertyFromMember(MemberInfo m, Type valueType, bool autoDeduceRelations = false) {
+        try {
+            return createPropertyFromMember(m, valueType, autoDeduceRelations);
+        } catch (Exception ex) when (ex is FormatException || ex is OverflowException) {
+            // parse errors from attribute values (Id, DefaultValue, MinValue, MaxValue, ...) carry no member context of their own
+            throw new Exception("A property attribute value on the member \"" + m.DeclaringType?.FullName + "." + m.Name
+                + "\" could not be parsed: " + ex.Message
+                + " Check the Id, DefaultValue, MinValue, MaxValue and similar values of the attribute. "
+                + "Dates and numbers must use the invariant culture format. ", ex);
+        }
+    }
+    static PropertyModel createPropertyFromMember(MemberInfo m, Type valueType, bool autoDeduceRelations) {
         var a = getOrCreatePropertyAttributeWithId(m, valueType, autoDeduceRelations);
         PropertyModel p;
         if (valueType == typeof(string)) {
@@ -70,7 +81,8 @@ internal static class BuildUtilsProperties {
             // if not primitive, then it is assumed to be a relation
             p = getRelationPropertyModel(cast<RelationPropertyAttribute>(a, m), m, valueType);
         } else {
-            throw new NotSupportedException();
+            throw new NotSupportedException("The type " + valueType.GetCSharpName() + " of member \"" + m.DeclaringType?.FullName + "." + m.Name
+                + "\" is not supported as a stored property. Mark the member with [Exclude] if it should not be stored. ");
         }
         p.Id = string.IsNullOrEmpty(a.Id) ? Guid.Empty : Guid.Parse(a.Id);
         p.CodeName = m.Name;
@@ -101,7 +113,8 @@ internal static class BuildUtilsProperties {
     }
     static T cast<T>(PropertyAttribute a, MemberInfo m) where T : PropertyAttribute {
         if (a is T aT) return aT;
-        throw new Exception("Attribute " + a.GetType().FullName + " does not match value type for " + m.DeclaringType?.FullName + "." + m.Name);
+        throw new Exception("The attribute [" + a.GetType().Name.Replace("Attribute", "") + "] on member \"" + m.DeclaringType?.FullName + "." + m.Name
+            + "\" does not match the member type. Use [" + typeof(T).Name.Replace("Attribute", "") + "], or change the type of the member. ");
     }
     static PropertyAttribute getOrCreatePropertyAttributeWithId(MemberInfo member, Type valueType, bool autoDeduceRelations) {
         if (!BuildUtils.tryGetAttribute<PropertyAttribute>(member, out var attr)) {
@@ -135,7 +148,9 @@ internal static class BuildUtilsProperties {
                 var typeKey = valueType.GetGenericArguments()[0];
                 if (typeKey == typeof(int)) a.KeyType = KeyPropertyType.NodeIntegerId;
                 else if (typeKey == typeof(Guid)) a.KeyType = KeyPropertyType.NodeGuidId;
-                else throw new Exception("The key type " + typeKey.FullName + " of property '" + "" + member.DeclaringType?.FullName + "." + member.Name + "' is not supported for EmbeddedMapProperty. ");
+                else throw new Exception("The key type " + typeKey.GetCSharpName() + " of the embedded map member \"" + member.DeclaringType?.FullName + "." + member.Name
+                    + "\" is not supported. Without an [EmbeddedMapProperty] attribute the key must be int or Guid (the node id). "
+                    + "To key the map by another property, add [EmbeddedMapProperty(KeyProperty = \"...\")]. ");
                 attr = a;
             } else if (valueType.IsSubclassOf(typeof(object))) {
                 if (autoDeduceRelations || valueType.InheritsFromOrImplements<IRelationProperty>()) {
@@ -147,7 +162,8 @@ internal static class BuildUtilsProperties {
                 } else {
                     attr = new ReferencePropertyAttribute();
                 }
-            } else throw new NotSupportedException(member.DeclaringType?.FullName + "." + member.Name + " - The value type " + valueType.FullName + " is not supported as a member type. ");
+            } else throw new NotSupportedException("The type " + valueType.GetCSharpName() + " of member \"" + member.DeclaringType?.FullName + "." + member.Name
+                + "\" is not supported as a stored property. Mark the member with [Exclude] if it should not be stored. ");
         } else {
             if (attr is StringPropertyAttribute && valueType != typeof(string)
             || attr is BooleanPropertyAttribute && valueType != typeof(bool)
@@ -171,7 +187,9 @@ internal static class BuildUtilsProperties {
             || attr is EmbeddedMapPropertyAttribute && !valueType.InheritsFromOrImplements<IEmbeddedMap>()
             || attr is RelationPropertyAttribute && !valueType.IsSubclassOf(typeof(object))
             ) {
-                throw new Exception("The type " + valueType.Name + " of property '" + "" + member.DeclaringType?.FullName + "." + member.Name + "' is not compatible with attribute " + attr.GetType().Name + ". ");
+                throw new Exception("The member \"" + member.DeclaringType?.FullName + "." + member.Name + "\" of type " + valueType.GetCSharpName()
+                    + " is not compatible with the attribute [" + attr.GetType().Name.Replace("Attribute", "") + "]. "
+                    + "Use the attribute matching the member type, or change the type of the member. ");
             }
         }
         if (string.IsNullOrEmpty(attr.Id)) {
@@ -338,8 +356,10 @@ internal static class BuildUtilsProperties {
     static EmbeddedPropertyModel getEmbeddedPropertyModel(MemberInfo m, EmbeddedPropertyAttribute a, Type valueType) {
         var p = new EmbeddedPropertyModel();
         // validating m is a property and does not have a set property:
-        if (m is not PropertyInfo pi) throw new Exception("Member " + m.DeclaringType?.FullName + "." + m.Name + " is not a property, only members of type PropertyInfo are supported for EmbeddedProperties.");
-        if (pi.SetMethod != null) throw new Exception("Property " + m.DeclaringType?.FullName + "." + m.Name + " has a set method that cannot be implemented by the mapper. Set methods are not supported for EmbeddedProperties.");
+        if (m is not PropertyInfo pi) throw new Exception("The embedded member \"" + m.DeclaringType?.FullName + "." + m.Name
+            + "\" must be a property, not a field. ");
+        if (pi.SetMethod != null) throw new Exception("The embedded property \"" + m.DeclaringType?.FullName + "." + m.Name
+            + "\" must not have a setter. Declare it getter-only ({ get; }), the value is initialized automatically. ");
         addCommonEmbeddedProperties(a, p, valueType, false);
         p.EmbeddedValueType = EmbeddedValueType.InnerNodeList;
         return p;
@@ -413,7 +433,8 @@ internal static class BuildUtilsProperties {
             } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
                 p.ReferenceValueType = ReferenceValueType.Enumerable;
             } else {
-                throw new Exception("Could not determine collection type for " + m.DeclaringType?.FullName + "." + m.Name);
+                throw new Exception("Could not determine the collection shape of the references member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" ("
+                    + valueType.GetCSharpName() + "). Supported shapes are T[], List<T>, IList<T>, ICollection<T>, IReadOnlyCollection<T>, IReadOnlyList<T> and IEnumerable<T>. ");
             }
         }
         if (a.TypeIds != null) {
@@ -430,7 +451,8 @@ internal static class BuildUtilsProperties {
             if (names.Count > 0) p.NodeTypesNames = names;
         }
         if (a.TypeIds == null) {
-            if (nodeType == null) throw new Exception("Could not determine node type of references property " + m.DeclaringType?.FullName + "." + m.Name);
+            if (nodeType == null) throw new Exception("Could not determine the node type of the references member \"" + m.DeclaringType?.FullName + "." + m.Name
+                + "\". Use a typed collection of a node type (e.g. List<Person>), or specify the node types with TypeIds on the attribute. ");
             p.NodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;
@@ -485,11 +507,13 @@ internal static class BuildUtilsProperties {
         reason = string.Empty;
         relationType = propValueType.DeclaringType;
         if (relationType == null) {
-            reason = "The declaring property value type " + propValueType.Name + " does not have a declaring type.";
+            reason = "The type " + propValueType.Name + " is not nested inside a relation class. "
+                + "A relation side property must use a class nested in the relation class, for example MyRelation.Many. ";
             return false;
         }
         if (!relationType.InheritsFromOrImplements<IRelation>()) {
-            reason = "The declaring property value type " + propValueType.Name + " does not implement IRelation or inherit from a type that implements IRelation.";
+            reason = "The type " + propValueType.Name + " is nested in " + relationType.Name + ", which is not a relation class "
+                + "(it does not inherit from OneOne<T>, OneToOne<TFrom, TTo>, OneToMany<TOne, TMany>, ManyToMany<TFrom, TTo> or ManyMany<T>). ";
             return false;
         }
         return true;
@@ -527,7 +551,8 @@ internal static class BuildUtilsProperties {
             } else if (valueType.InheritsFromOrImplements<IOneProperty>()) {
                 r.IsMany = false;
             } else {
-                throw new Exception("Could not determine relation type for " + m.DeclaringType?.FullName + "." + m.Name);
+                throw new Exception("Could not determine whether the relation property \"" + m.DeclaringType?.FullName + "." + m.Name
+                    + "\" relates to one or many nodes. Its type must derive from one of the nested side classes of the relation class (e.g. MyRelation.Many). ");
             }
             //r.RelationId = BuildUtils.GetOrCreateRelationId(relationClass);
         } else {
@@ -552,7 +577,8 @@ internal static class BuildUtilsProperties {
                 } else if (valueType.InheritsFromOrImplements<IEnumerable>()) {
                     r.RelationValueType = RelationValueType.Enumerable;
                 } else {
-                    throw new Exception("Could not determine collection type for " + m.DeclaringType?.FullName + "." + m.Name);
+                    throw new Exception("Could not determine the collection shape of the relation member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" ("
+                        + valueType.GetCSharpName() + "). Supported shapes are T[], List<T>, IList<T>, ICollection<T>, IReadOnlyCollection<T>, IReadOnlyList<T> and IEnumerable<T>. ");
                 }
             } else {
                 typeOfRelated = valueType;
@@ -561,7 +587,8 @@ internal static class BuildUtilsProperties {
         if (relationType is not null) {
             r.RelationId = BuildUtils.GetOrCreateRelationId(relationType);
         }
-        if (typeOfRelated == null) throw new Exception("Could not determine type of related for " + m.DeclaringType?.FullName + "." + m.Name);
+        if (typeOfRelated == null) throw new Exception("Could not determine the related node type of the relation member \"" + m.DeclaringType?.FullName + "." + m.Name
+            + "\". Use a typed collection of a node type (e.g. List<Person>), or a node type directly. ");
         r.NodeTypeOfRelated = BuildUtils.GetOrCreateNodeTypeId(typeOfRelated);
         return r;
     }

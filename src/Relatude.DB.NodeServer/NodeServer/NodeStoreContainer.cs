@@ -311,7 +311,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 try {
                     loadDatamodelSource(dm, source);
                 } catch (Exception ex) {
-                    var msg = $"Failed to load datamodel source {source.Id}: {ex.Message}";
+                    var name = string.IsNullOrEmpty(source.Name) ? source.Id.ToString() : source.Name;
+                    var msg = $"Failed to load the datamodel source \"{name}\" ({source.Type}"
+                        + (string.IsNullOrEmpty(source.Reference) ? "" : $", reference \"{source.Reference}\"") + $"): {ex.Message}";
                     throw new Exception(msg, ex);
                 }
             }
@@ -320,32 +322,62 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
     void loadDatamodelSource(Datamodel dm, DatamodelSource source) {
         switch (source.Type) {
-            case DatamodelSourceType.AssemblyNameReference:
-                Assembly assembly;
-                if (source.Reference == null) {
-                    assembly = Assembly.GetEntryAssembly()!;
-                } else {
-                    assembly = Assembly.Load(source.Reference!);
+            case DatamodelSourceType.AssemblyNameReference: {
+                    Assembly? assembly;
+                    if (source.Reference == null) {
+                        assembly = Assembly.GetEntryAssembly();
+                        if (assembly == null) throw new Exception("No assembly reference is set and there is no entry assembly. Set Reference to the assembly name containing the model types. ");
+                    } else {
+                        try {
+                            assembly = Assembly.Load(source.Reference);
+                        } catch (Exception ex) {
+                            throw new Exception("The assembly \"" + source.Reference + "\" could not be loaded: " + ex.Message
+                                + " Check that the name is spelled correctly (without the .dll extension) and that the assembly is referenced by, or copied to, the application. ", ex);
+                        }
+                    }
+                    if (string.IsNullOrEmpty(source.Namespace)) throw new Exception(
+                        "The datamodel source has no Namespace. Set Namespace to the namespace containing the model types in " + assembly.GetName().Name + ". ");
+                    var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
+                    dm.AddAssembly(assembly, source.Namespace, source.AutoDeduceRelations);
+                    if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) {
+                        string[] available;
+                        try {
+                            available = assembly.GetTypes().Select(t => t.Namespace).Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n).ToArray()!;
+                        } catch { available = []; }
+                        throw new Exception("No model types were found in the namespace \"" + source.Namespace + "\" of the assembly " + assembly.GetName().Name
+                            + " (or all of them were already added by an earlier datamodel source). Check the namespace for typos. "
+                            + (available.Length == 0 ? "" : "Namespaces in the assembly: " + string.Join(", ", available.Take(20)) + (available.Length > 20 ? ", ..." : "") + ". "));
+                    }
+                    break;
                 }
-                dm.AddAssembly(assembly, source.Namespace!, source.AutoDeduceRelations);
-                break;
-            case DatamodelSourceType.TypeNameReference:
-                var type = Type.GetType(source.Reference!);
-                dm.Add(type!, true, source.AutoDeduceRelations);
-                break;
+            case DatamodelSourceType.TypeNameReference: {
+                    if (string.IsNullOrEmpty(source.Reference)) throw new Exception(
+                        "The datamodel source has no Reference. Set Reference to the type name of a model type, assembly qualified if it is not in the entry assembly (e.g. \"MyApp.Models.Person, MyApp\"). ");
+                    var type = Type.GetType(source.Reference);
+                    if (type == null) throw new Exception("The type \"" + source.Reference + "\" could not be found. "
+                        + "Use the full type name, assembly qualified if the type is not in the entry assembly or mscorlib (e.g. \"MyApp.Models.Person, MyApp\"). ");
+                    dm.Add(type, true, source.AutoDeduceRelations);
+                    break;
+                }
             case DatamodelSourceType.JsonFile: {
-                    if (source.FileIO == null) throw new Exception("FileIO is required for JsonFile DatamodelSource");
-                    if (!server.TryGetIO(source.FileIO.Value, out var io)) throw new Exception("FileIO not found for JsonFile DatamodelSource");
-                    var json = io.ReadAllTextUTF8(source.Reference!);
-                    var dm2 = System.Text.Json.JsonSerializer.Deserialize<Datamodel>(json);
-                    if (dm2 == null) throw new Exception("Failed to deserialize Datamodel from JsonFile");
+                    if (source.FileIO == null) throw new Exception("FileIO is required for a JsonFile datamodel source. Set it to the id of the IO provider holding the file. ");
+                    if (!server.TryGetIO(source.FileIO.Value, out var io)) throw new Exception("No IO provider with id " + source.FileIO.Value + " is configured for this server. ");
+                    if (string.IsNullOrEmpty(source.Reference)) throw new Exception("The datamodel source has no Reference. Set Reference to the file name of the JSON datamodel. ");
+                    var json = io.ReadAllTextUTF8(source.Reference);
+                    Datamodel? dm2;
+                    try {
+                        dm2 = System.Text.Json.JsonSerializer.Deserialize<Datamodel>(json);
+                    } catch (System.Text.Json.JsonException ex) {
+                        throw new Exception("The datamodel file \"" + source.Reference + "\" contains invalid JSON or an invalid datamodel: " + ex.Message, ex);
+                    }
+                    if (dm2 == null) throw new Exception("The datamodel file \"" + source.Reference + "\" is empty or contains only null. ");
                     dm.AddDatamodel(dm2);
                     break;
                 }
             case DatamodelSourceType.CSharpCodeFile:
-                throw new NotImplementedException();
+                throw new NotSupportedException("Datamodel sources of type CSharpCodeFile are not supported yet. Use an assembly, type or JSON file source instead. ");
             default:
-                throw new NotImplementedException();
+                throw new NotSupportedException("Unknown datamodel source type: " + source.Type);
         }
     }
     public void Dispose() {

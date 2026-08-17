@@ -17,6 +17,7 @@ internal static class BuildUtils {
         attribute = matches.First();
         return true;
     }
+    const string relationBaseClassHint = "A relation class must inherit directly from OneOne<T>, OneToOne<TFrom, TTo>, OneToMany<TOne, TMany>, ManyToMany<TFrom, TTo> or ManyMany<T>, with node types as generic arguments. ";
     public static RelationModel CreateRelationModelFromType(Type type) {
         var r = new RelationModel();
         var relationAttr = GetOrCreateRelationAttributeWithId(type);
@@ -30,24 +31,27 @@ internal static class BuildUtils {
         else if (type.InheritsFromOrImplements<IOneOne>()) r.RelationType = RelationType.OneOne;
         else if (type.InheritsFromOrImplements<IOneToMany>()) r.RelationType = RelationType.OneToMany;
         else if (type.InheritsFromOrImplements<IOneToOne>()) r.RelationType = RelationType.OneToOne;
-        else throw new Exception(type.FullName + " is not a known relation type. ");
-        if (type.BaseType == null) throw new Exception();
+        else throw new Exception("The relation class " + type.FullName + " does not implement a known relation type. " + relationBaseClassHint);
+        var genericArgs = type.BaseType?.GetGenericArguments() ?? [];
         switch (r.RelationType) {
             case RelationType.OneOne:
             case RelationType.ManyMany:
-                var nodeType = type.BaseType.GetGenericArguments()[0];
+                if (genericArgs.Length < 1) throw new Exception(
+                    "Cannot read the node type of the relation class " + type.FullName + " from its base class. " + relationBaseClassHint);
+                var nodeType = genericArgs[0];
                 r.SourceTypes.Add(getNodeTypeId(nodeType));
                 r.TargetTypes.Add(getNodeTypeId(nodeType));
                 break;
             case RelationType.OneToOne:
             case RelationType.OneToMany:
             case RelationType.ManyToMany:
-                var nodeTypes = type.BaseType.GetGenericArguments();
-                r.SourceTypes.Add(getNodeTypeId(nodeTypes[0]));
-                r.TargetTypes.Add(getNodeTypeId(nodeTypes[1]));
+                if (genericArgs.Length < 2) throw new Exception(
+                    "Cannot read the source and target node types of the relation class " + type.FullName + " from its base class. " + relationBaseClassHint);
+                r.SourceTypes.Add(getNodeTypeId(genericArgs[0]));
+                r.TargetTypes.Add(getNodeTypeId(genericArgs[1]));
                 break;
             default:
-                throw new Exception(type.FullName + " is not a known relation type. ");
+                throw new Exception("The relation class " + type.FullName + " does not implement a known relation type. " + relationBaseClassHint);
         }
         // resolving code names for source and target types: ( for code generation purposes )
         evaluateCodeNameSourcesAndTargets(r, type);
@@ -63,58 +67,48 @@ internal static class BuildUtils {
         return r;
     }
     static void evaluateCodeNameSourcesAndTargets(RelationModel r, Type type) {
-        var nestedTypes = type.GetNestedTypes();
+        // only nested relation side classes count; other nested types (helpers, enums) are allowed and ignored
+        var nestedTypes = type.GetNestedTypes().Where(t => t.InheritsFromOrImplements<IRelationProperty>()).ToArray();
         if (nestedTypes.Length == 0) return; // no nested types defined
         switch (r.RelationType) {
             case RelationType.OneOne:
-            case RelationType.ManyMany: {
-                    if (nestedTypes.Length != 1) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                    var one = nestedTypes[0];
-                    r.CodeNameSources = one.Name;
-                }
+                assignSideNames(r, type, nestedTypes, nameof(OneOne<object>.One), null);
                 break;
-            case RelationType.OneToOne: {
-                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                    var a = nestedTypes[0];
-                    var b = nestedTypes[1];
-                    if (a.BaseType!.Name == nameof(OneToOne<object, object>.OneFrom)) { // first class is refers to left side of relation ( Many1 )
-                        r.CodeNameSources = a.Name;
-                        r.CodeNameTargets = b.Name;
-                    } else {
-                        r.CodeNameSources = b.Name;
-                        r.CodeNameTargets = a.Name;
-                    }
-                }
+            case RelationType.ManyMany:
+                assignSideNames(r, type, nestedTypes, nameof(ManyMany<object>.Many), null);
                 break;
-            case RelationType.OneToMany: {
-                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                    var a = nestedTypes[0];
-                    var b = nestedTypes[1];
-                    if (a.BaseType!.Name == nameof(OneToMany<object, object>.One)) { // first class is refers to left side of relation ( One )
-                        r.CodeNameSources = a.Name;
-                        r.CodeNameTargets = b.Name;
-                    } else {
-                        r.CodeNameSources = b.Name;
-                        r.CodeNameTargets = a.Name;
-                    }
-                }
+            case RelationType.OneToOne:
+                assignSideNames(r, type, nestedTypes, nameof(OneToOne<object, object>.OneFrom), nameof(OneToOne<object, object>.OneTo));
                 break;
-            case RelationType.ManyToMany: {
-                    if (nestedTypes.Length != 2) throw new Exception("Invalid number of nested types for relation type " + type.FullName);
-                    var a = nestedTypes[0];
-                    var b = nestedTypes[1];
-                    if (a.BaseType!.Name == nameof(ManyToMany<object, object>.ManyFrom)) { // first class is refers to left side of relation ( Many1 )
-                        r.CodeNameSources = a.Name;
-                        r.CodeNameTargets = b.Name;
-                    } else {
-                        r.CodeNameSources = b.Name;
-                        r.CodeNameTargets = a.Name;
-                    }
-                }
+            case RelationType.OneToMany:
+                assignSideNames(r, type, nestedTypes, nameof(OneToMany<object, object>.One), nameof(OneToMany<object, object>.Many));
+                break;
+            case RelationType.ManyToMany:
+                assignSideNames(r, type, nestedTypes, nameof(ManyToMany<object, object>.ManyFrom), nameof(ManyToMany<object, object>.ManyTo));
                 break;
             default:
-                throw new Exception(type.FullName + " is not a known relation type. ");
+                throw new Exception("The relation class " + type.FullName + " does not implement a known relation type. " + relationBaseClassHint);
         }
+    }
+    // the nested side classes name the two ends of the relation; each must derive from the matching
+    // side class of the relation base (e.g. One/Many for OneToMany). targetBaseName is null for
+    // symmetric relations, which only have one side.
+    static void assignSideNames(RelationModel r, Type type, Type[] nestedTypes, string sourceBaseName, string? targetBaseName) {
+        string describe() => "The relation class " + type.FullName + " defines the nested side class(es) "
+            + string.Join(", ", nestedTypes.Select(t => t.Name + " : " + (t.BaseType?.Name ?? "?"))) + ". ";
+        if (targetBaseName == null) {
+            if (nestedTypes.Length != 1 || nestedTypes[0].BaseType?.Name != sourceBaseName) throw new Exception(describe()
+                + "A " + r.RelationType + " relation must define exactly one nested class deriving from " + sourceBaseName + ", naming its property side. ");
+            r.CodeNameSources = nestedTypes[0].Name;
+            return;
+        }
+        var source = nestedTypes.FirstOrDefault(t => t.BaseType?.Name == sourceBaseName);
+        var target = nestedTypes.FirstOrDefault(t => t.BaseType?.Name == targetBaseName);
+        if (nestedTypes.Length != 2 || source == null || target == null) throw new Exception(describe()
+            + "A " + r.RelationType + " relation must define exactly two nested classes, one deriving from " + sourceBaseName
+            + " and one from " + targetBaseName + ", naming the two property sides. ");
+        r.CodeNameSources = source.Name;
+        r.CodeNameTargets = target.Name;
     }
     public static NodeTypeModel CreateNodeTypeModelFromType(Type type, bool autoDeduceRelations = false) {
         var c = new NodeTypeModel();
@@ -156,7 +150,11 @@ internal static class BuildUtils {
             if (isIdPropertyThenAssignIt(c, m, valueType)) continue;
             if (isSystemPropertyThenAssignIt(c, m, valueType)) continue;
             var property = BuildUtilsProperties.CreatePropertyFromMember(m, valueType, autoDeduceRelations);
-            c.Properties.Add(property.Id, property);
+            if (!c.Properties.TryAdd(property.Id, property)) {
+                throw new Exception("The members \"" + c.Properties[property.Id].CodeName + "\" and \"" + m.Name + "\" on " + type.FullName
+                    + " have the same property id " + property.Id + ". "
+                    + "Property ids must be unique - this usually comes from a copy-pasted Id in a property attribute. Give one of them a new id. ");
+            }
         }
         return c;
     }
@@ -184,12 +182,15 @@ internal static class BuildUtils {
         if (valueType.IsEnum) return;
         if (valueType.IsValueType) {
             if (valueType.IsGenericType && valueType.GetGenericTypeDefinition() == typeof(Nullable<>)) {
-                throw new Exception("Nullable types are unsupported, property type: " + valueType.FullName);
+                throw new Exception("The member \"" + member.DeclaringType!.Name + "." + member.Name + "\" is of the nullable type "
+                    + valueType.GetCSharpName() + ", which is not supported. "
+                    + "Use the non-nullable type instead, or mark the member with [Exclude] if it should not be stored. ");
             }
             if (!knownSupportedValueTypes.Contains(valueType)) {
                 throw new Exception("The type \"" + valueType.GetCSharpName() + "\" of member \""
-                    + member.DeclaringType!.Name + "." + member.Name
-                    + "\" is not supported. ");
+                    + member.DeclaringType!.Name + "." + member.Name + "\" is not supported. "
+                    + "Supported value types are: " + string.Join(", ", knownSupportedValueTypes.Select(t => t.Name)) + " and enums. "
+                    + "Mark the member with [Exclude] if it should not be stored. ");
             }
         }
         // non value types are either ok like arrays etc., or relations to types/models not known yet, so cannot check them here...
@@ -245,11 +246,15 @@ internal static class BuildUtils {
         IEnumerable<Type> parents = findParentsIncludingThis(member.DeclaringType);
         var interfacesWithMember = parents.Where(i => i.IsInterface && i.GetMembers().Where(m => m.Name == member.Name).Count() > 0).ToList();
         var classesOrRecsWithMember = parents.Where(c => c.IsClass && c.GetMembers().Where(m => m.Name == member.Name).Count() > 0).ToList();
-        if (interfacesWithMember.Count > 1) throw new Exception("Multiple interfaces cannot specify same property:" + string.Join(", ", interfacesWithMember.Select(c => c.FullName + "." + member.Name)));
+        if (interfacesWithMember.Count > 1) throw new Exception("The property \"" + member.Name + "\" is declared by more than one interface: "
+            + string.Join(", ", interfacesWithMember.Select(c => c.FullName + "." + member.Name)) + ". "
+            + "A property can only be declared once in a type hierarchy. Declare it on a single shared interface, or rename one of them. ");
         if (interfacesWithMember.Count == 1) return interfacesWithMember.First();
-        if (classesOrRecsWithMember.Count > 1) throw new Exception("Multiple classes cannot specify same property, overriding is not supported:" + string.Join(", ", classesOrRecsWithMember.Select(c => c.FullName + "." + member.Name)));
+        if (classesOrRecsWithMember.Count > 1) throw new Exception("The property \"" + member.Name + "\" is declared by more than one class: "
+            + string.Join(", ", classesOrRecsWithMember.Select(c => c.FullName + "." + member.Name)) + ". "
+            + "Overriding or hiding a stored property is not supported. Declare it only on the base class, or rename one of them. ");
         if (classesOrRecsWithMember.Count == 1) return classesOrRecsWithMember.First();
-        throw new Exception("Unable to locate a root type for member " + member.Name);
+        throw new Exception("Unable to locate the declaring type of member \"" + member.Name + "\" on " + member.DeclaringType.FullName + ". ");
     }
     static bool hasAttr<T>(MemberInfo pInfo) where T : Attribute { return tryGetAttribute<T>(pInfo, out _); }
     static bool isIdPropertyThenAssignIt(NodeTypeModel c, MemberInfo pInfo, Type valueType) {
@@ -265,7 +270,9 @@ internal static class BuildUtils {
                 c.DataTypeOfPublicId = DataTypePublicId.String;
                 return true;
             } else {
-                if (hasAttr<PublicIdPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on ID property");
+                if (hasAttr<PublicIdPropertyAttribute>(pInfo)) throw new Exception(
+                    "The member \"" + pInfo.DeclaringType?.Name + "." + pInfo.Name + "\" is marked with [PublicIdProperty] but is of type "
+                    + valueType.GetCSharpName() + ". A public id property must be of type Guid or string. ");
             }
         }
         if (pInfo.Name == internalIdName) {
@@ -282,7 +289,9 @@ internal static class BuildUtils {
                 c.DataTypeOfInternalId = DataTypeInternalId.String;
                 return true;
             } else {
-                if (hasAttr<InternalIdPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on internal ID property");
+                if (hasAttr<InternalIdPropertyAttribute>(pInfo)) throw new Exception(
+                    "The member \"" + pInfo.DeclaringType?.Name + "." + pInfo.Name + "\" is marked with [InternalIdProperty] but is of type "
+                    + valueType.GetCSharpName() + ". An internal id property must be of type int, long or string. ");
             }
         }
         return false;
@@ -294,37 +303,36 @@ internal static class BuildUtils {
             return true;
         }
 
+        static Exception wrongType(MemberInfo pInfo, string attributeName, Type valueType, string expected) => new(
+            "The member \"" + pInfo.DeclaringType?.Name + "." + pInfo.Name + "\" is marked with [" + attributeName + "] but is of type "
+            + valueType.GetCSharpName() + ". It must be of type " + expected + ". ");
         if (hasAttr<ChangedUtcPropertyAttribute>(pInfo)) {
             if (valueType == typeof(DateTime)) {
                 c.NameOfChangedUtcProperty = pInfo.Name;
                 return true;
-            } else {
-                if (hasAttr<ChangedUtcPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on changedUtc property");
             }
+            throw wrongType(pInfo, "ChangedUtcProperty", valueType, "DateTime");
         }
         if (hasAttr<CreatedUtcPropertyAttribute>(pInfo)) {
             if (valueType == typeof(DateTime)) {
                 c.NameOfCreatedUtcProperty = pInfo.Name;
                 return true;
-            } else {
-                if (hasAttr<CreatedUtcPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on createdUtc property");
             }
+            throw wrongType(pInfo, "CreatedUtcProperty", valueType, "DateTime");
         }
         if (hasAttr<DisplayNamePropertyAttribute>(pInfo)) {
             if (valueType == typeof(string)) {
                 c.NameOfDisplayNameProperty = pInfo.Name;
                 return true;
-            } else {
-                if (hasAttr<DisplayNamePropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on display name property");
             }
+            throw wrongType(pInfo, "DisplayNameProperty", valueType, "string");
         }
         if (hasAttr<AddressPropertyAttribute>(pInfo)) {
             if (valueType == typeof(string)) {
                 c.NameOfAddressProperty = pInfo.Name;
                 return true;
-            } else {
-                if (hasAttr<AddressPropertyAttribute>(pInfo)) throw new Exception("Incompatible datatype on address property");
             }
+            throw wrongType(pInfo, "AddressProperty", valueType, "string");
         }
 
         return false;
@@ -339,7 +347,9 @@ internal static class BuildUtils {
         } else if (type.IsValueType && !type.IsPrimitive && !type.IsEnum) {
             return ModelType.Struct;
         } else {
-            throw new Exception(type.FullName + " is not a valid model type, it is a \"" + type.BaseType + "\". A model must be a class, interface, record or struct. ");
+            throw new Exception("The type " + type.FullName + " cannot be used as a node type. "
+                + "A node type must be a class, interface, record or struct. "
+                + "If the type ended up in the datamodel by accident, mark it with [Exclude] or narrow the namespace filter of the datamodel source. ");
         }
     }
     static bool isTypeRelevant(Type type) {

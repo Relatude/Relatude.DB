@@ -30,12 +30,14 @@ internal static class CodeUtils {
     public static string GetTypeName(PropertyModel p, Datamodel datamodel) {
         if (p is IntegerPropertyModel intP && intP.IsEnum) {
             if (string.IsNullOrEmpty(intP.FullEnumTypeName))
-                throw new Exception("Enum " + p.CodeName + " is missing FullEnumTypeName.");
+                throw new Exception("The enum property " + p.CodeName + " has no FullEnumTypeName, so no code can be generated for it. "
+                    + "When an enum property is defined in JSON, FullEnumTypeName must name an enum type that exists at runtime. ");
             return intP.FullEnumTypeName;
         }
         if (p is EnumArrayPropertyModel enumArrayP) {
             if (string.IsNullOrEmpty(enumArrayP.FullEnumTypeName))
-                throw new Exception("Enum array " + p.CodeName + " is missing FullEnumTypeName.");
+                throw new Exception("The enum array property " + p.CodeName + " has no FullEnumTypeName, so no code can be generated for it. "
+                    + "When an enum array property is defined in JSON, FullEnumTypeName must name an enum type that exists at runtime. ");
             return enumArrayP.FullEnumTypeName + "[]";
         }
         return p.PropertyType switch {
@@ -120,13 +122,15 @@ internal static class CodeUtils {
                     if (p.KeyProperty != Guid.Empty) {
                         if (dm.Properties.TryGetValue(p.KeyProperty, out var keyProp)) {
                             if (keyProp.PropertyType == PropertyType.Embedded) // prevent recursive loop....
-                                throw new Exception("Key property for InnerNodeMap cannot be of type Embedded.");
+                                throw new Exception("The embedded map property " + p.CodeName + " uses an embedded property as its key. An embedded property cannot be a map key. ");
                             return GetTypeName(keyProp, dm);
                         } else {
-                            throw new Exception($"Key property with id {p.KeyProperty} not found in datamodel");
+                            throw new Exception("The embedded map property " + p.CodeName + " refers to a key property with id " + p.KeyProperty
+                                + " that is not part of the datamodel. Correct the key property id, or add the property to the datamodel. ");
                         }
                     } else {
-                        throw new Exception("Key property not set for InnerNodeMap");
+                        throw new Exception("The embedded map property " + p.CodeName + " has no key property. "
+                            + "Set the key type to the node id, or name a key property of the inner node type. ");
                     }
                 }
             default:

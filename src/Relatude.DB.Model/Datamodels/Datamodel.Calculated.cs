@@ -10,6 +10,7 @@ public partial class Datamodel {
     // Calculated:
     public Dictionary<Guid, PropertyModel> Properties = new();
     public Dictionary<string, PropertyModel> PropertiesByFullName = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> _ambiguousPropertyNames = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, NodeTypeModel> NodeTypesByFullName = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, NodeTypeModel[]> NodeTypesByShortName = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<Type, Guid> RelationIdByType = new();
@@ -24,7 +25,12 @@ public partial class Datamodel {
             // validate all class refernces:
             foreach (var item in NodeTypes) {
                 foreach (var parentId in item.Value.Parents) {
-                    if (!NodeTypes.ContainsKey(parentId)) throw new Exception(item.Value.CodeName + " inherits from a parent that is not referenced in the datamodel: " + parentId);
+                    if (!NodeTypes.ContainsKey(parentId)) throw new Exception(
+                        "The node type " + item.Value.FullName + " inherits from or implements a type with id " + parentId + " that is not part of the datamodel. "
+                        + "All base classes and interfaces of a node type (except object) must be included in the datamodel. "
+                        + "This typically happens when the base type is in a namespace or assembly that is not added to the datamodel, "
+                        + "or when the base type is marked with [Exclude] while the derived type is not. "
+                        + "Add the missing type to the datamodel, or exclude the derived type as well. ");
                 }
             }
 
@@ -34,7 +40,13 @@ public partial class Datamodel {
 
             // making sure every type inherits from INode
             foreach (var t in NodeTypes.Values) {
-                NodeTypesByFullName.Add(t.FullName, t);
+                if (!NodeTypesByFullName.TryAdd(t.FullName, t)) {
+                    var other = NodeTypesByFullName[t.FullName];
+                    throw new Exception("Two node types in the datamodel have the same full name \"" + t.FullName + "\" but different ids ("
+                        + other.Id + " and " + t.Id + "). "
+                        + "This usually means the same type is added twice with different ids, for example once from code and once from a JSON datamodel with another id. "
+                        + "Make sure the type is only defined once, or that both definitions use the same id. ");
+                }
                 if (!NodeTypesByShortName.TryGetValue(t.CodeName, out var arr)) {
                     NodeTypesByShortName.Add(t.CodeName, [t]);
                 } else {
@@ -45,17 +57,36 @@ public partial class Datamodel {
                 }
             }
 
+            foreach (var t in NodeTypes.Values) {
+                foreach (var p in t.Properties.Values) {
+                    p.NodeType = t.Id;
+                    if (!Properties.TryAdd(p.Id, p)) {
+                        var other = Properties[p.Id];
+                        throw new Exception("The properties " + other.GetFullNameBaseType(this) + " and " + p.GetFullNameAnyType(t)
+                            + " have the same property id " + p.Id + ". "
+                            + "Property ids must be unique across the whole datamodel. "
+                            + "This usually comes from a copy-pasted Id in a property attribute or JSON datamodel. Give one of them a new id. ");
+                    }
+                }
+            }
             foreach (var t in NodeTypes.Values) findAllInherited(this, t, t.ThisAndAllInheritedTypes);
             foreach (var t in NodeTypes.Values) findAllDescendants(this, t);
             foreach (var t in NodeTypes.Values) findAllProperties(this, t);
             foreach (var t in NodeTypes.Values) {
                 foreach (var p in t.Properties.Values) {
-                    p.NodeType = t.Id;
-                    Properties.Add(p.Id, p);
+                    var fullName = p.GetFullNameAnyType(t);
+                    if (!PropertiesByFullName.TryAdd(fullName, p)) {
+                        var other = PropertiesByFullName[fullName];
+                        if (other.NodeType == t.Id) {
+                            throw new Exception("The node type " + t.FullName + " defines the property name \"" + p.CodeName + "\" more than once "
+                                + "(names are compared case-insensitively). Property names must be unique within a node type. "
+                                + "Rename one of the members, or exclude one of them with [Exclude]. ");
+                        }
+                        // two node types share the same short name: the name cannot be resolved
+                        // unambiguously, but the datamodel itself is valid
+                        _ambiguousPropertyNames.Add(fullName);
+                    }
                 }
-            }
-            foreach (var t in NodeTypes.Values) {
-                foreach (var p in t.Properties.Values) PropertiesByFullName.Add(p.GetFullNameAnyType(t), p);
             }
             foreach (var t in NodeTypes.Values) {
                 foreach (var p in t.AllProperties.Values) {
@@ -71,7 +102,9 @@ public partial class Datamodel {
                     if (!RelationIdByType.ContainsKey(r.RelationClassType)) {
                         RelationIdByType.Add(r.RelationClassType, r.Id);
                     } else {
-                        throw new Exception("Relation class type already exists in RelationIdByType: " + r.RelationClassType.FullName);
+                        throw new Exception("The relation class " + r.RelationClassType.FullName + " is used by two different relations in the datamodel ("
+                            + RelationIdByType[r.RelationClassType] + " and " + r.Id + "). "
+                            + "A relation class can only define one relation. This usually means the same class was added twice with different ids. ");
                     }
                 }
             }
@@ -87,14 +120,16 @@ public partial class Datamodel {
             if (inp.InnerNodeTypesNames != null) {
                 foreach (var typeName in inp.InnerNodeTypesNames) {
                     if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
-                        throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
+                        throw new Exception("The embedded property " + p.GetFullNameBaseType(this) + " refers to an inner node type \"" + typeName + "\" that is not part of the datamodel. "
+                            + "Add the inner type to the datamodel or correct the type name. ");
                     }
                     inp.InnerNodeTypes.Add(nodeType.Id);
                 }
             }
             foreach (var typeId in inp.InnerNodeTypes) {
                 if (!NodeTypes.TryGetValue(typeId, out var nodeType)) {
-                    throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
+                    throw new Exception("The embedded property " + p.GetFullNameBaseType(this) + " refers to an inner node type with id " + typeId + " that is not part of the datamodel. "
+                        + "Add the inner type to the datamodel or correct the id. ");
                 }
             }
             switch (inp.EmbeddedValueType) {
@@ -106,18 +141,22 @@ public partial class Datamodel {
                     var bestCommonBase = FindFirstCommonBase(inp.InnerNodeTypes);
                     if (!string.IsNullOrWhiteSpace(inp.KeyPropertyName)) {
                         if (!bestCommonBase.AllPropertiesByName.TryGetValue(inp.KeyPropertyName, out var keyProp)) {
-                            throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " refers to a key property name that is not found in the common base type of the inner node types: " + inp.KeyPropertyName);
+                            throw new Exception("The embedded map property " + p.GetFullNameBaseType(this) + " uses \"" + inp.KeyPropertyName + "\" as its key property, "
+                                + "but no property with that name exists on " + bestCommonBase.FullName + ", the closest common base type of the inner node types. "
+                                + "The key property must be defined on a type all inner node types share. ");
                         }
                         inp.KeyProperty = keyProp.Id;
                     }
                     Type keyPropType = inp.GetKeyTypeOfPropertyIfPossible(this);
                     if (inp._keyTypeInCodeModelForLaterChecks != null) {
                         var _valueTypeKey = inp._keyTypeInCodeModelForLaterChecks.GetGenericArguments()[0];
-                        if (keyPropType != _valueTypeKey) throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " has a key property type that does not match the expected value type for InnerNodeMap: " + keyPropType + " vs " + _valueTypeKey);
+                        if (keyPropType != _valueTypeKey) throw new Exception("The embedded map property " + p.GetFullNameBaseType(this) + " is declared with key type "
+                            + _valueTypeKey.Name + " in code, but its key property is of type " + keyPropType.Name + ". "
+                            + "The first generic argument of EmbeddedMap<TKey, TValue> must match the type of the key property. ");
                     }
                     break;
                 default:
-                    throw new Exception("Embedded property " + p.GetFullNameBaseType(this) + " has an unsupported EmbeddedValueType: " + inp.EmbeddedValueType);
+                    throw new Exception("The embedded property " + p.GetFullNameBaseType(this) + " has an unsupported EmbeddedValueType: " + inp.EmbeddedValueType);
             }
         }
     }
@@ -138,7 +177,8 @@ public partial class Datamodel {
             if (nodeTypesNames != null) {
                 foreach (var typeName in nodeTypesNames) {
                     if (!NodeTypesByFullName.TryGetValue(typeName, out var nodeType)) {
-                        throw new Exception("Reference property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeName);
+                        throw new Exception("The reference property " + p.GetFullNameBaseType(this) + " refers to a node type \"" + typeName + "\" that is not part of the datamodel. "
+                            + "Add the referenced type to the datamodel or correct the type name. ");
                     }
                     // the same model instance may be verified by more than one datamodel; never accumulate duplicates
                     if (!nodeTypes.Contains(nodeType.Id)) nodeTypes.Add(nodeType.Id);
@@ -146,7 +186,8 @@ public partial class Datamodel {
             }
             foreach (var typeId in nodeTypes) {
                 if (!NodeTypes.TryGetValue(typeId, out var nodeType)) {
-                    throw new Exception("Reference property " + p.GetFullNameBaseType(this) + " refers to a node type that is not part of the datamodel: " + typeId);
+                    throw new Exception("The reference property " + p.GetFullNameBaseType(this) + " refers to a node type with id " + typeId + " that is not part of the datamodel. "
+                        + "Add the referenced type to the datamodel or correct the id. ");
                 }
             }
         }
@@ -174,7 +215,9 @@ public partial class Datamodel {
             .Where(n => n != null)
             .ToHashSet();
         if (types.Count == 1) return types.First();
-        if (types.Count > 1) throw new Exception("Multiple types of internal id property found in parents of " + nodeType.CodeName);
+        if (types.Count > 1) throw new Exception("The node type " + nodeType.FullName + " inherits internal id properties of different data types ("
+            + string.Join(", ", types) + ") from its base types. "
+            + "All base types must agree on the data type of the internal id property (int, long or string). ");
         return null;
     }
     DataTypePublicId? getBestPublicIdPropTypeInParents(NodeTypeModel nodeType) {
@@ -186,7 +229,9 @@ public partial class Datamodel {
             .Where(n => n != null)
             .ToHashSet();
         if (types.Count == 1) return types.First();
-        if (types.Count > 1) throw new Exception("Multiple types of public id property found in parents of " + nodeType.CodeName);
+        if (types.Count > 1) throw new Exception("The node type " + nodeType.FullName + " inherits public id properties of different data types ("
+            + string.Join(", ", types) + ") from its base types. "
+            + "All base types must agree on the data type of the public id property (Guid or string). ");
         return null;
     }
     string? getBestSystemPropNameInParents(NodeTypeModel nodeType, Func<NodeTypeModel, string?> getProp) {
@@ -198,19 +243,28 @@ public partial class Datamodel {
             .Where(n => n != null)
             .ToHashSet();
         if (names.Count == 1) return names.First();
-        if (names.Count > 1) throw new Exception("Multiple names of system property found in parents of " + nodeType.CodeName);
+        if (names.Count > 1) throw new Exception("The node type " + nodeType.FullName + " inherits the same system property (id, meta, display name, address or changed date) "
+            + "under different names from its base types: " + string.Join(", ", names) + ". "
+            + "All base types must use the same member name for a given system property. ");
         return null;
     }
     void initializeRelations() {
         foreach (var p in Properties.Values.Where(p => p.PropertyType == PropertyType.Relation)) {
             if (p is not RelationPropertyModel rp) throw new Exception("Relation property is not a RelationPropertyModel");
             if (!Relations.TryGetValue(rp.RelationId, out var relation)) {
-                if (rp.RelationId != Guid.Empty) throw new Exception("Relation of property " + p.GetFullNameBaseType(this) + " not part of the datamodel, relation id: " + rp.RelationId);
+                if (rp.RelationId != Guid.Empty) throw new Exception(
+                    "The property " + p.GetFullNameBaseType(this) + " refers to a relation with id " + rp.RelationId + " that is not part of the datamodel. "
+                    + "If the property uses a relation class, make sure that class is included in the datamodel (it is picked up automatically "
+                    + "when it is in an added namespace or referenced by an added type). If the relation is defined in JSON, check that the id matches. ");
                 if (!tryFindMatchingOneToManyRelation(rp, out relation)) {
                     if (tryToAutoCreateOneToManyRelations(rp, out relation, out var reasonForNotCreating)) {
                         Relations.Add(relation.Id, relation);
                     } else {
-                        throw new Exception("Unable to infer a relation of member \"" + p.GetFullNameBaseType(this) + "\". The type is either not supported or not part of the datamodel. If it is a relation property please specify it using an attribute or define it explicitly in the datamodel. " + reasonForNotCreating);
+                        throw new Exception("Unable to infer a relation for the member \"" + p.GetFullNameBaseType(this) + "\". "
+                            + "The member type is either not supported as a property value, or it points to a type that is not part of the datamodel. "
+                            + "If the member is meant to be a relation, reference a relation class with [RelationProperty<TRelation>], "
+                            + "or define the relation explicitly in the datamodel. If it is not meant to be stored, mark it with [Exclude]. "
+                            + reasonForNotCreating);
                     }
                 }
             }
@@ -235,10 +289,10 @@ public partial class Datamodel {
         });
         if (possibleMatches.Count() == 0) return false; // no match
         if (possibleMatches.Count() > 1)
-            throw new Exception("Unable to automatically identify relation. More than one relation fit property " + thisProperty.GetFullNameBaseType(this) + ". "
-                + "Automatic matching is ambiguous, please specify relation specifically. Relations matching are: "
-                + string.Join(", ", Relations.Values.Select(r => r.CodeName))
-                );
+            throw new Exception("Unable to automatically match the property " + thisProperty.GetFullNameBaseType(this) + " to a relation: "
+                + "more than one relation in the datamodel fits its source and target types ("
+                + string.Join(", ", possibleMatches.Select(r => r.CodeName)) + "). "
+                + "Specify which relation the property belongs to, for example with [RelationProperty<TRelation>]. ");
         relation = possibleMatches.First();
         var relationId = relation.Id;
         var allRelationProperies = Properties.Values.Where(p => p.PropertyType == PropertyType.Relation).Cast<RelationPropertyModel>();
@@ -366,8 +420,15 @@ public partial class Datamodel {
         foreach (var t in ct.ThisAndAllInheritedTypes) {
             if (datamodel.NodeTypes.TryGetValue(t.Key, out var parent)) {
                 foreach (var p in parent.Properties.Values) {
+                    if (!ct.AllPropertiesByName.TryAdd(p.CodeName, p)) {
+                        var other = ct.AllPropertiesByName[p.CodeName];
+                        var otherOwner = datamodel.NodeTypes.TryGetValue(other.NodeType, out var o) ? o.FullName : other.NodeType.ToString();
+                        throw new Exception("The node type " + ct.FullName + " gets the property name \"" + p.CodeName + "\" from two different types: "
+                            + otherOwner + " and " + parent.FullName + " (names are compared case-insensitively). "
+                            + "A property name can only be declared once in a type hierarchy. "
+                            + "Declare it once on a shared base type, or rename or exclude one of the members. ");
+                    }
                     ct.AllProperties.Add(p.Id, p);
-                    ct.AllPropertiesByName.Add(p.CodeName, p);
                     ct.AllPropertyIdsByName.Add(p.CodeName, p.Id);
                 }
             }
@@ -379,9 +440,13 @@ public partial class Datamodel {
         if (Guid.TryParse(value, out var propertyId)) {
             return propertyId;
         } else if (PropertiesByFullName.TryGetValue(idString, out var property)) {
+            if (_ambiguousPropertyNames.Contains(idString)) {
+                throw new Exception("The property name \"" + idString + "\" is ambiguous: more than one node type has the short name \""
+                    + idString.Split('.')[0] + "\" with a property of this name. Use the property id instead. ");
+            }
             return property.Id;
         } else {
-            throw new Exception("Unknown property: " + idString);
+            throw new Exception("Unknown property \"" + idString + "\". Expected a property id or a name in the form \"TypeName.PropertyName\". ");
         }
     }
 
@@ -407,17 +472,24 @@ public partial class Datamodel {
 
     public void AddDatamodel(Datamodel dm) {
         if (dm == null) return;
-        if (dm.HasInitialized()) throw new Exception("Cannot add initialized datamodel to another datamodel");
+        if (dm.HasInitialized()) throw new Exception("Cannot add an already initialized datamodel to another datamodel. Add datamodels together before the store is created. ");
         foreach (var nt in dm.NodeTypes.Values) {
-            if (NodeTypes.ContainsKey(nt.Id)) throw new Exception("Node type already exists in datamodel: " + nt.CodeName);
+            if (nt.Id == NodeConstants.BaseNodeTypeId) continue; // both models contain the built-in base type
+            if (NodeTypes.TryGetValue(nt.Id, out var existing)) throw new Exception(
+                "Cannot combine datamodels: the node type " + nt.FullName + " has the same id as " + existing.FullName + " (" + nt.Id + "). "
+                + "The same type is probably included by more than one datamodel source. ");
             NodeTypes.Add(nt.Id, nt);
         }
         foreach (var r in dm.Relations.Values) {
-            if (Relations.ContainsKey(r.Id)) throw new Exception("Relation already exists in datamodel: " + r.CodeName);
+            if (Relations.TryGetValue(r.Id, out var existing)) throw new Exception(
+                "Cannot combine datamodels: the relation " + r.CodeName + " has the same id as " + existing.CodeName + " (" + r.Id + "). "
+                + "The same relation is probably included by more than one datamodel source. ");
             Relations.Add(r.Id, r);
         }
         foreach (var p in dm.Properties.Values) {
-            if (Properties.ContainsKey(p.Id)) throw new Exception("Property already exists in datamodel: " + p.CodeName);
+            if (Properties.TryGetValue(p.Id, out var existing)) throw new Exception(
+                "Cannot combine datamodels: the property " + p.CodeName + " has the same id as " + existing.CodeName + " (" + p.Id + "). "
+                + "The same property is probably included by more than one datamodel source. ");
             Properties.Add(p.Id, p);
         }
     }

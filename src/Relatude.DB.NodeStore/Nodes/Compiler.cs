@@ -71,17 +71,38 @@ namespace Relatude.DB.Nodes {
                 MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Runtime.dll")),
                 MetadataReference.CreateFromFile(typeof(FileValue).Assembly.Location),
             };
-            foreach (var a in datamodel.Assemblies) refs.Add(MetadataReference.CreateFromFile(a.Location));
+            foreach (var a in datamodel.Assemblies) {
+                if (a.IsDynamic || string.IsNullOrEmpty(a.Location)) throw new Exception(
+                    "The model assembly " + a.GetName().Name + " is dynamic or was loaded from memory, so it has no file on disk "
+                    + "and cannot be referenced when compiling the model mapping code. Load the model types from an assembly file instead. ");
+                refs.Add(MetadataReference.CreateFromFile(a.Location));
+            }
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release);
             var compiler = CSharpCompilation.Create("models", syntaxTrees, refs, options);
             using var ms = new MemoryStream();
             var result = compiler.Emit(ms);
             if (result.Success) return ms.ToArray();
-            var compilationErrors = new StringBuilder();
-            foreach (var e in result.Diagnostics) compilationErrors.AppendLine(e + ". ");
-            var details = compilationErrors.ToString();
-            if (details.Length > 500) details = details[..500];
-            throw new Exception("Compilation failed: " + details);
+            throw new Exception(describeCompilationErrors(result, codeStrings));
+        }
+        static string describeCompilationErrors(Microsoft.CodeAnalysis.Emit.EmitResult result, List<(string className, string code)> codeStrings) {
+            var errors = result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+            var sb = new StringBuilder();
+            sb.AppendLine("Failed to compile the generated model mapping code (" + errors.Count + " error" + (errors.Count == 1 ? "" : "s") + "). "
+                + "This code is generated from the datamodel, so the usual cause is a model member the generator cannot handle correctly, "
+                + "an enum or node type that is not available at runtime, or a model type whose assembly could not be referenced. "
+                + "The file names below tell which model type each error belongs to:");
+            foreach (var e in errors.Take(10)) {
+                var span = e.Location.GetLineSpan();
+                var line = span.StartLinePosition.Line;
+                sb.AppendLine(span.Path + "(" + (line + 1) + "): " + e.GetMessage());
+                var source = codeStrings.FirstOrDefault(c => c.className + ".cs" == span.Path).code;
+                if (source != null) {
+                    var lines = source.Split('\n');
+                    if (line >= 0 && line < lines.Length) sb.AppendLine("    generated code: " + lines[line].Trim());
+                }
+            }
+            if (errors.Count > 10) sb.AppendLine("... and " + (errors.Count - 10) + " more error(s).");
+            return sb.ToString();
         }
     }
 }
