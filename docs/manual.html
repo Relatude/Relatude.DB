@@ -2715,6 +2715,12 @@ page:</p>
 <li><code>[RelationProperty(TextIndexRelatedDisplayName = true)]</code> pulls related nodes' display names into
   this node's text index — so a venue becomes findable by the events held there</li>
 </ul>
+<blockquote>
+<p><strong>How the vector index performs.</strong> The three vector engines behind <code>IndexedBySemantic</code> — in-memory,
+IVS and HNSW — are measured across corpus sizes and cache budgets in the
+<a href="vector-matrix.html">vector index benchmarks</a>: indexing and search throughput, recall, restart cost
+and memory footprint.</p>
+</blockquote>
 <hr />
 <h2 id="20-geo-queries">20. Geo queries<a class="anchor" href="#20-geo-queries" aria-label="Link to this section">#</a></h2>
 <p>Spatial filtering is a normal <code>Where</code> clause. The query compiler recognises
@@ -3399,6 +3405,9 @@ your build, read the source — it is small and well commented:</p>
 </tr>
 </tbody>
 </table>
+<p>For measured numbers rather than API surface, see the
+<a href="vector-matrix.html">vector index benchmarks</a> — a matrix sweep of the three vector engines over
+corpus size and cache budget, with throughput, recall, restart cost and memory footprint.</p>
 <p>Repository: <a href="https://github.com/Relatude/Relatude.DB">https://github.com/Relatude/Relatude.DB</a></p>
 </main>
 

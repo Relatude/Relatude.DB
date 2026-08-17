@@ -2248,6 +2248,11 @@ A property participates in search only if it opted in:
 - `[RelationProperty(TextIndexRelatedDisplayName = true)]` pulls related nodes' display names into
   this node's text index — so a venue becomes findable by the events held there
 
+> **How the vector index performs.** The three vector engines behind `IndexedBySemantic` — in-memory,
+> IVS and HNSW — are measured across corpus sizes and cache budgets in the
+> [vector index benchmarks](vector-matrix.html): indexing and search throughput, recall, restart cost
+> and memory footprint.
+
 ---
 
 ## 20. Geo queries
@@ -2901,5 +2906,9 @@ your build, read the source — it is small and well commented:
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
 | The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
+
+For measured numbers rather than API surface, see the
+[vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over
+corpus size and cache budget, with throughput, recall, restart cost and memory footprint.
 
 Repository: <https://github.com/Relatude/Relatude.DB>

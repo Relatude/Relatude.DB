@@ -215,6 +215,9 @@ public static class HtmlReport {
             }
             #brand h1 { font-size: 14px; margin: 0 0 2px; letter-spacing: .01em; }
             #brand p { font-size: 11.5px; color: var(--fg-faint); margin: 0; }
+            #brand p.back { margin-top: 8px; }
+            #brand p.back a { color: var(--fg-dim); text-decoration: none; }
+            #brand p.back a:hover { color: var(--accent); }
             #theme {
               position: absolute; top: 14px; right: 14px;
               width: 30px; height: 30px; padding: 0;
@@ -351,6 +354,7 @@ public static class HtmlReport {
               <div id="brand">
                 <h1>Vector index benchmarks</h1>
                 <p>Relatude.DB &middot; matrix sweep</p>
+                <p class="back"><a href="manual.html">&#8592; Data modelling &amp; querying manual</a></p>
                 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
               </div>
               <nav id="nav">
