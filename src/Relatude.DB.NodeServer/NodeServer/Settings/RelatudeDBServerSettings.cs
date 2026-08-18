@@ -3,19 +3,22 @@
 namespace Relatude.DB.NodeServer.Settings;
 public class RelatudeDBServerSettings {
 
+    public Guid Id { get; set; } = SecureGuid.New(); // Unique server ID, used for multiple server scenarios
+    
     // STATIC SETTINGS (set at startup):
     // Required settings, stored securely in appsettings or environment variables
+
     public string? MasterUserName { get; set; }
     public string? MasterPassword { get; set; }
-    //public string TokenEncryptionSalt { get; set; } = SecureGuid.New().ToString();
-    public string? TokenEncryptionSecret { get; set; }
+    public string? TokenEncryptionSecret { get; set; } // No default, should be unique and secret for each installation
+    public bool AllowMasterLoginOutsideLocalhost { get; set; } = false;
+    public bool NoLoginRequiredForLocalhost { get; set; } = true;
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days
 
     public string? DBAdminUIUrlPath { get; set; }
     public string? DBSettingsFilePath { get; set; }
 
     // Optional  settings, defaults ok for most scenarios
-    public Guid Id { get; set; } = SecureGuid.New(); // Unique server ID, used for multiple server scenarios
     public bool TokenLockedToIP { get; set; } = false;
     public bool TokenCookieSecure { get; set; } = true;
     public bool TokenCookieSameSite { get; set; } = true;
