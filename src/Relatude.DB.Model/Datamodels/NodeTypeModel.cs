@@ -24,6 +24,7 @@ public partial class NodeTypeModel { // with default values
     readonly public static string DefaultInternalIdPropertyName = "Id";
 
     public Guid Id { get; set; }
+    public Guid DatamodelSourceId { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
     public bool IsInnerNode { get; set; } = false;

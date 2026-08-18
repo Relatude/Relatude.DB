@@ -1,4 +1,5 @@
-﻿using Relatude.DB.DataStores;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores;
 
 namespace Relatude.DB.NodeServer.Settings;
 public class RelatudeDBServerSettings {
@@ -54,7 +55,7 @@ public class RelatudeDBServerSettings {
             FileStoreSettings = [],
             IoBackup = io.Id,
             IoLog = io.Id,
-            DatamodelSources = [new DatamodelSource()
+            DatamodelSources = [new ()
             {
                 Id = Guid.NewGuid(),
                 Name = "Demo",

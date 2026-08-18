@@ -493,4 +493,14 @@ public partial class Datamodel {
             Properties.Add(p.Id, p);
         }
     }
+
+    Dictionary<Guid, Guid[]> _innerNodePropsByTypeId = [];
+    public Guid[] GetEmbeddedProps(Guid nodeType) {
+        if (!_innerNodePropsByTypeId.TryGetValue(nodeType, out var props)) {
+            props = [.. NodeTypes[nodeType].AllProperties.Values.Where(p => p.PropertyType == PropertyType.Embedded).Select(p => p.Id)];
+            _innerNodePropsByTypeId[nodeType] = props;
+        }
+        return props;
+    }
+
 }

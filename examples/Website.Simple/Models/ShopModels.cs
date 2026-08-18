@@ -11,7 +11,7 @@ namespace Website.Simple.Models;
 public class Product {
     [InternalIdProperty]
     public int Id { get; set; }
-    [StringProperty(Indexed = true)]
+    [StringProperty(Indexed = true, NotFacet = true)]
     public string Name { get; set; } = "";
     public string Description { get; set; } = ""; // part of the free text index, used by WhereSearch
     [StringProperty(Indexed = true, ExcludeFromTextIndex = true)]
