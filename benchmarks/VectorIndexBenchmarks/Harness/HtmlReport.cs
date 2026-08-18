@@ -62,8 +62,8 @@ public static class HtmlReport {
     /// are dark enough to read on white, the dark ones bright enough to read on the dark
     /// background. Engines without a slot take the remaining ones in order.</summary>
     static readonly Dictionary<string, int> engineSlots = new() {
-        [Engines.Memory] = 0, [Engines.IVS] = 1, [Engines.Hnsw] = 2, [Engines.HnswLowMem] = 3,
-        [Engines.USearch] = 4, [Engines.SqliteVec] = 5, [Engines.IVSExact] = 6, [Engines.IVSLowMem] = 7,
+        [Engines.Memory] = 0, [Engines.IVS] = 1, [Engines.Hnsw] = 2,
+        [Engines.USearch] = 3, [Engines.SqliteVec] = 4, [Engines.IVSExact] = 5, [Engines.IVSLowMem] = 6,
     };
     static readonly (string light, string dark)[] palette = [
         ("#2f5bd7", "#7fa2ff"), // blue

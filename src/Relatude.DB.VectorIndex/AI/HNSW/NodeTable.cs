@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
 namespace Relatude.DB.AI.HNSW;
@@ -6,16 +5,10 @@ namespace Relatude.DB.AI.HNSW;
 /// <summary>
 /// The graph's topology above layer 0, and the identity of every record: for each ordinal the node
 /// id it holds, its top layer and whether it is still live, plus the neighbour lists of the layers
-/// above 0. The identity is held in memory and mirrored to a fixed-stride file; the upper-layer
-/// adjacency is mirrored in memory too, unless the index runs with the graph on disk (a budget at
-/// or below <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/>, or a graph that no longer
-/// fits it), where it is read from its file per hop and only the unflushed lists are held (see
-/// below).
-///
-/// <para>The identity is the part of the index that is deliberately <i>not</i> on disk in either
-/// mode. It is the structure a search routes through before it touches any data — every traversal
-/// probes it per neighbour, so it has to be an array read. It costs 12 bytes per vector plus the id
-/// map, against gigabytes of vector data on disk.</para>
+/// above 0. Everything is held in memory and mirrored to two fixed-stride files — the identity
+/// because every traversal probes it per neighbour, the upper adjacency because the descent walks
+/// it at the start of every search. It costs 12 bytes per vector plus the id map, against the much
+/// larger routing records and vector data.
 ///
 /// <para>Upper slots are allocated only for nodes that reach layer 1, so the wide per-layer records
 /// are not paid for the 90-something percent of nodes that never leave layer 0 — and a node that
@@ -23,14 +16,6 @@ namespace Relatude.DB.AI.HNSW;
 /// rather than a fixed record wide enough for every possible layer. Layer occupancy falls by a
 /// factor <see cref="Connectivity"/> per layer, so nearly every upper node has exactly one layer:
 /// fixed records would spend most of the file and the memory mirroring it on zeroed slots.</para>
-///
-/// <para><b>On-disk mode.</b> The in-memory mirror of the upper file is dropped: a read fetches
-/// one slot (~4 · (1 + 2 · <see cref="Connectivity"/>) bytes) positionally into a caller buffer, and
-/// changed or new lists sit in a pending map until the next flush writes them into place. The
-/// pending map is the only thing checked before the file, so a reader always sees the newest list;
-/// every allocated slot gets a pending entry at birth, which is the invariant that lets the flush
-/// watermark say "every slot below me is on disk". The descent reads a handful of slots per search,
-/// so the cost is one small positional read per upper hop.</para>
 /// </summary>
 internal sealed class NodeTable : IDisposable {
     internal const int NodesFileKind = 3;
@@ -41,7 +26,6 @@ internal sealed class NodeTable : IDisposable {
 
     readonly FixedStrideFile _nodesFile;
     readonly FixedStrideFile _upperFile;
-    readonly bool _upperOnDisk;
     // Changed entries still to be written. New ordinals and new upper slots are always appended, so
     // they need no bookkeeping beyond where the append started — which is what keeps a bulk load from
     // building a set with an entry per vector. The sets hold only rewrites of older entries.
@@ -49,18 +33,11 @@ internal sealed class NodeTable : IDisposable {
     readonly SortedSet<int> _dirtyUpper = [];
     int _appendedNodesFrom = -1;
     int _appendedUpperFrom = -1;
-    // On-disk mode: the upper slots not yet written to the file, as raw slot words — rewrites and
-    // new slots alike — checked before the file on every read. Bounded by the memtable flush
-    // threshold. Concurrent because a batch build's workers replace entries in parallel; a stored
-    // array is never mutated, only swapped, so a reader sees a whole old or whole new slot.
-    readonly ConcurrentDictionary<int, int[]>? _pendingUpper;
-    int[] _emptySlot = []; // the pending entry every new slot starts with; immutable, shared
-    int _flushedUpperSlots; // on-disk mode: every slot below this has been written to the file
 
     int[] _nodeId = [];      // by ordinal
     int[] _levelFlags = [];  // by ordinal
     int[] _upperSlot = [];   // by ordinal; the base of the node's run of slots, -1 below layer 1
-    int[] _upper = [];       // by upper slot, mirroring the file layout exactly; unused in on-disk mode
+    int[] _upper = [];       // by upper slot, mirroring the file layout exactly
     readonly IntMap _ordinalOf = new(); // node id -> ordinal, live nodes only
 
     public int Connectivity { get; }
@@ -76,46 +53,39 @@ internal sealed class NodeTable : IDisposable {
     /// <summary>Where a search enters the graph: a live node on <see cref="MaxLevel"/>.</summary>
     public int EntryOrdinal { get; private set; } = -1;
     public int MaxLevel { get; private set; } = -1;
-    /// <summary>Bytes of the always-resident structures: the identity arrays, the id map and the
-    /// upper mirror when it is held. What the budget arithmetic charges for this table.</summary>
+    /// <summary>Bytes of the table's structures: the identity arrays, the id map and the upper
+    /// mirror. What the budget arithmetic charges for this table.</summary>
     public long ResidentBytes =>
-        (long)_nodeId.Length * 12 + (long)_ordinalOf.Count * 16
-        + (_upperOnDisk ? _pendingUpper!.Count * (long)(UpperWords * 4 + 48) : (long)_upper.Length * 4);
-    NodeTable(FixedStrideFile nodesFile, FixedStrideFile upperFile, int connectivity, int maxLevels, bool upperOnDisk) {
+        (long)_nodeId.Length * 12 + (long)_ordinalOf.Count * 16 + (long)_upper.Length * 4;
+    NodeTable(FixedStrideFile nodesFile, FixedStrideFile upperFile, int connectivity, int maxLevels) {
         _nodesFile = nodesFile;
         _upperFile = upperFile;
         Connectivity = connectivity;
         MaxLevels = maxLevels;
         UpperWords = 1 + 2 * connectivity;
-        _upperOnDisk = upperOnDisk;
-        if (upperOnDisk) {
-            _pendingUpper = new();
-            _emptySlot = new int[UpperWords];
-        }
     }
 
-    public static NodeTable Create(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels, bool upperOnDisk) {
+    public static NodeTable Create(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels) {
         var upperWords = 1 + 2 * connectivity;
         var nodes = FixedStrideFile.Create(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], 0);
         try {
             var upper = FixedStrideFile.Create(upperPath, UpperFileKind, generation, upperWords * 4, [connectivity, maxLevels], 0);
-            return new(nodes, upper, connectivity, maxLevels, upperOnDisk);
+            return new(nodes, upper, connectivity, maxLevels);
         } catch {
             nodes.Dispose();
             throw;
         }
     }
-    /// <summary>Opens the two files and reads the committed part into memory (the upper adjacency
-    /// stays on disk in on-disk mode), then rebuilds the derived lookups. Anything past the
-    /// manifest's counts is uncommitted scratch and ignored.</summary>
+    /// <summary>Opens the two files, reads the committed part into memory and rebuilds the derived
+    /// lookups. Anything past the manifest's counts is uncommitted scratch and ignored.</summary>
     public static NodeTable Open(string nodesPath, string upperPath, long generation, int connectivity, int maxLevels,
-        bool upperOnDisk, int committedOrdinals, int committedUpperSlots, int expectedEntry, int expectedMaxLevel) {
+        int committedOrdinals, int committedUpperSlots, int expectedEntry, int expectedMaxLevel) {
         var upperWords = 1 + 2 * connectivity;
         var nodes = FixedStrideFile.Open(nodesPath, NodesFileKind, generation, nodeStrideBytes, [], committedOrdinals);
         NodeTable table;
         try {
             var upper = FixedStrideFile.Open(upperPath, UpperFileKind, generation, upperWords * 4, [connectivity, maxLevels], committedUpperSlots);
-            table = new(nodes, upper, connectivity, maxLevels, upperOnDisk);
+            table = new(nodes, upper, connectivity, maxLevels);
         } catch {
             nodes.Dispose();
             throw;
@@ -141,14 +111,10 @@ internal sealed class NodeTable : IDisposable {
                 _upperSlot[o] = raw[o * nodeWords + 2];
             }
         }
-        if (_upperOnDisk) {
-            _flushedUpperSlots = upperSlots; // the committed slots are on disk; reads go there
-        } else {
-            var upperInts = (long)upperSlots * UpperWords;
-            if (upperInts > int.MaxValue) throw new InvalidDataException("The upper-layer adjacency does not fit in one array. ");
-            _upper = new int[Math.Max(UpperWords, (int)upperInts)];
-            if (upperSlots > 0) _upperFile.Read(0, MemoryMarshal.AsBytes(_upper.AsSpan(0, upperSlots * UpperWords)));
-        }
+        var upperInts = (long)upperSlots * UpperWords;
+        if (upperInts > int.MaxValue) throw new InvalidDataException("The upper-layer adjacency does not fit in one array. ");
+        _upper = new int[Math.Max(UpperWords, (int)upperInts)];
+        if (upperSlots > 0) _upperFile.Read(0, MemoryMarshal.AsBytes(_upper.AsSpan(0, upperSlots * UpperWords)));
         NextOrdinal = ordinals;
         NextUpperSlot = upperSlots;
         _ordinalOf.EnsureCapacity(ordinals);
@@ -196,15 +162,9 @@ internal sealed class NodeTable : IDisposable {
             var slot = NextUpperSlot;
             NextUpperSlot += level;
             _upperSlot[ordinal] = slot;
-            if (_upperOnDisk) {
-                // every new slot gets a pending (empty) list — the invariant that lets the flush
-                // watermark advance to NextUpperSlot: every slot below it has been written by a flush
-                for (var u = slot; u < slot + level; u++) _pendingUpper![u] = _emptySlot;
-            } else {
-                ensureUpperCapacity(NextUpperSlot - 1);
-                _upper.AsSpan(slot * UpperWords, level * UpperWords).Clear();
-                if (_appendedUpperFrom < 0) _appendedUpperFrom = slot;
-            }
+            ensureUpperCapacity(NextUpperSlot - 1);
+            _upper.AsSpan(slot * UpperWords, level * UpperWords).Clear();
+            if (_appendedUpperFrom < 0) _appendedUpperFrom = slot;
         }
         _ordinalOf[nodeId] = ordinal;
         LiveCount++;
@@ -254,43 +214,35 @@ internal sealed class NodeTable : IDisposable {
 
     // ---- upper-layer adjacency ---------------------------------------------------------------------
 
-    /// <summary>The node's neighbours on one layer. The level is bounded by the node's own top layer,
-    /// not just the configured range: slots are allocated per occupied layer, so a level beyond the
-    /// node's own (a stale neighbour id can point at any node) would read another node's slot.
-    /// <para><paramref name="buffer"/> must hold <see cref="UpperWords"/> ints; it is used only in
-    /// on-disk mode, where the slot may be read from the file into it — the returned span is
-    /// only valid until the buffer's next use.</para></summary>
-    public ReadOnlySpan<int> UpperNeighbours(int ordinal, int level, Span<int> buffer) {
-        var raw = slotWords(ordinal, level, buffer);
+    /// <summary>The node's neighbours on one layer, straight out of the mirror. The level is bounded
+    /// by the node's own top layer, not just the configured range: slots are allocated per occupied
+    /// layer, so a level beyond the node's own (a stale neighbour id can point at any node) would
+    /// read another node's slot.</summary>
+    public ReadOnlySpan<int> UpperNeighbours(int ordinal, int level) {
+        var raw = slotWords(ordinal, level);
         if (raw.IsEmpty) return [];
         return raw.Slice(1, Math.Clamp(raw[0], 0, Connectivity));
     }
     /// <summary>The node's raw slot on one layer — [count][ids][sims] — copied into
     /// <paramref name="buffer"/> (which must hold <see cref="UpperWords"/> ints), returning the
     /// count. What the linker reads before deciding whether it needs any vectors at all: ids sit at
-    /// [1..], sims at [1 + <see cref="Connectivity"/>..]. Returns 0 with the buffer's count word
-    /// cleared when the node does not occupy the layer.</summary>
+    /// [1..], sims at [1 + <see cref="Connectivity"/>..]. The copy is deliberate — the linker holds
+    /// the list while rewriting the same slot. Returns 0 with the buffer's count word cleared when
+    /// the node does not occupy the layer.</summary>
     public int UpperEdges(int ordinal, int level, Span<int> buffer) {
-        var raw = slotWords(ordinal, level, buffer);
+        var raw = slotWords(ordinal, level);
         if (raw.IsEmpty) {
             buffer[0] = 0;
             return 0;
         }
-        if (raw != buffer[..UpperWords]) raw.CopyTo(buffer); // pending or mirror: bring it local
+        raw.CopyTo(buffer);
         return Math.Clamp(buffer[0], 0, Connectivity);
     }
-    /// <summary>One layer's raw slot: [count][ids][sims], from the pending map, the file or the
-    /// mirror, whichever holds the newest copy. Empty when the node does not occupy the layer.</summary>
-    ReadOnlySpan<int> slotWords(int ordinal, int level, Span<int> buffer) {
+    /// <summary>One layer's raw slot: [count][ids][sims]. Empty when the node does not occupy the layer.</summary>
+    ReadOnlySpan<int> slotWords(int ordinal, int level) {
         var slot = _upperSlot[ordinal];
         if (slot < 0 || level < 1 || level > LevelOf(ordinal)) return [];
         var unit = slot + level - 1;
-        if (_upperOnDisk) {
-            if (_pendingUpper!.TryGetValue(unit, out var pending)) return pending;
-            if (unit >= _flushedUpperSlots) return []; // allocated this session, nothing linked yet
-            _upperFile.Read(unit, MemoryMarshal.AsBytes(buffer[..UpperWords]));
-            return buffer[..UpperWords];
-        }
         return _upper.AsSpan(unit * UpperWords, UpperWords);
     }
     public void SetUpperNeighbours(int ordinal, int level, ReadOnlySpan<int> ids, ReadOnlySpan<float> sims) {
@@ -298,14 +250,6 @@ internal sealed class NodeTable : IDisposable {
         if (slot < 0 || level < 1 || level > LevelOf(ordinal)) throw new InvalidOperationException("The node does not occupy that layer. ");
         if (ids.Length > Connectivity) throw new ArgumentException("More neighbours than the layer has slots for. ");
         var unit = slot + level - 1;
-        if (_upperOnDisk) {
-            var raw = new int[UpperWords]; // a fresh array per write: pending entries are never mutated
-            raw[0] = ids.Length;
-            ids.CopyTo(raw.AsSpan(1));
-            sims.CopyTo(MemoryMarshal.Cast<int, float>(raw.AsSpan(1 + Connectivity, sims.Length)));
-            _pendingUpper![unit] = raw;
-            return;
-        }
         var offset = unit * UpperWords;
         _upper[offset] = ids.Length;
         ids.CopyTo(_upper.AsSpan(offset + 1, ids.Length));
@@ -323,9 +267,7 @@ internal sealed class NodeTable : IDisposable {
     public long DirtyBytes {
         get {
             var nodes = (long)_dirtyNodes.Count + (_appendedNodesFrom < 0 ? 0 : NextOrdinal - _appendedNodesFrom);
-            var upper = _upperOnDisk
-                ? _pendingUpper!.Count
-                : (long)_dirtyUpper.Count + (_appendedUpperFrom < 0 ? 0 : NextUpperSlot - _appendedUpperFrom);
+            var upper = (long)_dirtyUpper.Count + (_appendedUpperFrom < 0 ? 0 : NextUpperSlot - _appendedUpperFrom);
             return nodes * nodeStrideBytes + upper * UpperWords * 4;
         }
     }
@@ -336,37 +278,9 @@ internal sealed class NodeTable : IDisposable {
         flushSet(_nodesFile, _dirtyNodes, nodeWords, copyNodeRecords);
         if (_appendedNodesFrom >= 0) writeRange(_nodesFile, _appendedNodesFrom, NextOrdinal - _appendedNodesFrom, nodeWords, copyNodeRecords);
         _appendedNodesFrom = -1;
-        if (_upperOnDisk) {
-            flushPendingUpper();
-            return;
-        }
         flushSet(_upperFile, _dirtyUpper, UpperWords, copyUpperRecords);
         if (_appendedUpperFrom >= 0) writeRange(_upperFile, _appendedUpperFrom, NextUpperSlot - _appendedUpperFrom, UpperWords, copyUpperRecords);
         _appendedUpperFrom = -1;
-    }
-    /// <summary>On-disk mode's flush: every pending slot written into place, runs of consecutive
-    /// slots coalesced into one write. Afterwards every slot below <see cref="NextUpperSlot"/> is on
-    /// the file (see the invariant in <see cref="Allocate"/>), so the watermark advances and reads
-    /// stop consulting the map.</summary>
-    void flushPendingUpper() {
-        if (!_pendingUpper!.IsEmpty) {
-            var units = _pendingUpper.Keys.ToArray();
-            Array.Sort(units);
-            var maxRun = Math.Max(1, 1024 * 1024 / (UpperWords * 4));
-            var buffer = Array.Empty<int>();
-            var i = 0;
-            while (i < units.Length) {
-                var run = 1;
-                while (run < maxRun && i + run < units.Length && units[i + run] == units[i + run - 1] + 1) run++;
-                if (buffer.Length < run * UpperWords) buffer = new int[run * UpperWords];
-                var span = buffer.AsSpan(0, run * UpperWords);
-                for (var r = 0; r < run; r++) _pendingUpper[units[i + r]].CopyTo(span.Slice(r * UpperWords, UpperWords));
-                _upperFile.Write(units[i], MemoryMarshal.AsBytes(span));
-                i += run;
-            }
-            _pendingUpper.Clear();
-        }
-        _flushedUpperSlots = Math.Max(_flushedUpperSlots, NextUpperSlot);
     }
 
     void copyNodeRecords(int first, int count, Span<int> target) {

@@ -151,7 +151,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 
 A persisted default combined with a `Memory` engine silently leaves that index in memory — the store logs a note when it spots the combination, and it is worth reading, because an unexpectedly in-memory index only shows up later as a slow start.
 
-The semantic (vector) index engine is not chosen here but on the container's `AISettings`: `IndexType` picks `Memory` (in-memory flat index, persisted through state files), `IVS` (disk-based IVF index) or `HNSW` (disk-based HNSW graph index), and `IndexCacheSizeInMb` sets the engine's memory budget (unset = engine default: 256 MB for IVS, 100 MB for HNSW). Semantic indexes exist only when `AISettings` is configured.
+The semantic (vector) index engine is not chosen here but on the container's `AISettings`: `IndexType` picks `Memory` (in-memory flat index, persisted through state files), `IVS` (disk-based IVF index) or `HNSW` (disk-based HNSW graph index), and `IndexCacheSizeInMb` sets the engine's memory budget (unset = engine default: 256 MB for IVS, 100 MB for HNSW). For HNSW the routing graph always stays resident in memory (that is the budget's floor — a smaller budget is exceeded, with a log warning); the budget dials whether the full-precision float vectors are mirrored in memory too or read from disk only to re-score final candidates. Semantic indexes exist only when `AISettings` is configured.
 
 **Durability and flushing** — the defaults favour throughput; raise them for stricter durability:
 

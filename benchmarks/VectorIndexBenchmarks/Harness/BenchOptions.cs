@@ -86,10 +86,9 @@ public sealed class BenchOptions {
           --hnsw-ef=<n>          search effort (expansionSearch) — their accuracy dial
           --min-sim=<f>          the similarity floor the searches pass down (default: the
                                  similarity of the 500th exact neighbour, ~500 candidates)
-          --engines=all|<list>   all = memory,ivs,hnsw,hnsw-lowmem,usearch; also ivs-exact,
-                                 ivs-lowmem and sqlitevec. sqlite-vec scans every vector on every
-                                 query, and hnsw-lowmem indexes at a fraction of the speed, so both
-                                 dominate the runtime — drop them for quick iterations.
+          --engines=all|<list>   all = memory,ivs,hnsw,usearch; also ivs-exact, ivs-lowmem and
+                                 sqlitevec. sqlite-vec scans every vector on every query, so it
+                                 dominates the runtime — drop it for quick iterations.
           --persist=batch        save state after every batch instead of once after the load
           --data=<dir>           working directory for index files (default: %TEMP%)
           --in-process           run everything in this process (memory numbers get noisy)

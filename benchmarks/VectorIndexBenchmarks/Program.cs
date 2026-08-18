@@ -11,8 +11,6 @@ using VectorIndexBenchmarks.Harness;
 //   ivs          Relatude IVS VectorIndex     — disk segments, IVF clusters, byte-budgeted block cache
 //   hnsw         Relatude HnswVectorIndex     — the HNSW graph resident in flat int8 arenas, floats
 //                                               mirrored when the budget allows, else re-score reads
-//   hnsw-lowmem  the same, low-memory budget  — the graph on disk behind a small cache of
-//                                               quarter-size routing records
 //   sqlitevec    sqlite-vec                   — a vec0 virtual table in a SQLite file, exact KNN
 //   usearch      USearch                      — an HNSW graph in native memory, top-k only
 //
@@ -20,8 +18,7 @@ using VectorIndexBenchmarks.Harness;
 // third-party ones take vectors directly. Both forms of every query are the same query.
 //
 // The grid is deliberate: ivs and hnsw differ only in algorithm, hnsw and usearch only in where
-// the vectors sit, hnsw and hnsw-lowmem only in how much memory they are allowed, and memory is
-// the exact reference all of them are scored against.
+// the vectors sit, and memory is the exact reference all of them are scored against.
 //
 //   dotnet run -c Release [-- options]        --help lists the options.
 
@@ -37,10 +34,7 @@ var defaults = new BenchOptions {
     ClusterNoise = 1.0f,        // --noise       how loosely they scatter around their center
     EngineNames =
     [Engines.Memory, Engines.IVS, Engines.Hnsw],
-
-
-
-    //Engines.All.Where(f => f != Engines.HnswLowMem).ToArray(),  // --engines     memory,native,hnsw,hnsw-lowmem,usearch
+    //Engines.All,  // --engines     memory,ivs,hnsw,usearch
 
     // what an index is allowed to spend, and what it may trade for it
     CacheMB = 2500,           // --cache       cached vectors and blocks; more than any run holds, so nothing is evicted

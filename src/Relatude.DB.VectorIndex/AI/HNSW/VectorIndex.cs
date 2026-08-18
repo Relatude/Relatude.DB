@@ -8,12 +8,11 @@ namespace Relatude.DB.AI.HNSW;
 /// <summary>
 /// A persistent vector index for semantic search built on an HNSW graph: cosine similarity over
 /// L2-normalized embeddings of one fixed length (both are enforced), computed as SIMD dot products.
-/// The second take on the idea, built for response time: the graph a search walks — int8 vectors and
-/// neighbour lists — lives in flat, prefetch-friendly memory whenever
-/// <see cref="VectorIndexOptions.MaxMemoryBytes"/> allows, and in a file behind a small cache
-/// when it does not (or the budget sits at or below
-/// <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/>). Same contract and the same
-/// durability protocol as the other disk vector indexes.
+/// The second take on the idea, built for response time: the graph a search walks — int8 vectors
+/// and neighbour lists — always lives in flat, prefetch-friendly memory;
+/// <see cref="VectorIndexOptions.MaxMemoryBytes"/> decides whether the float vectors are
+/// mirrored in memory beside it or read from their file to re-score final candidates. Same contract
+/// and the same durability protocol as the other disk vector indexes.
 ///
 /// <para><b>Search.</b> Vectors are linked into a layered proximity graph. A query enters at the top
 /// layer, descends greedily to the query's neighbourhood, then explores a beam of
@@ -27,9 +26,9 @@ namespace Relatude.DB.AI.HNSW;
 /// generation of data files: the float vectors in one file, the routing records (a node's int8
 /// vector <i>together with</i> its layer-0 neighbour list, so one small read serves a graph hop) in
 /// another, two small files for the node identities and the layers above 0, and an append-only log
-/// of recent edge changes. Keeping the floats apart from the routing graph is what the low-memory
-/// configuration is bought with: a graph hop reads a quarter of the bytes the float record would
-/// cost, and a cache of routing records holds four times the nodes per byte.</para>
+/// of recent edge changes. Keeping the floats apart from the routing graph is what keeps the
+/// resident graph at about a quarter of the float data: the walk reads only the small records, and
+/// the floats are the optional layer the memory budget dials.</para>
 ///
 /// <para><b>Writes.</b> An insert links the new node into the graph, which rewrites the neighbour
 /// lists of the nodes it attached to; changed records are held in memory and written at the next
@@ -73,6 +72,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
     Guid _persistedWalFileId;
     Guid _walFileId; // the log file this index is currently bound to; stamps MakeDurable manifests
     bool _opened;
+    bool _warnedOverBudget; // the over-budget warning is logged once per open (or budget change)
     long _stateId = SetRegister.NewStateId();
 
     public VectorIndex(SetRegister sets, string uniqueKey, string friendlyName, string folderPath,
@@ -95,18 +95,29 @@ public class VectorIndex : ISemanticIndex, IDisposable {
     // This index carries its own position in the manifest; nothing to flag on the first commit.
     public void FlagFirstCommit() { }
     /// <summary>The general memory budget (see
-    /// <see cref="VectorIndexOptions.MaxMemoryBytes"/>); adjustable at runtime. Raising it takes
-    /// full effect at the next open (a graph opened on-disk stays on-disk until then); lowering it
-    /// drops the float mirror and shrinks the cache immediately.</summary>
+    /// <see cref="VectorIndexOptions.MaxMemoryBytes"/>); adjustable at runtime in both
+    /// directions: lowering it drops the float mirror once the index no longer affords it, raising
+    /// it rebuilds the mirror on the spot (a parallel read of the vector file, the cost of an open).</summary>
     public long MaxMemoryBytes {
         get => _options.MaxMemoryBytes;
         set {
-            _options.MaxMemoryBytes = value;
-            _graph?.SetMemoryBudget(value);
+            _lock.EnterWriteLock();
+            try {
+                _options.MaxMemoryBytes = value;
+                _graph?.SetMemoryBudget(value);
+                _warnedOverBudget = false; // a changed budget deserves a fresh warning if still over
+            } finally {
+                _lock.ExitWriteLock();
+            }
         }
     }
     /// <summary>Approximately what the index holds in memory right now, all structures included.</summary>
     public long CurrentMemoryBytes => _graph?.MemoryBytes ?? 0;
+    /// <summary>The unevictable part of <see cref="CurrentMemoryBytes"/>: the resident routing
+    /// graph, the identity table and the unflushed writes — everything but the float mirror. When
+    /// this exceeds <see cref="MaxMemoryBytes"/> the index is over budget by design: the graph is
+    /// never traded for per-hop disk reads, and a warning is logged instead.</summary>
+    public long FloorMemoryBytes => _graph?.FloorBytes ?? 0;
     /// <summary>Search effort as a fraction of <see cref="VectorIndexOptions.EfSearch"/>, see
     /// <see cref="VectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
@@ -139,6 +150,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
                 var graph = ensureGraph();
                 graph.Upsert(nodeId, value);
                 spillIfNeeded(graph);
+                warnIfOverBudget();
             }
             _stateId = SetRegister.NewStateId();
         } finally {
@@ -247,6 +259,19 @@ public class VectorIndex : ISemanticIndex, IDisposable {
             graph.UpsertChunk(chunk);
             spillIfNeeded(graph);
         }
+        warnIfOverBudget();
+    }
+    /// <summary>Logs, once per open (or budget change), that the resident graph alone has outgrown
+    /// <see cref="VectorIndexOptions.MaxMemoryBytes"/>: the budget's floor is the graph, so the
+    /// index runs over budget rather than trading the graph for per-hop disk reads.</summary>
+    void warnIfOverBudget() {
+        if (_warnedOverBudget || _graph == null) return;
+        var floor = _graph.FloorBytes;
+        if (floor <= _options.MaxMemoryBytes) return;
+        _warnedOverBudget = true;
+        _log?.Invoke($"Vector index '{FriendlyName}': the graph needs ~{floor / (1024.0 * 1024):0} MB resident, " +
+            $"over the configured MaxMemoryBytes of {_options.MaxMemoryBytes / (1024.0 * 1024):0} MB. " +
+            "The graph is kept in memory for search speed, so the index exceeds its budget; raise MaxMemoryBytes to cover it. ");
     }
     void drainLoadBufferLocked() {
         if (_loadPending.Count == 0) return;
@@ -595,6 +620,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
                 if (requiredWalFileId == null) _walFileId = m.WalFileId; // standalone: adopt the stored binding
                 deleteStrayFiles();
                 _opened = true;
+                warnIfOverBudget(); // a reopened index can already be past its budget's floor
                 return;
             } catch (Exception err) {
                 _log?.Invoke($"Vector index '{FriendlyName}': stored state is unusable ({err.Message}). Resetting for a rebuild from the transaction log. ");
@@ -615,6 +641,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
         _persistedTimestamp = 0;
         _persistedWalFileId = Guid.Empty;
         _dims = _configuredDims;
+        _warnedOverBudget = false;
         _stateId = SetRegister.NewStateId();
     }
     void deleteStrayFiles() {
@@ -644,7 +671,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
 
     // ---- lifecycle -------------------------------------------------------------------------------
 
-    public void ClearCache() => _graph?.ClearCaches();
+    public void ClearCache() { } // nothing is cached: the graph is resident, the floats mirrored or read per search
     public void CompressMemory() { }
     public void Dispose() {
         _lock.EnterWriteLock();

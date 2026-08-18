@@ -17,8 +17,8 @@ namespace Relatude.DB.AI.HNSW;
 /// walk scores candidates against int8 vectors — a quarter of the memory traffic, several times the
 /// SIMD throughput — and the candidates it returns are re-scored against the float vectors before
 /// anything is returned, so a result is never approximate in score, only in coverage (which
-/// <c>ef</c> controls). With the graph resident the walk is pure memory: no residency checks, no
-/// hashing, and the next candidates' vectors are prefetched while the current one is scored. Below
+/// <c>ef</c> controls). The walk is pure memory: no residency checks, no hashing, and the next
+/// candidates' vectors are prefetched while the current one is scored. Below
 /// <see cref="VectorIndexOptions.MinVectorsForGraphSearch"/> — or wherever a scan would be
 /// cheaper than the walk — every search is an exact parallel scan instead.</para>
 ///
@@ -32,13 +32,12 @@ namespace Relatude.DB.AI.HNSW;
 /// by striped locks, and the searches inside tolerate the same torn neighbour lists a crash can
 /// leave — a mix of valid ordinals, never garbage.</para>
 ///
-/// <para><b>Memory.</b> The graph spends <see cref="VectorIndexOptions.MaxMemoryBytes"/> in
-/// order of what memory buys most: the routing graph first, the float mirror second. An index that
-/// outgrows the float mirror drops it mid-run and re-scores from the file instead; an index whose
-/// routing graph would not fit at open (or one whose budget is at or below
-/// <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/>) runs with the graph on disk, read
-/// through a small cache — and because a routing record is a quarter of a float record, that cache
-/// holds four times the nodes per byte that caching the floats would.</para>
+/// <para><b>Memory.</b> The routing graph is always resident — a graph walk is a chain of
+/// dependent, deliberately scattered accesses, so a partially resident graph does not degrade, it
+/// thrashes — and it is the floor of <see cref="VectorIndexOptions.MaxMemoryBytes"/>: a budget
+/// below it is exceeded (and warned about), never honored with disk reads. What the budget dials is
+/// the float mirror on top: an index that outgrows it drops the mirror mid-run and re-scores from
+/// the file instead, and a raised budget builds the mirror back.</para>
 /// </summary>
 internal sealed class Graph : IDisposable {
     readonly VectorIndexOptions _options;
@@ -79,10 +78,13 @@ internal sealed class Graph : IDisposable {
     public long DiskBytes => _floats.FileLength + _routing.FileLength + _nodes.FileLengths + _edges.FileLength;
     /// <summary>Durable entries of the edge log, for the manifest to stamp.</summary>
     public int EdgeLogEntries => _edges.Entries;
-    /// <summary>Approximately what the graph holds in memory right now, all structures included.</summary>
+    /// <summary>Approximately what the graph holds in memory right now, all structures included
+    /// (the pooled walk scratch — about a byte per ordinal per pooled scratch — is not counted).</summary>
     public long MemoryBytes => _routing.ResidentBytes + _floats.MirrorBytes + _floats.TailBytes + _nodes.ResidentBytes;
-    /// <summary>Whether the routing graph is resident in memory (else it is read through a cache).</summary>
-    public bool GraphResident => _routing.Resident;
+    /// <summary>The unevictable part of <see cref="MemoryBytes"/>: everything but the float mirror,
+    /// which is the only piece the budget can shed. When this exceeds the budget the index is over
+    /// its floor and runs over budget by design.</summary>
+    public long FloorBytes => MemoryBytes - _floats.MirrorBytes;
     public string[] Paths => [_floats.Path, _routing.Path, .. _nodes.Paths, _edges.Path];
 
     Graph(FloatStore floats, RoutingStore routing, NodeTable nodes, EdgeLog edges,
@@ -124,7 +126,6 @@ internal sealed class Graph : IDisposable {
         return ws;
     }
     void returnInsert(HnswInsertScratch ws) {
-        ws.Search.ParallelPrefetch = true;
         if (Interlocked.Increment(ref _pooledInserts) > 32) {
             Interlocked.Decrement(ref _pooledInserts);
             return;
@@ -149,31 +150,24 @@ internal sealed class Graph : IDisposable {
         var upperShare = (long)(1 + 2 * m) * 4 / Math.Max(2, m - 1); // ~1/(m-1) of nodes reach layer 1+
         return routingStride + 12 + 16 + upperShare;
     }
-    /// <summary>Decides where an index of <paramref name="vectors"/> vectors sits in memory under the
-    /// options' budget: the routing graph resident when it fits (never with a budget at or below
-    /// <see cref="VectorIndexOptions.LowMemoryThresholdBytes"/> — a budget that small says
-    /// footprint is the point, and a resident graph cannot be evicted once it grows past it), the
-    /// float vectors mirrored too when the whole thing fits.</summary>
-    static (bool resident, bool mirrorFloats) residency(VectorIndexOptions options, int vectors, int dims, int m, int m0) {
-        if (options.LowMemoryMode) return (false, false);
-        var budget = options.MaxMemoryBytes;
+    /// <summary>Whether an index of <paramref name="vectors"/> vectors affords the float mirror on
+    /// top of its resident graph under the options' budget. The graph itself is not a choice: it is
+    /// always resident, and when it alone exceeds the budget the index runs over budget rather than
+    /// off the graph (<see cref="VectorIndex"/> warns in the log).</summary>
+    static bool affordsMirror(VectorIndexOptions options, int vectors, int dims, int m, int m0) {
         var core = (long)vectors * graphBytesPerVector(dims, m, m0);
-        if (core > budget) return (false, false);
-        return (true, core + (long)vectors * dims * 4 <= budget);
+        return core + (long)vectors * dims * 4 <= options.MaxMemoryBytes;
     }
-    /// <summary>Cached mode's eviction budget: most of the general budget, leaving a slice for the
-    /// identity table, the pending writes and the scratch.</summary>
-    static long cacheBudgetOf(long memoryBudget) => Math.Max(2L * 1024 * 1024, memoryBudget * 3 / 4);
 
     public static Graph Create(HnswPaths paths, long generation, int dims, VectorIndexOptions options) {
         var (m, m0, maxLevels) = Layout(options);
-        var (resident, mirror) = residency(options, 0, dims, m, m0);
+        var mirror = affordsMirror(options, 0, dims, m, m0); // an empty index always starts mirrored
         var floats = FloatStore.Create(paths.Vectors(generation), generation, dims, mirror);
         RoutingStore? routing = null;
         NodeTable? nodes = null;
         try {
-            routing = RoutingStore.Create(paths.Routing(generation), generation, dims, m0, resident, cacheBudgetOf(options.MaxMemoryBytes));
-            nodes = NodeTable.Create(paths.Nodes(generation), paths.Upper(generation), generation, m, maxLevels, upperOnDisk: !resident);
+            routing = RoutingStore.Create(paths.Routing(generation), generation, dims, m0);
+            nodes = NodeTable.Create(paths.Nodes(generation), paths.Upper(generation), generation, m, maxLevels);
             var edges = EdgeLog.Create(paths.Edges(generation), generation, m0);
             return new(floats, routing, nodes, edges, generation, dims, m, m0, maxLevels, options);
         } catch {
@@ -189,15 +183,14 @@ internal sealed class Graph : IDisposable {
     public static Graph Open(HnswPaths paths, Manifest m, VectorIndexOptions options) {
         var m0 = m.ConnectivityLevel0;
         var threads = Math.Min(options.ResolvedMaxThreads, Environment.ProcessorCount);
-        var (resident, mirror) = residency(options, m.NextOrdinal, m.Dimensions, m.Connectivity, m0);
+        var mirror = affordsMirror(options, m.NextOrdinal, m.Dimensions, m.Connectivity, m0);
         var floats = FloatStore.Open(paths.Vectors(m.Generation), m.Generation, m.Dimensions, mirror, m.NextOrdinal, threads);
         RoutingStore? routing = null;
         NodeTable? nodes = null;
         try {
-            routing = RoutingStore.Open(paths.Routing(m.Generation), m.Generation, m.Dimensions, m0, resident,
-                cacheBudgetOf(options.MaxMemoryBytes), m.NextOrdinal, threads);
+            routing = RoutingStore.Open(paths.Routing(m.Generation), m.Generation, m.Dimensions, m0, m.NextOrdinal, threads);
             nodes = NodeTable.Open(paths.Nodes(m.Generation), paths.Upper(m.Generation), m.Generation,
-                m.Connectivity, m.MaxLevels, upperOnDisk: !resident, m.NextOrdinal, m.NextUpperSlot, m.EntryOrdinal, m.MaxLevel);
+                m.Connectivity, m.MaxLevels, m.NextOrdinal, m.NextUpperSlot, m.EntryOrdinal, m.MaxLevel);
             var edges = EdgeLog.Open(paths.Edges(m.Generation), m.Generation, m0, m.EdgeLogEntries);
             routing.LoadOverlay(edges.Replay(m.EdgeLogEntries));
             return new(floats, routing, nodes, edges, m.Generation, m.Dimensions, m.Connectivity, m0, m.MaxLevels, options);
@@ -209,14 +202,16 @@ internal sealed class Graph : IDisposable {
         }
     }
 
-    /// <summary>Applies a changed memory budget at runtime: the cached mode's eviction budget follows
-    /// it, and a float mirror the index no longer affords is dropped. What a smaller budget cannot do
-    /// is un-mirror the resident routing graph mid-run — that residency is decided when the index
-    /// opens, and documented as such.</summary>
+    /// <summary>Applies a changed memory budget at runtime, in both directions: a float mirror the
+    /// index no longer affords is dropped, and one a raised budget affords again is rebuilt from the
+    /// vector file — a parallel sequential read, the cost of an open, paid on the explicit call.
+    /// The resident routing graph is not budgeted; it is the index.</summary>
     public void SetMemoryBudget(long budget) {
         _memoryBudget = budget;
-        _routing.MaxCacheBytes = cacheBudgetOf(budget);
         enforceBudget();
+        if (!_floats.Mirrored && FloorBytes + _floats.MirrorBytesFor(_nodes.NextOrdinal) <= budget) {
+            _floats.BuildMirror(_threads);
+        }
     }
     /// <summary>Drops the float mirror once the index has outgrown the budget; called after
     /// allocations. Re-scoring then reads the vector file, which is the designed degradation.</summary>
@@ -277,8 +272,7 @@ internal sealed class Graph : IDisposable {
         // the entry is now one of the batch's own nodes, which the loop below skips linking.
         var entry = _nodes.EntryOrdinal;
         var topLevel = _nodes.MaxLevel;
-        var workers = buildParallelism();
-        if (items.Length < 4 || workers <= 1) {
+        if (items.Length < 4 || _threads <= 1) {
             var ws = rentInsert();
             try {
                 for (var i = 0; i < items.Length; i++) {
@@ -288,12 +282,8 @@ internal sealed class Graph : IDisposable {
                 returnInsert(ws);
             }
         } else {
-            Parallel.For(0, items.Length, new ParallelOptions { MaxDegreeOfParallelism = workers },
-                () => {
-                    var ws = rentInsert();
-                    ws.Search.ParallelPrefetch = false; // every core is an inserter already
-                    return ws;
-                },
+            Parallel.For(0, items.Length, new ParallelOptions { MaxDegreeOfParallelism = _threads },
+                rentInsert,
                 (i, _, ws) => {
                     if (ordinals[i] != entry) linkInto(ordinals[i], levels[i], entry, topLevel, ws);
                     return ws;
@@ -302,17 +292,6 @@ internal sealed class Graph : IDisposable {
         }
         for (var i = 0; i < items.Length; i++) _nodes.PromoteEntry(ordinals[i]);
         enforceBudget();
-    }
-    /// <summary>How many linkers a batch may run. With the graph resident, one per core up to
-    /// <see cref="VectorIndexOptions.MaxThreads"/>. With the graph cached, every worker walks a
-    /// beam whose working set is several megabytes of records, and a worker whose records keep
-    /// getting evicted by the other workers does not run slower — it stops progressing at all — so
-    /// the cache budget decides: one worker per 16 MB of it (raise
-    /// <see cref="VectorIndex.MaxMemoryBytes"/> for the duration of a bulk load to buy the
-    /// parallelism back — it is adjustable at runtime).</summary>
-    int buildParallelism() {
-        if (_routing.Resident) return _threads;
-        return (int)Math.Clamp(_routing.MaxCacheBytes / (16L * 1024 * 1024), 1, _threads);
     }
     /// <summary>Links one freshly allocated node into the graph: the descent, the per-layer beam
     /// search, the neighbour selection and the back-edges. Runs concurrently with other linkers
@@ -546,16 +525,13 @@ internal sealed class Graph : IDisposable {
             foreach (var c in collected) work.Add(c.Ordinal);
             // What the flood may score before an exact scan would have been the cheaper tool; going
             // past this means the answer region rivals the index, and the scan answers that exactly.
-            var overhead = _routing.Resident ? 250 : 700;
-            var budget = Math.Max(4L * width, (long)_nodes.LiveCount * _dims / Math.Max(1, _threads) / (_dims + overhead));
+            var budget = Math.Max(4L * width, (long)_nodes.LiveCount * _dims / Math.Max(1, _threads) / (_dims + walkOverhead));
             long scored = 0;
-            var resident = _routing.Resident;
             while (work.Count > 0) {
                 var current = work[^1];
                 work.RemoveAt(work.Count - 1);
                 var neighbours = _routing.NeighbourIds(_routing.Get(current));
                 collectUnvisited(neighbours, s);
-                if (!resident && s.ParallelPrefetch) _routing.Prefetch(s.ToLoad, _threads);
                 scored += s.Neighbours.Count;
                 foreach (var n in s.Neighbours) {
                     var sim = quantSim(s.Query, s.QueryRescale, n);
@@ -620,24 +596,19 @@ internal sealed class Graph : IDisposable {
     /// the two are not merely different amounts of the same work. A scan does one dot product per vector
     /// and nothing else, on every core at once. A walk is a sequential chain, and around each candidate's
     /// dot product it pays its bookkeeping. So a scan costs <c>vectors × dims / cores</c> against a
-    /// walk's <c>width × (dims + overhead)</c>; the overhead constant is a calibration expressed in
-    /// units of one dimension's worth of dot product, and it is smaller with the graph resident (no
-    /// residency checks, no hashing, prefetched memory) than with it cached. Preferring the scan where
-    /// it is faster is free accuracy — it is also the exact answer. Always true below
+    /// walk's <c>width × (dims + overhead)</c>. Preferring the scan where it is faster is free
+    /// accuracy — it is also the exact answer. Always true below
     /// <see cref="VectorIndexOptions.MinVectorsForGraphSearch"/>.
     /// </summary>
     bool tooWideToWalk(int width) {
         if (_nodes.LiveCount < _options.MinVectorsForGraphSearch) return true;
-        // The overhead constant is per candidate, in units of one dimension's worth of dot product.
-        // Resident graphs pay almost nothing around the dot (no residency checks, prefetched
-        // memory); cached graphs pay cache probes and, cold, a disk read — and a wide cold walk
-        // also re-scores its whole beam from the vector file, so past this width the sequential
-        // scan is genuinely the faster answer there, exactly as it prices out here.
-        var overhead = _routing.Resident ? 250 : 700;
-        var walkCost = (long)width * (_dims + overhead);
+        var walkCost = (long)width * (_dims + walkOverhead);
         var scanCost = (long)_nodes.LiveCount * _dims / Math.Max(1, _threads);
         return scanCost <= walkCost;
     }
+    /// <summary>What the walk pays around each candidate's dot product — the visited probe, the heap
+    /// moves, the prefetches — as a calibration in units of one dimension's worth of dot product.</summary>
+    const int walkOverhead = 250;
     /// <summary>Descends to layer 0 and explores a beam of <paramref name="width"/> candidates there,
     /// scoring against the scratch's quantized query. Returns them worst first. The optional spill
     /// (see <see cref="searchLayer"/>) receives everything the layer-0 walk scores at or above
@@ -671,20 +642,15 @@ internal sealed class Graph : IDisposable {
     /// so the layers above 0 cost a handful of dot products and no bookkeeping at all.</summary>
     (int best, float bestSim) greedyOnLayer(ReadOnlySpan<sbyte> qq, float qr, int level, int current, float currentSim,
         HnswSearchScratch s) {
-        Span<int> upperBuffer = stackalloc int[_nodes.UpperWords];
-        var resident = _routing.Resident;
         while (true) {
             var moved = false;
-            var neighbours = _nodes.UpperNeighbours(current, level, upperBuffer);
+            var neighbours = _nodes.UpperNeighbours(current, level);
             s.Neighbours.Clear();
-            s.ToLoad.Clear();
             foreach (var n in neighbours) {
                 if (n < 0 || n >= _nodes.NextOrdinal || !_nodes.IsLive(n)) continue;
                 s.Neighbours.Add(n);
-                if (resident) _routing.PrefetchQ(n);
-                else if (!_routing.IsResident(n)) s.ToLoad.Add(n);
+                _routing.PrefetchQ(n);
             }
-            if (!resident && s.ParallelPrefetch) _routing.Prefetch(s.ToLoad, _threads);
             foreach (var n in s.Neighbours) {
                 var sim = quantSim(qq, qr, n);
                 if (sim > currentSim) {
@@ -712,8 +678,7 @@ internal sealed class Graph : IDisposable {
         var results = s.Results;       // worst first, capped at ef
         candidates.Clear();
         results.Clear();
-        s.BeginWalk(_nodes.NextOrdinal, useStamps: _routing.Resident);
-        Span<int> upperBuffer = stackalloc int[_nodes.UpperWords];
+        s.BeginWalk(_nodes.NextOrdinal);
         foreach (var ep in entryPoints) {
             if (!_nodes.IsLive(ep) || !s.Visit(ep)) continue;
             var sim = quantSim(qq, qr, ep);
@@ -727,9 +692,8 @@ internal sealed class Graph : IDisposable {
             candidates.Pop(out _, out _);
             var neighbours = level == 0
                 ? _routing.NeighbourIds(_routing.Get(current))
-                : _nodes.UpperNeighbours(current, level, upperBuffer);
+                : _nodes.UpperNeighbours(current, level);
             collectUnvisited(neighbours, s);
-            if (!_routing.Resident && s.ParallelPrefetch) _routing.Prefetch(s.ToLoad, _threads); // one read latency for the whole hop
             foreach (var n in s.Neighbours) {
                 var sim = quantSim(qq, qr, n);
                 if (sim >= spillFloor) spill!.Add(new(n, sim));
@@ -752,21 +716,17 @@ internal sealed class Graph : IDisposable {
     }
     /// <summary>The live, unvisited neighbours of a node. Neighbour ordinals are validated rather
     /// than trusted: a write torn by a crash — or overlapped by a batch build's concurrent linker —
-    /// can leave a slot holding a stale id, and dropping it costs one edge. With the graph resident
-    /// each accepted neighbour's vector is prefetched here, so by the time the scoring loop reaches
-    /// it the memory is already on its way; with the graph cached the non-resident ones are collected
-    /// for one parallel read instead.</summary>
+    /// can leave a slot holding a stale id, and dropping it costs one edge. Each accepted
+    /// neighbour's vector is prefetched here, so by the time the scoring loop reaches it the memory
+    /// is already on its way.</summary>
     void collectUnvisited(ReadOnlySpan<int> neighbours, HnswSearchScratch s) {
         s.Neighbours.Clear();
-        s.ToLoad.Clear();
-        var resident = _routing.Resident;
         foreach (var n in neighbours) {
             if (n < 0 || n >= _nodes.NextOrdinal) continue;
             if (!_nodes.IsLive(n)) continue;
             if (!s.Visit(n)) continue;
             s.Neighbours.Add(n);
-            if (resident) _routing.PrefetchQ(n);
-            else if (!_routing.IsResident(n)) s.ToLoad.Add(n);
+            _routing.PrefetchQ(n);
         }
     }
     /// <summary>The similarity the walk routes by: the int8 dot of the query's and the node's
@@ -867,7 +827,6 @@ internal sealed class Graph : IDisposable {
     /// <summary>Reclaims the edge log's space. Only safe after a manifest claiming no entries has been
     /// written, which is why the index does it as the last step of a state save.</summary>
     public void DropEdgeLog() => _edges.TruncateFile();
-    public void ClearCaches() => _routing.ClearCache();
     /// <summary>
     /// Rewrites the index into a new generation of files with the dead records dropped and the
     /// surviving ones renumbered — the graph structure is carried over, not rebuilt, so this costs one

@@ -264,8 +264,7 @@ public class HnswVectorIndexTests {
         using (var index = create(_folder, options)) {
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(count, index.Count);
-            index.ClearCache(); // in cached mode every record now comes off the disk; resident mode replayed the log at open
-            assertFindsItself(index, reference, 5000);
+            assertFindsItself(index, reference, 5000); // the open replayed the log over the arena
             index.SaveStateForMemoryIndexes(11, walId); // the full checkpoint applies the log and drops it
         }
         Assert.IsTrue(logBytes() <= 64, "a state save should have applied and dropped the log");
@@ -334,16 +333,15 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void EdgeLogSurvivesEviction() {
-        // The awkward combination: a cache too small to hold the index, and edges that live in the log
-        // rather than in the routing file. Evicting such a record would throw away the only correct copy
-        // of its neighbour list, so the eviction has to keep the list — and the state save afterwards has
-        // to find it there rather than in the record it no longer has.
+    public void EdgeLogSurvivesTinyBudget() {
+        // A budget far below the graph's own floor: the graph stays resident anyway (over budget by
+        // design), the float mirror is given up, and the WAL-flush checkpoints keep sending edges to
+        // the log. The state save must consolidate those edges into the routing file correctly.
         var r = new Random(31337);
         const int dims = 64, count = 8_000;
         var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
-            MaxMemoryBytes = 700 * 1024, // low-memory territory: a cache budget of a fraction of the index
+            MaxMemoryBytes = 700 * 1024, // a fraction of what the graph needs resident
             EfConstruction = 32,         // a cheaper graph; this test is about the edges surviving, not their quality
         };
         var walId = Guid.NewGuid();
@@ -495,7 +493,8 @@ public class HnswVectorIndexTests {
     public void TinyBudgetStillCorrect() {
         var r = new Random(3);
         const int dims = 64, count = 1000;
-        // Next to nothing stays in memory: every hop goes through a tiny cache, every re-score to the file.
+        // A budget below the graph's floor: the graph stays resident (over budget by design), only
+        // the float mirror is given up, so every re-score reads the vector file.
         var options = new VectorIndexOptions { MaxMemoryBytes = 64 * 1024, MinVectorsForGraphSearch = 1 };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
@@ -507,12 +506,34 @@ public class HnswVectorIndexTests {
             index.Add(id, v);
         }
         index.SaveStateForMemoryIndexes(1, walId);
+        Assert.IsTrue(index.FloorMemoryBytes > index.MaxMemoryBytes, "the graph should be past the budget's floor");
         var cold = index.Search(reference[10], 0, 10, 0);
         Assert.AreEqual(10, cold.Count);
         Assert.AreEqual(10, cold[0].NodeId);
-        index.MaxMemoryBytes = 64L * 1024 * 1024; // adjustable at runtime
+        var beforeRaise = index.CurrentMemoryBytes;
+        index.MaxMemoryBytes = 64L * 1024 * 1024; // adjustable at runtime: this affords the mirror again
+        Assert.IsTrue(index.CurrentMemoryBytes > beforeRaise, "the raised budget should have rebuilt the float mirror");
         CollectionAssert.AreEqual(bruteForceTopK(reference, reference[10], 10),
             index.Search(reference[10], 0, 10, 0).Select(h => h.NodeId).ToList());
+    }
+
+    [TestMethod]
+    public void OverBudgetWarningIsLoggedOnce() {
+        // A budget below the graph's floor is exceeded, not honored — and the index must say so in
+        // the log, once, not per operation. A raised budget that covers the floor stays quiet.
+        var r = new Random(66);
+        const int dims = 64, count = 2000;
+        var warnings = new List<string>();
+        var options = new VectorIndexOptions { MaxMemoryBytes = 64 * 1024, MinVectorsForGraphSearch = 1 };
+        using var index = new VectorIndex(new SetRegister(10_000_000), "test-index", "Test HNSW Index", _folder,
+            null, options, s => { lock (warnings) warnings.Add(s); });
+        index.ReadStateForMemoryIndexes(Guid.NewGuid());
+        for (var id = 1; id <= count; id++) index.Add(id, randomUnit(r, dims));
+        Assert.IsTrue(index.FloorMemoryBytes > options.MaxMemoryBytes, "the graph should be past the budget's floor");
+        Assert.AreEqual(1, warnings.Count(w => w.Contains("MaxMemoryBytes")), "exactly one over-budget warning");
+        index.MaxMemoryBytes = 256L * 1024 * 1024; // now above the floor: mirror back, and no new warning
+        for (var id = count + 1; id <= count + 200; id++) index.Add(id, randomUnit(r, dims));
+        Assert.AreEqual(1, warnings.Count(w => w.Contains("MaxMemoryBytes")));
     }
 
     [TestMethod]
@@ -582,17 +603,17 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void LowMemoryModeStillCorrect() {
-        // The whole low-memory surface in one pass: upper layers read from the file per hop, a
-        // record cache that tracks entries instead of ordinals (and is far too small to hold the
-        // index), constant spilling, the edge log, and a reopen. Correctness must be unchanged.
+    public void OverFloorBudgetStillCorrect() {
+        // The whole over-floor surface in one pass: a budget far below what the graph needs
+        // resident (so the index runs over budget with no float mirror), constant spilling, the
+        // edge log, mid-load checkpoints, and a reopen. Correctness must be unchanged.
         var r = new Random(777);
         const int dims = 64, centers = 60, perCenter = 100;
         const int count = centers * perCenter;
         var options = new VectorIndexOptions {
             MinVectorsForGraphSearch = 1,
-            MaxMemoryBytes = 400 * 1024,             // a fraction of the index: eviction runs constantly
-            MemTableFlushThresholdBytes = 64 * 1024, // and the memtable spills constantly
+            MaxMemoryBytes = 400 * 1024,             // a fraction of the graph's floor
+            MemTableFlushThresholdBytes = 64 * 1024, // the memtable spills constantly
         };
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
@@ -617,7 +638,7 @@ public class HnswVectorIndexTests {
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(count, index.Count);
             assertRecall(index, 4321);
-            for (var id = 1; id <= 200; id++) { // updates and removes against the on-disk graph
+            for (var id = 1; id <= 200; id++) { // updates and removes against the reopened graph
                 var v = randomUnit(r, dims);
                 reference[id] = v;
                 index.Add(id, v);
@@ -645,16 +666,17 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void LowMemoryAndNormalModeShareFiles() {
-        // The mode changes residency, never the files: an index written in one mode must open in
-        // the other at the same durable position, and writes made in either mode survive the swap.
+    public void BudgetNeverChangesTheFiles() {
+        // The budget changes residency (whether the floats are mirrored), never the files: an index
+        // written under one budget must open under any other at the same durable position, and
+        // writes made under either budget survive the swap.
         var r = new Random(4040);
         const int dims = 48, count = 1200;
         var walId = Guid.NewGuid();
         var reference = new Dictionary<int, float[]>();
-        var normal = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
-        var lowMem = new VectorIndexOptions { MaxMemoryBytes = VectorIndexOptions.LowMemoryThresholdBytes, MinVectorsForGraphSearch = 1 };
-        using (var index = create(_folder, normal)) { // written by the normal mode
+        var roomy = new VectorIndexOptions { MinVectorsForGraphSearch = 1 };
+        var tight = new VectorIndexOptions { MaxMemoryBytes = 400 * 1024, MinVectorsForGraphSearch = 1 };
+        using (var index = create(_folder, roomy)) { // written with everything mirrored
             index.ReadStateForMemoryIndexes(walId);
             for (var id = 1; id <= count; id++) {
                 var v = randomUnit(r, dims);
@@ -663,9 +685,9 @@ public class HnswVectorIndexTests {
             }
             index.SaveStateForMemoryIndexes(1, walId);
         }
-        using (var index = create(_folder, lowMem)) { // opened by the low-memory mode: no reset
+        using (var index = create(_folder, tight)) { // opened under a tiny budget: no reset
             index.ReadStateForMemoryIndexes(walId);
-            Assert.AreEqual(1, index.PersistedTimestamp, "a mode switch must not reset the index");
+            Assert.AreEqual(1, index.PersistedTimestamp, "a budget switch must not reset the index");
             Assert.AreEqual(count, index.Count);
             Assert.AreEqual(500, index.Search(reference[500], 0, 1, 0)[0].NodeId);
             for (var id = count + 1; id <= count + 50; id++) { // and writes link into the loaded graph
@@ -675,7 +697,7 @@ public class HnswVectorIndexTests {
             }
             index.SaveStateForMemoryIndexes(2, walId);
         }
-        using (var index = create(_folder, normal)) { // and back again
+        using (var index = create(_folder, roomy)) { // and back again
             index.ReadStateForMemoryIndexes(walId);
             Assert.AreEqual(2, index.PersistedTimestamp);
             Assert.AreEqual(count + 50, index.Count);
@@ -775,9 +797,9 @@ public class HnswVectorIndexTests {
     }
 
     [TestMethod]
-    public void AddRangeInLowMemoryMode() {
-        // The batch build's workers against the on-disk graph: pending upper slots, the keyed record
-        // cache and constant eviction, all at once.
+    public void AddRangeUnderTinyBudget() {
+        // The batch build's parallel workers under a budget far below the graph's floor: no float
+        // mirror, constant spilling between chunks, and the over-budget path all at once.
         var r = new Random(818);
         const int dims = 48, count = 4000;
         var options = new VectorIndexOptions {

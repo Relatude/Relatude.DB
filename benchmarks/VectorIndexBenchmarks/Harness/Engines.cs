@@ -20,19 +20,13 @@ public static class Engines {
     /// edges) resident in flat, prefetch-friendly memory, the float vectors mirrored too when the
     /// budget allows and read from their own file for exact re-scoring when it does not.</summary>
     public const string Hnsw = "hnsw";
-    /// <summary>The same index with <c>MaxMemoryBytes</c> pinned to the low-memory threshold, which
-    /// keeps the graph on disk behind a small cache of routing records — a quarter of the bytes per
-    /// hop that caching float records costs.</summary>
-    public const string HnswLowMem = "hnsw-lowmem";
     /// <summary>sqlite-vec: a vec0 virtual table in an ordinary SQLite file, exact by design.</summary>
     public const string SqliteVec = "sqlitevec";
     /// <summary>USearch: an HNSW graph in native memory — the other main answer to approximate search.</summary>
     public const string USearch = "usearch";
     public const long LowMemCacheBytes = 8L * 1024 * 1024;
 
-    // Both configurations of the HNSW index by default: the pair is one implementation run two
-    // ways, with the memory budget priced outright.
-    public static readonly string[] All = [Memory, IVS, Hnsw, HnswLowMem, USearch];
+    public static readonly string[] All = [Memory, IVS, Hnsw, USearch];
     /// <summary>Everything <c>--engines</c> accepts: the default set plus the configurations that
     /// are only interesting next to a specific question (exactness, a starved cache, sqlite-vec).</summary>
     public static readonly string[] Known = [.. All, IVSExact, IVSLowMem, SqliteVec];
@@ -49,7 +43,6 @@ public static class Engines {
         IVSExact => "IVS exact",
         IVSLowMem => "IVS lowmem",
         Hnsw => "HNSW",
-        HnswLowMem => "HNSW lowmem",
         SqliteVec => "sqlite-vec",
         USearch => "USearch",
         _ => name,
@@ -61,7 +54,6 @@ public static class Engines {
         IVSExact => "IVSVectorIndex (exact)",
         IVSLowMem => $"IVSVectorIndex ({LowMemCacheBytes / 1024 / 1024} MB cache)",
         Hnsw => "HnswVectorIndex",
-        HnswLowMem => "HnswVectorIndex (low memory)",
         SqliteVec => "sqlite-vec",
         USearch => "USearch (HNSW)",
         _ => name,
@@ -74,7 +66,6 @@ public static class Engines {
         IVSExact => "the same disk index probing every cluster (accuracy 1): exact, and reading every block",
         IVSLowMem => $"the same disk index with its block cache budget set to {LowMemCacheBytes / 1024 / 1024} MB",
         Hnsw => "the HNSW graph resident in flat int8 arenas, floats mirrored or read only to re-score (Relatude.DB.VectorIndex)",
-        HnswLowMem => "the same index at the low-memory budget: the graph on disk behind a small cache of quarter-size routing records",
         SqliteVec => "third party: a vec0 virtual table in a SQLite file, exact KNN by full scan (asg017/sqlite-vec)",
         USearch => "third party: an HNSW graph in native memory, top-k only (unum-cloud/USearch)",
         _ => name,
@@ -103,11 +94,11 @@ public static class Engines {
             }),
             // the HNSW index takes the same dials as USearch, so the two graph rows are configured
             // identically; MaxMemoryBytes is its one budget, mapped from --cache like the other
-            // indexes' cache budgets (low-mem pins it to the threshold at which the index keeps the
-            // graph on disk)
-            Hnsw or HnswLowMem => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new Relatude.DB.AI.HNSW.VectorIndexOptions {
+            // indexes' cache budgets (the resident graph is its floor — a budget below the floor is
+            // exceeded, not honored, so small --cache values price the no-mirror band, not a slow mode)
+            Hnsw => new HnswBenchIndex(dir, WalFileId, BenchAiEngine.Create(corpus), new Relatude.DB.AI.HNSW.VectorIndexOptions {
                 Dimensions = corpus.Dimensions,
-                MaxMemoryBytes = name == HnswLowMem ? Relatude.DB.AI.HNSW.VectorIndexOptions.LowMemoryThresholdBytes : options.CacheBytes,
+                MaxMemoryBytes = options.CacheBytes,
                 Connectivity = options.HnswConnectivity,
                 EfConstruction = options.HnswExpansionAdd,
                 EfSearch = options.HnswExpansionSearch,

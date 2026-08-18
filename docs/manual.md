@@ -1462,7 +1462,10 @@ leave it out until you need it.
 
 `AISettings` configures the container's own AI provider (embeddings and completions) and its
 semantic index: `IndexType` picks the vector index engine (`Memory`, `IVS` or `HNSW`) and
-`IndexCacheSizeInMb` sets the disk engines' memory budget (unset = engine default).
+`IndexCacheSizeInMb` sets the disk engines' memory budget (unset = engine default). For `HNSW` the
+graph itself always stays in memory — the budget dials whether the full-precision vectors are
+mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded
+for per-hop disk reads.
 
 ### Overriding settings from configuration
 

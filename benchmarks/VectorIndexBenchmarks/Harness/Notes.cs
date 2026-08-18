@@ -90,13 +90,11 @@ public static class Notes {
                 whatever of the load is still in its record cache. Warm MB is the same measurement after the search phases, which
                 is the only place a read-through cache appears — the disk index has by then pulled the
                 blocks its searches touched into its {{options.CacheMB}} MB budget, and that memory is what its search
-                rates were bought with. The two HnswVectorIndex rows are that trade priced outright: one
-                implementation, one set of files, run once with room to cache the graph and once pinned
-                to the low-memory budget threshold, at which the index keeps the graph and its upper
-                layers on disk behind small caches. Read their Mem/Warm/WSet columns against their
-                search and Index rates — that ratio is the whole decision the budget exists for. The same
-                comparison for the IVF index is --engines=ivs,ivs-lowmem, which is a cache budget
-                rather than a mode.
+                rates were bought with. The HnswVectorIndex keeps its routing graph resident always
+                (a budget below that floor is exceeded, with a warning, never traded for per-hop disk
+                reads); its MaxMemoryBytes budget dials only the float mirror, so a tight --cache
+                prices the no-mirror band, where every re-score reads the vector file. The cache-budget
+                comparison for the IVF index is --engines=ivs,ivs-lowmem.
                 WSet MB is working-set growth at the same point, which also covers native memory and file
                 reads. Disk MB is the index on disk after the load was made durable. The generated vectors
                 are {{options.N * (long)options.Dimensions * 4 / (1024.0 * 1024.0):N0}} MB of raw float32, held by the harness and outside all of these numbers:

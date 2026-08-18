@@ -10,21 +10,12 @@ internal readonly record struct Candidate(int Ordinal, float Similarity);
 /// the walk's bookkeeping competes directly with the dot products it schedules: a few thousand
 /// visited-set probes and heap moves per query add up to more than the scoring itself at small
 /// dimension counts, so the structures are the flattest ones that do the job.
-///
-/// <para>The visited set comes in two shapes and the graph picks per mode: with the graph resident
-/// in memory, a byte-stamp per ordinal — one array read, one write, O(1) reset by generation bump —
-/// because the index is already spending memory for speed; with the graph on disk, an
-/// open-addressing hash whose memory is independent of the index size, because not spending memory
-/// is that mode's whole point.</para>
 /// </summary>
 internal sealed class HnswSearchScratch {
     public readonly VisitedStamps Stamps = new();
-    public readonly VisitedSet Hash = new();
-    public bool UseStamps;
     public readonly PairHeap Candidates = new(); // best first: priority is the negated similarity
     public readonly PairHeap Results = new();    // worst first, capped at ef
     public readonly List<int> Neighbours = [];   // one hop's live, unvisited neighbours
-    public readonly List<int> ToLoad = [];       // the subset of them not in memory (cached mode)
     public readonly List<int> EntryPoints = [];
     public readonly List<Candidate> Found = [];  // searchLayer's output, reused call to call
     public readonly List<int> FloodWork = [];    // the range flood's stack of nodes to expand
@@ -32,28 +23,20 @@ internal sealed class HnswSearchScratch {
     /// <summary>The query, quantized once per search — the form the walk scores against.</summary>
     public sbyte[] Query = [];
     public float QueryRescale;
-    /// <summary>False inside a batch-build worker, where every core is already an inserter and a
-    /// per-hop parallel prefetch would only oversubscribe them.</summary>
-    public bool ParallelPrefetch = true;
 
     public void SetQuery(ReadOnlySpan<float> query) {
         if (Query.Length < query.Length) Query = new sbyte[query.Length];
         VectorMath.Quantize(query, Query, out QueryRescale);
     }
     /// <summary>Prepares the visited set for one walk over an index of <paramref name="ordinals"/>.</summary>
-    public void BeginWalk(int ordinals, bool useStamps) {
-        UseStamps = useStamps;
-        if (useStamps) Stamps.Begin(ordinals);
-        else Hash.Clear();
-    }
+    public void BeginWalk(int ordinals) => Stamps.Begin(ordinals);
     /// <summary>Marks an ordinal visited; false when this walk had already seen it.</summary>
-    public bool Visit(int ordinal) => UseStamps ? Stamps.Add(ordinal) : Hash.Add(ordinal);
+    public bool Visit(int ordinal) => Stamps.Add(ordinal);
 
     const int keepCapacity = 1 << 16;
     /// <summary>Give back what an unusually wide walk grew, so the pool holds working-set-sized
     /// scratch rather than the high-water mark of the widest query ever run.</summary>
     public void Trim() {
-        Hash.Trim(keepCapacity);
         if (Found.Capacity > keepCapacity) { Found.Clear(); Found.TrimExcess(); }
         if (EntryPoints.Capacity > keepCapacity) { EntryPoints.Clear(); EntryPoints.TrimExcess(); }
         if (FloodWork.Capacity > keepCapacity) { FloodWork.Clear(); FloodWork.TrimExcess(); }
@@ -95,8 +78,7 @@ internal sealed class HnswInsertScratch {
 /// one write per probe, no hashing, no probing. Starting a walk is a generation bump rather than a
 /// clear, so it stays O(1) whatever the index size; the stamp is one byte, so the generation wraps
 /// every 255 walks and only then is the array actually cleared — a megabyte of memset per million
-/// vectors, amortised to a few kilobytes a query. Costs one byte per ordinal per pooled scratch,
-/// which is why only the resident mode uses it.
+/// vectors, amortised to a few kilobytes a query. Costs one byte per ordinal per pooled scratch.
 /// </summary>
 internal sealed class VisitedStamps {
     byte[] _stamps = [];
@@ -123,53 +105,6 @@ internal sealed class VisitedStamps {
         if (_stamps[ordinal] == _generation) return false;
         _stamps[ordinal] = _generation;
         return true;
-    }
-}
-
-/// <summary>
-/// An open-addressing set of node ordinals, replacing a <c>HashSet&lt;int&gt;</c> on the walk's
-/// hottest probe: one flat int array, linear probing, no per-entry object and no growth beyond a
-/// doubling of the array. Clearing is a memset of the table, which costs microseconds at the sizes
-/// a walk reaches and keeps the memory independent of the graph size — which is why the on-disk
-/// mode uses this one rather than the stamp array.
-/// </summary>
-internal sealed class VisitedSet {
-    int[] _table = new int[1024]; // 0 = empty, else the ordinal + 1
-    int _count;
-
-    /// <summary>Adds the ordinal; false when it was already there.</summary>
-    public bool Add(int ordinal) {
-        var table = _table;
-        var mask = table.Length - 1;
-        var stored = ordinal + 1;
-        var i = (int)((uint)(ordinal * -1640531527) >> 1) & mask; // Fibonacci hash: dense ordinals scatter
-        while (true) {
-            var v = table[i];
-            if (v == 0) break;
-            if (v == stored) return false;
-            i = (i + 1) & mask;
-        }
-        table[i] = stored;
-        if (++_count * 2 > table.Length) grow();
-        return true;
-    }
-    public void Clear() {
-        if (_count == 0) return;
-        Array.Clear(_table);
-        _count = 0;
-    }
-    public void Trim(int maxEntries) {
-        if (_table.Length <= maxEntries * 2) return;
-        _table = new int[Math.Max(1024, maxEntries * 2)];
-        _count = 0;
-    }
-    void grow() {
-        var old = _table;
-        _table = new int[old.Length * 2];
-        _count = 0;
-        foreach (var v in old) {
-            if (v != 0) Add(v - 1);
-        }
     }
 }
 

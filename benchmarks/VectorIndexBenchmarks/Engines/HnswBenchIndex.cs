@@ -7,11 +7,9 @@ namespace VectorIndexBenchmarks.Engines;
 
 /// <summary>
 /// The Relatude HNSW index (<see cref="VectorIndex"/>): the graph a search walks — int8 vectors
-/// and neighbour lists — lives in flat, prefetch-friendly memory whenever the general budget
-/// (<c>MaxMemoryBytes</c>) allows, with the float vectors mirrored too when they fit and read from
-/// their own file only for exact re-scoring when they do not; at or below the low-memory budget
-/// threshold the graph stays on disk behind a small cache of routing records a quarter the size of
-/// float records.
+/// and neighbour lists — always lives in flat, prefetch-friendly memory; the general budget
+/// (<c>MaxMemoryBytes</c>) decides whether the float vectors are mirrored too or read from their
+/// own file only for exact re-scoring.
 ///
 /// <para>Reading it next to USearch at matched dials (<c>--hnsw-m</c>, <c>--hnsw-ef-add</c>,
 /// <c>--hnsw-ef</c>) shows what a persistent, WAL-bound index gives up (or does not) against a pure

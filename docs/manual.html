@@ -1932,7 +1932,10 @@ live in different places without repeating connection details.</p>
 leave it out until you need it.</p>
 <p><code>AISettings</code> configures the container's own AI provider (embeddings and completions) and its
 semantic index: <code>IndexType</code> picks the vector index engine (<code>Memory</code>, <code>IVS</code> or <code>HNSW</code>) and
-<code>IndexCacheSizeInMb</code> sets the disk engines' memory budget (unset = engine default).</p>
+<code>IndexCacheSizeInMb</code> sets the disk engines' memory budget (unset = engine default). For <code>HNSW</code> the
+graph itself always stays in memory — the budget dials whether the full-precision vectors are
+mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded
+for per-hop disk reads.</p>
 <h3 id="overriding-settings-from-configuration">Overriding settings from configuration<a class="anchor" href="#overriding-settings-from-configuration" aria-label="Link to this section">#</a></h3>
 <p>Any setting in <code>relatude.db.json</code> can be overridden from standard ASP.NET configuration. At startup
 the server reads the <code>RelatudeDB</code> section — from <code>appsettings.json</code>,

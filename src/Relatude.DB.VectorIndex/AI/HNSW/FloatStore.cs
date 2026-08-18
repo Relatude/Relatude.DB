@@ -174,6 +174,31 @@ internal sealed class FloatStore : IDisposable {
         }
         _chunks = null;
     }
+    /// <summary>What a full mirror of <paramref name="records"/> vectors costs — whole chunks, the
+    /// granularity the mirror allocates in. The budget arithmetic's number for the mirror.</summary>
+    public long MirrorBytesFor(int records) =>
+        (long)((records + ChunkOrdinals - 1) >> ChunkShift) * ChunkOrdinals * Dimensions * 4;
+    /// <summary>The reverse of <see cref="DropMirror"/>, for a raised budget that affords the mirror
+    /// again: the flushed records are read from the file in parallel (the cost of an open, paid on
+    /// the explicit call) and the unflushed tail is folded in from its map. Caller holds the index
+    /// write lock.</summary>
+    public void BuildMirror(int maxThreads) {
+        if (_chunks != null) return;
+        var tail = _tail;
+        _chunks = [];
+        if (_nextOrdinal > 0) {
+            // everything below the unflushed run is in the file; the tail map carries the rest
+            var flushed = _appendedFrom < 0 ? _nextOrdinal : _appendedFrom;
+            mirrorFromFile(flushed, maxThreads);
+            if (tail != null) {
+                foreach (var (ordinal, v) in tail) {
+                    ensureChunk(ordinal);
+                    v.CopyTo(_chunks[ordinal >> ChunkShift].AsSpan((ordinal & ChunkMask) * Dimensions, Dimensions));
+                }
+            }
+        }
+        _tail = null;
+    }
     public void Fsync() => _file.Fsync();
 
     void ensureChunk(int ordinal) {
