@@ -381,3 +381,4 @@ nuget.exe
 /examples/Website.Simple/appsettings.json
 /examples/Website.Simple/appsettings.Development.json
 /nuget/Output
+/docs/.obsidian

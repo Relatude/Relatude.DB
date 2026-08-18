@@ -11,6 +11,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Models;
 using Relatude.DB.NodeServer.Settings;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime;
@@ -137,12 +138,22 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         public string Password { get; set; } = "";
         public bool Remember { get; set; } = false;
     }
+    public static bool IsLocalConnection(ConnectionInfo connection) {
+        if (connection.RemoteIpAddress != null) {
+            if (connection.LocalIpAddress != null) {
+                return connection.RemoteIpAddress.Equals(connection.LocalIpAddress);
+            }
+            return IPAddress.IsLoopback(connection.RemoteIpAddress);
+        }
+        return true;
+    }
     void mapAuth(WebApplication app, Func<string, string> path) {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
         app.MapPost(path("login"), async (HttpContext context, Credentials c) => {
             var requestIP = context.Connection.RemoteIpAddress + "";
-            var valid = await server.Authentication.AreCredentialsValid(c.UserName, c.Password, requestIP);
+            var isLocal = IsLocalConnection(context.Connection);
+            var valid = await server.Authentication.AreCredentialsValid(c.UserName, c.Password, requestIP, isLocal);
             if (valid) {
                 server.Authentication.LogIn(context, c.Remember);
                 return new { Success = true };

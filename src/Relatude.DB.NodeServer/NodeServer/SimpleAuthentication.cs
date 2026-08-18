@@ -39,8 +39,15 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     // Authentication
     bool authenticationIsValid(HttpContext context) {
         //Stopwatch sw = Stopwatch.StartNew();
+        var isLocal = ServerAPIMapper.IsLocalConnection(context.Connection);
+        if (settings.NoLoginRequiredForLocalhost && isLocal) {
+            return true; // allow localhost access without login
+        }
         if (settings.TokenCookieName == null) return false;
         var requestIP = context.Connection.RemoteIpAddress + "";
+        if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
+            return false; // block login attempts from outside localhost
+        }
         var token = context.Request.Cookies[settings.TokenCookieName];
         if (token == null) return false;
 
@@ -119,8 +126,11 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         return false;
     }
 
-    public async Task<bool> AreCredentialsValid(string username, string password, string requestIP) {
+    public async Task<bool> AreCredentialsValid(string username, string password, string requestIP, bool isLocal) {
         await Task.Delay(new Random().Next(300, 400)); // time delay to slow down brute force attacks and random to not hint valid usernames by response time        
+        if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
+            return false; // block login attempts from outside localhost
+        }
         if (_ipWall.IsBlocked(requestIP)) {
             RelatudeDBServer.Trace($"Login attempt from blocked IP {requestIP}, blocked attempts: {_ipWall.GetFailedAttemptCount(requestIP)}");
             _ipWall.RegisterFailedAttempt(requestIP);
