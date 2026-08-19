@@ -6,13 +6,21 @@ public static class StringFormatExtentions {
     public static string ToByteString(this long byteCount) {
         string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" }; //Longs run out around EB
         if (byteCount == 0) return "0" + suf[0];
+        if (byteCount == long.MinValue) byteCount = long.MinValue + 1; // Math.Abs(long.MinValue) throws
         long bytes = Math.Abs(byteCount);
         int place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1024)));
         double num = Math.Round(bytes / Math.Pow(1024, place), 1);
         return (Math.Sign(byteCount) * num).ToString() + suf[place];
     }
     public static string ToByteString(this int byteCount) => ToByteString((long)byteCount);
-    public static string ToByteString(this double byteCount) => ToByteString((long)byteCount);
+    public static string ToByteString(this double byteCount) {
+        // a rate computed over a zero time interval is Infinity, and casting a non-finite or
+        // out-of-range double to long yields long.MinValue — a log line must never throw over it
+        if (!double.IsFinite(byteCount)) return "-";
+        if (byteCount >= long.MaxValue) return ToByteString(long.MaxValue);
+        if (byteCount <= long.MinValue) return ToByteString(long.MinValue);
+        return ToByteString((long)byteCount);
+    }
 
     public static string To1000N(this long n) => n.ToString("N0");
     public static string To1000N(this int n) => n.ToString("N0");

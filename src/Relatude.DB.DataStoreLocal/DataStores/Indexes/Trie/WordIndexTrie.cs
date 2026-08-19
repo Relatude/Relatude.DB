@@ -11,6 +11,9 @@ internal class WordIndexTrie : IWordIndex {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     readonly Action<string, Exception>? _logError;
+    // true whenever the in-memory state may differ from the persisted body; starts true so an
+    // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
+    bool _changedSinceLastSave = true;
     public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, Action<string, Exception>? logError = null) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
@@ -29,6 +32,7 @@ internal class WordIndexTrie : IWordIndex {
         return _register.SearchForIdSetUnranked(_searchIndexStateId, value, orSearch, () => _trie.SearchIdsUnsorted(value, orSearch, maxWordsEval));
     }
     public void Add(int nodeId, object value) {
+        _changedSinceLastSave = true;
 #if DEBUG
         _trie.IndexText((string)value, nodeId);
 #else
@@ -42,6 +46,7 @@ internal class WordIndexTrie : IWordIndex {
         newSetState();
     }
     public void Remove(int nodeId, object value) {
+        _changedSinceLastSave = true;
 #if DEBUG
         _trie.DeIndexText((string)value, nodeId);
 #else
@@ -58,6 +63,14 @@ internal class WordIndexTrie : IWordIndex {
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public IEnumerable<string> SuggestSpelling(string query, bool boostCommonWords) => _trie.Suggest(query, boostCommonWords);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // appending a stamp is only sound when the persisted body equals the in-memory state: the
+        // stamp is trusted on the next open, so changes missing from a stale body would be skipped
+        // by the log replay and silently lost — and a never-persisted index would get a body-less,
+        // unreadable file. Persist the full state whenever the body may be behind:
+        if (_changedSinceLastSave) {
+            SaveStateForMemoryIndexes(newTimestamp, walFileId);
+            return;
+        }
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
@@ -86,6 +99,7 @@ internal class WordIndexTrie : IWordIndex {
             stream.WriteGuid(walFileId);
         }
         PersistedTimestamp = logTimestamp;
+        _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
@@ -100,6 +114,7 @@ internal class WordIndexTrie : IWordIndex {
         }
         if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
         newSetState();
+        _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() => _trie.CompressMemory();
     public void Dispose() => _trie.Dispose();

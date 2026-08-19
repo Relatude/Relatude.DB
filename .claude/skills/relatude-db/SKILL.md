@@ -1,6 +1,6 @@
 ---
 name: relatude-db
-description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [ReferenceProperty]; types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; query methods WhereSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath; or media APIs like FileAdjustmentImage, ImageCropMode, GetUrl, FileHandler and FileUploadAsync. Also for C# projects referencing Relatude.DB.* namespaces or NuGets, designing node/relation models, writing or debugging Relatude queries, wiring a server in Program.cs, or middleware serving Relatude media URLs — even when Relatude is never named but these patterns appear.
+description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [ReferenceProperty]; types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; query methods WhereSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath; revert APIs BeginRevertWindow, RollbackRevertWindow, DeleteTransactionsAfter; or media APIs like FileAdjustmentImage, ImageCropMode, GetUrl, FileHandler and FileUploadAsync. Also for C# projects referencing Relatude.DB.* namespaces or NuGets, designing node/relation models, writing or debugging Relatude queries, wiring a server in Program.cs, or middleware serving Relatude media URLs — even when Relatude is never named but these patterns appear.
 ---
 
 # Relatude.DB
@@ -20,7 +20,7 @@ This SKILL.md is the working knowledge for everyday modelling and querying. Read
 | `references/datamodels.md` | You need the full property-attribute catalogue, marker attributes, `NodeMeta` fields, embedded types, the five relation shapes in detail, or the model builder's validation rules. |
 | `references/modelling-patterns.md` | You are designing a real model. Covers facet interfaces / multiple inheritance, the relation-vs-reference-vs-embedded decision, and a complete worked example domain in both flat and composed form. |
 | `references/queries.md` | You are writing anything beyond a simple `Where` — search, geo, facets, traversal, shortest path, includes/preloads, paging, cultures. |
-| `references/api-quickref.md` | You need the write surface: create/insert/update/delete/upsert variants, relating, transactions, locks, file upload and conversion. |
+| `references/api-quickref.md` | You need the write surface: create/insert/update/delete/upsert variants, relating, transactions, locks, reverting (rollback to an earlier point), file upload and conversion. |
 | `references/files-and-media.md` | Anything to do with files: uploading (including chunked uploads of large files), generating media URLs with `FileAdjustment`, image/video conversion, and the middleware that serves it all. |
 | `references/setup.md` | You are adding Relatude to a project, wiring `Program.cs`, registering a datamodel source, or configuring storage in the admin UI. |
 | `references/configuration.md` | You need the detail: every field of `relatude.db.json`, every `ServerOptions` option and lifecycle event in fire order, and the two ways of registering a datamodel. |
@@ -274,7 +274,28 @@ t.Relate<IVenue>(venue, v => v.Events, ev);
 TransactionResult result = t.Execute();
 ```
 
-Full write surface, locks, file upload and conversion: `references/api-quickref.md`.
+### Reverting: experiment on real data, then roll back
+
+The store can be put back to an earlier point by **permanently deleting every transaction after
+it** — built precisely so an agent can experiment or seed against a real database without copying
+it. Prefer the revert window when you control the session:
+
+```csharp
+long ts = db.BeginRevertWindow();   // mark the rollback target
+// ... insert, update, delete, query freely ...
+db.RollbackRevertWindow();          // discard everything since Begin — the exact prior state
+// or db.CommitRevertWindow();      // keep everything
+```
+
+Rollback inside a window is cheap (log truncation + reload, no index rebuild — except the SQLite
+index engine, which rebuilds). Without a window, `db.DeleteTransactionsAfter(ts)` reverts to any
+remembered `db.Timestamp`, even across restarts, at the cost of rebuilding whatever persisted state
+advanced past the point; pass `dryRun: true` to preview. From the outside, the CLI does the same:
+`ts=$(relatude timestamp)` … `relatude revert --after $ts --yes`. It is destructive and global
+(other writers' transactions in the range are deleted too), files uploaded by deleted transactions
+stay behind as orphans, and closing the store ends an open window as a commit.
+
+Full write surface, locks, reverting, file upload and conversion: `references/api-quickref.md`.
 
 ## Querying
 

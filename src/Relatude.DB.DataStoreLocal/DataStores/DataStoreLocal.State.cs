@@ -164,7 +164,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
                 if (stream.More()) persistedChainState = WALFile.ReadChainState(stream); // absent in state files written before version chains
-                var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
+                var bytesPerSecond = stream.Length / (Math.Max(sw.ElapsedMilliseconds, 1) / 1000D); // a small state file reads in under 1ms
+
                 setStartupProgressEstimate(55);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);

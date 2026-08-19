@@ -16,6 +16,9 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     readonly SetRegister _sets;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
+    // true whenever the in-memory state may differ from the persisted body; starts true so an
+    // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
+    bool _changedSinceLastSave = true;
     internal ValueArrayIndexBase(Definition def, string uniqueKey, string freindlyName, IIOProvider io, FileKeyUtility fileKey) {
         _nodeIdByValue = new(def.Sets);
         UniqueKey = uniqueKey;
@@ -37,6 +40,7 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
         return 0;
     }
     public void Add(int nodeId, object value) {
+        _changedSinceLastSave = true;
         var v = (T[])value;
         _arrays.Add(nodeId, v);
         // dedup: the same element may occur several times in one node's array,
@@ -44,6 +48,7 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
         foreach (var e in v.Distinct()) _nodeIdByValue.Index(e, nodeId);
     }
     public void Remove(int nodeId, object value) {
+        _changedSinceLastSave = true;
         var v = (T[])value;
         _arrays.Remove(nodeId);
         foreach (var e in v.Distinct()) _nodeIdByValue.DeIndex(e, nodeId);
@@ -80,6 +85,14 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
         return _sets.Union(matches);
     }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // appending a stamp is only sound when the persisted body equals the in-memory state: the
+        // stamp is trusted on the next open, so changes missing from a stale body would be skipped
+        // by the log replay and silently lost — and a never-persisted index would get a body-less,
+        // unreadable file. Persist the full state whenever the body may be behind:
+        if (_changedSinceLastSave) {
+            SaveStateForMemoryIndexes(newTimestamp, walFileId);
+            return;
+        }
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
@@ -100,6 +113,7 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
         stream.WriteVerifiedLong(logTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = logTimestamp;
+        _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
@@ -118,6 +132,7 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
             walId = stream.ReadGuid();
         }
         if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
+        _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() { }
     public void Dispose() { }

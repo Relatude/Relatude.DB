@@ -38,26 +38,27 @@ concept builds on the last.
 13. [Create, insert, update, delete](#13-create-insert-update-delete)
 14. [Relating nodes](#14-relating-nodes)
 15. [Transactions](#15-transactions)
-16. [Uploading files](#16-uploading-files)
+16. [Older versions of a node](#16-older-versions-of-a-node) · [16.1 reverting the database](#161-reverting-the-database-to-an-earlier-point)
+17. [Uploading files](#17-uploading-files)
 
 **Part III — Querying**
 
-17. [Query anatomy](#17-query-anatomy)
-18. [Filtering with Where](#18-filtering-with-where)
-19. [Text and semantic search](#19-text-and-semantic-search)
-20. [Geo queries](#20-geo-queries)
-21. [Relation filters](#21-relation-filters)
-22. [Eager loading: Include and Preload](#22-eager-loading-include-and-preload)
-23. [Graph traversal and shortest path](#23-graph-traversal-and-shortest-path)
-24. [Sorting, paging and result sets](#24-sorting-paging-and-result-sets)
-25. [Aggregates](#25-aggregates)
-26. [Faceted search](#26-faceted-search)
-27. [Cultures, visibility and scoped stores](#27-cultures-visibility-and-scoped-stores)
-28. [Pitfalls and gotchas](#28-pitfalls-and-gotchas)
+18. [Query anatomy](#18-query-anatomy)
+19. [Filtering with Where](#19-filtering-with-where)
+20. [Text and semantic search](#20-text-and-semantic-search)
+21. [Geo queries](#21-geo-queries)
+22. [Relation filters](#22-relation-filters)
+23. [Eager loading: Include and Preload](#23-eager-loading-include-and-preload)
+24. [Graph traversal and shortest path](#24-graph-traversal-and-shortest-path)
+25. [Sorting, paging and result sets](#25-sorting-paging-and-result-sets)
+26. [Aggregates](#26-aggregates)
+27. [Faceted search](#27-faceted-search)
+28. [Cultures, visibility and scoped stores](#28-cultures-visibility-and-scoped-stores)
+29. [Pitfalls and gotchas](#29-pitfalls-and-gotchas)
 
 **Part IV — Tooling**
 
-29. [The command line tool](#29-the-command-line-tool)
+30. [The command line tool](#30-the-command-line-tool)
 
 ---
 ---
@@ -593,7 +594,7 @@ bool   near   = oslo.IsWithin(bergen, 500_000); // true — within 500 km
 ```
 
 `IsWithin(center, meters)` is the important one: **the query compiler recognises it inside a query
-lambda and accelerates it with the spatial index.** See [§20 Geo queries](#20-geo-queries).
+lambda and accelerates it with the spatial index.** See [§21 Geo queries](#21-geo-queries).
 
 ### How it is stored (and what that implies)
 
@@ -632,7 +633,7 @@ public FileValue Photo { get; set; } = FileValue.Empty;
 public FileValue Brochure { get; set; } = FileValue.Empty;
 ```
 
-Uploading and serving bytes is covered in [§16](#16-uploading-files).
+Uploading and serving bytes is covered in [§17](#17-uploading-files).
 
 ---
 
@@ -906,7 +907,7 @@ Part III applies to it.
 
 > Unlike `Reference<T>`, **`foreach` over a `Many` side does load lazily** when nothing was
 > preloaded. It is still worth using `.Include(...)` when you are iterating many parents — see
-> [§22](#22-eager-loading-include-and-preload).
+> [§23](#23-eager-loading-include-and-preload).
 
 ### 9.1 Relation lists are ordered
 
@@ -1875,7 +1876,112 @@ db.RegisterTransactionPlugin(myPlugin);   // INodeTransactionPlugin: BeforeExecu
 
 ---
 
-## 16. Uploading files
+## 16. Older versions of a node
+
+Every write appends the **full node** to the transaction log — an update never overwrites the
+previous record, it links back to it. The log is therefore a version history, and
+`FindOlderVersions` walks it, newest first:
+
+```csharp
+NodeVersion<IVenue>[] history = db.FindOlderVersions<IVenue>(venueId);          // up to 100
+NodeVersion<IVenue>[] recent  = db.FindOlderVersions<IVenue>(venueId, maxCount: 10);
+
+foreach (var v in history) {
+    Console.WriteLine($"{v.EstimatedCreationUtc:u}  {v.Node.Name}  capacity {v.Node.Capacity}");
+}
+```
+
+Each `NodeVersion<T>` carries the node **as it was when that version was written**, mapped to your
+model type, plus:
+
+- `Timestamp` — the log timestamp of the transaction that wrote the version, also available as a
+  UTC time through `EstimatedCreationUtc`.
+- `Source` — which log file the version was read from.
+
+The result is strictly *older* versions: the current version is not included. There is also an
+untyped overload, `db.FindOlderVersions(venueId)`, returning `NodeVersion<object>[]`.
+
+Five things to know before building on it:
+
+- **Versions are read straight from the log files on every call** — one disk read per version,
+  nothing cached. Treat it as a history and audit API, not something to call per page view.
+- **How far back it reaches depends on the log.** The primary log holds versions back to the last
+  log rewrite — a rewrite (used by backups and log truncation) compacts the log to current state
+  only, which discards history by design. With `SecondaryBackupLog` enabled in settings, the
+  secondary log survives rewrites and keeps the deeper history; `FindOlderVersions` searches both
+  logs and merges the results.
+- **Relations are not versioned.** A version records the node's property values; relation
+  properties on the returned object resolve against the store as it is *now*.
+- **Deleted nodes have no history.** The API answers for nodes that currently exist, and deleting
+  a node ends its chain — re-inserting the same id starts a fresh history.
+- **Older databases join in gradually.** Version chains require the current log file format; a
+  database created before it keeps working, but history only starts accumulating once the log is
+  rewritten (primary) or the secondary log is recreated.
+
+### 16.1 Reverting the database to an earlier point
+
+Where `FindOlderVersions` *reads* history, the revert API *rewrites* it: it puts the whole database
+back to an earlier point by **permanently deleting every transaction after it** — the log is
+truncated as if they never happened. It exists for experiments, tests and seeding: try something
+against real data, then keep it or throw it away. It is also the intended workflow for a coding
+agent working on your database: remember the timestamp, experiment freely, revert.
+
+There are two forms. The **revert window** is the cheap, planned one:
+
+```csharp
+long ts = db.BeginRevertWindow();   // mark the rollback target
+// ... experiment freely: insert, update, delete, query ...
+db.RollbackRevertWindow();          // discard everything since Begin — the exact prior state
+// ... or ...
+db.CommitRevertWindow();            // keep everything, resume normal persistence
+```
+
+While a window is active the store suspends everything that would persist state past the window
+start — index engine durability, state snapshots, log rewrites — so a rollback is just a log
+truncation plus a reload, with no index rebuild. The transactions themselves stay fully durable in
+the log the whole time: a crash mid-window *keeps* the changes, rollback is an explicit act, never
+a side effect. Keep windows short-lived (durability of the index engines is deferred for their
+duration), and note that closing the store ends an open window as a commit. Only one window can be
+active at a time. `db.RevertWindow` returns the active window, or null.
+
+**`DeleteTransactionsAfter`** is the general, unplanned form — no window needed, it works against
+any remembered timestamp, even across restarts:
+
+```csharp
+long ts = db.Timestamp;                                  // remember BEFORE the changes
+// ... changes, possibly across a restart ...
+var preview = db.DeleteTransactionsAfter(ts, dryRun: true);   // counts only, changes nothing
+var result  = db.DeleteTransactionsAfter(ts);                 // truncate the log + reload
+```
+
+Both forms return a `DeleteTransactionsResult`: transactions and actions deleted, bytes truncated,
+and what had to be rebuilt. The difference between the forms is cost, not correctness: whatever
+persisted state has advanced past the target — the state snapshot, index files, index engines — is
+reset and rebuilt from the truncated log, which on a large database means a full replay. Inside a
+revert window nothing advances, so nothing rebuilds; the one exception is the SQLite index engine,
+which is durable per transaction and is always reset and rebuilt on rollback. The other engines
+(native KV, Lucene, the disk text index) reopen at the window start untouched.
+
+Six things to know before reaching for it:
+
+- **It is destructive and global.** Deleted transactions are gone from the log as if never
+  executed — including writes made by *other* parts of the application during the window. This is
+  a development and maintenance tool; on a shared live database, coordinate before rolling back.
+- **The method names are blunt on purpose.** `DeleteTransactionsAfter` describes exactly what
+  happens; there is no undo of a rollback.
+- **Deleting everything is refused.** The timestamp must be at or after the first transaction in
+  the log.
+- **Files are not reverted.** Content uploaded to the file store by deleted transactions stays
+  behind as orphans; the file slots on the reverted nodes are back to their old values.
+- **Reverting interacts with history.** Section 16's version chains are read from the same log, so
+  a revert deletes the versions with it — and a log rewrite (backup with truncate, auto truncate)
+  is blocked while a revert window is active, since it would compact away the rollback target.
+- **The CLI wraps the general form** for use from the outside, without writing any code — see
+  [section 30](#30-the-command-line-tool).
+
+---
+
+## 17. Uploading files
 
 ```csharp
 // From a local path, by expression — the readable form
@@ -2087,7 +2193,7 @@ Four things in there are load-bearing:
 
 # Part III — Querying
 
-## 17. Query anatomy
+## 18. Query anatomy
 
 Every query is built with the `IQueryOfNodes<TNode, TInclude>` builder and finished with
 `Execute()`.
@@ -2146,7 +2252,7 @@ if (query.TryGet(out var ev)) { … }    // succeeds only when exactly one row m
 
 ---
 
-## 18. Filtering with Where
+## 19. Filtering with Where
 
 ```csharp
 // Expression form — the everyday tool
@@ -2187,7 +2293,7 @@ db.Query<IEvent>()
 
 ---
 
-## 19. Text and semantic search
+## 20. Text and semantic search
 
 Relatude.DB has BM25 keyword search and vector/semantic search built in, and blends them with a
 single `semanticRatio` knob: `0.0` is pure keyword, `1.0` is pure vector, anything between is a
@@ -2258,7 +2364,7 @@ A property participates in search only if it opted in:
 
 ---
 
-## 20. Geo queries
+## 21. Geo queries
 
 Spatial filtering is a normal `Where` clause. The query compiler recognises
 `GeoCoordinate.IsWithin(center, meters)` and accelerates it with the coordinate index.
@@ -2335,7 +2441,7 @@ IEnumerable<IVenue> FindNearest(NodeStore db, GeoCoordinate center, int wanted =
 
 ---
 
-## 21. Relation filters
+## 22. Relation filters
 
 Filter nodes by *what they are related to*, without loading either side:
 
@@ -2381,7 +2487,7 @@ var sellingOut = venue.Events
 
 ---
 
-## 22. Eager loading: Include and Preload
+## 23. Eager loading: Include and Preload
 
 Both fetch related data in the same round trip. The difference is *what kind of property* they
 target.
@@ -2463,7 +2569,7 @@ var idList = ids.Execute().ToArray();
 
 ---
 
-## 23. Graph traversal and shortest path
+## 24. Graph traversal and shortest path
 
 This is where the graph model earns its keep. Both operations work over **relations** — not
 references, not embedded data.
@@ -2519,7 +2625,7 @@ The result carries the node ids and the materialised nodes in order, from → to
 
 ---
 
-## 24. Sorting, paging and result sets
+## 25. Sorting, paging and result sets
 
 ```csharp
 .OrderBy(Expression<Func<TNode, object>> expression, bool descending = false)
@@ -2571,7 +2677,7 @@ Console.WriteLine($"Showing {page.Count} of {page.TotalCount} " +
 
 ---
 
-## 25. Aggregates
+## 26. Aggregates
 
 ```csharp
 int count = db.Query<IEvent>().Where(e => e.Status == EventStatus.Published).Count();
@@ -2587,7 +2693,7 @@ than `Execute().Count()`.
 
 ---
 
-## 26. Faceted search
+## 27. Faceted search
 
 Facets bucket a result set across indexed properties, and are what you build a filter sidebar
 from. Call `.Facets()` to switch the builder into facet mode, then declare which facets you want.
@@ -2658,7 +2764,7 @@ bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the propert
 
 ---
 
-## 27. Cultures, visibility and scoped stores
+## 28. Cultures, visibility and scoped stores
 
 Two equivalent styles. Per query:
 
@@ -2690,7 +2796,7 @@ only — **never hand it to a request handler**.
 
 ---
 
-## 28. Pitfalls and gotchas
+## 29. Pitfalls and gotchas
 
 A checklist of the things that actually bite people.
 
@@ -2760,7 +2866,7 @@ A checklist of the things that actually bite people.
 
 # Part IV — Tooling
 
-## 29. The command line tool
+## 30. The command line tool
 
 `Relatude.DB.Console` is a command line tool that works on a database and a datamodel **from the
 outside**: nothing of your application has to run, it only has to be readable. It exists for the
@@ -2842,6 +2948,10 @@ relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
 relatude insert --type Product --file products.json
 relatude delete --id 4101bdce-040a-4aa7-940f-354e31cdc4c5 --yes
 
+relatude timestamp                       # head of the transaction log, as a bare number on stdout
+relatude revert --after <ts> --dry-run   # what would be deleted after that point
+relatude revert --after <ts> --yes       # delete it — the database as if it never happened
+
 relatude maintenance flush
 relatude maintenance truncate-log        # rewrite the log to current state only
 relatude maintenance save-state          # write state files, so the next start is fast
@@ -2852,6 +2962,21 @@ relatude maintenance reset-indexes --yes # delete state and index files, rebuild
 
 `relatude help <command>` documents one command, **`relatude help all` prints the whole reference in
 one go** — that is the built-in reference, and it is the same text this section summarises.
+
+`timestamp` and `revert` are the two halves of the experiment workflow from
+[section 16.1](#161-reverting-the-database-to-an-earlier-point), run from the outside: capture the
+head of the log before making changes, and put the database back afterwards. `timestamp` prints the
+bare number on stdout so a script — or an agent — can hold on to it:
+
+```bash
+ts=$(relatude timestamp)
+# ... run the app, insert, update, delete ...
+relatude revert --after $ts --yes
+```
+
+`revert` always previews what would go and refuses to act without `--yes`; `--after` also accepts a
+UTC date/time like `2026-08-19T14:30:00Z`. Persisted state that advanced past the point (state
+snapshot, index engines) is reset and rebuilt from the log, which the command reports.
 
 The query given to `query` is the *text* form of the query API — the form the HTTP API and the admin
 UI send. It reads like the typed API of [Part III](#part-iii--querying): a node type followed by
@@ -2885,7 +3010,7 @@ files belong in code, where the compiler checks what is being related to what.
 - **Ids derived from names are a trap the tool will point out.** `validate` counts the node types and
   members whose ids come from their names, and `codegen` writes the model out with those ids made
   explicit — which is how you pin them before a rename (see pitfall 16 in
-  [section 28](#28-pitfalls-and-gotchas)).
+  [section 29](#29-pitfalls-and-gotchas)).
 
 ---
 
@@ -2905,6 +3030,7 @@ your build, read the source — it is small and well commented:
 | Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
 | Facets | `src/Relatude.DB.NodeStore/Query/QueryOfFacets.cs`, `ResultSetFacets.cs` |
 | Store & transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
+| Reverting (revert window, `DeleteTransactionsAfter`) | `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Revert.cs` |
 | `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |

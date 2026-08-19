@@ -132,25 +132,29 @@ public class VersionTests {
 
     [TestMethod]
     public void SecondaryLogKeepsHistoryAcrossRewrite() {
-        // Reopening a store after a hot-swap rewrite currently fails to load the memory index state
-        // files and falls back to a rebuild (a pre-existing bug, present without any version api
-        // involvement); the rebuild discards the persisted chain state, so the restart part of this
-        // scenario cannot be asserted until that bug is fixed. Restart persistence of the chain
-        // state is covered by SecondaryChainStateSurvivesRestart.
         var dir = tempDir();
-        using var store = openDiskStore(dir, secondaryLog: true);
-        var db = (DataStoreLocal)store.Datastore;
-        var id = insertAndUpdate(store, 3); // v0..v3
-        db.RewriteStore(true, db.FileKeys.WAL_NextFileKey(db.IO));
-        // the primary chain is reset, but the secondary log survives the rewrite with the full history
-        assertVersions(store.FindOlderVersions<VerArticle>(id), 2, 1, 0);
-        update(store, id, 4, 5); // v4, v5 written to both files
-        // the version the rewrite copied into the new primary has the same content as v3 in the
-        // secondary and must collapse into it, not show up as an extra version
-        var versions = store.FindOlderVersions<VerArticle>(id);
-        assertVersions(versions, 4, 3, 2, 1, 0);
-        Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetSecondaryFileKey()), "deep history read from the secondary log");
-        Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetLatestFileKey(db.IO)), "recent history read from the primary log");
+        Guid id;
+        using (var store = openDiskStore(dir, secondaryLog: true)) {
+            var db = (DataStoreLocal)store.Datastore;
+            id = insertAndUpdate(store, 3); // v0..v3
+            db.RewriteStore(true, db.FileKeys.WAL_NextFileKey(db.IO));
+            // the primary chain is reset, but the secondary log survives the rewrite with the full history
+            assertVersions(store.FindOlderVersions<VerArticle>(id), 2, 1, 0);
+            update(store, id, 4, 5); // v4, v5 written to both files
+            // the version the rewrite copied into the new primary has the same content as v3 in the
+            // secondary and must collapse into it, not show up as an extra version
+            var versions = store.FindOlderVersions<VerArticle>(id);
+            assertVersions(versions, 4, 3, 2, 1, 0);
+            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetSecondaryFileKey()), "deep history read from the secondary log");
+            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetLatestFileKey(db.IO)), "recent history read from the primary log");
+        }
+        using (var store = openDiskStore(dir, secondaryLog: true)) {
+            // reopens from the persisted chain state written at the rewrite; the deep history in
+            // the secondary log stays reachable and the chains keep working across the restart
+            assertVersions(store.FindOlderVersions<VerArticle>(id), 4, 3, 2, 1, 0);
+            update(store, id, 6, 6);
+            assertVersions(store.FindOlderVersions<VerArticle>(id), 5, 4, 3, 2, 1, 0);
+        }
     }
 
     [TestMethod]

@@ -75,6 +75,7 @@ Full treatment in `files-and-media.md`.
 - **Seed in `OnStoreOpenBackground`, not `OnStoreOpen`** — the latter blocks the store from opening.
 - **Datamodel source namespaces match exactly, not by prefix**, and `AssemblyFileReference` / `TypeNameFileReference` / `CSharpCodeFile` throw `NotImplementedException`.
 - **`DBAdminUIUrlPath` in the settings file overrides the path passed to `UseRelatudeDB()`.**
+- **Reverting is destructive and global.** `RollbackRevertWindow` / `DeleteTransactionsAfter` permanently delete every transaction after the target from the log — including concurrent writers' transactions in that range — and files uploaded by deleted transactions stay behind in the file store as orphans. Prefer a revert window over a bare `DeleteTransactionsAfter`: inside a window rollback needs no index rebuild (except the SQLite engine); outside one, everything persisted past the target is rebuilt from the log. Closing the store ends an open window as a *commit*, and hot-swap log rewrites (auto truncate) are refused while a window is active.
 
 ## Where to look in the source
 
@@ -95,6 +96,7 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
 | Facets | `src/Relatude.DB.NodeStore/Query/QueryOfFacets.cs`, `ResultSetFacets.cs` |
 | Store & transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
+| Reverting (revert window, DeleteTransactionsAfter) | `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Revert.cs`, `src/Relatude.DB.DataStore/DataStores/Reverting.cs` |
 | `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | File adjustments and conversion | `src/Relatude.DB.DataStore/FileConversion/` |

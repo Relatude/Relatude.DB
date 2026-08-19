@@ -42,6 +42,9 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly StateIdValueTracker<T> _stateId;
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
+    // true whenever the in-memory state may differ from the persisted body; starts true so an
+    // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
+    bool _changedSinceLastSave = true;
     public ValueIndex(SetRegister register, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
@@ -98,6 +101,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public long StateId { get => _stateId.Current; }
     void add(int id, T value) {
+        _changedSinceLastSave = true;
         _valueById.Add(id, value);
         _idByValue.Index(value, id);
         _stateId.RegisterAddition(id, value);
@@ -105,6 +109,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         if (!_hasMax || comparer.Compare(value, _max!) > 0) { _max = value; _hasMax = true; }
     }
     void remove(int id, T value) {
+        _changedSinceLastSave = true;
         _valueById.Remove(id);
         _idByValue.DeIndex(value, id);
         _stateId.RegisterRemoval(id, value);
@@ -197,6 +202,14 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public bool HasFastPointLookup => true;
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // appending a stamp is only sound when the persisted body equals the in-memory state: the
+        // stamp is trusted on the next open, so changes missing from a stale body would be skipped
+        // by the log replay and silently lost — and a never-persisted index would get a body-less,
+        // unreadable file. Persist the full state whenever the body may be behind:
+        if (_changedSinceLastSave) {
+            SaveStateForMemoryIndexes(newTimestamp, walFileId);
+            return;
+        }
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
@@ -215,6 +228,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
         stream.WriteVerifiedLong(logTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = logTimestamp;
+        _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
@@ -233,6 +247,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             walId = stream.ReadGuid();
         }
         if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
+        _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() {
 

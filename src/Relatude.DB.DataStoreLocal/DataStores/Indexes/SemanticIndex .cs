@@ -14,6 +14,9 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
+    // true whenever the in-memory state may differ from the persisted body; starts true so an
+    // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
+    bool _changedSinceLastSave = true;
     public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
         _register = sets;
         UniqueKey = uniqueKey;
@@ -61,12 +64,14 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     }
     public void Add(int nodeId, object value) => Add(nodeId, (float[])value);
     public void Add(int nodeId, float[] value) {
+        _changedSinceLastSave = true;
         value = this.EnsureCorrectDimensions(value);
         _index.Set(nodeId, value);
         newSetState();
     }
     public void Remove(int nodeId, object value) => Remove(nodeId, (float[])value);
     public void Remove(int nodeId, float[] value) {
+        _changedSinceLastSave = true;
         _index.Clear(nodeId);
         newSetState();
     }
@@ -76,6 +81,14 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
         return 10;
     }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
+        // appending a stamp is only sound when the persisted body equals the in-memory state: the
+        // stamp is trusted on the next open, so changes missing from a stale body would be skipped
+        // by the log replay and silently lost — and a never-persisted index would get a body-less,
+        // unreadable file. Persist the full state whenever the body may be behind:
+        if (_changedSinceLastSave) {
+            SaveStateForMemoryIndexes(newTimestamp, walFileId);
+            return;
+        }
         var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
@@ -91,6 +104,7 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
         stream.WriteVerifiedLong(logTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = logTimestamp;
+        _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
@@ -105,6 +119,7 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
             walId = stream.ReadGuid();
         }
         if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
+        _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() {
     }
