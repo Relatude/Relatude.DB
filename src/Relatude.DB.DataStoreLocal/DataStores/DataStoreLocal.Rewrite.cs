@@ -35,6 +35,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     void rewriteStore(long activityId, bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
         // written to minimize locking while rewriting store
         validateDatabaseState();
+        // a hot swap replaces the log file the revert window's position and file id refer to, and
+        // rebinds every engine to the new file — rolling back would then be impossible:
+        if (hotSwapToNewFile && RevertWindowIsActive)
+            throw new Exception("Log rewrite is not possible while a revert window is active. Commit or roll back the revert window first. ");
         if (destinationIO == null) destinationIO = _io;
         if (string.IsNullOrEmpty(newLogFileKey)) throw new Exception("New log file name cannot be empty. ");
         if (newLogFileKey == _wal.FileKey) throw new Exception("New log file name cannot be the same as current. ");

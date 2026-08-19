@@ -165,7 +165,11 @@ public class DataStoreSession : IDataStore {
     public int DeleteOldLogs() => _datastore.DeleteOldLogs();
     public void SetTimestamp(long timestamp) => _datastore.SetTimestamp(timestamp);
     public long Timestamp => _datastore.Timestamp;
-    public void Rollback(long timestamp) => _datastore.Rollback(timestamp);
+    public RevertWindowInfo? RevertWindow => _datastore.RevertWindow;
+    public long BeginRevertWindow(bool saveStateFirst = true) => _datastore.BeginRevertWindow(saveStateFirst);
+    public void CommitRevertWindow() => _datastore.CommitRevertWindow();
+    public DeleteTransactionsResult RollbackRevertWindow() => _datastore.RollbackRevertWindow();
+    public DeleteTransactionsResult DeleteTransactionsAfter(long afterTimestamp, bool dryRun = false) => _datastore.DeleteTransactionsAfter(afterTimestamp, dryRun);
 
     public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
         => _datastore.GetTextExtract(ids, indexType);

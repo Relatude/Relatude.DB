@@ -125,7 +125,10 @@ public static class WriteCommands {
     /// is why the mapper has to make it rather than Activator.
     /// </summary>
     static object create(NodeStore store, Type clrType) {
-        var method = typeof(NodeMapper).GetMethod(nameof(NodeMapper.NewObjectFromType))!.MakeGenericMethod(clrType);
+        // NewObjectFromType has non-generic overloads too, so GetMethod(name) alone is ambiguous
+        var method = typeof(NodeMapper).GetMethods()
+            .First(m => m.Name == nameof(NodeMapper.NewObjectFromType) && m.IsGenericMethodDefinition)
+            .MakeGenericMethod(clrType);
         try {
             return method.Invoke(store.Mapper, [null])!;
         } catch (TargetInvocationException err) {

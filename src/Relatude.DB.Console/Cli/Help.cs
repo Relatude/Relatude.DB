@@ -191,6 +191,41 @@ public static class Help {
         {modelOptions}
         {globalOptions}
         """,
+        ["timestamp"] = $"""
+        relatude timestamp [options]
+
+          Prints the head of the transaction log: the timestamp of the last transaction, as a bare
+          number on stdout so a script (or an agent) can capture it. This is the value to remember
+          BEFORE making changes you may want to undo with "relatude revert".
+
+            ts=$(relatude timestamp)
+            ... experiment: run the app, insert, update, delete ...
+            relatude revert --after $ts --yes
+        {databaseOptions}
+        {modelOptions}
+        {globalOptions}
+        """,
+        ["revert"] = $"""
+        relatude revert --after <timestamp> [options]
+
+          Puts the database back to an earlier point by permanently deleting every transaction made
+          after the timestamp - as if they never happened. The timestamp is the number printed by
+          "relatude timestamp" (taken before the changes), or a UTC date/time like
+          2026-08-19T14:30:00Z. The log file is truncated at that point and the database reloads;
+          state or indexes that were persisted after the point are rebuilt from the log, which the
+          command reports (on a large database that rebuild can take a while).
+
+          Nothing is deleted until --yes is given; without it the command only reports what would
+          go. Files uploaded by the deleted transactions are not removed from the file store.
+
+          Options:
+            --after <timestamp>  the last transaction to KEEP; everything after it is deleted
+            --dry-run            only report what would be deleted
+            --yes                actually delete, this cannot be undone
+        {databaseOptions}
+        {modelOptions}
+        {globalOptions}
+        """,
         ["insert"] = $$"""
         relatude insert --type <node type> [json] [options]
 
@@ -272,6 +307,8 @@ public static class Help {
           settings      print relatude.db.json, resolved and without secrets
           init          create a relatude.db.json
           maintenance   flush, truncate the log, save state, back up, rebuild indexes
+          timestamp     print the head of the transaction log, to remember before experimenting
+          revert        delete every transaction after a timestamp, restoring an earlier state
           insert        insert nodes from JSON
           delete        delete nodes by id
           version       print the Relatude.DB version

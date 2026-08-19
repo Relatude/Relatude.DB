@@ -37,7 +37,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _lock.EnterWriteLock();
                 try {
                     _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
-                    Engines.MakeDurable(_wal.LastTimestamp);
+                    // during a revert window the engines must not persist past the window start, so
+                    // they can reopen there after a rollback; the log itself stays fully durable
+                    // (checked inside the lock: a racing BeginRevertWindow cannot be trailed by a
+                    // stale MakeDurable that would stamp the engines past the window start)
+                    if (_revertWindow == null) Engines.MakeDurable(_wal.LastTimestamp);
                 } finally {
                     _lock.ExitWriteLock();
                 }
@@ -111,6 +115,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     object _saveStateLock = new();
     public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) {
+        if (RevertWindowIsActive) { // cheap early skip; re-checked under the lock below
+            LogInfo("Index state save skipped: a revert window is active. ");
+            return;
+        }
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
         try { // outer try so a flush failure before the lock still deregisters the activity
             FlushToDisk(true, activityId); // ensuring all writes are flushed before locking, to minimize time spent locked
@@ -121,6 +129,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
             _lock.EnterWriteLock();
             try {
+                if (_revertWindow != null) { // a state snapshot must never cover transactions past the window start
+                    LogInfo("Index state save skipped: a revert window is active. ");
+                    return;
+                }
                 FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock ( inside try so the write lock is released if it throws )
                 validateDatabaseState();
                 var anyOutOfSyncIndexes = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Any();
@@ -155,6 +167,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void SaveIndexCaches(bool force) {
         _lock.EnterWriteLock();
         try {
+            if (_revertWindow != null) return; // persisted caches must not cover transactions past the window start
             if (State == DataStoreState.Open)
                 Engines.SaveIndexCaches(force);
         } finally {
@@ -171,7 +184,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void Maintenance(MaintenanceAction a) {
-        if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) {
+        if (a.HasFlag(MaintenanceAction.TruncateLog) && RevertWindowIsActive) {
+            LogInfo("Log truncation skipped: a revert window is active. ");
+        } else if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) {
             var task = new RewriteTask() {
                 HotSwapToNewFile = true,
                 DeleteOldDbFilesAfterHotSwap = a.HasFlag(MaintenanceAction.DeleteOldLogs),
@@ -333,8 +348,5 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             _lock.ExitWriteLock();
         }
-    }
-    public void Rollback(long timestamp) {
-        throw new NotImplementedException();
     }
 }

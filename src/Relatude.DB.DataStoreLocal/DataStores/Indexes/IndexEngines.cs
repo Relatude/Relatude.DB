@@ -100,6 +100,28 @@ public sealed class IndexEngines : IDisposable {
     public void SetWalFileIdAndTimestamp(long timestamp, Guid walFileId) {
         foreach (var e in _distinct) e.SetWalFileIdAndTimestamp(timestamp, walFileId);
     }
+    /// <summary>
+    /// Resets every transactional engine whose durable position is newer than
+    /// <paramref name="timestamp"/>, so the replay after a log truncation rebuilds it instead of
+    /// leaving phantom transactions in it. Meant to be called on a freshly created engine set (no
+    /// indexes opened, nothing published in memory), where <see cref="IIndexEngine.GetTimestamp"/>
+    /// is the durable position by construction. Engines whose fresh instance cannot know its
+    /// position before its indexes are opened (e.g. Lucene reports 0) are simply not reset here —
+    /// the startup divergence check catches them and forces the full rebuild instead. Semantic
+    /// engines carry no engine-level timestamp and are covered by the same startup check.
+    /// Returns the names of the engines that were reset.
+    /// </summary>
+    public string[] ResetEnginesAhead(long timestamp, Action<string>? logInfo = null) {
+        List<string> reset = [];
+        foreach (var e in _distinct) {
+            if (e.GetTimestamp() > timestamp) {
+                e.ResetAll();
+                reset.Add(e.Name);
+                logInfo?.Invoke("Index engine \"" + e.Name + "\" held transactions newer than the revert point and was reset; it will be rebuilt from the log. ");
+            }
+        }
+        return [.. reset];
+    }
 
     // ---- maintenance ---------------------------------------------------------------------------
     public void DeleteUnopenedIndexes() {

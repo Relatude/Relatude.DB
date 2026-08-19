@@ -20,6 +20,12 @@ public interface IIOProvider {
     long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
     void RenameFile(string fileKey, string newFileKey);
+    /// <summary>Whether <see cref="TruncateFile"/> is supported. Providers that cannot shorten a
+    /// file in place (e.g. append-only blob storage) return false and throw from TruncateFile.</summary>
+    bool CanTruncate { get; }
+    /// <summary>Shortens the file to exactly <paramref name="newLength"/> bytes, discarding the
+    /// rest. The file must exist, have no open streams, and be at least that long already.</summary>
+    void TruncateFile(string fileKey, long newLength);
     void CloseAllOpenStreams();
     bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath);
     bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath);

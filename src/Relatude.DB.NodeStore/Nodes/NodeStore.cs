@@ -936,6 +936,34 @@ public class NodeStore : IDisposable {
     public void Flush() => Maintenance(MaintenanceAction.FlushDisk);
     /// <summary>Runs one or more housekeeping actions, see <see cref="MaintenanceAsync"/>. The flags can be combined.</summary>
     public void Maintenance(MaintenanceAction actions) => Datastore.Maintenance(actions);
+
+    // ---------------------------------------------------------------------------------------------------------
+    // REVERTING
+    // Rolling the database back to an earlier point by permanently deleting every transaction after it — for
+    // experiments, tests and seeding. The revert window is the cheap, planned form; DeleteTransactionsAfter works
+    // against any remembered timestamp but may have to rebuild indexes. See the members on IDataStore for detail.
+
+    /// <summary>The active revert window, or null when none is. See <see cref="BeginRevertWindow"/>.</summary>
+    public RevertWindowInfo? RevertWindow => Datastore.RevertWindow;
+    /// <summary>
+    /// Marks the current position as a rollback target and returns its timestamp. Everything written after this
+    /// can be discarded cheaply with <see cref="RollbackRevertWindow"/> or kept with <see cref="CommitRevertWindow"/>.
+    /// While the window is active the store suspends state snapshots, engine durability and log rewrites, so keep
+    /// windows short-lived. Closing the store ends the window as a commit.
+    /// </summary>
+    public long BeginRevertWindow(bool saveStateFirst = true) => Datastore.BeginRevertWindow(saveStateFirst);
+    /// <summary>Ends the revert window keeping every change made inside it.</summary>
+    public void CommitRevertWindow() => Datastore.CommitRevertWindow();
+    /// <summary>Ends the revert window by permanently deleting every transaction made inside it, restoring the
+    /// database to the state it had at <see cref="BeginRevertWindow"/>.</summary>
+    public DeleteTransactionsResult RollbackRevertWindow() => Datastore.RollbackRevertWindow();
+    /// <summary>
+    /// Permanently deletes every transaction after the given timestamp (take it from <see cref="Timestamp"/>
+    /// before making the changes), truncating the log as if they never happened. Works without a revert window,
+    /// but persisted state that has advanced past the timestamp is then rebuilt from the log, which can be slow
+    /// on a large database. Pass <paramref name="dryRun"/> to only report what would be deleted.
+    /// </summary>
+    public DeleteTransactionsResult DeleteTransactionsAfter(long afterTimestamp, bool dryRun = false) => Datastore.DeleteTransactionsAfter(afterTimestamp, dryRun);
     /// <summary>
     /// Starts a transaction you fill with operations and then commit with <see cref="Transaction.Execute(bool)"/>.
     /// Use it whenever several changes must succeed or fail together. Nothing is written until it is executed.

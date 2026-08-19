@@ -190,7 +190,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
             dimensions = 0;
             return false;
         }
-        dimensions = _index[0].Length;
+        dimensions = _index.First().Value.Length; // keyed by node id, so "first entry" is not key 0
         return true;
     }
 }

@@ -109,8 +109,8 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
     public void Add(int nodeId, float[] value) {
         ensureOpened();
         _lock.EnterWriteLock();
-        value = this.EnsureCorrectDimensions(value);
         try {
+            value = this.EnsureCorrectDimensions(value);
             if (value.Length == 0) { // an empty embedding (empty source text) means nothing searchable
                 removeInner(nodeId);
             } else {

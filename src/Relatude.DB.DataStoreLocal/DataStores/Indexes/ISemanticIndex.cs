@@ -31,15 +31,18 @@ public interface ISemanticIndex : IIndex {
     void LogWarning(string message);
 }
 public static class SemanticIndexExtensions {
-    static HashSet<string> _hasWarned = new();
+    static readonly HashSet<string> _hasWarned = new();
     public static float[] EnsureCorrectDimensions(this ISemanticIndex index, float[] vector) {
+        if (vector.Length == 0) return vector; // the "nothing searchable" marker (empty source text) removes the entry and must never be coerced
         if (!index.TryGetNoDimensions(out var dimensions)) return vector; // no dimensions yet, so any vector is valid
         if (vector.Length != dimensions) {
             var resized = new float[dimensions];
             for ( int i = 0; i < dimensions; i++) {
                 resized[i] = 1;
             }
-            if (_hasWarned.Add(index.FriendlyName)) {
+            bool firstWarning;
+            lock (_hasWarned) firstWarning = _hasWarned.Add(index.FriendlyName);
+            if (firstWarning) {
                 index.LogWarning($"WARNING: Vector of length {vector.Length} was resized to {dimensions} dimensions for index {index.FriendlyName}. Please reindex all vectors for proper search results.");
             }
             return resized;

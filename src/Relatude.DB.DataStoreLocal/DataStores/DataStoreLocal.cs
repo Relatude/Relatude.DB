@@ -380,6 +380,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (_state != DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
+            endRevertWindowAsCommitIfActive(); // before the flush, so the engines become durable at the head
             FlushToDisk(true, 0);
             _state = DataStoreState.Closing;
             LogInfo("Database closing");
@@ -421,6 +422,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { _scheduler.Stop(); } catch { }
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
+        try { endRevertWindowAsCommitIfActive(); } catch { } // before the flush, so the engines become durable at the head
         try { if (_state == DataStoreState.Open) FlushToDisk(true, 0); } catch { }
         try { _index?.Dispose(); } catch { }
         try { _wal?.Dispose(); } catch { }

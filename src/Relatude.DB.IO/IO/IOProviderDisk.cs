@@ -186,6 +186,23 @@ public class IOProviderDisk : IIOProvider {
     }
     public bool CanRenameFile => true;
 
+    public bool CanTruncate => !_readOnly;
+    public void TruncateFile(string fileKey, long newLength) {
+        lock (_lock) {
+            if (_readOnly) throw new Exception("The IO provider is read only. ");
+            FileKeyUtility.ValidateFileKeyString(fileKey);
+            var filePath = Path.Combine(BaseFolder, fileKey);
+            if (!File.Exists(filePath)) throw new FileNotFoundException("File not found: " + fileKey);
+            if (_openReaders.ContainsKey(filePath) || _openWriters.ContainsKey(fileKey))
+                throw new Exception($"File {fileKey} has open streams and cannot be truncated. ");
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            if (newLength < 0 || newLength > fs.Length)
+                throw new ArgumentOutOfRangeException(nameof(newLength), $"New length {newLength} is outside the file (0-{fs.Length}). ");
+            fs.SetLength(newLength);
+            fs.Flush(true);
+        }
+    }
+
     public void CloseAllOpenStreams() {
         lock (_lock) {
             foreach (var stream in _openStreams.ToArray()) {

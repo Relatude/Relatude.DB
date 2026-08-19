@@ -60,6 +60,8 @@ public static class Program {
         "init" => InitCommand.RunAsync(args),
         "settings" => SettingsCommand.RunAsync(args),
         "maintenance" => MaintenanceCommand.RunAsync(args),
+        "timestamp" => RevertCommand.TimestampAsync(args),
+        "revert" => RevertCommand.RunAsync(args),
         "insert" => WriteCommands.InsertAsync(args),
         "delete" => WriteCommands.DeleteAsync(args),
         "version" => version(args),

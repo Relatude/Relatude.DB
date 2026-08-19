@@ -157,7 +157,49 @@ public interface IDataStore : IDisposable {
     int DeleteOldLogs();
     void SetTimestamp(long timestamp);
     long Timestamp { get; }
-    void Rollback(long timestamp);
+
+    // Reverting: rolling the database back to an earlier log timestamp. Two forms exist.
+    //
+    // The revert window is the cheap, planned form: BeginRevertWindow marks the current position
+    // and suspends everything that would persist state past it (engine durability, state
+    // snapshots, log rewrites), so RollbackRevertWindow only truncates the log tail and reloads.
+    // CommitRevertWindow keeps the changes and resumes normal persistence. Intended for
+    // experiments, tests and seeding: begin, mutate freely, then keep or discard.
+    //
+    // DeleteTransactionsAfter is the general, unplanned form: it works against any timestamp
+    // (e.g. one remembered before the changes) but may have to reset and rebuild whatever
+    // persisted state has advanced past it — state snapshot, memory index files, index engines —
+    // which on a large database means a full replay of the log. Both forms permanently remove the
+    // deleted transactions from the log, as if they never happened; file store content uploaded by
+    // deleted transactions is not removed and becomes orphaned.
+
+    /// <summary>The active revert window, or null when none is.</summary>
+    RevertWindowInfo? RevertWindow { get; }
+    /// <summary>
+    /// Marks the current log position as a rollback target and suspends engine durability, state
+    /// snapshots and log rewrites until the window ends. Returns the window's timestamp. With
+    /// <paramref name="saveStateFirst"/> (the default) the state snapshot is written first, so a
+    /// later rollback reloads from the snapshot instead of replaying the log. Only one window can
+    /// be active; closing the store ends the window as a commit.
+    /// </summary>
+    long BeginRevertWindow(bool saveStateFirst = true);
+    /// <summary>Ends the revert window keeping every change made inside it, and makes the engines durable again.</summary>
+    void CommitRevertWindow();
+    /// <summary>
+    /// Ends the revert window by permanently deleting every transaction made inside it: the log is
+    /// truncated back to the window's position and the store reloads. Engines that persist
+    /// per-transaction (e.g. the SQLite index engine) are reset and rebuilt from the log; the
+    /// deferring engines reopen at the window start without a rebuild.
+    /// </summary>
+    DeleteTransactionsResult RollbackRevertWindow();
+    /// <summary>
+    /// Permanently deletes every transaction with a timestamp after <paramref name="afterTimestamp"/>
+    /// (take it from <see cref="GetLastTimestampID"/> before making changes). The log is truncated
+    /// and the store reloads; any persisted state that has advanced past the timestamp is reset and
+    /// rebuilt from the remaining log, which on a large database can be slow. With
+    /// <paramref name="dryRun"/> nothing is changed and the result reports what would be deleted.
+    /// </summary>
+    DeleteTransactionsResult DeleteTransactionsAfter(long afterTimestamp, bool dryRun = false);
     TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType);
 }
 

@@ -197,6 +197,10 @@ public class AzureBlobIOProvider:IIOProvider {
         return client.Exists() ? client.GetProperties().Value.ContentLength : 0;
     }
     public bool CanRenameFile => false;
+    public bool CanTruncate => false;
+    public void TruncateFile(string fileKey, long newLength) {
+        throw new NotSupportedException("Azure blob storage cannot truncate a blob in place. ");
+    }
     public void RenameFile(string fileKey, string newFileKey) {
         lock (_lock) {
             FileKeyUtility.ValidateFileKeyString(fileKey);

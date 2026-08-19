@@ -174,6 +174,20 @@ public class IOProviderMemory : IIOProvider {
         }
     }
     public bool CanRenameFile => true;
+    public bool CanTruncate => true;
+    public void TruncateFile(string fileKey, long newLength) {
+        FileKeyUtility.ValidateFileKeyString(fileKey);
+        lock (_lock) {
+            if (!_disk.TryGetValue(fileKey, out var file)) throw new Exception($"File {fileKey} does not exist");
+            if (file.Meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+            if (file.Meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+            if (newLength < 0 || newLength > file.Bytes.Length)
+                throw new ArgumentOutOfRangeException(nameof(newLength), $"New length {newLength} is outside the file (0-{file.Bytes.Length}). ");
+            file.Bytes = file.Bytes[..(int)newLength];
+            file.Meta.Size = newLength;
+            file.Meta.LastModifiedUtc = DateTime.UtcNow;
+        }
+    }
     public void RenameFile(string fileKey, string newFileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
         lock (_lock) {

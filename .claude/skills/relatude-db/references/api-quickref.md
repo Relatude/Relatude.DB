@@ -12,6 +12,7 @@ The write surface. `db` is `ctx.Database`, a `NodeStore`. Query methods are in `
 - [Reordering related items](#reordering-related-items)
 - [Transactions](#transactions)
 - [Locks](#locks)
+- [Reverting: rollback to an earlier point](#reverting-rollback-to-an-earlier-point)
 - [Transaction plugins](#transaction-plugins)
 - [Uploading files](#uploading-files)
 - [Serving and converting files](#serving-and-converting-files)
@@ -206,6 +207,41 @@ if (db.TryRequestLock(venueId, out var id)) { … }
 
 var globalLockId = db.RequestGlobalLock(1000, 1000);   // for maintenance windows
 ```
+
+## Reverting: rollback to an earlier point
+
+For experiments, tests and seeding: put the database back by **permanently deleting every
+transaction after a point in time** — the log is truncated as if they never happened. Two forms.
+
+**The revert window** is the cheap, planned form. While it is active the store suspends state
+snapshots, engine durability and log rewrites, so the rollback is a log truncation plus reload —
+no index rebuild (exception: the SQLite index engine is durable per transaction and is reset and
+rebuilt). Keep windows short-lived; closing the store ends the window as a commit.
+
+```csharp
+long ts = db.BeginRevertWindow();       // marks the rollback target (flushes + snapshots state first)
+// …experiment freely: insert, update, delete, query…
+db.RollbackRevertWindow();              // discard everything since Begin — restores the exact state
+// …or db.CommitRevertWindow();         // keep everything, resume normal persistence
+db.RevertWindow                          // the active window (RevertWindowInfo), or null
+```
+
+**DeleteTransactionsAfter** is the general form against any remembered timestamp — correct on any
+store, but persisted state that advanced past the point (state snapshot, index engines) is reset
+and rebuilt from the log, which can be slow on a large database:
+
+```csharp
+long ts = db.Timestamp;                                  // remember BEFORE the changes
+// …changes…
+var preview = db.DeleteTransactionsAfter(ts, dryRun: true);   // counts only, changes nothing
+var result  = db.DeleteTransactionsAfter(ts);                 // truncate + reload
+```
+
+Both return a `DeleteTransactionsResult` (transactions/actions deleted, bytes truncated, which
+engines were reset). Files uploaded by deleted transactions are not removed from the file store.
+The CLI wraps the general form: `relatude timestamp` prints the head as a bare number, and
+`relatude revert --after <timestamp> [--dry-run|--yes]` reverts a database from the outside
+(the application must not be running).
 
 ## Transaction plugins
 

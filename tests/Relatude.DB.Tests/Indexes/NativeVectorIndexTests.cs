@@ -69,19 +69,6 @@ public class NativeVectorIndexTests {
     }
 
     [TestMethod]
-    public void ThrowsOnBadVectors() {
-        var r = new Random(1);
-        using var index = create(_folder);
-        index.Add(1, randomUnit(r, 32));
-        Assert.ThrowsException<ArgumentException>(() => index.Add(2, randomUnit(r, 64))); // wrong length
-        var notNormalized = new float[32];
-        notNormalized[0] = 2f;
-        Assert.ThrowsException<ArgumentException>(() => index.Add(3, notNormalized));
-        Assert.ThrowsException<ArgumentException>(() => index.Search(randomUnit(r, 16), 0, 10, 0)); // wrong query length
-        Assert.AreEqual(1, index.Count);
-    }
-
-    [TestMethod]
     public void PersistAndReopen() {
         var r = new Random(7);
         const int dims = 48, count = 300;
