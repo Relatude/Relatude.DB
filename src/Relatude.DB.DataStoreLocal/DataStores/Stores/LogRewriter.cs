@@ -155,7 +155,7 @@ internal class LogRewriter {
         if (swapToNewFile) {
             if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
             // if swapping to new file, all node segments must be registered, so that the new file is used
-            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp); // replace old log file with new, and allow db to continue
+            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp, _newWAL.DetachChainHeads()); // replace old log file with new, and allow db to continue
             foreach (var node in _newSegements) {
                 if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
                 _registerNodeSegment(node.Key, node.Value); // ensuring that the new segments are registered in segment cache ( NodeStore )

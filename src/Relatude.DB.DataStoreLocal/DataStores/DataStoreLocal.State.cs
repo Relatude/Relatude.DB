@@ -62,6 +62,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         UpdateActivity(activityId, "Saving node type index");
         _definition.NodeTypeIndex.SaveState(stream);
         stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
+        UpdateActivity(activityId, "Saving version chains");
+        _wal.SaveChainState(stream); // secondary log version-chain heads; primary heads equal the node segments saved above
         _noPrimitiveActionsSinceLastStateSnapshot = 0;
         _noTransactionsSinceLastStateSnapshot = 0;
     }
@@ -85,6 +87,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         long stateFileTimestamp;
         long stateFilePositionOfLastTransactionSaved = 0;
+        WalChainState? persistedChainState = null;
         _noPrimitiveActionsSinceLastStateSnapshot = 0;
         _noTransactionsSinceLastStateSnapshot = 0;
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
@@ -160,6 +163,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
+                if (stream.More()) persistedChainState = WALFile.ReadChainState(stream); // absent in state files written before version chains
                 var bytesPerSecond = stream.Length / (sw.ElapsedMilliseconds / 1000D);
                 setStartupProgressEstimate(55);
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
@@ -305,6 +309,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         Engines.CommitTransaction(_wal.LastTimestamp);
         Engines.MakeDurable(_wal.LastTimestamp); // replay work must not stay pending until the first background flush
+        // node segments are final here (state + replay, in write order), so the version-chain heads
+        // can be established; must happen while the log streams are still closed:
+        _wal.SeedChainHeadsWhileClosed(persistedChainState, _nodes.Snapshot(), msg => LogInfo(msg), logError);
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);

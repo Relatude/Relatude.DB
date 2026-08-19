@@ -243,6 +243,24 @@ The CLI wraps the general form: `relatude timestamp` prints the head as a bare n
 `relatude revert --after <timestamp> [--dry-run|--yes]` reverts a database from the outside
 (the application must not be running).
 
+## Older versions of a node
+
+Every write appends the full node to the transaction log, linked to the node's previous version, so
+strictly older versions can be read back — newest first, straight from the log files, never cached:
+
+```csharp
+NodeVersion<Article>[] history = store.FindOlderVersions<Article>(articleId);        // default max 100
+foreach (var v in history) Console.WriteLine(v.EstimatedCreationUtc + ": " + v.Node.Title);
+v.Timestamp   // log timestamp of the transaction that wrote the version
+v.Source      // which log file it was read from (primary or secondary)
+```
+
+The primary log holds versions **since the last log rewrite** (a rewrite compacts history away by
+design); with `SecondaryBackupLog` enabled the secondary log survives rewrites and extends the
+reach. The current version is not included, deleted nodes are not supported, and relations are not
+part of node data. Requires log file format 1001 — older files keep working but carry no version
+chains until the next rewrite (primary) or reset (secondary) upgrades them.
+
 ## Transaction plugins
 
 Cross-cutting concerns — audit trails, derived properties, computed timestamps — belong in a transaction plugin rather than scattered through your call sites:

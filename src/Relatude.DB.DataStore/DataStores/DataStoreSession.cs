@@ -69,6 +69,10 @@ public class DataStoreSession : IDataStore {
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null)
         => _datastore.GetRevisions(nodeId, ctx ?? QueryContext);
 
+    // Node versions from the transaction log:
+    public NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null)
+        => _datastore.FindOlderVersions(nodeId, maxCount, ctx ?? QueryContext);
+
     // Access controlled queries
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null)
         => _datastore.Query(query, parameters, userCtx ?? QueryContext);

@@ -200,6 +200,18 @@ public interface IDataStore : IDisposable {
     /// <paramref name="dryRun"/> nothing is changed and the result reports what would be deleted.
     /// </summary>
     DeleteTransactionsResult DeleteTransactionsAfter(long afterTimestamp, bool dryRun = false);
+
+    /// <summary>
+    /// Finds strictly older versions of a node, newest first, read directly from the transaction
+    /// log files on every call (nothing is cached). Every write of a node appends the full node to
+    /// the log together with the position of its previous version, so history is followed by chain
+    /// rather than by scan — one read per version. The primary log covers the versions since the
+    /// last log rewrite; a secondary backup log survives rewrites and extends the reach. The
+    /// current version is not included, deleted nodes are not supported, relations are not part of
+    /// node data, and versions written in the pre-chain log format (before the file was created or
+    /// rewritten under log format 1001) are not reachable.
+    /// </summary>
+    NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null);
     TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType);
 }
 

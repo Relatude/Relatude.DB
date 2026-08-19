@@ -10,16 +10,21 @@ using Relatude.DB.DataStores.Transactions;
 namespace Relatude.DB.Serialization {
     internal static class PFromBytes {
 
-        public static PrimitiveActionBase ActionBase(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmenLength) {
+        public static PrimitiveActionBase ActionBase(Datamodel datamodel, Stream stream, long logFormatVersion, out long nodeSegmentRelativeOffset, out int nodeSegmenLength) {
             var target = (PrimitiveActionTarget)stream.ReadOneByte();
-            if (target == PrimitiveActionTarget.Node) return nodeAction(datamodel, stream, out nodeSegmentRelativeOffset, out nodeSegmenLength);
+            if (target == PrimitiveActionTarget.Node) return nodeAction(datamodel, stream, logFormatVersion, out nodeSegmentRelativeOffset, out nodeSegmenLength);
             nodeSegmentRelativeOffset = 0; nodeSegmenLength = 0; // not relevant for relations
             if (target == PrimitiveActionTarget.Relation) return relationAction(stream);
             if (target == PrimitiveActionTarget.RelationOrder) return relationReorderAction(stream);
             throw new NotImplementedException();
         }
-        static PrimitiveNodeAction nodeAction(Datamodel datamodel, Stream stream, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
+        static PrimitiveNodeAction nodeAction(Datamodel datamodel, Stream stream, long logFormatVersion, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
             var operation = (PrimitiveOperation)stream.ReadOneByte();
+            if (logFormatVersion >= DataStores.Stores.WALFile._logVersioNumber) {
+                stream.ReadLong(); // version-chain header: the transaction timestamp,
+                stream.ReadLong(); // the node data position of the previous add of the same node,
+                stream.ReadInt();  // and its length. Only used by the version API, which reads it by fixed offset.
+            }
             nodeSegmentRelativeOffset = stream.Position;
             var nodeData = FromBytes.NodeData(datamodel, stream, null);
             long length = stream.Position - nodeSegmentRelativeOffset;

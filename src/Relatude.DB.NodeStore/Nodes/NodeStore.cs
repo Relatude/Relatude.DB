@@ -681,6 +681,21 @@ public class NodeStore : IDisposable {
         var revisions = Datastore.GetRevisions(id);
         return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r, null), r)).ToArray();
     }
+
+    /// <summary>
+    /// Finds strictly older versions of a node, newest first, each as the mapped node object with
+    /// the timestamp it was written at. Versions are read directly from the transaction log files
+    /// on every call (nothing is cached): the primary log reaches back to the last log rewrite, and
+    /// a secondary backup log, when enabled, survives rewrites and extends the reach. The current
+    /// version is not included, deleted nodes are not supported, and relations are not part of node
+    /// data. Requires log format 1001; files from before are readable but carry no version chains.
+    /// </summary>
+    public NodeVersion<T>[] FindOlderVersions<T>(Guid nodeId, int maxCount = 100) {
+        var versions = Datastore.FindOlderVersions(nodeId, maxCount);
+        return versions.Select(v => new NodeVersion<T>(Mapper.CreateObjectFromNodeData<T>(v.Node, null), v)).ToArray();
+    }
+    /// <summary>Finds strictly older versions of a node as untyped node objects. See <see cref="FindOlderVersions{T}"/>.</summary>
+    public NodeVersion<object>[] FindOlderVersions(Guid nodeId, int maxCount = 100) => FindOlderVersions<object>(nodeId, maxCount);
     /// <summary>Moves a revision to another state, which is how content is published, archived or binned.</summary>
     public TransactionResult ChangeRevisionType(Guid id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
     /// <summary>Moves a revision of the node with this internal id to another state.</summary>

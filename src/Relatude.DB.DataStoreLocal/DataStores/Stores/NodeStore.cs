@@ -108,6 +108,9 @@ internal sealed class NodeStore {
     public bool Contains(int id) {
         lock (_lock) return _segments.ContainsKey(id);
     }
+    public bool TryGetSegment(int id, out NodeSegment segment) {
+        lock (_lock) return _segments.TryGetValue(id, out segment);
+    }
     public void Add(INodeDataInternal node, NodeSegment? segment, bool keepInCache = true) {
         lock (_lock) {
             node.EnsureReadOnly();

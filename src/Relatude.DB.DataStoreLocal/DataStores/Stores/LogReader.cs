@@ -22,24 +22,26 @@ internal class LogReader : IDisposable {
     long _lastTimestampID;
     readonly Definition _definition;
     long _fileSize;
+    long _formatVersion = WALFile._logVersionNumberV1000;
     public LogReader(string fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp) {
         _fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
-        if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _);
+        if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _, out _formatVersion);
         _definition = definition;
         _lastTimestampID = fromTimestamp;
     }
     public static Guid ReadFileId(string fileKey, IIOProvider io) {
         Guid fileId;
-        using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId)) {
+        using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId, out _)) {
             return fileId;
         }
     }
-    static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId) {
+    static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId, out long formatVersion) {
         var readStream = io.OpenRead(fileKey, 0);
         try {
             readStream.ValidateMarker(WALFile._logStartMarker);
             var version = readStream.ReadVerifiedLong();
-            if (version != WALFile._logVersioNumber) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " but found " + version + " .");
+            if (version != WALFile._logVersioNumber && version != WALFile._logVersionNumberV1000) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " or " + WALFile._logVersionNumberV1000 + " but found " + version + " .");
+            formatVersion = version;
             fileId = readStream.ReadGuid();
             if (fromTransactionAtPos > 0) { // reopen at a specific position
                 readStream.Dispose();
@@ -58,7 +60,7 @@ internal class LogReader : IDisposable {
             if (!foundMarker) break;
             var from = _readStream.Position;
             try {
-                transaction = tryReadNext(_readStream, _definition, ref _lastTimestampID, out byteSizeOfTransaction);
+                transaction = tryReadNext(_readStream, _definition, _formatVersion, ref _lastTimestampID, out byteSizeOfTransaction);
                 return true;
             } catch (Exception error) {
                 var to = _readStream.Position;
@@ -76,7 +78,7 @@ internal class LogReader : IDisposable {
         byteSizeOfTransaction = 0;
         return false;
     }
-    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, ref long lastTimestampID, out long byteSizeOfTransaction) {
+    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, long formatVersion, ref long lastTimestampID, out long byteSizeOfTransaction) {
         var startPosition = readStream.Position;
         var timestamp = readStream.ReadLong();
         var noActions = readStream.ReadVerifiedInt();
@@ -88,7 +90,7 @@ internal class LogReader : IDisposable {
             var checkSum = readStream.ReadUInt();
             if (checkSum != actionData.GetChecksum()) throw new IOException("Data in log file is corrupted. ");
             var ms = new MemoryStream(actionData, false);
-            var action = PFromBytes.ActionBase(def.Datamodel, ms, out var nodeSegmentRelativeOffset, out var nodeSegmenLength);
+            var action = PFromBytes.ActionBase(def.Datamodel, ms, formatVersion, out var nodeSegmentRelativeOffset, out var nodeSegmenLength);
             if (action is PrimitiveNodeAction na) { // check that loaded node is of known type
                 if (def.NodeTypes.ContainsKey(na.Node.NodeType)) {
                     var absolutePosition = segmentStreamPosition + nodeSegmentRelativeOffset;
