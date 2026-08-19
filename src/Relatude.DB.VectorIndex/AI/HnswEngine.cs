@@ -39,7 +39,6 @@ public class HnswEngine : ISemanticIndexEngine {
         MaxMemoryBytes = _defaults.MaxMemoryBytes,
         MaxThreads = _defaults.MaxThreads,
         Accuracy = _defaults.Accuracy,
-        ValidateNormalized = _defaults.ValidateNormalized,
         MemTableFlushThresholdBytes = _defaults.MemTableFlushThresholdBytes,
         MinVectorsForGraphSearch = _defaults.MinVectorsForGraphSearch,
         Connectivity = _defaults.Connectivity,

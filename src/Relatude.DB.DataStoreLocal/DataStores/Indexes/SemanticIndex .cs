@@ -14,7 +14,7 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     readonly IIOProvider _io;
     readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
-    public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai, Action<string> log) {
+    public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
         _register = sets;
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
@@ -59,12 +59,14 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
             return result.Select(v => v.NodeId).ToHashSet();
         });
     }
-    public void Add(int nodeId, object value) {
-        var vec = (float[])value;
-        _index.Set(nodeId, vec);
+    public void Add(int nodeId, object value) => Add(nodeId, (float[])value);
+    public void Add(int nodeId, float[] value) {
+        value = this.EnsureCorrectDimensions(value);
+        _index.Set(nodeId, value);
         newSetState();
     }
-    public void Remove(int nodeId, object value) {
+    public void Remove(int nodeId, object value) => Remove(nodeId, (float[])value);
+    public void Remove(int nodeId, float[] value) {
         _index.Clear(nodeId);
         newSetState();
     }
@@ -121,4 +123,8 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     public long PersistedTimestamp { get; private set; }
     public void FlagFirstCommit() { }
     public string FriendlyName { get; }
+    public bool TryGetNoDimensions(out int dimensions) {
+        return _index.TryGetNoDimensions(out dimensions);
+    }
+    public void LogWarning(string message) => _ai?.LogCallback?.Invoke(message);
 }

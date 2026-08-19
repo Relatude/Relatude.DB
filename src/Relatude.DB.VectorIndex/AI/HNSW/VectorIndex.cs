@@ -138,7 +138,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
 
     public void Add(int nodeId, object value) => Add(nodeId, (float[])value);
     public void Add(int nodeId, float[] value) {
-        ArgumentNullException.ThrowIfNull(value);
+        value = this.EnsureCorrectDimensions(value);    
         ensureOpened();
         _lock.EnterWriteLock();
         try {
@@ -179,7 +179,8 @@ public class VectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
-    public void Remove(int nodeId, object value) {
+    public void Remove(int nodeId, object value) => Remove(nodeId, (float[])value);
+    public void Remove(int nodeId, float[] value) {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
@@ -224,10 +225,6 @@ public class VectorIndex : ISemanticIndex, IDisposable {
         if (value.Length == 0) return;
         if (_dims == 0) _dims = value.Length; // the first vector locks the dimensions
         else if (value.Length != _dims) throw new ArgumentException($"All vectors must have the same length. The index holds {_dims}-dimensional vectors, got {value.Length}. ");
-        if (_options.ValidateNormalized) {
-            var squared = VectorMath.Dot(value, value);
-            if (Math.Abs(squared - 1f) > 0.02f) throw new ArgumentException("Vectors must be L2-normalized (unit length); cosine similarity is computed as a dot product. ");
-        }
     }
     void spillIfNeeded(Graph graph) {
         if (graph.DirtyBytes >= _options.ResolvedMemTableFlushThresholdBytes) {
@@ -684,4 +681,11 @@ public class VectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
+
+    public bool TryGetNoDimensions(out int dimensions) {
+        dimensions = _dims;
+        return _dims != 0;
+    }
+    public void LogWarning(string message) => _ai?.LogCallback?.Invoke(message);
+
 }

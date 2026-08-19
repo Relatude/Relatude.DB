@@ -34,9 +34,6 @@ public sealed class VectorIndexOptions {
     /// likely to miss a neighbour the walk never reached. The floor is always the number of hits the
     /// query asks for, so a search never searches less than its own page. Adjustable at runtime.</summary>
     public float Accuracy { get; set; } = 1f;
-    /// <summary>Verify on every add that the vector is L2-normalized and throw if it is not.
-    /// Cosine similarity is computed as a plain dot product, which requires unit vectors.</summary>
-    public bool ValidateNormalized { get; set; } = true;
     /// <summary>Unflushed writes are spilled to the files once they exceed this size, keeping the
     /// unevictable dirty set bounded during bulk loads. Durability still comes from the WAL; spilled
     /// records are only claimed by the manifest at the next durable checkpoint. Null resolves to a

@@ -5,8 +5,22 @@ public enum DatamodelSourceType {
     TypeNameReference = 1,
     JsonFile = 2,
     CSharpCodeFile = 3,
+    /// <summary>
+    /// Reserved for model types added directly from code at startup (for example in the OnDatamodelInit event).
+    /// Cannot be used as a configured source in settings.
+    /// </summary>
+    Code = 4,
 }
 public class DatamodelSource {
+    /// <summary>
+    /// The source id of all model types added directly from code (outside any configured datamodel source).
+    /// </summary>
+    public static readonly Guid CodeSourceId = new("00000000-0000-0000-0000-00000000c0de");
+    public static DatamodelSource CreateCodeSource() => new() {
+        Id = CodeSourceId,
+        Name = "Code",
+        Type = DatamodelSourceType.Code,
+    };
     public Guid Id { get; set; }
     public string? Name { get; set; }
     public string? Namespace { get; set; }

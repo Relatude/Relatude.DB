@@ -13,9 +13,6 @@ public sealed class VectorIndexOptions {
     /// was not probed. Has no effect (searches are always exact) until the index is large enough to
     /// be clustered, see <see cref="MinVectorsForClustering"/>. Adjustable at runtime.</summary>
     public float Accuracy { get; set; } = 0.25f;
-    /// <summary>Verify on every add that the vector is L2-normalized and throw if it is not.
-    /// Cosine similarity is computed as a plain dot product, which requires unit vectors.</summary>
-    public bool ValidateNormalized { get; set; } = true;
     /// <summary>Unflushed writes are spilled to a segment file once they exceed this size, keeping
     /// memory usage bounded during bulk loads. Durability still comes from the WAL; spilled segments
     /// are only referenced by the manifest at the next state save.</summary>

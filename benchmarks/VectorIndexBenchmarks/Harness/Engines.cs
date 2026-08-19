@@ -88,9 +88,6 @@ public static class Engines {
                 Dimensions = corpus.Dimensions,
                 Accuracy = name == IVSExact ? 1f : options.Accuracy,
                 MaxCacheBytes = name == IVSLowMem ? LowMemCacheBytes : options.CacheBytes,
-                // the corpus is normalized by construction; the per-add check is a measurable cost
-                // that says nothing about the index, so it is off for every configuration
-                ValidateNormalized = false,
             }),
             // the HNSW index takes the same dials as USearch, so the two graph rows are configured
             // identically; MaxMemoryBytes is its one budget, mapped from --cache like the other
@@ -102,7 +99,6 @@ public static class Engines {
                 Connectivity = options.HnswConnectivity,
                 EfConstruction = options.HnswExpansionAdd,
                 EfSearch = options.HnswExpansionSearch,
-                ValidateNormalized = false,
             }),
             SqliteVec => new SqliteVecBenchIndex(dir, corpus.Dimensions, options.CacheBytes),
             USearch => new USearchBenchIndex(dir, corpus.Dimensions, options.HnswConnectivity, options.HnswExpansionAdd, options.HnswExpansionSearch),

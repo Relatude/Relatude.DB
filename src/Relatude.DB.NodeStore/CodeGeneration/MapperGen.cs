@@ -32,6 +32,7 @@ internal static class MapperGen {
         CodeUtils.Generate_CreateStaticGuids(sb, nodeDef, datamodel);
         generate_CreateNodeDataFromObject(sb, nodeDef, datamodel);
         generate_NodeDataToObject(sb, nodeDef, datamodel);
+        generate_GetCreatedType(sb, nodeDef, datamodel);
         generate_TryGetId(sb, nodeDef, datamodel);
         sb.AppendLine("}"); // end class
         return sb.ToString();
@@ -140,7 +141,19 @@ internal static class MapperGen {
         sb.AppendLine("}");
 
     }
+    static void generate_GetCreatedType(StringBuilder sb, NodeTypeModel nodeDef, Datamodel dm) {
+        string typeName;
+        if (nodeDef.IsInterface) {
+            var nsp = nodeDef.Namespace ?? string.Empty;
+            typeName = string.IsNullOrEmpty(nsp) ? ("__" + nodeDef.CodeName) : (nsp + ".__" + nodeDef.CodeName);
+        } else { // if not interface, no need to create shell or set properties, except relations
+            var nsp = nodeDef.Namespace ?? string.Empty;
+            typeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
+        }
+        sb.Append("public Type " + nameof(IValueMapper.GetCreatedType) + "(){ return typeof(" + typeName + ");}");
+    }
     static void generate_NodeDataToObject(StringBuilder sb, NodeTypeModel nodeDef, Datamodel dm) {
+
         sb.Append("public object " + nameof(IValueMapper.NodeDataToObject) + "(");
         sb.Append(typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + " nodeData, ");
         sb.Append(typeof(NodeStore).Namespace + "." + nameof(NodeStore) + " store,");
@@ -152,7 +165,7 @@ internal static class MapperGen {
             var classTypeName = string.IsNullOrEmpty(nsp) ? ("__" + nodeDef.CodeName) : (nsp + ".__" + nodeDef.CodeName);
             // propertyPath is passed on so that the shell can address its own properties, needed by file values
             sb.AppendLine("var obj = new " + classTypeName + "(new " + typeof(NodeDataShell).Namespace + "." + nameof(NodeDataShell) + "(store , nodeData, true, propertyPath));");
-        } else { // if interface, no need to create shell or set properties, except relations
+        } else { // if not interface, no need to create shell or set properties, except relations
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
             sb.AppendLine("var obj = new " + classTypeName + "();");

@@ -20,4 +20,30 @@ public interface ISemanticIndex : IIndex {
     string GetSample(string search, string sourceText);
     /// <summary>The context to hand an LLM for a question over the source text; currently the full text.</summary>
     string GetContextText(string search, string sourceText);
+    void Add(int nodeId, float[] vector);
+    void Remove(int nodeId, float[] vector);
+    /// <summary>
+    ///  returns the number of dimensions of the vectors in this index, or false if the index is empty and has no dimensions yet.
+    /// </summary>
+    /// <param name="dimensions"></param>
+    /// <returns></returns>
+    bool TryGetNoDimensions(out int dimensions);
+    void LogWarning(string message);
+}
+public static class SemanticIndexExtensions {
+    static HashSet<string> _hasWarned = new();
+    public static float[] EnsureCorrectDimensions(this ISemanticIndex index, float[] vector) {
+        if (!index.TryGetNoDimensions(out var dimensions)) return vector; // no dimensions yet, so any vector is valid
+        if (vector.Length != dimensions) {
+            var resized = new float[dimensions];
+            for ( int i = 0; i < dimensions; i++) {
+                resized[i] = 1;
+            }
+            if (_hasWarned.Add(index.FriendlyName)) {
+                index.LogWarning($"WARNING: Vector of length {vector.Length} was resized to {dimensions} dimensions for index {index.FriendlyName}. Please reindex all vectors for proper search results.");
+            }
+            return resized;
+        }
+        return vector;
+    }
 }

@@ -21,7 +21,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     int _stateFileVersion = 1000;
     Guid getCheckSumForStateFileAndIndexes() {
         // anything that can affect indexes or state file:
-        var s = System.Text.Json.JsonSerializer.Serialize(Datamodel);
+        // (polymorphic serialization with provenance stripped, so index-affecting property settings
+        // count while moving a type between datamodel sources or renaming a source does not)
+        var s = Datamodels.DatamodelJson.SerializeForChecksum(Datamodel);
         s += System.Text.Json.JsonSerializer.Serialize(_stateFileVersion);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedTextIndexEngine);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexEngine);

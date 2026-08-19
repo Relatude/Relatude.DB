@@ -16,15 +16,13 @@ namespace Relatude.DB.Nodes;
 public class NodeMapper {
     readonly Dictionary<Guid, IValueMapper> _nodeValueMapperByTypeId;
     readonly Dictionary<Type, KeyValuePair<IValueMapper, Guid>> _mapperByType;
-    readonly Dictionary<Guid, Type> _typeByNodeTypeId;
     readonly NodeStore _store;
-    public NodeMapper(Dictionary<Guid, Type> typesById, NodeStore store) {
-        _nodeValueMapperByTypeId = typesById.ToDictionary(kv => kv.Key, kv => {
+    public NodeMapper(Dictionary<Guid, Type> mapperTypesById, NodeStore store) {
+        _nodeValueMapperByTypeId = mapperTypesById.ToDictionary(kv => kv.Key, kv => {
             var m = Activator.CreateInstance(kv.Value);
             if (m == null) throw new NullReferenceException("Unable to create mapper for: " + kv.Value);
             return (IValueMapper)m;
         });
-        _typeByNodeTypeId = typesById.ToDictionary(kv => kv.Key, kv => kv.Value);
         _store = store;
         _mapperByType = new();
     }
@@ -54,8 +52,31 @@ public class NodeMapper {
         getNodeValueMapper(nodeType, out var typeId);
         return typeId;
     }
-    public Type GetNodeType(Guid nodeTypeId) => _typeByNodeTypeId[nodeTypeId];
-    public bool TryGetNodeType(Guid nodeTypeId, [MaybeNullWhen(false)] out Type type) => _typeByNodeTypeId.TryGetValue(nodeTypeId, out type);
+    Dictionary<string, Type?> _nodeTypeByNameCache = new();
+    public Type GetNodeType(string nameShortOrFull) {
+        if (TryGetNodeType(nameShortOrFull, out var type)) return type;
+        throw new Exception("Unable to find node type for: " + nameShortOrFull);
+    }
+    public bool TryGetNodeType(string nameShortOrFull, [MaybeNullWhen(false)] out Type type) {
+        lock (_nodeTypeByNameCache) {
+            if (_nodeTypeByNameCache.TryGetValue(nameShortOrFull, out type)) return type != null;
+            Guid typeId;
+            if (_store.Datamodel.NodeTypesByShortName.TryGetValue(nameShortOrFull, out var typeDefs)) {
+                if (typeDefs.Length > 1) throw new Exception("Multiple node types found for short name: " + nameShortOrFull);
+                if (typeDefs.Length == 0) throw new Exception("No node type found for short name: " + nameShortOrFull);
+                typeId = typeDefs[0].Id;
+            } else if (_store.Datamodel.NodeTypesByFullName.TryGetValue(nameShortOrFull, out var typeDef)) {
+                typeId = typeDef.Id;
+            } else {
+                _nodeTypeByNameCache[nameShortOrFull] = null;
+                return false;
+            }
+            var mapper = _nodeValueMapperByTypeId[typeId];
+            type = mapper.GetCreatedType();
+            _nodeTypeByNameCache[nameShortOrFull] = type;
+            return true;
+        }
+    }
     public PropertyModel GetProperty<T>(string propertyName) {
         return _store.Datastore.Datamodel.NodeTypes[GetNodeTypeId(typeof(T))].AllPropertiesByName[propertyName];
     }
@@ -75,8 +96,10 @@ public class NodeMapper {
                 typeId = Guid.Parse(guidS);
                 if (!_nodeValueMapperByTypeId.TryGetValue(typeId, out mapper)) {
                     if (this._store.Datastore.Datamodel.NodeTypesByFullName.TryGetValue(objectType.FullName!, out var typeDef)) {
+                        // the model may carry another id than the one hashed from the type name,
+                        // e.g. when the model is defined in a JSON datamodel source; retry with it:
                         typeId = typeDef.Id;
-                        mapper = null; // No mapper defined for this type
+                        _nodeValueMapperByTypeId.TryGetValue(typeId, out mapper); // null when no mapper is defined for the type
                     } else {
                         throw new Exception(objectType.FullName + " is not part of the datamodel. ");
                     }
@@ -129,6 +152,9 @@ public class NodeMapper {
     }
 
     public T NewObjectFromType<T>(NodeKey? key = null) {
+        return (T)NewObjectFromType(typeof(T), key);
+    }
+    public object NewObjectFromType(Type type, NodeKey? key = null) {
         Guid guid;
         int id;
         if (key == null) {
@@ -138,11 +164,15 @@ public class NodeMapper {
             guid = key.Value.Guid != Guid.Empty ? key.Value.Guid : Guid.NewGuid();
             id = key.Value.Int;
         }
-        var typeId = GetNodeTypeId(typeof(T));
+        var typeId = GetNodeTypeId(type);
         var nowUtc = DateTime.UtcNow;
         var nodeData = new NodeData(guid, id, typeId, nowUtc, nowUtc, new Properties<object>(10), null);
-        var node = CreateObjectFromNodeData<T>(nodeData, null);
+        var node = CreateObjectFromNodeData(nodeData, null);
         return node;
+    }
+    public object NewObjectFromType(string shortOrFullTypeName, NodeKey? key = null) {
+        var type = GetNodeType(shortOrFullTypeName);
+        return NewObjectFromType(type, key);
     }
 }
 
@@ -157,4 +187,5 @@ public static class NodeMapperExtensions {
         if (mapper.TryGetIdKey(node, out var key)) return key;
         throw new Exception("Unable to get id for: " + node.GetType().FullName);
     }
+
 }

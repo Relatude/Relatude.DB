@@ -36,7 +36,6 @@ public class ISVEngine : ISemanticIndexEngine {
         Dimensions = _defaults.Dimensions,
         MaxCacheBytes = _defaults.MaxCacheBytes,
         Accuracy = _defaults.Accuracy,
-        ValidateNormalized = _defaults.ValidateNormalized,
         MemTableFlushThresholdBytes = _defaults.MemTableFlushThresholdBytes,
         MinVectorsForClustering = _defaults.MinVectorsForClustering,
         TargetVectorsPerCluster = _defaults.TargetVectorsPerCluster,

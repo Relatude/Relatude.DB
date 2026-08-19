@@ -97,4 +97,9 @@ public class TurboQuantVectorIndex : IVectorIndex {
         }
     }
 
+    public bool TryGetNoDimensions(out int dimensions) {
+        dimensions = _indexDimensions;
+        return _index.Count > 0 || _turboQuant != null;
+    }
+
 }

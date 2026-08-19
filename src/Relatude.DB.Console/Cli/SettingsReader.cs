@@ -93,37 +93,9 @@ public static class SettingsReader {
         return dm;
     }
     static void addSource(Datamodel dm, DatamodelSource source, NodeStoreContainerSettings container, Target target) {
-        switch (source.Type) {
-            case DatamodelSourceType.AssemblyNameReference: {
-                    var assembly = source.Reference == null
-                        ? Assembly.GetEntryAssembly()!
-                        : Assembly.Load(new AssemblyName(source.Reference));
-                    if (source.Namespace == null) throw new CliException("The datamodel source has no Namespace.");
-                    dm.AddAssembly(assembly, source.Namespace, source.AutoDeduceRelations);
-                    break;
-                }
-            case DatamodelSourceType.TypeNameReference: {
-                    var type = Type.GetType(source.Reference!, false, true)
-                        ?? throw new CliException("Type not found: " + source.Reference);
-                    dm.Add(type, true, source.AutoDeduceRelations);
-                    break;
-                }
-            case DatamodelSourceType.JsonFile: {
-                    var io = fileIO(source, container, target);
-                    var json = io.ReadAllTextUTF8(source.Reference!);
-                    var other = JsonSerializer.Deserialize<Datamodel>(json)
-                        ?? throw new CliException("Could not read the datamodel from " + source.Reference);
-                    dm.AddDatamodel(other);
-                    break;
-                }
-            default:
-                throw new CliException("Datamodel sources of type " + source.Type + " are not supported (the server does not support them either).");
-        }
-    }
-    static IIOProvider fileIO(DatamodelSource source, NodeStoreContainerSettings container, Target target) {
-        if (source.FileIO == null) throw new CliException("A JsonFile datamodel source needs FileIO.");
-        var io = (container.IOSettings ?? []).FirstOrDefault(s => s.Id == source.FileIO.Value)
-            ?? throw new CliException("No IOSettings with id " + source.FileIO.Value);
-        return IOSettings.Create(io, target.Root);
+        DatamodelSourceLoader.Load(dm, source, target.Root, id => {
+            var io = (container.IOSettings ?? []).FirstOrDefault(s => s.Id == id);
+            return io == null ? null : IOSettings.Create(io, target.Root);
+        });
     }
 }

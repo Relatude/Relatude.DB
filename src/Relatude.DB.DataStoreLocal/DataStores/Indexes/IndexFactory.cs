@@ -224,7 +224,7 @@ internal static class IndexFactory {
             return store.Engines.Semantic.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
         }
         return new MemorySemanticIndex(def.Sets, uniqueKey, "Semantic " + classDef.CodeName + "." + p.Model.CodeName,
-            store.IOIndex, store.FileKeys, ai, t => store.LogInfo(t));
+            store.IOIndex, store.FileKeys, ai);
     }
 
 }

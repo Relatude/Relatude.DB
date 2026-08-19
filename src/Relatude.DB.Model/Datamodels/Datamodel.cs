@@ -15,8 +15,27 @@ public partial class Datamodel {
     public Dictionary<Guid, NodeTypeModel> NodeTypes { get; set; } = new();
     public Dictionary<Guid, RelationModel> Relations { get; set; } = new();
 
+    /// <summary>
+    /// Metadata about the datamodel sources this model was combined from. Types and relations
+    /// refer back to these through their DatamodelSourceId.
+    /// </summary>
+    public List<DatamodelSource> Sources { get; set; } = new();
+
+    /// <summary>
+    /// The source id assigned to types and relations as they are added. Set by the source loader
+    /// while a configured source is loading; outside of that it is DatamodelSource.CodeSourceId,
+    /// so types added directly from code (e.g. in the OnDatamodelInit event) are tagged as code.
+    /// </summary>
+    [JsonIgnore]
+    public Guid CurrentSourceId { get; set; } = DatamodelSource.CodeSourceId;
+
     [JsonIgnore] // not serialized
     public readonly HashSet<Assembly> Assemblies = new();
+
+    // Emitted images of in-memory compiled model assemblies (simple name -> raw bytes).
+    // Needed as metadata references when compiling mappers, since these assemblies have no Location.
+    [JsonIgnore]
+    public readonly Dictionary<string, byte[]> AssemblyImages = new(StringComparer.OrdinalIgnoreCase);
 
     public void SetIndexDefaults(bool enableTextIndexByDefault, bool enableSemanticIndexByDefault, bool enableInstantIndexing) {
         foreach (var n in NodeTypes.Values) {

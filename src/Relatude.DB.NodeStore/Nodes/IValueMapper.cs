@@ -8,4 +8,5 @@ public interface IValueMapper {
     bool TryGetIdUInt(object node, out int id);
     bool TryGetIdGuid(object node, out Guid id);
     object NodeDataToObject(INodeDataExternal nodeData, NodeStore store, PropertyPath? propertyPath);
+    Type GetCreatedType();
 }

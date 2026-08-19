@@ -185,4 +185,12 @@ public class FlatMemoryVectorIndex : IVectorIndex {
     }
     public void CompressMemory() { }
 
+    public bool TryGetNoDimensions(out int dimensions) {
+        if (_index.Count == 0) {
+            dimensions = 0;
+            return false;
+        }
+        dimensions = _index[0].Length;
+        return true;
+    }
 }

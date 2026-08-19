@@ -72,9 +72,17 @@ namespace Relatude.DB.Nodes {
                 MetadataReference.CreateFromFile(typeof(FileValue).Assembly.Location),
             };
             foreach (var a in datamodel.Assemblies) {
-                if (a.IsDynamic || string.IsNullOrEmpty(a.Location)) throw new Exception(
-                    "The model assembly " + a.GetName().Name + " is dynamic or was loaded from memory, so it has no file on disk "
-                    + "and cannot be referenced when compiling the model mapping code. Load the model types from an assembly file instead. ");
+                if (a.IsDynamic || string.IsNullOrEmpty(a.Location)) {
+                    // model assemblies compiled in memory (CSharpCodeFile sources) have no file on
+                    // disk, but their emitted image is kept on the datamodel for exactly this:
+                    if (!a.IsDynamic && datamodel.AssemblyImages.TryGetValue(a.GetName().Name ?? string.Empty, out var image)) {
+                        refs.Add(MetadataReference.CreateFromImage(image));
+                        continue;
+                    }
+                    throw new Exception(
+                        "The model assembly " + a.GetName().Name + " is dynamic or was loaded from memory, so it has no file on disk "
+                        + "and cannot be referenced when compiling the model mapping code. Load the model types from an assembly file instead. ");
+                }
                 refs.Add(MetadataReference.CreateFromFile(a.Location));
             }
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release);

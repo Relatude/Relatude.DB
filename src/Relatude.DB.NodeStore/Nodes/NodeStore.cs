@@ -162,13 +162,23 @@ public class NodeStore : IDisposable {
             dll = datastore.IOIndex.ReadAllBytes(fileKey);
             datastore.LogInfo("Loading mapper DLL from disk. ");
         }
-        var types = Compiler.LoadDll(dll);
-        Mapper = new NodeMapper(types, this);
+        var mapperTypes = Compiler.LoadDll(dll);
+        Mapper = new NodeMapper(mapperTypes, this);
         sw.Stop();
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
     }
     /// <summary>Whether the database is Closed, Opening, Open, Closing, in Error or Disposed. Reads and writes require Open.</summary>
     public DataStoreState State => Datastore.State;
+
+    /// <summary>
+    /// Creates a new node instance in memory only. T may be an interface from your model: a class implementing it is
+    /// generated at start up. Nothing is stored until you insert the object.
+    /// </summary>
+    /// <param name="shortOrFullTypeName"></param>
+    /// <returns></returns>
+    public object Create(string shortOrFullTypeName) { 
+        return Mapper.NewObjectFromType(shortOrFullTypeName);
+    }
 
     /// <summary>
     /// Creates a new node instance in memory only. T may be an interface from your model: a class implementing it is
@@ -799,18 +809,6 @@ public class NodeStore : IDisposable {
     /// <summary>Reads the node addressed by key in the culture identified by its culture node id.</summary>
     public T Get<T>(NodeKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
 
-    /// <summary>The CLR type a node is mapped to, without reading the whole node. Throws if the node does not exist.</summary>
-    public Type GetNodeType(Guid nodeId) => Mapper.GetNodeType(Datastore.GetNodeType(nodeId));
-    /// <summary>The CLR type a node is mapped to, or false if the node does not exist or its type is not in the model.</summary>
-    public bool TryGetNodeType(Guid nodeId, [MaybeNullWhen(false)] out Type type) {
-        if (Datastore.TryGetNodeType(nodeId, out var typeId)
-         && Mapper.TryGetNodeType(typeId, out var t)) {
-            type = t;
-            return true;
-        }
-        type = null;
-        return false;
-    }
     /// <summary>True if a node with this public id exists at all.</summary>
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
     /// <summary>True if a node with this public id exists and is of type T, or a type inheriting from it.</summary>
@@ -1382,6 +1380,8 @@ public class NodeStore : IDisposable {
     /// tells you whether anything changed, which is handy for caching.
     /// </summary>
     public long Timestamp => Datastore.Timestamp;
+
+    public Datamodel Datamodel => Datastore.Datamodel;
 
     /// <summary>Closes the underlying data store. Only dispose the store when the application is shutting down.</summary>
     public virtual void Dispose() => Datastore.Dispose();

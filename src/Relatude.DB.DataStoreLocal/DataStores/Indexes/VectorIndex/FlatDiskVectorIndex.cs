@@ -367,5 +367,10 @@ public class FlatDiskVectorIndex : IVectorIndex {
             stream.WriteVerifiedInt(kvp.Value);
         }
     }
+
+    public bool TryGetNoDimensions(out int dimensions) {
+        dimensions = _dimensions;
+        return _dimensions > 0;
+    }
 }
 

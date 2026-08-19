@@ -8,4 +8,5 @@ public interface IVectorIndex {
     void ReadState(IReadStream stream);
     void SaveState(IAppendStream stream);
     void CompressMemory();
+    bool TryGetNoDimensions(out int dimensions);
 }

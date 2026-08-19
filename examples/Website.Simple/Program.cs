@@ -50,6 +50,9 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"
     + $@"<p><a href='/search.html'>Facet search example</a></p>"
     + $@"<p><a href='/graphql.html'>GraphQL playground</a></p>"
+    + $@"<p><a href='/testimonials'>Testimonials (model defined in Models/Json/testimonial.json)</a></p>"
+    + $@"<p><a href='/campaigns'>Campaigns (model compiled at startup from Models/CSharp/Campaign.cs)</a></p>"
+    + $@"<p><a href='/datamodel-sources'>Datamodel sources (where every type came from)</a></p>"
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
@@ -258,15 +261,15 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
     var query = db.Query<Product>();
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
     var facetQuery = query.Include(p => p.Colors!).Facets() // Include so the page of products lists its colors
-        //.AddValueFacet(p => p.Category)
-        //.AddValueFacet(p => p.Brand)
-        //.AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
-        //.AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
-        //.AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
+                                                            //.AddValueFacet(p => p.Category)
+                                                            //.AddValueFacet(p => p.Brand)
+                                                            //.AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
+                                                            //.AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
+                                                            //.AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
         .SetFacetOptions(p => p.Price, rangeCount: 3) // sort by value for ranges
-        //.AddValueFacet(p => p.InStock)
-        //.AddValueFacet(p => p.Tags)
-        //.SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
+                                                      //.AddValueFacet(p => p.InStock)
+                                                      //.AddValueFacet(p => p.Tags)
+                                                      //.SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
         .Page(req.Page, 10);
     foreach (var sel in req.Selections ?? []) {
         foreach (var v in sel.Values ?? []) facetQuery.SetFacetValue(sel.Property, v);
@@ -303,6 +306,50 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
             }),
         }),
     });
+});
+
+// File based datamodel sources (see the DatamodelSources section in relatude.db.json):
+// Testimonial's model is defined in Models/Json/testimonial.json; the class in Models/Testimonial.cs
+// is a plain POCO without attributes, and the typed API works as usual:
+app.MapGet("/testimonials", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    if (db.Query<Testimonial>().Count() == 0) {
+        db.Insert(new Testimonial() { Author = "Ada", Quote = "The graph model made our product data simple again.", Rating = 5 });
+        db.Insert(new Testimonial() { Author = "Linus", Quote = "Fast facet search out of the box.", Rating = 4 });
+    }
+    return Results.Json(db.Query<Testimonial>().Execute());
+});
+
+// Campaign is compiled at startup from Models/CSharp/Campaign.cs (the file is not part of the
+// project build), so the type only exists at runtime and is reached by name:
+app.MapGet("/campaigns", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+
+
+    dynamic campaign = db.Create("Campaign");
+    campaign.Name = "Summer sale";
+    campaign.Pitch = "Everything must go.";
+    campaign.DiscountPercent = 25.0;
+    campaign.ValidTo = DateTime.UtcNow.AddDays(30);
+    db.Insert(campaign);
+
+
+
+
+    return Results.Json(db.QueryType("Campaign").Execute());
+});
+
+// Where every type and relation in the datamodel came from: each datamodel source with its id,
+// and for file based sources also the file each type was defined in:
+app.MapGet("/datamodel-sources", (RelatudeDBContext ctx) => {
+    var dm = ctx.Database.Datastore.Datamodel;
+    return Results.Json(dm.Sources.Select(s => new {
+        s.Id, s.Name, Type = s.Type.ToString(), s.Namespace, s.Filepath, s.Reference,
+        NodeTypes = dm.NodeTypes.Values.Where(t => t.DatamodelSourceId == s.Id)
+            .Select(t => new { Type = t.FullName, File = t.DatamodelSourceFilename }),
+        Relations = dm.Relations.Values.Where(r => r.DatamodelSourceId == s.Id)
+            .Select(r => new { Relation = r.FullName(), File = r.DatamodelSourceFilename }),
+    }));
 });
 
 app.UseDefaultFiles();

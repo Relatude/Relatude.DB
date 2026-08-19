@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Native;
+using System.Text.Json.Serialization;
 
 namespace Relatude.DB.Datamodels;
 
@@ -25,6 +26,11 @@ public partial class NodeTypeModel { // with default values
 
     public Guid Id { get; set; }
     public Guid DatamodelSourceId { get; set; }
+    /// <summary>
+    /// When the type comes from a file-based datamodel source, the file it was defined in,
+    /// relative to the source folder. Null for non-file sources.
+    /// </summary>
+    public string? DatamodelSourceFilename { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
     public bool IsInnerNode { get; set; } = false;
@@ -60,6 +66,8 @@ public partial class NodeTypeModel { // with default values
     public bool? TextIndex { get; set; }
     public double TextIndexBoost { get; set; } = 0;
     public bool? SemanticIndex { get; set; }
+    // get-only: System.Text.Json must populate the existing dictionary on deserialization
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<Guid, PropertyModel> Properties { get; } = new();
     public string FullName => String.IsNullOrEmpty(Namespace) ? CodeName : $"{Namespace}.{CodeName}";
 }

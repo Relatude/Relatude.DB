@@ -15,6 +15,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     static object _consoleColorLock = new();
     static object _criticalLogLock = new();
     public void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false) {
+        if (text != null && text.StartsWith("WARNING: ")) {
+            type = SystemLogEntryType.Warning;
+            text = text.Substring("WARNING: ".Length);
+        }
         replace = false; // Disable replace for now as it can cause issues with concurrent logs and the benefit is minimal
         try {
             if (_settings.WriteSystemLogConsole) {

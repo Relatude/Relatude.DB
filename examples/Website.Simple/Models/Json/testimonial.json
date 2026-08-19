@@ -1,0 +1,39 @@
+// A JsonFile datamodel source: this file IS the datamodel definition for the Testimonial type.
+// relatude.db.json points at the Models/Json folder, and every .json file in it is deserialized
+// and merged into the datamodel when the store opens. The plain Testimonial class in
+// Models/Testimonial.cs backs the type at runtime - it matches by full name and property names
+// and needs no Relatude attributes, so indexing and other model settings live here instead.
+// (Comments and trailing commas are allowed. A file like this can be produced by serializing a
+// Datamodel with Relatude.DB.Datamodels.DatamodelJson.Serialize.)
+{
+  "NodeTypes": {
+    "d21a27b4-3e1f-eb1a-de75-d46201beee9b": { // types, properties and relations are keyed by their id
+      "ModelType": "Class",
+      "Namespace": "Website.Simple.Models",
+      "CodeName": "Testimonial",
+      "NameOfPublicIdProperty": "Id",
+      "DataTypeOfPublicId": "Guid",
+      "TextIndex": true,
+      "Properties": {
+        "218403e5-26d6-3b79-6108-177a55fda15b": {
+          "PropertyType": "String",
+          "CodeName": "Author",
+          "Indexed": true,
+          "DefaultValue": ""
+        },
+        "1f2a79f9-90c2-cfb5-80b1-b5cfd331d353": {
+          "PropertyType": "String",
+          "CodeName": "Quote",
+          "IndexedByWords": true, // part of the free text index, used by WhereSearch
+          "DefaultValue": ""
+        },
+        "943b0138-ed3d-ba58-f7fb-feb39925974a": {
+          "PropertyType": "Integer",
+          "CodeName": "Rating",
+          "Indexed": true
+        }
+      }
+    }
+  },
+  "Relations": {}
+}

@@ -107,19 +107,15 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
 
     public void Add(int nodeId, object value) => Add(nodeId, (float[])value);
     public void Add(int nodeId, float[] value) {
-        ArgumentNullException.ThrowIfNull(value);
         ensureOpened();
         _lock.EnterWriteLock();
+        value = this.EnsureCorrectDimensions(value);
         try {
             if (value.Length == 0) { // an empty embedding (empty source text) means nothing searchable
                 removeInner(nodeId);
             } else {
                 if (_dims == 0) _dims = value.Length; // the first vector locks the dimensions
                 else if (value.Length != _dims) throw new ArgumentException($"All vectors must have the same length. The index holds {_dims}-dimensional vectors, got {value.Length}. ");
-                if (_options.ValidateNormalized) {
-                    var squared = VectorMath.Dot(value, value);
-                    if (Math.Abs(squared - 1f) > 0.02f) throw new ArgumentException("Vectors must be L2-normalized (unit length); cosine similarity is computed as a dot product. ");
-                }
                 _memAdds[nodeId] = value;
                 _memDels.Remove(nodeId); // an add supersedes any pending tombstone
                 _live[nodeId] = MemSegmentId;
@@ -137,7 +133,8 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
-    public void Remove(int nodeId, object value) {
+    public void Remove(int nodeId, object value) => Remove(nodeId, (float[])value);
+    public void Remove(int nodeId, float[] value) {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
@@ -853,4 +850,11 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
+
+    public bool TryGetNoDimensions(out int dimensions) {
+        dimensions = _dims;
+        return dimensions != 0;
+    }
+    public void LogWarning(string message) => _ai?.LogCallback?.Invoke(message);
+
 }

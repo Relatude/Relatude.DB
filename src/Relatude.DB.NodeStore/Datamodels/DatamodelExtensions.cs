@@ -47,6 +47,7 @@ public static class DatamodelExtensions {
         if (t.InheritsFromOrImplements<IRelation>()) {
             var r = BuildUtils.CreateRelationModelFromType(t);
             if (datamodel.Relations.ContainsKey(r.Id)) return;
+            r.DatamodelSourceId = datamodel.CurrentSourceId;
             datamodel.Relations.Add(r.Id, r);
         } else {
             bool noZeroArgConstructor = t.GetConstructors().All(c => c.GetParameters().Length > 0);
@@ -60,6 +61,7 @@ public static class DatamodelExtensions {
                 throw new Exception("The types " + c.FullName + " and " + c2.FullName + " have the same id " + c.Id + ". "
                     + "Node type ids must be unique - this usually comes from a copy-pasted Id in a [Node] attribute. Give one of them a new id. ");
             }
+            c.DatamodelSourceId = datamodel.CurrentSourceId;
             datamodel.NodeTypes.Add(c.Id, c);
         }
         // remember Assembly Reference:
