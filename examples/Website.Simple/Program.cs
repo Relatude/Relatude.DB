@@ -70,6 +70,19 @@ app.MapGet("/ChangeColor", (RelatudeDBContext ctx) => {
 
 
 app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
+
+
+
+
+
+
+    var db = ctx.Database;
+
+    var dbNorsk = db.Context.Culture("no-nb").Admin().Create();
+    var dbEngelsk= db.Context.Culture("en-us").Create();
+
+
+
     //if (hasInserted) return "Already inserted.";
     //var files = Directory.GetFiles(@"C:\Users\ogulb\Pictures\", "*.mp4").ToArray();
 
@@ -79,7 +92,6 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     //ar files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Videos", "sample.mkv").ToArray();
     //var files = Directory.GetFiles(@"C:\Users\ogulb\OneDrive\Demo\Pictures", "nemo.jpg").ToArray();
     for (int i = 0; i < files.Length; i++) {
-        var db = ctx.Database;
         var art = new DemoArticle();
         art.Title = Path.GetFileName(files[i]);
         db.Insert(art);

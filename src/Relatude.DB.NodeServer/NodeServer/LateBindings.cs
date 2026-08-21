@@ -82,16 +82,20 @@ public static class LateBindings {
         return create<IEmbeddingCache>("Relatude.DB.AI.SqlLiteEmbeddingCache", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [filePath]);
     }
     internal static IAIProvider CreateAiProvider(AIProviderSettings aiSettings) {
-        if (aiSettings.TypeName == "AzureAIProvider" || string.IsNullOrEmpty(aiSettings.TypeName)) {
-            return create<IAIProvider>("Relatude.DB.AI.AzureAIProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [aiSettings]);
-        }
-        if (aiSettings.TypeName == nameof(DummyAIProvider)) {
-            return new DummyAIProvider();
-        } else {
-            return create<IAIProvider>(aiSettings.TypeName, null, null, [aiSettings]);
+        switch (aiSettings.TypeName) {
+            case null or "" or "AzureAIProvider":
+                return create<IAIProvider>("Relatude.DB.AI.AzureAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
+            case "OpenAIProvider" or "OpenAI":
+                return create<IAIProvider>("Relatude.DB.AI.OpenAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
+            case "AnthropicAIProvider" or "Anthropic":
+                return create<IAIProvider>("Relatude.DB.AI.AnthropicAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
+            case nameof(DummyAIProvider):
+                return new DummyAIProvider();
+            default:
+                return create<IAIProvider>(aiSettings.TypeName, null, null, [aiSettings]);
         }
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
-        return create<IIOProvider>("Relatude.DB.IO.AzureBlobIOProvider", "Relatude.DB.Azure", "Relatude.DB.Plugins.Azure", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob]);
+        return create<IIOProvider>("Relatude.DB.IO.AzureBlobIOProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob]);
     }
 }

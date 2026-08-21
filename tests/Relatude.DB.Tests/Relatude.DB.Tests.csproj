@@ -25,7 +25,7 @@
 
 	<ItemGroup>
 	  <ProjectReference Include="..\..\src\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
-	  <ProjectReference Include="..\..\src\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
+	  <ProjectReference Include="..\..\src\Relatude.DB.Providers\Relatude.DB.Providers.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.GraphQL\Relatude.DB.GraphQL.csproj" />
 	  <ProjectReference Include="..\..\src\Relatude.DB.Logger\Relatude.DB.Logger.csproj" />

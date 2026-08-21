@@ -1931,7 +1931,14 @@ live in different places without repeating connection details.</p>
 <code>EnableTextIndexByDefault</code>, <code>DefaultCultureCode</code>, and so on. Every field has a working default;
 leave it out until you need it.</p>
 <p><code>AISettings</code> configures the container's own AI provider (embeddings and completions) and its
-semantic index: <code>IndexType</code> picks the vector index engine (<code>Memory</code>, <code>IVS</code> or <code>HNSW</code>) and
+semantic index. <code>TypeName</code> picks the provider, all served dependency-free from the
+<code>Relatude.DB.Plugins.Providers</code> package: <code>AzureAIProvider</code> (Azure OpenAI, the default) with
+<code>ServiceUrl</code> as the resource endpoint and deployment names in <code>CompletionModel</code>/<code>EmbeddingModel</code>;
+<code>OpenAIProvider</code> for OpenAI or any OpenAI-compatible endpoint (<code>ServiceUrl</code> defaults to
+<code>https://api.openai.com/v1</code> — point it at Mistral, Groq, Ollama or similar); and
+<code>AnthropicAIProvider</code> for Claude completions, which pairs with an OpenAI-compatible
+<code>EmbeddingServiceUrl</code>/<code>EmbeddingApiKey</code>/<code>EmbeddingModel</code> since Anthropic has no embeddings API.
+<code>IndexType</code> picks the vector index engine (<code>Memory</code>, <code>IVS</code> or <code>HNSW</code>) and
 <code>IndexCacheSizeInMb</code> sets the disk engines' memory budget (unset = engine default). For <code>HNSW</code> the
 graph itself always stays in memory — the budget dials whether the full-precision vectors are
 mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded

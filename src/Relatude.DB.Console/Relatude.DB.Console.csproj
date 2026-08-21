@@ -38,7 +38,7 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.NodeServer\Relatude.DB.NodeServer.csproj" />
 		<!-- referenced so every engine a relatude.db.json may name can be loaded by LateBindings -->
-		<ProjectReference Include="..\Relatude.DB.Azure\Relatude.DB.Azure.csproj" />
+		<ProjectReference Include="..\Relatude.DB.Providers\Relatude.DB.Providers.csproj" />
 		<ProjectReference Include="..\Relatude.DB.Lucene\Relatude.DB.Lucene.csproj" />
 		<ProjectReference Include="..\Relatude.DB.Sqlite\Relatude.DB.Sqlite.csproj" />
 	</ItemGroup>

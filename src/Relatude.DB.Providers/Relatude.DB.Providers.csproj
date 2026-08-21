@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>Relatude.DB</RootNamespace>
+		<Version>0.2.0.140</Version>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- no package references on purpose: every provider in this plugin speaks
+		     plain HTTP/JSON/XML through the BCL (HttpClient, System.Text.Json, System.Xml) -->
+		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Relatude.DB.Tests" />
+	</ItemGroup>
+
+</Project>

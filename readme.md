@@ -88,7 +88,7 @@ The database is distributed with the following NuGet packages:
 
 -   **Relatude.DB.Server** — Database server with no external dependencies
     
--   **Relatude.DB.Plugins.Azure** — AI and IO provider based on Azure OpenAI and Blob
+-   **Relatude.DB.Plugins.Providers** — AI providers (Azure OpenAI, OpenAI and OpenAI-compatible endpoints, Anthropic) and Azure Blob Storage IO, implemented over plain HttpClient with no dependencies
     
 -   **Relatude.DB.Plugins.Lucene** — Text index provider based on Lucene
     

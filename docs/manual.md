@@ -1462,7 +1462,14 @@ live in different places without repeating connection details.
 leave it out until you need it.
 
 `AISettings` configures the container's own AI provider (embeddings and completions) and its
-semantic index: `IndexType` picks the vector index engine (`Memory`, `IVS` or `HNSW`) and
+semantic index. `TypeName` picks the provider, all served dependency-free from the
+`Relatude.DB.Plugins.Providers` package: `AzureAIProvider` (Azure OpenAI, the default) with
+`ServiceUrl` as the resource endpoint and deployment names in `CompletionModel`/`EmbeddingModel`;
+`OpenAIProvider` for OpenAI or any OpenAI-compatible endpoint (`ServiceUrl` defaults to
+`https://api.openai.com/v1` — point it at Mistral, Groq, Ollama or similar); and
+`AnthropicAIProvider` for Claude completions, which pairs with an OpenAI-compatible
+`EmbeddingServiceUrl`/`EmbeddingApiKey`/`EmbeddingModel` since Anthropic has no embeddings API.
+`IndexType` picks the vector index engine (`Memory`, `IVS` or `HNSW`) and
 `IndexCacheSizeInMb` sets the disk engines' memory budget (unset = engine default). For `HNSW` the
 graph itself always stays in memory — the budget dials whether the full-precision vectors are
 mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded

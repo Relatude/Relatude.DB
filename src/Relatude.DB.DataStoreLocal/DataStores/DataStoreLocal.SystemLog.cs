@@ -51,7 +51,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } catch { }
         try {
             if (Logger.LoggingSystem) {
-                Logger.RecordSystem(type, text, details);
+                Logger.RecordSystem(type, text!, details);
             }
         } catch (Exception ex) {
             try {
