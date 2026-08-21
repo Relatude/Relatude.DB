@@ -6,8 +6,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Xabe.FFmpeg;
-using Xabe.FFmpeg.Downloader;
 
 namespace Relatude.DB.FileConversion;
 
@@ -61,8 +59,10 @@ public class FFMpegVideoConverter : IFileConverter {
             if (_ffmpegBinReady) return;
             Directory.CreateDirectory(_ffmpegBinDir);
             _ffmpegBinProgressInfo = "Downloading FFmpeg...";
-            await FFmpegDownloader.GetLatestVersion(FFmpegVersion.Official, _ffmpegBinDir,
-                new Progress<ProgressInfo>(p => _ffmpegBinProgressInfo = $"Downloading FFmpeg: {p.DownloadedBytes / 1024} KB / {p.TotalBytes / 1024} KB"));
+            await FFmpegBinaryDownloader.EnsureAsync(_ffmpegBinDir,
+                (name, downloadedBytes, totalBytes) => _ffmpegBinProgressInfo = totalBytes > 0
+                    ? $"Downloading {name}: {downloadedBytes / 1024} KB / {totalBytes / 1024} KB"
+                    : $"Downloading {name}: {downloadedBytes / 1024} KB");
             GlobalFFOptions.Configure(opts => opts.BinaryFolder = _ffmpegBinDir);
             _ffmpegBinReady = true;
         } catch (Exception ex) {

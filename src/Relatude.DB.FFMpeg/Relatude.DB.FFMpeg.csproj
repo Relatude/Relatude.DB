@@ -10,7 +10,6 @@
 
 	<ItemGroup>
 		<PackageReference Include="FFMpegCore" Version="5.4.0" />
-		<PackageReference Include="Xabe.FFmpeg.Downloader" Version="4.4.0" />
 	</ItemGroup>
 
 	<ItemGroup>
