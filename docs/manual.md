@@ -2220,6 +2220,26 @@ execute step by step. **Prefer the builder methods over LINQ extensions on the r
 result set is already materialised, so `.Where()` on it happens in your process, while `.Where()`
 on the builder happens in the engine against the indexes.
 
+### Queries are immutable
+
+Query objects are immutable, exactly like LINQ queries: every operator returns a **new** query with
+the clause appended and leaves the original untouched. A base query can therefore be stored, shared
+across threads and forked freely:
+
+```csharp
+var active = db.Query<IEvent>().Where(e => e.Status == EventStatus.Published);
+
+var upcoming = active.Where(e => e.StartsUtc > DateTime.UtcNow);   // fork
+var total    = active.Count();                                     // does not affect 'active'
+var page     = active.OrderBy(e => e.StartsUtc).Page(0, 20).Execute();
+```
+
+The flip side is the same as in LINQ: the returned query must be used. `q.Where(...)` on its own
+line does nothing — write `q = q.Where(...)`. The operators are marked `[Pure]`, so a discarded
+result is flagged by .NET code analysis (rule CA1806; raise it to a warning with
+`dotnet_diagnostic.CA1806.severity = warning` in `.editorconfig`). This applies to the facet and
+search builders too: `fq = fq.SetFacetValue(...)`.
+
 ### Entry points
 
 ```csharp

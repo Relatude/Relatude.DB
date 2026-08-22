@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+using System.Diagnostics.Contracts;
+using System.Linq.Expressions;
 using System.Text;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Nodes;
@@ -7,33 +8,37 @@ using Relatude.DB.Query.Linq;
 
 namespace Relatude.DB.Query;
 public static class QueryOfObjects {
+    [Pure]
     public static QueryOfObjects<TResult> Select<TSource, TResult>(this QueryOfObjects<TSource> query, Expression<Func<TSource, TResult>> expression) {
-        query._q._sb.Append(".Select(");
-        query._q._sb.Append(expression.ToQueryString(query._q._parameters));
-        query._q._sb.Append(')');
-        return new QueryOfObjects<TResult>(query._q.Store, query._q._ctx, query._q._sb, query._q._parameters);
+        var q = query._q.Clone();
+        q.Select(expression);
+        return new QueryOfObjects<TResult>(q);
     }
     public static int Sum<TSource>(this QueryOfObjects<TSource> query, Expression<Func<TSource, int>> expression) {
-        return query._q.Sum(expression).Prepare().EvaluateValue<int>();
+        return query._q.Clone().Sum(expression).Prepare().EvaluateValue<int>();
     }
     public static double Sum<TSource>(this QueryOfObjects<TSource> query, Expression<Func<TSource, double>> expression) {
-        return query._q.Sum(expression).Prepare().EvaluateValue<double>();
+        return query._q.Clone().Sum(expression).Prepare().EvaluateValue<double>();
     }
     public static float Sum<TSource>(this QueryOfObjects<TSource> query, Expression<Func<TSource, float>> expression) {
-        return query._q.Sum(expression).Prepare().EvaluateValue<float>();
+        return query._q.Clone().Sum(expression).Prepare().EvaluateValue<float>();
     }
     public static decimal Sum<TSource>(this QueryOfObjects<TSource> query, Expression<Func<TSource, decimal>> expression) {
-        return query._q.Sum(expression).Prepare().EvaluateValue<decimal>();
+        return query._q.Clone().Sum(expression).Prepare().EvaluateValue<decimal>();
     }
     public static int Sum(this QueryOfObjects<int> query) {
-        return query._q.Sum().Prepare().EvaluateValue<int>();
+        return query._q.Clone().Sum().Prepare().EvaluateValue<int>();
     }
     public static double Sum(this QueryOfObjects<double> query) {
-        return query._q.Sum().Prepare().EvaluateValue<double>();
+        return query._q.Clone().Sum().Prepare().EvaluateValue<double>();
     }
 }
+/// <summary>
+/// A query over plain values or projected objects (after Select or SelectId). Immutable like
+/// QueryOfNodes: every operator returns a new query, so the result must be used: q = q.Take(10).
+/// </summary>
 public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
-    internal readonly QueryStringBuilder _q;
+    internal readonly QueryStringBuilder _q; // never mutated after the query object is handed out; operators clone it
     public QueryOfObjects(NodeStore store, QueryContext? ctx) {
         _q = new QueryStringBuilder(store, ctx, typeof(T).Name);
     }
@@ -43,22 +48,21 @@ public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
     internal QueryOfObjects(QueryStringBuilder q) {
         _q = q;
     }
-    public QueryOfObjects<T> Page(int pageIndex, int pageSize) {
-        _q.Page(pageIndex, pageSize);
-        return this;
+    QueryOfObjects<T> fork(Action<QueryStringBuilder> append) {
+        var q = _q.Clone();
+        append(q);
+        return new QueryOfObjects<T>(q);
     }
-    public QueryOfObjects<T> Take(int count) {
-        _q.Take(count);
-        return this;
-    }
-    public QueryOfObjects<T> Skip(int count) {
-        _q.Skip(count);
-        return this;
-    }
+    [Pure]
+    public QueryOfObjects<T> Page(int pageIndex, int pageSize) => fork(q => q.Page(pageIndex, pageSize));
+    [Pure]
+    public QueryOfObjects<T> Take(int count) => fork(q => q.Take(count));
+    [Pure]
+    public QueryOfObjects<T> Skip(int count) => fork(q => q.Skip(count));
 
     public Task<ResultSet<T>> ExecuteAsync() => _q.Prepare().EvaluateSetAsync<T>()!;
     public ResultSet<T> Execute() => _q.Prepare().EvaluateSet<T>()!;
-    public ResultSet<T> Execute(out int totalCount) { 
+    public ResultSet<T> Execute(out int totalCount) {
         var result = _q.Prepare().EvaluateSet<T>();
         totalCount = result.TotalCount;
         return result!;
@@ -67,21 +71,9 @@ public class QueryOfObjects<T> : IQueryCollection<ResultSet<T>> {
     public async Task<object?> EvaluateForJsonAsync() => await _q.Prepare().EvaluateForJsonAsync();
     public Task<int> CountAsync() => _q.CountAsync();
     public int Count() => _q.Count();
-    public QueryOfObjects<T> OrderBy(Expression<Func<T, object>> expression, bool descending = false) {
-        _q.OrderBy(expression, descending);
-        return this;
-    }
-    public QueryOfObjects<T> OrderByDescending(Expression<Func<T, object>> expression) {
-        _q.OrderBy(expression, true);
-        return this;
-    }
-    //public QueryOfObjects<T> Where(Expression<Func<T, bool>> expression) {
-    //    _q.Where(expression);
-    //    return this;
-    //}
-    //public QueryOfObjects<T> Where(string lambdaCodeAsString) {
-    //    _q.Where(lambdaCodeAsString);
-    //    return this;
-    //}
+    [Pure]
+    public QueryOfObjects<T> OrderBy(Expression<Func<T, object>> expression, bool descending = false) => fork(q => q.OrderBy(expression, descending));
+    [Pure]
+    public QueryOfObjects<T> OrderByDescending(Expression<Func<T, object>> expression) => fork(q => q.OrderBy(expression, true));
     public override string ToString() => _q.ToString();
 }

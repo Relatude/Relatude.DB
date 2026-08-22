@@ -30,6 +30,28 @@ internal sealed class QueryStringBuilder {
         _parameters = parameters;
         _ctx = ctx;
     }
+    /// <summary>
+    /// Copies the whole builder state so the copy can be extended without affecting the original.
+    /// This is what makes the public query objects immutable: every operator clones, appends to the
+    /// clone and wraps it in a new query object. The optional map is filled with original -> copy
+    /// for every include branch, so a query object holding a branch of the original tree can find
+    /// its counterpart in the clone (see IncludeQueryOfNodes.ThenInclude).
+    /// </summary>
+    internal QueryStringBuilder Clone(Dictionary<IncludeBranch, IncludeBranch>? branchMap = null) {
+        var c = new QueryStringBuilder(Store, _ctx, new StringBuilder(_sb.ToString()), new List<Parameter>(_parameters));
+        c._branchMarker = _branchMarker;
+        if (_branches != null) {
+            branchMap ??= new();
+            c._branches = new(_branches.Count);
+            foreach (var b in _branches) c._branches.Add(b.DeepCopy(branchMap));
+            if (_branchPaths != null) {
+                c._branchPaths = new(_branchPaths.Count);
+                foreach (var kv in _branchPaths) c._branchPaths.Add(branchMap[kv.Key], kv.Value);
+            }
+        }
+        if (_branchFilterEmissions != null) c._branchFilterEmissions = new(_branchFilterEmissions);
+        return c;
+    }
     void add(string method, params object[]? args) {
         _sb.Append('.');
         _sb.Append(method);
@@ -140,14 +162,14 @@ internal sealed class QueryStringBuilder {
     }
     Task<object?> toDataAsync() => Store.Datastore.QueryAsync(getQueryString(), _parameters);
     object? toData() => Store.Datastore.Query(getQueryString(), _parameters);
+    // Count evaluates a snapshot instead of appending to the builder: the query object stays
+    // usable afterwards (count first, then execute the same query is a common pattern)
     internal async Task<int> CountAsync() {
-        add("Count");
-        var result = await toDataAsync();
+        var result = await Store.Datastore.QueryAsync(getQueryString() + ".Count()", _parameters);
         return (int)result!;
     }
     internal int Count() {
-        add("Count");
-        var result = toData();
+        var result = Store.Datastore.Query(getQueryString() + ".Count()", _parameters);
         return (int)result!;
     }
     internal QueryStringBuilder Sum() {

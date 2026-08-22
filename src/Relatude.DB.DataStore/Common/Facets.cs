@@ -38,6 +38,13 @@ public class Facets {
     public int MinCount; // values with a lower count are dropped (unless selected); 0 = keep all
     public bool IncludeMissing; // adds a bucket (Value == null) for nodes without a value for the property
     public bool SortByCount; // sort values by descending count (after counting) instead of by value
+    /// <summary>Copies the facet spec, including cloned values, so the copy can be modified independently.</summary>
+    public Facets Clone() {
+        var c = (Facets)MemberwiseClone();
+        c._values = new List<FacetValue>(_values.Count);
+        foreach (var v in _values) c._values.Add(v.Clone());
+        return c;
+    }
     public void CopyOptionsFrom(Facets? given) {
         if (given == null) return;
         if (given._displayName != null) _displayName = given._displayName;

@@ -1,18 +1,21 @@
-﻿using Relatude.DB.Query.Data;
+﻿using System.Diagnostics.Contracts;
+using Relatude.DB.Query.Data;
 namespace Relatude.DB.Query;
 
 public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearch<T>> {
-    QueryOfNodes<T, TInclude> _query;
+    readonly QueryOfNodes<T, TInclude> _query;
     internal QueryOfSearch(QueryOfNodes<T, TInclude> query) {
         _query = query;
     }
+    // immutable like the node query it wraps: operators return a new search query
+    [Pure]
     public QueryOfSearch<T, TInclude> Page(int pageIndex0based, int pageSize) {
-        _query.Page(pageIndex0based, pageSize);
-        return this;
+        return new QueryOfSearch<T, TInclude>((QueryOfNodes<T, TInclude>)_query.Page(pageIndex0based, pageSize));
     }
+    [Pure]
     public QueryOfSearch<T, TInclude> Top(int count) {
-        _query.Take(count);
-        return this;
+        // emitted as Page(0, count): the engine pages search results but does not support Take on them
+        return new QueryOfSearch<T, TInclude>((QueryOfNodes<T, TInclude>)_query.Page(0, count));
     }
     public override string ToString() {
         return _query.ToString();

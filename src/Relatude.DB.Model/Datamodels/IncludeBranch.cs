@@ -94,4 +94,19 @@ public class IncludeBranch {
         EvaluatedIds.Clear();
         if (_children != null) foreach (var c in _children) c.Reset();
     }
+
+    /// <summary>
+    /// Copies this branch and its children. EvaluatedIds (runtime evaluation state) starts empty in the copy.
+    /// The optional map is filled with original -> copy for every branch, so a caller holding a reference
+    /// into the original tree can find the corresponding branch in the copy.
+    /// </summary>
+    public IncludeBranch DeepCopy(Dictionary<IncludeBranch, IncludeBranch>? map = null) {
+        var copy = new IncludeBranch(PropertyId, Top) { Filter = Filter };
+        if (map != null) map[this] = copy;
+        if (_children != null) {
+            copy._children = new(_children.Count);
+            foreach (var c in _children) copy._children.Add(c.DeepCopy(map));
+        }
+        return copy;
+    }
 }
