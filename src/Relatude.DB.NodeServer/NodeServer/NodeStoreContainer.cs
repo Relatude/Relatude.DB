@@ -246,6 +246,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             };
             var urlProvider = new DefaultUrlProvider(urlOptions);
             //var urlProvider = new InternalUrlProvider();
+            var urlManager = server?.Options?.CreateUrlManager?.Invoke(settings);
 
             IDataStore datastore = new DataStoreLocal(
                     Datamodel,
@@ -261,7 +262,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioIndexes,
                     QueryContext.MasterAdmin,
                     urlProvider,
-                    server?.Options?.FileConverters.ToArray()
+                    server?.Options?.FileConverters.ToArray(),
+                    urlManager: urlManager
                     );
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);

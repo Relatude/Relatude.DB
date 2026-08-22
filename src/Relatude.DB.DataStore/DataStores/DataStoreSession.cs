@@ -203,6 +203,10 @@ public class DataStoreSession : IDataStore {
     public bool TryGetNodeIdFromAddress(string address, out int nodeId) => _datastore.TryGetNodeIdFromAddress(address, out nodeId);
     public bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode) => _datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     public bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData) => _datastore.TryGetNodeDataFromAddress(address, out nodeData);
+    public IdKeyWithCultureId[] GetNodeIdsFromAddress(string address) => _datastore.GetNodeIdsFromAddress(address);
+    public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) => _datastore.WillAddressResultInUniqueUrl(node, cultureId, address);
+    public string ExternalizeContentLinks(string content, QueryContext? ctx = null) => _datastore.ExternalizeContentLinks(content, ctx ?? QueryContext);
+    public string InternalizeContentLinks(string content, QueryContext? ctx = null) => _datastore.InternalizeContentLinks(content, ctx ?? QueryContext);
 
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
     public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);

@@ -37,8 +37,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     readonly FileKeyUtility _fileKeys;
-    readonly IUrlProvider _urlProviderInternal;
     readonly IUrlProvider _urlProviderPublic;
+    internal readonly UrlSystem _urls;
     readonly FileConversionEngine _fileConversionEngine;
     readonly IIOProvider _io;
     readonly IIOProvider _ioIndex;
@@ -96,7 +96,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         QueryContext? defaultQueryContext = null,
         IUrlProvider? urlProvider = null,
         IFileConverter[]? fileConverters = null,
-        IIOProvider? converterIoProvider = null
+        IIOProvider? converterIoProvider = null,
+        IUrlManager? urlManager = null
         ) {
         _state = DataStoreState.Closed;
         _initiatedUtc = DateTime.UtcNow;
@@ -113,11 +114,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         
-        _urlProviderInternal = new InternalUrlProvider();
-        _urlProviderInternal.Initialize(this);
-
         _urlProviderPublic = urlProvider ?? new DefaultUrlProvider(new UrlProviderOptions());
         _urlProviderPublic.Initialize(this);
+
+        _urls = new UrlSystem(this, _urlProviderPublic, urlManager, _settings.AssetUrlRoot);
 
         _createIndexEngines = createIndexEngines;
         _fileKeys = new(_settings.FilePrefix);
@@ -141,6 +141,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Datamodel = datamodel;
         datamodel.EnsureInitalization();
         datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
+        urlManager?.Initialize(this); // after the datamodel is set, so managers can resolve relations and types
         _nativeModelStore = new(this);
         if (_settings.DefaultFileStore.HasValue) {
             if (_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out var fileStore)) {

@@ -8,8 +8,10 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
 using Relatude.DB.Transactions;
+using Relatude.DB.Web;
 using System.Text;
 using Website.Simple;
+using Website.Simple.Data;
 using Website.Simple.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,12 +23,27 @@ builder.AddRelatudeDB(options => {
         dm.Add<Color>();
         dm.Add<Product>();
         dm.Add<Brand>();
+        dm.Add<SitePage>();
+        dm.Add<PageTree>(); // relation classes are not pulled in by Add<T>, so the tree relation is added explicitly
     };
+    // Dynamic URL example: page URLs are computed from the page tree instead of being stored on
+    // each node. The Slug of a page is only the last segment; the TreeUrlManager assembles the
+    // complete URL from the parent chain, maps hosts to the two site roots, and keeps the id
+    // based rdb: link tokens inside HTML bodies working across renames.
+    options.CreateUrlManager = settings => new TreeUrlManager(new TreeUrlManagerOptions() {
+        ParentRelationName = "PageTree",
+        Domains = [
+            new UrlDomain() { Host = "www.site-one.local", RootId = PageSeeder.SiteOneRootId },
+            new UrlDomain() { Host = "www.site-two.local", RootId = PageSeeder.SiteTwoRootId },
+        ],
+        FallbackRootId = PageSeeder.SiteOneRootId, // localhost and other unknown hosts serve site one
+    });
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpenBackground = db => {
         Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 1000, 1000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.PageSeeder.SeedIfEmpty(db); // populates the dynamic URL example (see the /pages* endpoints)
     };
 });
 
@@ -53,6 +70,11 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + $@"<p><a href='/testimonials'>Testimonials (model defined in Models/Json/testimonial.json)</a></p>"
     + $@"<p><a href='/campaigns'>Campaigns (model compiled at startup from Models/CSharp/Campaign.cs)</a></p>"
     + $@"<p><a href='/datamodel-sources'>Datamodel sources (where every type came from)</a></p>"
+    + $@"<h2>Dynamic URL example (TreeUrlManager)</h2>"
+    + $@"<p><a href='/pages/urls'>All pages with their computed URLs</a></p>"
+    + $@"<p><a href='/tv/sony-x90/info'>A page: /tv/sony-x90/info (its ""info"" slug is shared with /mobile/pixel/info)</a></p>"
+    + $@"<p><a href='/pages/rename-demo'>Rename the TV section (one write; links inside HTML keep working)</a></p>"
+    + $@"<p><a href='/pages/resolve?url=https%3A%2F%2Fwww.site-two.local%2Fcontact-us'>Resolve a URL on the other domain</a></p>"
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });
@@ -349,6 +371,57 @@ app.MapGet("/campaigns", (RelatudeDBContext ctx) => {
 
 
     return Results.Json(db.QueryType("Campaign").Execute());
+});
+
+// ---------------------------------------------------------------------------------------------
+// Dynamic URL example. The page tree itself is served by RelatudeDBMiddleware (a request like
+// /tv/sony-x90/info resolves through the TreeUrlManager configured above); the endpoints below
+// show what the url manager does underneath.
+
+// every page with its computed URL - nothing here is stored, it all derives from slugs + tree:
+app.MapGet("/pages/urls", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    return Results.Json(db.Query<SitePage>().Execute().Select(p => new {
+        p.Title,
+        Segment = p.Slug,
+        Url = db.GetUrl(p),
+        AbsoluteUrl = db.GetUrl(p, absolute: true),
+    }));
+});
+
+// renaming a section is ONE write: every descendant URL changes on the next read, and the id
+// based rdb: tokens stored inside HTML bodies keep working - nothing is reparsed or rewritten:
+app.MapGet("/pages/rename-demo", (RelatudeDBContext ctx) => {
+    var db = ctx.Database;
+    var tv = db.Get<SitePage>(PageSeeder.TvSectionId);
+    var newSlug = tv.Slug == "tv" ? "television" : "tv";
+    db.UpdateAddress(new NodeKey(tv.Id), newSlug);
+
+    var bodyPropId = db.Datastore.Datamodel.NodeTypesByFullName[typeof(SitePage).FullName!]
+        .AllProperties.Values.First(p => p.CodeName == nameof(SitePage.Body)).Id;
+    db.Datastore.TryGet(PageSeeder.SiteOneRootId, out var rawRoot);
+    rawRoot!.TryGetValue(bodyPropId, out var storedBody);
+
+    return Results.Json(new {
+        renamedTvSectionTo = newSlug,
+        sonyInfoUrlIsNow = db.GetUrl(db.Get<SitePage>(PageSeeder.SonyInfoId)),
+        rootBodyAsServed = db.Get<SitePage>(PageSeeder.SiteOneRootId).Body, // public URLs, already pointing at the new path
+        rootBodyAsStored = storedBody, // rdb: id tokens - untouched by the rename
+    });
+});
+
+// domain routing: the same path resolves to different nodes per host, decided by the url manager:
+app.MapGet("/pages/resolve", (RelatudeDBContext ctx, string url) => {
+    var db = ctx.Database;
+    if (!db.TryParseUrl(url, out var keys)) return Results.NotFound(new { url, match = false });
+    var page = db.Get<SitePage>(keys.NodeKey);
+    return Results.Json(new { url, match = true, page.Title, CanonicalUrl = db.GetUrl(page, absolute: true) });
+});
+
+// address validation, as an editor UI would call it before saving:
+app.MapGet("/pages/check-address", (RelatudeDBContext ctx, Guid pageId, string slug) => {
+    var db = ctx.Database;
+    return Results.Json(new { pageId, slug, resultsInUniqueUrl = db.WillAddressResultInUniqueUrl(new NodeKey(pageId), slug) });
 });
 
 // Where every type and relation in the datamodel came from: each datamodel source with its id,

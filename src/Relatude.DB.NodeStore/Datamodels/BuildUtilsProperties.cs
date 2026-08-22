@@ -239,6 +239,7 @@ internal static class BuildUtilsProperties {
         p.MinLength = a.MinLength;
         p.MinWordLength = a.MinWordLength;
         p.PrefixSearch = a.PrefixSearch;
+        p.StringType = a.StringType;
         return p;
     }
     static IntegerPropertyModel getIntegerPropertyModel(IntegerPropertyAttribute a) {

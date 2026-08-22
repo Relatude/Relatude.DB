@@ -31,7 +31,15 @@ public class NodeDataShell {
     }
     public T? GetValue<T>(Guid propertyId) {
         if (NodeData.TryGetValue(propertyId, out var value)) {
-            if (value is T typedValue) return typedValue;
+            if (value is T typedValue) {
+                // HTML/Markdown values are stored with internal rdb: link tokens; reads emit current public URLs
+                if (typedValue is string s && s.Length > 0
+                    && _dm.Properties[propertyId] is Properties.StringPropertyModel sp
+                    && (sp.StringType == Properties.StringValueType.HTML || sp.StringType == Properties.StringValueType.Markdown)) {
+                    return (T)(object)Store.ExternalizeContentLinks(s)!;
+                }
+                return typedValue;
+            }
             // enums are stored as boxed int, and "is T" is false for boxed int when T is an enum
             if (typeof(T).IsEnum && value is int i) return (T)(object)i;
         }

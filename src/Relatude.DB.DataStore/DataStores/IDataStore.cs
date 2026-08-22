@@ -70,6 +70,15 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeIdFromAddress(string address, out int nodeId, out string? cultureCode);
     bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
 
+    /// <summary>Every node holding this address (several nodes may share an address when a url manager allows it).</summary>
+    IdKeyWithCultureId[] GetNodeIdsFromAddress(string address);
+    /// <summary>True when giving this node this address produces a complete URL that collides with no other node's URL. Decided by the url manager; without one, addresses must be globally unique.</summary>
+    bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address);
+    /// <summary>Rewrites the internal rdb: link tokens in an HTML or Markdown value to public URLs.</summary>
+    string ExternalizeContentLinks(string content, QueryContext? ctx = null);
+    /// <summary>Rewrites resolvable public URLs in an HTML or Markdown value to internal id-based rdb: link tokens that survive renames. External links are left untouched.</summary>
+    string InternalizeContentLinks(string content, QueryContext? ctx = null);
+
     bool CanConvert(FileFormat from, FileFormat to);
     bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
 

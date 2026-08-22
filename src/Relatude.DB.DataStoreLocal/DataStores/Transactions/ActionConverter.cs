@@ -76,8 +76,8 @@ internal class ActionConverter {
             case NodeOperation.InsertOrFail: {
                     if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
-                    db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
-                    if (addressWasChanged) node.Address = newAddress;
+                    db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
+                    db._urls.RegisterAddressAtCommit(node, node);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
@@ -133,6 +133,8 @@ internal class ActionConverter {
             case NodeOperation.ForceUpdate: {
                     var node = nodeAction.Node;
                     ensureIdAndGuid(db, node);
+                    // internalize before the diff below, so an unchanged HTML value compares equal to the stored token form
+                    db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) {// is new
                         if (nodeAction.Operation != NodeOperation.UpdateIfExists) {
                             throw new Exception("Node with id " + node.Id + " does not exist, cannot update. Use InsertIfNotExists or Upsert instead. ");
@@ -148,23 +150,25 @@ internal class ActionConverter {
                         };
                         if (performUpdate) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
-                            yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
+                            // NB: the new node is prepared, and the address registered, BEFORE the remove primitive
+                            // is yielded: primitives execute as they are enumerated, and the uniqueness probe of the
+                            // url manager must still be able to see the node (its parents, its current address).
                             if (oldNode is NodeDataRevisions revsNode) { // revison handling is relevant, revision must already exists:
                                 if (node is not NodeDataRevision nodeRev) throw new Exception("Cannot determine revision to update. ");
                                 var typeDef = db._definition.NodeTypes[oldNode.NodeType];
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.EnsureOrQueueIndex(db, newNode, doNotRegenTheseProps, newTasks);
-                                db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
-                                if (addressWasChanged) newNode.Address = newAddress;
+                                db._urls.RegisterAddressAtCommit(node, newNode);
+                                yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
                                 if (node is not INodeDataInternal nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
                                 Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
-                                db._addresses.Update(node.__Id, node.Address, node.Meta?.CultureId, out var newAddress, out var addressWasChanged);
-                                if (addressWasChanged) nodeInner.Address = newAddress;
+                                db._urls.RegisterAddressAtCommit(node, nodeInner);
+                                yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeInner);
                             }
                         }
@@ -175,6 +179,8 @@ internal class ActionConverter {
                     if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new
+                        db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
+                        db._urls.RegisterAddressAtCommit(node, node); // registration was missing on this path before the multi-owner registry
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                         Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);

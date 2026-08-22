@@ -10,6 +10,7 @@ using Relatude.DB.NodeServer.EventHub;
 using Relatude.DB.NodeServer.EventTriggers;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.Tasks;
+using Relatude.DB.Web;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.NodeServer;
@@ -385,6 +386,14 @@ public class ServerOptions {
     /// </summary>
     public string? DefaultTempFolderPath { get; set; } = null;
     public List<IFileConverter> FileConverters { get; set; } = [];
+
+    /// <summary>
+    /// Factory for the url manager of each store container. A url manager owns the mapping between
+    /// public page URLs and nodes (addresses become local segments, domains map hosts to trees, and
+    /// HTML/Markdown links are stored as rename-proof id tokens). Return null for the classic
+    /// behavior where the address is the complete, globally unique URL path.
+    /// </summary>
+    public Func<NodeStoreContainerSettingsBase, IUrlManager?>? CreateUrlManager { get; set; }
 
 
 }

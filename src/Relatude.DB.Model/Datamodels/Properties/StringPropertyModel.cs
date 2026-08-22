@@ -8,7 +8,7 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
     public string? DefaultValue { get; set; } = string.Empty;
     public int MinLength { get; set; } = 0;
     public int MaxLength { get; set; } = int.MaxValue;
-    readonly public StringValueType StringType = StringValueType.AnyString;
+    public StringValueType StringType { get; set; } = StringValueType.AnyString;
     public bool PrefixSearch { get; set; }
     public bool InfixSearch { get; set; }
     public bool IndexedByWords { get; set; }

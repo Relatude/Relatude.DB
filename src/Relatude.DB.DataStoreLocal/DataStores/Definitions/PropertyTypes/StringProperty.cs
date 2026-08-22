@@ -26,6 +26,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         MaxWordLength = pm.MaxWordLength;
         RegularExpression = pm.RegularExpression;
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
+        StringType = pm.StringType;
     }
     IndexUtil<IWordIndex> _indexUtil = new();
     public IWordIndex GetWordIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
@@ -41,7 +42,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     readonly public string? DefaultValue;
     readonly public int MinLength = 0;
     readonly public int MaxLength = int.MaxValue;
-    readonly public StringValueType StringType = StringValueType.AnyString;
+    readonly public StringValueType StringType;
     readonly public bool PrefixSearch;
     readonly public bool InfixSearch;
     readonly public bool IndexedByWords;

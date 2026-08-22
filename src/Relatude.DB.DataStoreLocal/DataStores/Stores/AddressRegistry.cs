@@ -1,4 +1,3 @@
-﻿using Relatude.DB.DataStores.Indexes.Trie.TrieNet._Ukkonen;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
@@ -7,6 +6,16 @@ using System.Runtime.CompilerServices;
 
 namespace Relatude.DB.DataStores.Stores;
 
+/// <summary>
+/// In-memory registry of node addresses. The forward map (id + culture -> address) mirrors the
+/// Address system property of every node; the reverse map (address -> owners) supports lookups.
+/// Several nodes may own the same address (a url manager can produce unique complete URLs from
+/// non-unique address segments), so the reverse map is multi-owner. Registration never changes
+/// the address it is given - collision handling (the suffix loop) lives with the caller, which
+/// decides uniqueness through the configured url manager.
+/// The persisted state only contains the forward map, so the multi-owner reverse map is a pure
+/// in-memory rebuild and the state file format is unchanged from the single-owner registry.
+/// </summary>
 public class AddressRegistry {
     private static readonly Guid _marker = new("fa5f4dd3-8520-4fc9-a260-637fe9ddb2ca");
     private static readonly byte[] _normalizeTable = BuildNormalizeTable();
@@ -19,30 +28,32 @@ public class AddressRegistry {
         return t;
     }
     private readonly Dictionary<long, string> _addressByIdAndCulture = new();
-    private readonly Dictionary<string, long> _idAndCultureByAddress = new(StringComparer.Ordinal);
+    // owner arrays are treated as immutable and replaced on change, so undo entries can hold the previous array by reference
+    private readonly Dictionary<string, long[]> _ownersByAddress = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, byte> _cultureIdByCode = new();
     private readonly Guid?[] _cultureCodeById = new Guid?[256];
     private byte _lastCultureId = 0;
     private bool _inTransaction;
     private byte _transactionStartCultureId;
     private List<undoEntry>? _undoLog;
-    Random _rnd = new Random();
 
     enum undoKind : byte {
         RestoreAddressByIdAndCulture,
-        RestoreIdAndCultureByAddress,
+        RestoreOwnersByAddress,
     }
 
     readonly struct undoEntry {
         public readonly undoKind Kind;
         public readonly long Key;
         public readonly string Address;
+        public readonly long[]? Owners;
         public readonly bool HadValue;
 
-        public undoEntry(undoKind kind, long key, string address, bool hadValue) {
+        public undoEntry(undoKind kind, long key, string address, long[]? owners, bool hadValue) {
             Kind = kind;
             Key = key;
             Address = address;
+            Owners = owners;
             HadValue = hadValue;
         }
     }
@@ -94,9 +105,9 @@ public class AddressRegistry {
     void setAddressByIdAndCulture(long key, string value) {
         if (_inTransaction && _undoLog is not null) {
             if (_addressByIdAndCulture.TryGetValue(key, out var existing)) {
-                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, true));
+                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, null, true));
             } else {
-                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, string.Empty, false));
+                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, string.Empty, null, false));
             }
         }
 
@@ -109,36 +120,48 @@ public class AddressRegistry {
         }
 
         if (_inTransaction && _undoLog is not null) {
-            _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, true));
+            _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, null, true));
         }
 
         _addressByIdAndCulture.Remove(key);
     }
 
-    private void setIdAndCultureByAddress(string address, long key) {
-        if (_inTransaction && _undoLog is not null) {
-            if (_idAndCultureByAddress.TryGetValue(address, out var existing)) {
-                _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, existing, address, true));
-            } else {
-                _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, default, address, false));
-            }
+    void logOwnersUndo(string address) {
+        if (!_inTransaction || _undoLog is null) return;
+        if (_ownersByAddress.TryGetValue(address, out var existing)) {
+            _undoLog.Add(new undoEntry(undoKind.RestoreOwnersByAddress, default, address, existing, true));
+        } else {
+            _undoLog.Add(new undoEntry(undoKind.RestoreOwnersByAddress, default, address, null, false));
         }
-
-        _idAndCultureByAddress[address] = key;
     }
 
-    private void removeIdAndCultureByAddress(string address) {
-        if (!_idAndCultureByAddress.TryGetValue(address, out var existing)) {
-            return;
+    void addOwner(string address, long key) {
+        logOwnersUndo(address);
+        if (_ownersByAddress.TryGetValue(address, out var owners)) {
+            foreach (var o in owners) if (o == key) return; // already registered
+            var newOwners = new long[owners.Length + 1];
+            Array.Copy(owners, newOwners, owners.Length);
+            newOwners[^1] = key;
+            _ownersByAddress[address] = newOwners;
+        } else {
+            _ownersByAddress[address] = [key];
         }
-
-        if (_inTransaction && _undoLog is not null) {
-            _undoLog.Add(new undoEntry(undoKind.RestoreIdAndCultureByAddress, existing, address, true));
-        }
-
-        _idAndCultureByAddress.Remove(address);
     }
 
+    void removeOwner(string address, long key) {
+        if (!_ownersByAddress.TryGetValue(address, out var owners)) return;
+        var index = Array.IndexOf(owners, key);
+        if (index == -1) return;
+        logOwnersUndo(address);
+        if (owners.Length == 1) {
+            _ownersByAddress.Remove(address);
+        } else {
+            var newOwners = new long[owners.Length - 1];
+            Array.Copy(owners, newOwners, index);
+            Array.Copy(owners, index + 1, newOwners, index, owners.Length - index - 1);
+            _ownersByAddress[address] = newOwners;
+        }
+    }
 
     public void BeginTransaction() {
         if (_inTransaction) {
@@ -180,11 +203,11 @@ public class AddressRegistry {
                             _addressByIdAndCulture.Remove(entry.Key);
                         }
                         break;
-                    case undoKind.RestoreIdAndCultureByAddress:
+                    case undoKind.RestoreOwnersByAddress:
                         if (entry.HadValue) {
-                            _idAndCultureByAddress[entry.Address] = entry.Key;
+                            _ownersByAddress[entry.Address] = entry.Owners!;
                         } else {
-                            _idAndCultureByAddress.Remove(entry.Address);
+                            _ownersByAddress.Remove(entry.Address);
                         }
                         break;
                     default:
@@ -204,15 +227,36 @@ public class AddressRegistry {
         _lastCultureId = _transactionStartCultureId;
         _undoLog?.Clear();
     }
+    /// <summary>First owner of the address, for callers that expect the single-owner behavior.</summary>
     public bool TryGetId(string address, out int id, out Guid? cultureCode) {
-        if (_idAndCultureByAddress.TryGetValue(address, out var key)) {
-            id = unpackId(key);
-            cultureCode = _cultureCodeById[unpackCultureId(key)];
+        if (_ownersByAddress.TryGetValue(address, out var owners) && owners.Length > 0) {
+            id = unpackId(owners[0]);
+            cultureCode = _cultureCodeById[unpackCultureId(owners[0])];
             return true;
         }
 
         id = 0;
         cultureCode = null;
+        return false;
+    }
+    /// <summary>Every owner of the address, in registration order.</summary>
+    public (int id, Guid? cultureCode)[] GetOwners(string address) {
+        if (!_ownersByAddress.TryGetValue(address, out var owners)) return [];
+        var result = new (int, Guid?)[owners.Length];
+        for (int i = 0; i < owners.Length; i++) {
+            result[i] = (unpackId(owners[i]), _cultureCodeById[unpackCultureId(owners[i])]);
+        }
+        return result;
+    }
+    /// <summary>
+    /// True when the address is owned by anyone but the given node and culture. Matches the classic
+    /// single-owner rule, where the same node holding the address in another culture also counts as taken.
+    /// </summary>
+    public bool IsAddressTakenByOther(string address, int id, Guid? cultureCode) {
+        if (!_ownersByAddress.TryGetValue(address, out var owners) || owners.Length == 0) return false;
+        if (!tryGetCultureId(cultureCode, out var cultureId)) return true; // unknown culture: every owner is another
+        var key = packKey(id, cultureId);
+        foreach (var o in owners) if (o != key) return true;
         return false;
     }
     public bool TryGetAddressAndTryMatchCulture(int id, Guid? cultureCode, [MaybeNullWhen(false)] out string? address) {
@@ -260,27 +304,16 @@ public class AddressRegistry {
             }
         });
     }
-    public void Update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
-        var normalizedAddress = NormalizeAddress(address, out var changedWhenNormalized);
-        update(id, normalizedAddress, cultureCode, out var newAddressAfterUpdate, out var changedDuringUpdate);
-        if (changedDuringUpdate) {
-            changedNewAddress = true;
-            newAddress = newAddressAfterUpdate;
-        } else if (changedWhenNormalized) {
-            changedNewAddress = true;
-            newAddress = normalizedAddress;
-        } else {
-            changedNewAddress = false;
-            newAddress = null;
-        }
-    }
-    void update(int id, string? address, Guid? cultureCode, out string? newAddress, out bool changedNewAddress) {
+    /// <summary>
+    /// Registers the (already normalized) address of a node for a culture, replacing any previous
+    /// address of that node and culture. A null address removes the registration. The address is
+    /// stored exactly as given - uniqueness is the caller's decision.
+    /// </summary>
+    public void Register(int id, string? address, Guid? cultureCode) {
         byte cultureId;
         if (address == null) {
             if (!tryGetCultureId(cultureCode, out cultureId)) {
-                newAddress = null;
-                changedNewAddress = false;
-                return;
+                return; // unknown culture, nothing can be registered for it
             }
         } else {
             cultureId = getOrAddCultureId(cultureCode);
@@ -291,57 +324,31 @@ public class AddressRegistry {
         if (address is null) {
             if (currentAddress is not null) {
                 removeAddressByIdAndCulture(key);
-                removeIdAndCultureByAddress(currentAddress);
+                removeOwner(currentAddress, key);
             }
-            newAddress = null;
-            changedNewAddress = false;
             return;
         }
 
-        var candidate = address;
-        if (_idAndCultureByAddress.TryGetValue(candidate, out var owner) && owner != key) {
-            var suffix = address == string.Empty ? id : 2;
-            var attemptCount = 0;
-            while (true) {
-                if (attemptCount < 10) {
-                    candidate = address.Length > 0 ? address + "-" + suffix : suffix.ToString();
-                } else if (attemptCount < 20) {
-                    candidate = address + "-" + _rnd.Next(1000, 9999).ToString();
-                } else {
-                    candidate = address + "-" + Guid.NewGuid().ToString("N").ToLower();
-                }
-                if (!_idAndCultureByAddress.TryGetValue(candidate, out owner) || owner == key) {
-                    break;
-                }
-                attemptCount++;
-                suffix++;
-            }
-        }
-
-        changedNewAddress = !string.Equals(candidate, address, StringComparison.Ordinal);
-
-        if (string.Equals(currentAddress, candidate, StringComparison.Ordinal)) {
-            newAddress = candidate;
-            return;
+        if (string.Equals(currentAddress, address, StringComparison.Ordinal)) {
+            return; // unchanged
         }
 
         if (currentAddress is not null) {
-            removeIdAndCultureByAddress(currentAddress);
+            removeOwner(currentAddress, key);
         }
 
-        setAddressByIdAndCulture(key, candidate);
-        setIdAndCultureByAddress(candidate, key);
-        newAddress = candidate;
+        setAddressByIdAndCulture(key, address);
+        addOwner(address, key);
     }
-    public void Remove(int id, string? address, Guid? cultureCode) {
-        Update(id, null, cultureCode, out _, out _);
+    public void Remove(int id, Guid? cultureCode) {
+        Register(id, null, cultureCode);
     }
     public void Remove(int id) {
         for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
             var key = packKey(id, (byte)cultureId);
             if (_addressByIdAndCulture.TryGetValue(key, out var address)) {
                 removeAddressByIdAndCulture(key);
-                removeIdAndCultureByAddress(address);
+                removeOwner(address, key);
             }
         }
     }
@@ -371,7 +378,7 @@ public class AddressRegistry {
         stream.RecordChecksum();
 
         _addressByIdAndCulture.Clear();
-        _idAndCultureByAddress.Clear();
+        _ownersByAddress.Clear();
         _cultureIdByCode.Clear();
         Array.Clear(_cultureCodeById, 0, _cultureCodeById.Length);
 
@@ -384,12 +391,13 @@ public class AddressRegistry {
             _cultureCodeById[cultureId] = cultureCode;
         }
 
+        _inTransaction = false; // no undo logging while rebuilding the reverse map below
         var noAddresses = stream.ReadVerifiedInt();
         for (var i = 0; i < noAddresses; i++) {
             var key = stream.ReadLong();
             var address = stream.ReadString();
             _addressByIdAndCulture[key] = address;
-            _idAndCultureByAddress[address] = key;
+            addOwner(address, key);
         }
 
         stream.ValidateChecksum();
@@ -404,13 +412,11 @@ public class AddressRegistry {
         try {
             switch (na.Operation) {
                 case PrimitiveOperation.Add:
-                    Update(na.Node.__Id, na.Node.Address, na.Node.Meta?.CultureId, out var newAddress, out var changedNewAddress);
-                    if (changedNewAddress) {
-                        throw new Exception($"Address '{na.Node.Address}' for node {na.Node.__Id} was changed to '{newAddress}' during state load.");
-                    }
+                    // the stored action already contains the final address, so it is registered verbatim
+                    Register(na.Node.__Id, NormalizeAddress(na.Node.Address, out _), na.Node.Meta?.CultureId);
                     break;
                 case PrimitiveOperation.Remove:
-                    Remove(na.Node.__Id, na.Node.Address, na.Node.Meta?.CultureId);
+                    Remove(na.Node.__Id, na.Node.Meta?.CultureId);
                     break;
                 default:
                     break;

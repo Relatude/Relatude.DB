@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
@@ -16,84 +16,36 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) {
-        result = null;
-        ctx = ctx ?? _defaultQueryCtx;
-        if (!_urlProviderPublic.TryParseUrlTarget(url, out var type)) return false;
-
-        switch (type) {
-            case UrlTarget.Node: {
-                    if (_urlProviderPublic.TryParseUrlNodeKey(url, out var nodeKey)) {
-                        result = new() {
-                            Target = type,
-                            NodeKey = nodeKey
-                        };
-                    }
-                }
-                break;
-            case UrlTarget.EmbeddedNode: {
-                    if (_urlProviderPublic.TryParseUrlNodePath(url, out var nodePath)) {
-                        result = new() {
-                            Target = type,
-                            NodeKey = nodePath.NodeKey,
-                            NodePath = nodePath
-                        };
-                    }
-                }
-                break;
-            case UrlTarget.Property: {
-                    if (_urlProviderPublic.TryParseUrlPropertyPath(url, out var propertyPath)) {
-                        result = new() {
-                            Target = type,
-                            NodeKey = propertyPath.NodePath.NodeKey,
-                            NodePath = propertyPath.NodePath,
-                            PropertyPath = propertyPath
-                        };
-                    }
-                }
-                break;
-            case UrlTarget.PropertyAdjusted: {
-                    if (_urlProviderPublic.TryParseUrlAdjustments(url, out var propertyPath, out var adjustment)) {
-                        result = new() {
-                            Target = type,
-                            NodeKey = propertyPath.NodePath.NodeKey,
-                            NodePath = propertyPath.NodePath,
-                            PropertyPath = propertyPath,
-                            Adjustment = adjustment
-                        };
-                    }
-                }
-                break;
-            default: break;
-        }
-        return result != null;
+        return _urls.TryParseUrl(url, out result, ctx ?? _defaultQueryCtx);
     }
     public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent r, int maxWaitMs = -1, QueryContext? ctx = null) {
         r = default;
         ctx = ctx ?? _defaultQueryCtx;
         bool v = TryParseUrl(url, out UrlKeys? result, ctx);
         if (!v || result == null) return false;
+        if (result.CultureId != Guid.Empty) ctx = ctx.Culture(result.CultureId);
         r = new UrlContent(result);
         switch (result.Target) {
             case UrlTarget.Node: {
-                    r.NodeData = Get(result.NodeKey, _defaultQueryCtx);
+                    r.NodeData = Get(result.NodeKey, ctx);
                 }
                 break;
             case UrlTarget.EmbeddedNode: {
-                    r.NodeData = Get(result.NodePath!, _defaultQueryCtx);
+                    r.NodeData = Get(result.NodePath!, ctx);
                 }
                 break;
             case UrlTarget.Property: {
-                    r.PropertyValue = GetValue<object>(result.PropertyPath!, _defaultQueryCtx);
+                    r.PropertyValue = GetValue<object>(result.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
-                        r.Stream = GetFileStream(result.PropertyPath!, _defaultQueryCtx).Result;
+                        r.Stream = GetFileStream(result.PropertyPath!, ctx).Result;
                         r.ContentType = fileValue.ContentType;
                         r.FileName = fileValue.Name;
                     }
                 }
                 break;
             case UrlTarget.PropertyAdjusted: {
-                    r.PropertyValue = GetValue<object>(result.PropertyPath!, _defaultQueryCtx);
+                    r.PropertyValue = GetValue<object>(result.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
                         var stateAndStream = GetFileStreamAndState(result.PropertyPath!, result.Adjustment!, maxWaitMs).Result;
@@ -110,39 +62,40 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
 
     public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx = null) {
-        return _urlProviderPublic.GetUrl(nodeKey, absolute);
+        return _urls.GetUrl(nodeKey, absolute, ctx);
     }
     public string GetUrl(NodePath nodePath, bool absolute, QueryContext? ctx = null) {
-        return _urlProviderPublic.GetUrl(nodePath, absolute);
+        return _urls.GetUrl(nodePath, absolute, ctx);
     }
     public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
-        return _urlProviderPublic.GetUrl(fileValue.PropertyPath, getFileVersionId(fileValue), absolute);
+        return _urls.GetUrl(fileValue.PropertyPath, getFileVersionId(fileValue), absolute, fileValue.Name);
     }
     public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
-        return _urlProviderPublic.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue), absolute);
+        return _urls.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue), absolute, fileValue.Name);
     }
 
     public async Task<Stream> GetFileStream(string url, int maxWait = -1, QueryContext? ctx = null) {
         return (await GetFileStreamAndState(url, maxWait, ctx)).Stream;
     }
     public async Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) {
-        if (!_urlProviderPublic.TryParseUrlTarget(url, out var type)) throw new Exception("URL is not a valid local URL");
-        if (type == UrlTarget.Property) {
-            if (!_urlProviderPublic.TryParseUrlPropertyPath(url, out var path)) throw new Exception("URL does not point to a file property");
+        if (!_urls.TryParseUrl(url, out var keys, ctx ?? _defaultQueryCtx)) throw new Exception("URL is not a valid local URL");
+        if (keys.Target == UrlTarget.Property) {
+            var path = keys.PropertyPath ?? throw new Exception("URL does not point to a file property");
             var fileValue = GetValue<FileValue>(path, ctx);
             var fileStore = getFileStore(fileValue.StorageId);
             var stream = await fileStore.GetFileStream(fileValue);
             return new StateAndStream(stream, true, fileValue, fileValue.Format, Guid.Empty, null);
-        } else if (type == UrlTarget.PropertyAdjusted) {
-            if (!_urlProviderPublic.TryParseUrlAdjustments(url, out var path, out var adj)) throw new Exception("URL does not point to an adjusted file property");
+        } else if (keys.Target == UrlTarget.PropertyAdjusted) {
+            var path = keys.PropertyPath ?? throw new Exception("URL does not point to an adjusted file property");
+            var adj = keys.Adjustment ?? throw new Exception("URL does not point to an adjusted file property");
             return await GetFileStreamAndState(path, adj, maxWait, ctx);
         }
         throw new Exception("URL does not point to a file property");
@@ -238,6 +191,36 @@ public sealed partial class DataStoreLocal : IDataStore {
         nodeData = null;
         return false;
     }
-
+    public IdKeyWithCultureId[] GetNodeIdsFromAddress(string address) {
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            address = _addresses.NormalizeAddress(address ?? string.Empty, out _) ?? string.Empty;
+            var owners = _addresses.GetOwners(address);
+            if (owners.Length == 0) return [];
+            var result = new IdKeyWithCultureId[owners.Length];
+            for (var i = 0; i < owners.Length; i++) {
+                result[i] = new IdKeyWithCultureId(new NodeKey(owners[i].id), owners[i].cultureCode ?? Guid.Empty);
+            }
+            return result;
+        } finally {
+            _lock.ExitReadLock();
+        }
+    }
+    public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
+        _lock.EnterReadLock();
+        try {
+            validateDatabaseState();
+            return _urls.WillAddressResultInUniqueUrl(node, cultureId, address);
+        } finally {
+            _lock.ExitReadLock();
+        }
+    }
+    public string ExternalizeContentLinks(string content, QueryContext? ctx = null) {
+        return _urls.ExternalizeContentLinks(content, ctx ?? _defaultQueryCtx);
+    }
+    public string InternalizeContentLinks(string content, QueryContext? ctx = null) {
+        return _urls.InternalizeContentLinks(content, ctx ?? _defaultQueryCtx);
+    }
 
 }

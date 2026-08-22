@@ -173,7 +173,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return GetNodeType(id.Int);
     }
     public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
-        if (this.TryGet(id, out var nodeData)) {
+        if (this.TryGet(id, out var nodeData, ctx)) {
             meta = new NodeMeta(nodeData);
             return true;
         }
@@ -181,7 +181,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         return false;
     }
     public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) {
-        if (this.TryGet(id, out var nodeData)) {
+        if (this.TryGet(id, out var nodeData, ctx)) {
             meta = new NodeMeta(nodeData);
             return true;
         }

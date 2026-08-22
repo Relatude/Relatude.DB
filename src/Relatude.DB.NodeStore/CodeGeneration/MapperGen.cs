@@ -118,6 +118,14 @@ internal static class MapperGen {
             }
         }
 
+        if (!string.IsNullOrEmpty(nodeDef.NameOfAddressProperty)) {
+            // the [AddressProperty] marker member has no property model of its own; its value maps to
+            // the system address property. Empty means "no address given" so an update keeps the stored one.
+            sb.AppendLine("if(!string.IsNullOrEmpty(node." + nodeDef.NameOfAddressProperty + ")) values.Add("
+                + typeof(NodeConstants).FullName + "." + nameof(NodeConstants.SystemAddressPropertyId)
+                + ", node." + nodeDef.NameOfAddressProperty + ");");
+        }
+
         void helper(string name, string? prop, string val, string typeDec = "var") =>
             sb.AppendLine($"{typeDec} {name} = {(string.IsNullOrEmpty(prop) ? val : $"node.{prop}")};");
 
@@ -360,6 +368,11 @@ internal static class MapperGen {
                     sb.AppendLine("obj." + p.CodeName + " = " + p.GetDefaultValueAsCode() + ";");
                     sb.AppendLine("}");
                     sb.AppendLine("}");
+                } else if (p is StringPropertyModel sp && (sp.StringType == StringValueType.HTML || sp.StringType == StringValueType.Markdown)) {
+                    // HTML/Markdown values are stored with internal rdb: link tokens; reads emit current public URLs
+                    sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
+                    sb.Append("store." + nameof(NodeStore.ExternalizeContentLinks) + "((string)v)!");
+                    sb.AppendLine(" : " + p.GetDefaultValueAsCode() + "; }");
                 } else {
                     sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
                     sb.Append("(" + CodeUtils.GetTypeName(p, dm) + ")v");
