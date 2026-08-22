@@ -16,7 +16,11 @@ namespace Website.Simple;
 // URL, and Parent.TryGet walks up when building one. Compare with the generic, culture-aware
 // Relatude.DB.Web.TreeUrlManager, which does the same from NodeMeta and relation ids only - that
 // is the faster pattern for big sites, this is the simplest one to read and adapt.
-public class PageUrlManager : IUrlManager {
+//
+// Deriving from UrlManagerBase keeps asset URLs (files, image variants, deeplinks) on the default
+// "/assets/{token}" placement - override GetAssetUrl/TryGetAssetToken to change that, or set
+// AssetUrlSignatureKey in the constructor to make asset URLs unguessable.
+public class PageUrlManager : UrlManagerBase {
 
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase) {
         ["www.site-one.local"] = PageSeeder.SiteOneRootId,
@@ -25,10 +29,10 @@ public class PageUrlManager : IUrlManager {
     readonly Guid _fallbackRoot = PageSeeder.SiteOneRootId; // localhost and other unknown hosts serve site one
 
     static NodeStore db => RelatudeDBRuntime.Database;
-    public void Initialize(IDataStore store) { } // the store is reached through the runtime instead
+    public override void Initialize(IDataStore store) { } // the store is reached through the runtime instead
 
     // outbound: walk up the tree collecting slugs until a root is reached
-    public string? TryGetUrl(NodeMeta meta, bool absolute) {
+    public override string? TryGetUrl(NodeMeta meta, bool absolute) {
         var page = db.Get<SitePage>(meta.Id);
         var segments = new List<string>();
         while (!isRoot(page.Id)) {
@@ -43,7 +47,7 @@ public class PageUrlManager : IUrlManager {
     }
 
     // inbound: descend from the host's root, one Traverse over the Children relation per segment
-    public IdKeyWithCultureId[] GetMatches(string completeUrl) {
+    public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
         var host = UrlUtil.GetHost(completeUrl);
         var current = host != null && _rootByHost.TryGetValue(host, out var root) ? root : _fallbackRoot;
         foreach (var segment in UrlUtil.GetSegments(completeUrl)) {
@@ -57,7 +61,7 @@ public class PageUrlManager : IUrlManager {
     }
 
     // an address gives a unique URL unless a sibling already uses it
-    public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
+    public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
         if (!db.Datastore.TryGetNodeMeta(node, out var meta)) return true; // not created yet; checked again on its next update
         if (isRoot(meta.Id)) return true; // roots are served at "/", their slug is never part of a URL
         var page = db.Get<SitePage>(meta.Id);

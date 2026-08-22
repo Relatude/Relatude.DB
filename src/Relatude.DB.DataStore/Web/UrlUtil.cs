@@ -48,4 +48,24 @@ public static class UrlUtil {
         var pos = path.LastIndexOf('/');
         return path[(pos + 1)..];
     }
+
+    /// <summary>The value of a query parameter, or null when the URL has no query or the parameter is missing. Matches whole names only, values are not decoded.</summary>
+    public static string? GetQueryParameter(string url, string name) {
+        var posQuery = url.IndexOf('?');
+        if (posQuery == -1 || posQuery == url.Length - 1) return null;
+        var posFragment = url.IndexOf('#', posQuery);
+        var end = posFragment == -1 ? url.Length : posFragment;
+        var pos = posQuery + 1;
+        while (pos < end) {
+            var posNext = url.IndexOf('&', pos);
+            if (posNext == -1 || posNext > end) posNext = end;
+            var posEquals = url.IndexOf('=', pos);
+            if (posEquals != -1 && posEquals < posNext && posEquals - pos == name.Length
+                && string.CompareOrdinal(url, pos, name, 0, name.Length) == 0) {
+                return url[(posEquals + 1)..posNext];
+            }
+            pos = posNext + 1;
+        }
+        return null;
+    }
 }

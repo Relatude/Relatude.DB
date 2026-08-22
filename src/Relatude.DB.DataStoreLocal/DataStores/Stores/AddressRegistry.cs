@@ -248,17 +248,6 @@ public class AddressRegistry {
         }
         return result;
     }
-    /// <summary>
-    /// True when the address is owned by anyone but the given node and culture. Matches the classic
-    /// single-owner rule, where the same node holding the address in another culture also counts as taken.
-    /// </summary>
-    public bool IsAddressTakenByOther(string address, int id, Guid? cultureCode) {
-        if (!_ownersByAddress.TryGetValue(address, out var owners) || owners.Length == 0) return false;
-        if (!tryGetCultureId(cultureCode, out var cultureId)) return true; // unknown culture: every owner is another
-        var key = packKey(id, cultureId);
-        foreach (var o in owners) if (o != key) return true;
-        return false;
-    }
     public bool TryGetAddressAndTryMatchCulture(int id, Guid? cultureCode, [MaybeNullWhen(false)] out string? address) {
         if (!tryGetCultureId(cultureCode, out var cultureId)) {
             return TryGetFirstAddressAnyCulture(id, out address);

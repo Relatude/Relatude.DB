@@ -235,17 +235,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 queuePath = Path.Combine(queuePath, fileKeyUtility.Queue_GetFileKey("sqlite"));
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
-            var urlOptions = new UrlProviderOptions() {
-                HashKey = settings.Id,
-                //UrlNodeRoot = "assets",
-                //HashNodeUrls = true,
-                //HashPropertyUrls = true,
-                //UrlHashSeed = Guid.Empty,
-                //IncludeTrailingSlash = false,
-                //UrlFormat = UrlFormat.AddressOrIntId,
-            };
-            var urlProvider = new DefaultUrlProvider(urlOptions);
-            //var urlProvider = new InternalUrlProvider();
+            // the url manager owns the mapping between public URLs and content; when the factory
+            // returns null the store falls back to the flat built-in TreeUrlManager ("/{address}")
             var urlManager = server?.Options?.CreateUrlManager?.Invoke(settings);
 
             IDataStore datastore = new DataStoreLocal(
@@ -261,7 +252,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioSecondary,
                     ioIndexes,
                     QueryContext.MasterAdmin,
-                    urlProvider,
                     server?.Options?.FileConverters.ToArray(),
                     urlManager: urlManager
                     );

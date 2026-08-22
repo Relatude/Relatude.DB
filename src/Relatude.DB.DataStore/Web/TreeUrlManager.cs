@@ -12,8 +12,34 @@ public class UrlDomain {
     public Guid RootId { get; set; }
 }
 
+/// <summary>How <see cref="TreeUrlManager"/> renders the page URL of a node.</summary>
+public enum NodeUrlFormat {
+    /// <summary>The segment path alone. Nodes without an address have no page URL. The default.</summary>
+    Address,
+    /// <summary>The segment path, or "/{internal id}" for nodes without an address.</summary>
+    AddressOrIntId,
+    /// <summary>The segment path, or "/{guid}" for nodes without an address.</summary>
+    AddressOrGuidId,
+    /// <summary>"/{internal id}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
+    IntIdAndAddress,
+    /// <summary>"/{guid}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
+    GuidIdAndAddress,
+    /// <summary>"/{internal id}".</summary>
+    IntIdOnly,
+    /// <summary>"/{guid}".</summary>
+    GuidIdOnly,
+}
+
+/// <summary>How <see cref="TreeUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
+public enum AssetUrlStyle {
+    /// <summary>Under the reserved asset root: "{AssetUrlRoot}{token}/{fileName}". The default.</summary>
+    AssetRoot,
+    /// <summary>On top of the owning node's page URL: "{pageUrl}/{fileName}?{AssetUrlParamName}={token}". Falls back to the asset root when the owner has no page URL.</summary>
+    UnderPageUrl,
+}
+
 public class TreeUrlManagerOptions {
-    /// <summary>The relation that connects a node to its parent. Alternatively set <see cref="ParentRelationName"/>.</summary>
+    /// <summary>The relation that connects a node to its parent. When neither this nor <see cref="ParentRelationName"/> is set, the manager runs flat: every node is top level and its URL is "/{address}".</summary>
     public Guid ParentRelationId { get; set; }
     /// <summary>CodeName or full name of the parent relation, resolved against the datamodel when the store initializes.</summary>
     public string? ParentRelationName { get; set; }
@@ -27,32 +53,54 @@ public class TreeUrlManagerOptions {
     public string Scheme { get; set; } = "https";
     /// <summary>Upper bound on the parent-chain walk, guarding against relation cycles.</summary>
     public int MaxDepth { get; set; } = 32;
+
+    /// <summary>How page URLs are rendered: readable paths, ids, or both.</summary>
+    public NodeUrlFormat UrlFormat { get; set; } = NodeUrlFormat.Address;
+    /// <summary>Optional prefix for every page URL, e.g. "/content".</summary>
+    public string? UrlNodeRoot { get; set; }
+    /// <summary>Appends a trailing slash to page URLs.</summary>
+    public bool IncludeTrailingSlash { get; set; }
+
+    /// <summary>Where asset URLs live: under <see cref="UrlManagerBase.AssetUrlRoot"/> or on top of the owner's page URL.</summary>
+    public AssetUrlStyle AssetUrlStyle { get; set; } = AssetUrlStyle.AssetRoot;
+    /// <summary>Query parameter carrying the asset token when <see cref="AssetUrlStyle.UnderPageUrl"/> is used.</summary>
+    public string AssetUrlParamName { get; set; } = "asset";
+    /// <summary>URL root of asset URLs, "/assets/" unless changed.</summary>
+    public string? AssetUrlRoot { get; set; }
+    /// <summary>When set, asset tokens are HMAC signed and tampered or guessed asset URLs stop resolving. See <see cref="UrlManagerBase.AssetUrlSignatureKey"/>.</summary>
+    public Guid AssetUrlSignatureKey { get; set; }
 }
 
 /// <summary>
-/// A url manager that builds URLs from the node's ancestor chain: the address of every node on the
-/// path from (but not including) the domain root down to the node itself, joined by slashes.
-/// Addresses only have to be unique among nodes that share the same parent-chain path, so
-/// "tv/sony-x90/info" and "mobile/pixel/info" can both carry the plain address segment "info".
-/// Domains map hosts to root nodes, so the same path can resolve to different nodes per host,
-/// while nothing about the domain is ever stored on the nodes.
+/// The built-in url manager, and the default when none is configured. URLs follow the node tree:
+/// the address of every node on the path from (but not including) the domain root down to the node
+/// itself, joined by slashes. Addresses only have to be unique among nodes that share the same
+/// parent-chain path, so "tv/sony-x90/info" and "mobile/pixel/info" can both carry the plain
+/// address segment "info". Domains map hosts to root nodes, so the same path can resolve to
+/// different nodes per host, while nothing about the domain is ever stored on the nodes.
+/// Without a parent relation configured the manager runs flat - every node is top level - which is
+/// the plain "/{address}" behavior. <see cref="NodeUrlFormat"/> adds id based URL variants, and
+/// <see cref="AssetUrlStyle"/> lets asset URLs build on top of the owning node's page URL.
 /// </summary>
-public class TreeUrlManager : IUrlManager {
+public class TreeUrlManager : UrlManagerBase {
     readonly TreeUrlManagerOptions _o;
     IDataStore _db = default!;
     Guid _relationId;
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<Guid, string> _hostByRoot = new();
     Guid _fallbackRootId;
+    string _urlNodeRoot = string.Empty; // "" or "/prefix", no trailing slash
 
+    public TreeUrlManager() : this(new TreeUrlManagerOptions()) { }
     public TreeUrlManager(TreeUrlManagerOptions options) {
         _o = options;
+        if (options.AssetUrlRoot != null) AssetUrlRoot = options.AssetUrlRoot;
+        AssetUrlSignatureKey = options.AssetUrlSignatureKey;
     }
-    public void Initialize(IDataStore store) {
+    public override void Initialize(IDataStore store) {
         _db = store;
         _relationId = _o.ParentRelationId;
-        if (_relationId == Guid.Empty) {
-            if (string.IsNullOrEmpty(_o.ParentRelationName)) throw new Exception("TreeUrlManager requires ParentRelationId or ParentRelationName.");
+        if (_relationId == Guid.Empty && !string.IsNullOrEmpty(_o.ParentRelationName)) {
             var relation = store.Datamodel.Relations.Values.FirstOrDefault(r =>
                 string.Equals(r.FullName(), _o.ParentRelationName, StringComparison.Ordinal)
                 || string.Equals(r.CodeName, _o.ParentRelationName, StringComparison.Ordinal));
@@ -65,25 +113,86 @@ public class TreeUrlManager : IUrlManager {
             if (!_hostByRoot.ContainsKey(domain.RootId)) _hostByRoot[domain.RootId] = domain.Host.Trim();
         }
         _fallbackRootId = _o.FallbackRootId ?? (_o.Domains.Count > 0 ? _o.Domains[0].RootId : Guid.Empty);
+        if (!string.IsNullOrWhiteSpace(_o.UrlNodeRoot)) {
+            var root = _o.UrlNodeRoot.Trim().TrimEnd('/');
+            _urlNodeRoot = root.StartsWith('/') ? root : "/" + root;
+        }
+    }
+    bool isFlat => _relationId == Guid.Empty;
+
+    // pages, outbound ///////////////////////////////////////////////////////////////////////////
+
+    public override string? TryGetUrl(NodeMeta meta, bool absolute) {
+        string? path = tryBuildPath(meta, out var segmentPath, out var rootId) ? segmentPath : null;
+        string? url = _o.UrlFormat switch {
+            NodeUrlFormat.Address => path,
+            NodeUrlFormat.AddressOrIntId => path ?? (meta.InternalId != 0 ? "/" + meta.InternalId : null),
+            NodeUrlFormat.AddressOrGuidId => path ?? "/" + meta.Id,
+            NodeUrlFormat.IntIdAndAddress => meta.InternalId == 0 ? null : "/" + meta.InternalId + (path == null || path == "/" ? "" : path),
+            NodeUrlFormat.GuidIdAndAddress => "/" + meta.Id + (path == null || path == "/" ? "" : path),
+            NodeUrlFormat.IntIdOnly => meta.InternalId != 0 ? "/" + meta.InternalId : null,
+            NodeUrlFormat.GuidIdOnly => "/" + meta.Id,
+            _ => throw new NotImplementedException(),
+        };
+        if (url == null) return null;
+        url = _urlNodeRoot + url;
+        if (_o.IncludeTrailingSlash && !url.EndsWith('/')) url += "/";
+        if (!absolute) return url;
+        if (rootId != Guid.Empty && _hostByRoot.TryGetValue(rootId, out var host)) return _o.Scheme + "://" + host + url;
+        return url; // no domain to make it absolute against
     }
 
-    public string? TryGetUrl(NodeMeta meta, bool absolute) {
-        if (!tryBuildPath(meta, out var path, out var rootId)) return null;
-        if (!absolute) return path;
-        if (rootId != Guid.Empty && _hostByRoot.TryGetValue(rootId, out var host)) return _o.Scheme + "://" + host + path;
-        return path; // no domain to make it absolute against
-    }
+    // pages, inbound ////////////////////////////////////////////////////////////////////////////
 
-    public IdKeyWithCultureId[] GetMatches(string completeUrl) {
-        var host = UrlUtil.GetHost(completeUrl);
+    public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
         var path = UrlUtil.GetPath(completeUrl);
+        if (_urlNodeRoot.Length > 0) {
+            if (!path.StartsWith(_urlNodeRoot, StringComparison.Ordinal)) return [];
+            path = path.Length == _urlNodeRoot.Length ? "/" : path[_urlNodeRoot.Length..];
+            if (!path.StartsWith('/')) return []; // prefix must end on a segment boundary
+        }
+        switch (_o.UrlFormat) {
+            case NodeUrlFormat.IntIdOnly:
+            case NodeUrlFormat.IntIdAndAddress:
+                return matchByFirstSegmentId(path, parseGuids: false);
+            case NodeUrlFormat.GuidIdOnly:
+            case NodeUrlFormat.GuidIdAndAddress:
+                return matchByFirstSegmentId(path, parseGuids: true);
+            case NodeUrlFormat.AddressOrIntId: {
+                    var byTree = matchByTree(completeUrl, path);
+                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, parseGuids: false, requireSingleSegment: true);
+                }
+            case NodeUrlFormat.AddressOrGuidId: {
+                    var byTree = matchByTree(completeUrl, path);
+                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, parseGuids: true, requireSingleSegment: true);
+                }
+            default:
+                return matchByTree(completeUrl, path);
+        }
+    }
+    IdKeyWithCultureId[] matchByFirstSegmentId(string path, bool parseGuids, bool requireSingleSegment = false) {
+        if (path.Length <= 1) return [];
+        var posEnd = path.IndexOf('/', 1);
+        if (posEnd == -1) posEnd = path.Length;
+        else if (requireSingleSegment) return [];
+        var segment = path[1..posEnd];
+        if (parseGuids) {
+            if (Guid.TryParse(segment, out var guid)) return [new IdKeyWithCultureId(new NodeKey(guid), Guid.Empty)];
+        } else {
+            if (int.TryParse(segment, out var id) && id > 0) return [new IdKeyWithCultureId(new NodeKey(id), Guid.Empty)];
+        }
+        return []; // existence and access are checked by the store
+    }
+    IdKeyWithCultureId[] matchByTree(string completeUrl, string path) {
+        var host = UrlUtil.GetHost(completeUrl);
         var rootId = resolveRoot(host);
         if (path.Length <= 1) {
             // the root node itself
             if (rootId == Guid.Empty) return [];
             return [new IdKeyWithCultureId(new NodeKey(rootId), Guid.Empty)];
         }
-        var last = UrlUtil.GetLastSegment(path)!;
+        var pos = path.LastIndexOf('/');
+        var last = path[(pos + 1)..];
         var matches = new List<IdKeyWithCultureId>();
         foreach (var candidate in _db.GetNodeIdsFromAddress(last)) {
             if (!tryGetMeta(candidate.IdKey, candidate.CultureId, out var meta)) continue;
@@ -95,25 +204,39 @@ public class TreeUrlManager : IUrlManager {
         return [.. matches];
     }
 
-    public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
+    // addresses /////////////////////////////////////////////////////////////////////////////////
+
+    public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
+        switch (_o.UrlFormat) {
+            case NodeUrlFormat.IntIdOnly:
+            case NodeUrlFormat.GuidIdOnly:
+            case NodeUrlFormat.IntIdAndAddress:
+            case NodeUrlFormat.GuidIdAndAddress:
+                return true; // URLs resolve by id, so duplicate addresses never collide
+        }
         var owners = _db.GetNodeIdsFromAddress(address);
         if (owners.Length == 0) return true;
-        var self = DefaultUrlManager.ResolveInternalId(_db, node);
-        if (self == 0) return true; // the node does not exist yet, so its complete URL cannot be computed; the check runs again on later updates
-        if (!tryGetMeta(new NodeKey(self), cultureId, out var meta)) return true;
-        if (isRoot(meta.Id)) return true; // a root is served at "/", its address is not part of any URL
+        var self = ResolveInternalId(_db, node);
         string prospectivePath;
         Guid prospectiveRoot;
-        var parent = getParentMeta(meta);
-        if (parent == null) {
-            prospectivePath = "/" + address;
+        if (self == 0 || !tryGetMeta(new NodeKey(self), cultureId, out var meta)) {
+            // the node does not exist yet, so its parent chain is unknown
+            if (!isFlat) return true; // checked again on later updates, once the tree position is committed
+            prospectivePath = "/" + address; // flat: every node is top level, the complete URL is known
             prospectiveRoot = Guid.Empty;
         } else {
-            if (!tryBuildPath(parent, out var parentPath, out prospectiveRoot)) return true; // parent is not routable, so neither is this node
-            prospectivePath = (parentPath == "/" ? "/" : parentPath + "/") + address;
+            if (isRoot(meta.Id)) return true; // a root is served at "/", its address is not part of any URL
+            var parent = getParentMeta(meta);
+            if (parent == null) {
+                prospectivePath = "/" + address;
+                prospectiveRoot = Guid.Empty;
+            } else {
+                if (!tryBuildPath(parent, out var parentPath, out prospectiveRoot)) return true; // parent is not routable, so neither is this node
+                prospectivePath = (parentPath == "/" ? "/" : parentPath + "/") + address;
+            }
         }
         foreach (var owner in owners) {
-            if (owner.IdKey.Int == self) continue; // the node itself, any culture
+            if (owner.IdKey.Int == self && self != 0) continue; // the node itself, any culture
             if (owner.CultureId != cultureId) continue; // urls are culture scoped
             if (!tryGetMeta(owner.IdKey, owner.CultureId, out var ownerMeta)) continue;
             if (!tryBuildPath(ownerMeta, out var ownerPath, out var ownerRoot)) continue;
@@ -122,6 +245,34 @@ public class TreeUrlManager : IUrlManager {
         }
         return true;
     }
+
+    // assets ////////////////////////////////////////////////////////////////////////////////////
+
+    public override string GetAssetUrl(AssetUrl asset, bool absolute) {
+        if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl && asset.Target != UrlTarget.Node) {
+            if (tryGetMeta(asset.Owner, Guid.Empty, out var ownerMeta)) {
+                var ownerUrl = TryGetUrl(ownerMeta, absolute);
+                if (ownerUrl != null) {
+                    if (!string.IsNullOrEmpty(asset.FileName)) {
+                        if (!ownerUrl.EndsWith('/')) ownerUrl += "/";
+                        ownerUrl += UrlSafeFileName(asset.FileName);
+                    }
+                    return ownerUrl + "?" + _o.AssetUrlParamName + "=" + SignTokenIfConfigured(asset.Token);
+                }
+            }
+            // the owner has no page URL: fall through to the default placement
+        }
+        return base.GetAssetUrl(asset, absolute);
+    }
+    public override string? TryGetAssetToken(string completeUrl) {
+        if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl) {
+            var raw = UrlUtil.GetQueryParameter(completeUrl, _o.AssetUrlParamName);
+            if (raw != null) return ValidateAndStripSignature(raw);
+        }
+        return base.TryGetAssetToken(completeUrl);
+    }
+
+    // tree walk /////////////////////////////////////////////////////////////////////////////////
 
     Guid resolveRoot(string? host) {
         if (host != null && _rootByHost.TryGetValue(host, out var rootId)) return rootId;
@@ -136,6 +287,7 @@ public class TreeUrlManager : IUrlManager {
         return _db.TryGetNodeMeta(key, out meta!, ctx);
     }
     NodeMeta? getParentMeta(NodeMeta meta) {
+        if (isFlat) return null;
         // parent lookup: when the parent is the relation source, the node is the target and the walk goes target -> source
         foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(_relationId, meta.Id, _o.ParentIsRelationSource)) {
             if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out var parentMeta)) return parentMeta;
@@ -144,9 +296,9 @@ public class TreeUrlManager : IUrlManager {
         return null;
     }
     /// <summary>
-    /// The relative URL path of the node: ancestor addresses joined from the domain root (exclusive)
-    /// down to the node. False when the node has no URL: an empty address on the chain, a cycle, or
-    /// domains are configured and the chain does not end in a configured root.
+    /// The relative segment path of the node: ancestor addresses joined from the domain root
+    /// (exclusive) down to the node. False when the node has no path: an empty address on the
+    /// chain, a cycle, or domains are configured and the chain does not end in a configured root.
     /// </summary>
     bool tryBuildPath(NodeMeta meta, out string path, out Guid rootId) {
         path = string.Empty;
@@ -159,7 +311,7 @@ public class TreeUrlManager : IUrlManager {
                 rootId = current.Id;
                 break;
             }
-            if (string.IsNullOrEmpty(current.Address)) return false; // a node without an address has no URL
+            if (string.IsNullOrEmpty(current.Address)) return false; // a node without an address has no path
             segments.Add(current.Address);
             var parent = getParentMeta(current);
             if (parent == null) break; // top of the tree

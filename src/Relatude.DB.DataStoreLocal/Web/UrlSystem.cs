@@ -10,97 +10,96 @@ using System.Text.RegularExpressions;
 namespace Relatude.DB.Web;
 
 /// <summary>
-/// The store-internal URL facade. Routes every URL, inbound and outbound, into one of two lanes:
+/// The store-internal URL facade around the <see cref="IUrlManager"/>. The manager decides what
+/// URLs look like; the facade owns everything a manager should not have to deal with:
 /// <list type="bullet">
-/// <item>The asset lane - files, adjusted files and embedded-content deeplinks. Fixed machinery,
-/// not customizable. With a url manager configured these live under a reserved root (default
-/// "/assets/") carrying self-contained id-based payloads.</item>
-/// <item>The page lane - node URLs. Delegates to the configured <see cref="IUrlManager"/>, then
-/// filters the candidates through the QueryContext. Without a manager, everything (pages and
-/// assets alike) passes through to the classic <see cref="IUrlProvider"/> so behavior is
-/// unchanged.</item>
+/// <item>Token encoding - files, adjusted files and embedded-content deeplinks are packed into
+/// compact id-based tokens (the <see cref="InternalUrlProvider"/> grammar); managers only place
+/// them in URL space.</item>
+/// <item>Context filtering - candidates from <see cref="IUrlManager.GetMatches"/> are filtered
+/// through the QueryContext (publication, access, revision) before anything reaches the web layer.</item>
+/// <item>The commit-time address step - normalization, uniqueness probing through the manager and
+/// the suffix loop.</item>
+/// <item>The internal link format of HTML and Markdown properties - stored values carry id-based
+/// "rdb:" tokens that survive renames, rewritten to public URLs on the way out and back to tokens
+/// on the way in.</item>
 /// </list>
-/// The facade also owns the internal link format for HTML and Markdown properties: stored values
-/// carry id-based "rdb:" tokens that survive renames, rewritten to public URLs on the way out and
-/// back to tokens on the way in.
 /// </summary>
 internal sealed class UrlSystem {
     internal const string TokenScheme = "rdb:";
-    internal const string DefaultAssetUrlRoot = "/assets/";
 
     readonly DataStoreLocal _db;
-    readonly IUrlProvider _publicProvider;
-    readonly IUrlManager? _manager;
+    readonly IUrlManager _manager;
     readonly InternalUrlProvider _tokenEncoder;
-    readonly string _assetRoot;
     Dictionary<Guid, Guid[]>? _contentPropsByType; // node type id -> ids of HTML/Markdown string properties
 
-    public UrlSystem(DataStoreLocal db, IUrlProvider publicProvider, IUrlManager? manager, string? assetUrlRoot) {
+    public UrlSystem(DataStoreLocal db, IUrlManager manager) {
         _db = db;
-        _publicProvider = publicProvider;
         _manager = manager;
         _tokenEncoder = new InternalUrlProvider();
         _tokenEncoder.Initialize(db);
-        var root = string.IsNullOrWhiteSpace(assetUrlRoot) ? DefaultAssetUrlRoot : assetUrlRoot;
-        if (!root.StartsWith('/')) root = "/" + root;
-        if (!root.EndsWith('/')) root += "/";
-        _assetRoot = root;
     }
-    public IUrlManager? Manager => _manager;
-    public bool HasManager => _manager != null;
+    public IUrlManager Manager => _manager;
 
     // outbound //////////////////////////////////////////////////////////////////////////////////
 
     public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx) {
-        if (_manager == null) return _publicProvider.GetUrl(nodeKey, absolute);
         if (_db.TryGetNodeMeta(nodeKey, out var meta, ctx)) {
             var url = _manager.TryGetUrl(meta, absolute);
             if (url != null) return url;
         }
-        // not routable (or not visible in this context): fall back to a parseable asset-lane node url
-        return _assetRoot + _tokenEncoder.GetUrl(nodeKey, false);
+        // not routable (or not visible in this context): fall back to a parseable id-based asset url
+        return _manager.GetAssetUrl(new AssetUrl {
+            Token = _tokenEncoder.GetUrl(nodeKey, false),
+            Target = UrlTarget.Node,
+            Owner = nodeKey,
+        }, absolute);
     }
     public string GetUrl(NodePath nodePath, bool absolute, QueryContext? ctx) {
         if (nodePath.Path.Length == 0) return GetUrl(nodePath.NodeKey, absolute, ctx);
-        if (_manager == null) return _publicProvider.GetUrl(nodePath, absolute);
-        return _assetRoot + _tokenEncoder.GetUrl(nodePath, false);
+        return _manager.GetAssetUrl(new AssetUrl {
+            Token = _tokenEncoder.GetUrl(nodePath, false),
+            Target = UrlTarget.EmbeddedNode,
+            Owner = nodePath.NodeKey,
+        }, absolute);
     }
     public string GetUrl(PropertyPath property, string? contentVersionId, bool absolute, string? fileName) {
-        if (_manager == null) return _publicProvider.GetUrl(property, contentVersionId, absolute);
-        return assetUrl(_tokenEncoder.GetUrl(property, contentVersionId, false), fileName);
+        return _manager.GetAssetUrl(new AssetUrl {
+            Token = _tokenEncoder.GetUrl(property, contentVersionId, false),
+            Target = UrlTarget.Property,
+            Owner = property.NodePath.NodeKey,
+            FileName = fileName,
+        }, absolute);
     }
     public string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute, string? fileName) {
-        if (_manager == null) return _publicProvider.GetUrl(property, adjustment, contentVersionId, absolute);
         var ext = FileFormatUtil.GetExtensionWithDot(adjustment.RequestedFormat);
         if (fileName != null && ext != null) fileName = Path.GetFileNameWithoutExtension(fileName) + ext;
-        return assetUrl(_tokenEncoder.GetUrl(property, adjustment, contentVersionId, false), fileName);
-    }
-    string assetUrl(string token, string? fileName) {
-        if (string.IsNullOrEmpty(fileName)) return _assetRoot + token;
-        return _assetRoot + token + "/" + urlSafeName(fileName);
-    }
-    static string urlSafeName(string name) {
-        var sb = new StringBuilder(Math.Min(name.Length, 40));
-        foreach (var c in name) {
-            if (char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.') sb.Append(c);
-            else sb.Append('_');
-            if (sb.Length >= 40) break;
-        }
-        return sb.ToString();
+        return _manager.GetAssetUrl(new AssetUrl {
+            Token = _tokenEncoder.GetUrl(property, adjustment, contentVersionId, false),
+            Target = UrlTarget.PropertyAdjusted,
+            Owner = property.NodePath.NodeKey,
+            FileName = fileName,
+        }, absolute);
     }
 
     // inbound ///////////////////////////////////////////////////////////////////////////////////
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext ctx) {
         result = null;
-        if (_manager == null) return tryParseWithProvider(url, out result);
-        if (tryGetAssetToken(url, out var token)) return tryParseToken(token, out result);
+        // asset lane first: asset URLs never reach page resolution
+        string? token = null;
+        try {
+            token = _manager.TryGetAssetToken(url);
+        } catch {
+            // a manager choking on a malformed URL is a non-match, not an error
+        }
+        if (token != null) return tryParseToken(token, out result);
         // page lane: the manager proposes candidates, the store filters them through the context
         IdKeyWithCultureId[] matches;
         try {
             matches = _manager.GetMatches(url);
         } catch {
-            return false; // a malformed URL is a non-match, not an error
+            return false;
         }
         foreach (var match in matches) {
             var cultureCode = tryGetCultureCode(match.CultureId);
@@ -133,17 +132,6 @@ internal sealed class UrlSystem {
         if (cultureId == Guid.Empty) return null;
         return _db._nativeModelStore.TryGetCultureCode(cultureId, out var code) ? code : null;
     }
-    bool tryGetAssetToken(string url, [MaybeNullWhen(false)] out string token) {
-        token = null;
-        var path = UrlUtil.GetPath(url); // scheme, host, query and fragment removed
-        if (!path.StartsWith(_assetRoot, StringComparison.Ordinal)) return false;
-        var start = _assetRoot.Length;
-        var end = start;
-        while (end < path.Length && path[end] != '/') end++; // an optional cosmetic file name may follow the token
-        if (end == start) return false;
-        token = path[start..end];
-        return true;
-    }
     bool tryParseToken(string token, [MaybeNullWhen(false)] out UrlKeys result) {
         result = null;
         if (!_tokenEncoder.TryParseUrlTarget(token, out var target)) return false;
@@ -172,53 +160,19 @@ internal sealed class UrlSystem {
         }
         return result != null;
     }
-    bool tryParseWithProvider(string url, [MaybeNullWhen(false)] out UrlKeys result) {
-        result = null;
-        if (!_publicProvider.TryParseUrlTarget(url, out var type)) return false;
-        switch (type) {
-            case UrlTarget.Node: {
-                    if (_publicProvider.TryParseUrlNodeKey(url, out var nodeKey)) {
-                        result = new UrlKeys { Target = type, NodeKey = nodeKey };
-                    }
-                }
-                break;
-            case UrlTarget.EmbeddedNode: {
-                    if (_publicProvider.TryParseUrlNodePath(url, out var nodePath)) {
-                        result = new UrlKeys { Target = type, NodeKey = nodePath.NodeKey, NodePath = nodePath };
-                    }
-                }
-                break;
-            case UrlTarget.Property: {
-                    if (_publicProvider.TryParseUrlPropertyPath(url, out var propertyPath)) {
-                        result = new UrlKeys { Target = type, NodeKey = propertyPath.NodePath.NodeKey, NodePath = propertyPath.NodePath, PropertyPath = propertyPath };
-                    }
-                }
-                break;
-            case UrlTarget.PropertyAdjusted: {
-                    if (_publicProvider.TryParseUrlAdjustments(url, out var propertyPath, out var adjustment)) {
-                        result = new UrlKeys { Target = type, NodeKey = propertyPath.NodePath.NodeKey, NodePath = propertyPath.NodePath, PropertyPath = propertyPath, Adjustment = adjustment };
-                    }
-                }
-                break;
-            default: break;
-        }
-        return result != null;
-    }
 
     // addresses /////////////////////////////////////////////////////////////////////////////////
 
     public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
         var normalized = _db._addresses.NormalizeAddress(address, out _) ?? string.Empty;
-        if (_manager != null) return _manager.WillAddressResultInUniqueUrl(node, cultureId, normalized);
-        var id = node.HasInt ? node.Int : (node.HasGuid && _db._guids.TryGetId(node.Guid, out var intId) ? intId : 0);
-        return !_db._addresses.IsAddressTakenByOther(normalized, id, cultureId == Guid.Empty ? null : cultureId);
+        return _manager.WillAddressResultInUniqueUrl(node, cultureId, normalized);
     }
 
     /// <summary>
     /// The commit-time address step: normalizes the address of the node being written, probes
-    /// uniqueness (through the manager when one is configured, otherwise globally), suffixes the
-    /// address when the probe fails, registers the final address and writes it back to the node
-    /// when it had to change. Runs inside the store's write transaction.
+    /// uniqueness through the manager, suffixes the address when the probe fails, registers the
+    /// final address and writes it back to the node when it had to change. Runs inside the store's
+    /// write transaction.
     /// </summary>
     public void RegisterAddressAtCommit(INodeData source, INodeData assignTo) {
         var culture = source.Meta?.CultureId;
@@ -226,17 +180,13 @@ internal sealed class UrlSystem {
         if (address != null) {
             var key = new NodeKey(source.Id, source.__Id);
             var cultureId = culture ?? Guid.Empty;
-            if (!willBeUnique(key, cultureId, address)) {
+            if (!_manager.WillAddressResultInUniqueUrl(key, cultureId, address)) {
                 address = makeUnique(address, key, cultureId, source.__Id);
                 changed = true;
             }
         }
         _db._addresses.Register(source.__Id, address, culture);
         if (changed) assignTo.Address = address;
-    }
-    bool willBeUnique(NodeKey key, Guid cultureId, string address) {
-        if (_manager != null) return _manager.WillAddressResultInUniqueUrl(key, cultureId, address);
-        return !_db._addresses.IsAddressTakenByOther(address, key.Int, cultureId == Guid.Empty ? null : cultureId);
     }
     string makeUnique(string address, NodeKey key, Guid cultureId, int id) {
         var suffix = address.Length == 0 ? id : 2;
@@ -251,7 +201,7 @@ internal sealed class UrlSystem {
             } else {
                 candidate = address + "-" + Guid.NewGuid().ToString("N").ToLower();
             }
-            if (willBeUnique(key, cultureId, candidate)) return candidate;
+            if (_manager.WillAddressResultInUniqueUrl(key, cultureId, candidate)) return candidate;
             attemptCount++;
             suffix++;
         }

@@ -16,8 +16,6 @@ public class SettingsLocal {
 
     public string? FilePrefix { get; set; }
     public Guid? DefaultFileStore { get; set; }
-    /// <summary>URL root of the fixed asset lane (files, adjusted files, embedded-content deeplinks) when a url manager is configured. Defaults to "/assets/".</summary>
-    public string? AssetUrlRoot { get; set; }
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;
 

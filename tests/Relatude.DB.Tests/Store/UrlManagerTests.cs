@@ -64,7 +64,9 @@ public class UrlManagerTests {
         return (tv, sony, sonyInfo, mobile, pixel, pixelInfo);
     }
 
-    // ------------------------------------------------------------------ classic behavior (no manager)
+    // ------------------------------------------------------------------ the flat default manager
+    // (no manager configured: the store falls back to a TreeUrlManager without a parent relation,
+    // so every node is top level and addresses behave like complete, globally unique paths)
 
     [TestMethod]
     public void AddressMarkerMember_IsStoredOnInsert() {
@@ -78,7 +80,7 @@ public class UrlManagerTests {
     }
 
     [TestMethod]
-    public void WithoutManager_AddressesStayGloballyUnique_WithSuffixOnCollision() {
+    public void FlatDefault_AddressesStayGloballyUnique_WithSuffixOnCollision() {
         using var db = open(withTreeManager: false);
         var first = insert(db, "First", "same");
         var second = insert(db, "Second", "same");
@@ -90,7 +92,7 @@ public class UrlManagerTests {
     }
 
     [TestMethod]
-    public void WithoutManager_UrlsAndParsing_WorkAsBefore() {
+    public void FlatDefault_UrlsAndParsing() {
         using var db = open(withTreeManager: false);
         var id = insert(db, "Hello", "hello");
         var url = db.GetUrl(id);
@@ -242,15 +244,127 @@ public class UrlManagerTests {
         StringAssert.Contains(db.Get<UrlPage>(pixelInfo).Body, "href=\"#\"");
     }
 
+    // ------------------------------------------------------------------ url formats, roots, asset styles
+
+    static NodeStore openWithOptions(TreeUrlManagerOptions options, IIOProvider? io = null) {
+        var dm = new Datamodel();
+        dm.Add<UrlPage>();
+        dm.Add<UrlPageTree>();
+        var data = new DataStoreLocal(dm, new SettingsLocal(), io ?? new IOProviderMemory(), urlManager: new TreeUrlManager(options));
+        data.Open(true, true);
+        return new NodeStore(data);
+    }
+
+    [TestMethod]
+    public void UrlFormat_AddressOrIntId_GivesNodesWithoutAnAddressAnIdUrl() {
+        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.AddressOrIntId });
+        var withAddress = insert(db, "Hello", "hello");
+        var withoutAddress = insert(db, "No address", "");
+        Assert.AreEqual("/hello", db.GetUrl(withAddress));
+        Assert.IsTrue(db.Datastore.TryGetNodeMeta(withoutAddress, out var meta));
+        Assert.AreEqual("/" + meta.InternalId, db.GetUrl(withoutAddress));
+        // both forms parse back:
+        Assert.IsTrue(db.TryParseUrl("/hello", out var byAddress));
+        Assert.AreEqual(withAddress, db.Get<UrlPage>(byAddress.NodeKey).Id);
+        Assert.IsTrue(db.TryParseUrl("/" + meta.InternalId, out var byId));
+        Assert.AreEqual(withoutAddress, db.Get<UrlPage>(byId.NodeKey).Id);
+    }
+
+    [TestMethod]
+    public void UrlFormat_IntIdAndAddress_IsResolvedByIdAlone_SoOldUrlsSurviveRenames() {
+        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, ParentRelationName = "UrlPageTree" });
+        var section = insert(db, "Docs", "docs");
+        var page = insert(db, "Intro", "intro", section);
+        Assert.IsTrue(db.Datastore.TryGetNodeMeta(page, out var meta));
+        var url = db.GetUrl(page);
+        Assert.AreEqual("/" + meta.InternalId + "/docs/intro", url);
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        // the readable part is cosmetic: a stale path still resolves through the id
+        db.UpdateAddress(new NodeKey(section), "documentation");
+        Assert.AreEqual("/" + meta.InternalId + "/documentation/intro", db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl(url, out var stale), "The old URL should still resolve by its id. ");
+        Assert.AreEqual(page, db.Get<UrlPage>(stale.NodeKey).Id);
+        // duplicate addresses are fine in id formats, no suffixing:
+        var page2 = insert(db, "Intro 2", "intro", section);
+        Assert.AreEqual("intro", db.Get<UrlPage>(page2).Slug);
+    }
+
+    [TestMethod]
+    public void UrlFormat_GuidIdOnly() {
+        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.GuidIdOnly });
+        var page = insert(db, "Hello", "hello");
+        Assert.AreEqual("/" + page, db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl("/" + page, out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        Assert.IsFalse(db.TryParseUrl("/hello", out _)); // addresses are not part of URL space in this format
+    }
+
+    [TestMethod]
+    public void UrlNodeRoot_PrefixesEveryPageUrl() {
+        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlNodeRoot = "/content", IncludeTrailingSlash = true });
+        var page = insert(db, "Hello", "hello");
+        Assert.AreEqual("/content/hello/", db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl("/content/hello/", out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        Assert.IsFalse(db.TryParseUrl("/hello", out _)); // outside the root
+    }
+
+    [TestMethod]
+    public void AssetUrls_SignedTokens_RejectTampering() {
+        var key = Guid.NewGuid();
+        using var db = openWithOptions(new TreeUrlManagerOptions() { AssetUrlSignatureKey = key });
+        var page = insert(db, "No address", ""); // unroutable: GetUrl falls back to a signed asset token url
+        var url = db.GetUrl(page);
+        StringAssert.StartsWith(url, "/assets/");
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(UrlTarget.Node, keys.Target);
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        // flip the last character of the signature: the URL must stop resolving
+        var tampered = url[..^1] + (url[^1] == 'A' ? 'B' : 'A');
+        Assert.IsFalse(db.TryParseUrl(tampered, out _));
+        // an unsigned token is rejected too:
+        var unsigned = url[..url.LastIndexOf('.')];
+        Assert.IsFalse(db.TryParseUrl(unsigned, out _));
+    }
+
+    [TestMethod]
+    public void AssetUrls_UnderPageUrl_BuildOnTheOwnersPageUrl() {
+        var options = new TreeUrlManagerOptions() { AssetUrlStyle = AssetUrlStyle.UnderPageUrl };
+        var manager = new TreeUrlManager(options);
+        var dm = new Datamodel();
+        dm.Add<UrlPage>();
+        dm.Add<UrlPageTree>();
+        var data = new DataStoreLocal(dm, new SettingsLocal(), new IOProviderMemory(), urlManager: manager);
+        data.Open(true, true);
+        using var db = new NodeStore(data);
+        var page = insert(db, "Docs", "docs");
+        Assert.IsTrue(db.Datastore.TryGetNodeMeta(page, out var meta));
+
+        // asset placement is the manager's job; the token is opaque to it
+        var url = manager.GetAssetUrl(new AssetUrl {
+            Token = "p123abc",
+            Target = UrlTarget.Property,
+            Owner = new NodeKey(meta.InternalId),
+            FileName = "pic.jpg",
+        }, absolute: false);
+        Assert.AreEqual("/docs/pic.jpg?asset=p123abc", url);
+        Assert.AreEqual("p123abc", manager.TryGetAssetToken(url));
+        Assert.AreEqual("p123abc", manager.TryGetAssetToken("https://example.com/docs/pic.jpg?asset=p123abc"));
+        Assert.IsNull(manager.TryGetAssetToken("/docs/pic.jpg")); // no token, a page URL
+        // and the default placement still parses (an owner without a page URL falls back to it):
+        Assert.AreEqual("t0ken", manager.TryGetAssetToken("/assets/t0ken/pic.jpg"));
+    }
+
     // ------------------------------------------------------------------ typed managers
 
     // A manager written against the typed object model, like the Website.Simple sample: it
     // materializes node objects whose HTML properties externalize during mapping, which calls back
     // into the manager. The nested-externalization guard is what keeps that from recursing forever
     // when pages link to each other.
-    class TypedTestManager(Func<NodeStore> db) : IUrlManager {
-        public void Initialize(IDataStore store) { }
-        public string? TryGetUrl(NodeMeta meta, bool absolute) {
+    class TypedTestManager(Func<NodeStore> db) : UrlManagerBase {
+        public override void Initialize(IDataStore store) { }
+        public override string? TryGetUrl(NodeMeta meta, bool absolute) {
             var page = db().Get<UrlPage>(meta.Id);
             var segments = new List<string>();
             while (true) {
@@ -260,7 +374,7 @@ public class UrlManagerTests {
             }
             return "/" + string.Join('/', segments);
         }
-        public IdKeyWithCultureId[] GetMatches(string completeUrl) {
+        public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
             var last = UrlUtil.GetLastSegment(completeUrl);
             if (last == null) return [];
             var path = UrlUtil.GetPath(completeUrl);
@@ -268,7 +382,7 @@ public class UrlManagerTests {
                 .Where(c => db().Datastore.TryGetNodeMeta(c.IdKey, out var m) && TryGetUrl(m, false) == path)
                 .ToArray();
         }
-        public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) => true;
+        public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) => true;
     }
 
     [TestMethod]
