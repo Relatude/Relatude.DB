@@ -91,7 +91,6 @@ public class TreeUrlManager : UrlManagerBase {
     Guid _fallbackRootId;
     string _urlNodeRoot = string.Empty; // "" or "/prefix", no trailing slash
 
-    public TreeUrlManager() : this(new TreeUrlManagerOptions()) { }
     public TreeUrlManager(TreeUrlManagerOptions options) {
         _o = options;
         if (options.AssetUrlRoot != null) AssetUrlRoot = options.AssetUrlRoot;

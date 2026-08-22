@@ -74,6 +74,7 @@ public class SettingsLocal {
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
     public string? PersistedQueueStoreFolderPath { get; set; }
+    public TreeUrlManagerOptions? UrlOptions { get; internal set; }
 }
 
 public enum PersistedTextIndexEngine {

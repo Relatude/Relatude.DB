@@ -32,7 +32,7 @@ builder.AddRelatudeDB(options => {
     // link tokens inside HTML bodies working across renames. PageUrlManager.cs is a small typed
     // implementation written for this site; the built-in Relatude.DB.Web.TreeUrlManager offers
     // the same behavior generically (configured with a parent relation and a domain list).
-    options.CreateUrlManager = settings => new PageUrlManager();
+    //options.CreateUrlManager = settings => new PageUrlManager();
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
