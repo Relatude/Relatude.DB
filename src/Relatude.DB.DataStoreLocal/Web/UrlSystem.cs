@@ -289,24 +289,36 @@ internal sealed class UrlSystem {
         };
     }
 
+    // Guards against unbounded recursion: resolving a token calls the url manager, and a manager that
+    // materializes node objects with HTML properties triggers externalization of THOSE values, which
+    // resolve their tokens through the manager again - two pages linking to each other would otherwise
+    // recurse forever. Nested calls keep the raw tokens; only the outermost call serves users.
+    [ThreadStatic] static bool _isExternalizing;
+
     /// <summary>Rewrites the internal rdb: tokens in an HTML/Markdown value to current public URLs. Tokens whose target no longer exists become "#".</summary>
     public string ExternalizeContentLinks(string content, QueryContext ctx) {
         if (string.IsNullOrEmpty(content)) return content;
         var idx = content.IndexOf(TokenScheme, StringComparison.Ordinal);
         if (idx < 0) return content;
-        var sb = new StringBuilder(content.Length + 64);
-        var pos = 0;
-        while (idx >= 0) {
-            sb.Append(content, pos, idx - pos);
-            var end = idx + TokenScheme.Length;
-            while (end < content.Length && isTokenChar(content[end])) end++;
-            var token = content[(idx + TokenScheme.Length)..end];
-            sb.Append(externalizeToken(token, ctx));
-            pos = end;
-            idx = pos >= content.Length ? -1 : content.IndexOf(TokenScheme, pos, StringComparison.Ordinal);
+        if (_isExternalizing) return content; // re-entrant read during URL building, see note above
+        _isExternalizing = true;
+        try {
+            var sb = new StringBuilder(content.Length + 64);
+            var pos = 0;
+            while (idx >= 0) {
+                sb.Append(content, pos, idx - pos);
+                var end = idx + TokenScheme.Length;
+                while (end < content.Length && isTokenChar(content[end])) end++;
+                var token = content[(idx + TokenScheme.Length)..end];
+                sb.Append(externalizeToken(token, ctx));
+                pos = end;
+                idx = pos >= content.Length ? -1 : content.IndexOf(TokenScheme, pos, StringComparison.Ordinal);
+            }
+            if (pos < content.Length) sb.Append(content, pos, content.Length - pos);
+            return sb.ToString();
+        } finally {
+            _isExternalizing = false;
         }
-        if (pos < content.Length) sb.Append(content, pos, content.Length - pos);
-        return sb.ToString();
     }
     static bool isTokenChar(char c) {
         return char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_' || c == '.';

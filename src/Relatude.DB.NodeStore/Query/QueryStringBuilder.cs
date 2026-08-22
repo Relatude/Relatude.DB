@@ -367,34 +367,25 @@ internal sealed class QueryStringBuilder {
         _sb.Append(", " + (maxHitsEvaluatedBeforeRanked != null ? maxHitsEvaluatedBeforeRanked.Value.ToString() : "null"));
         _sb.Append(')');
     }
-    internal void Where(Guid id) {
-        _sb.Append(".Where(\"");
-        _sb.Append(id);
-        _sb.Append("\")");
-    }
-    internal void Where(int id) {
-        _sb.Append(".Where(");
-        _sb.Append(id);
-        _sb.Append(')');
-    }
-    internal void Where(IEnumerable<int> ids) {
-        _sb.Append(".Where([");
-        bool first = true;
-        foreach (var id in ids) {
-            if (!first) _sb.Append(", ");
-            else first = false;
-            _sb.Append(id);
-        }
-        _sb.Append("])");
-    }
-    internal void Where(IEnumerable<Guid> ids) {
-        _sb.Append(".Where([");
+    // id filters map to the engine's WhereInIds method ("where" itself only takes lambdas)
+    internal void Where(Guid id) => whereInIds([id]);
+    internal void Where(int id) => whereInIds([guidOrEmpty(id)]);
+    internal void Where(IEnumerable<int> ids) => whereInIds(ids.Select(guidOrEmpty));
+    internal void Where(IEnumerable<Guid> ids) => whereInIds(ids);
+    Guid guidOrEmpty(int id) => Store.Datastore.TryGetGuid(id, out var guid) ? guid : Guid.Empty; // Guid.Empty matches nothing
+    void whereInIds(IEnumerable<Guid> ids) {
+        _sb.Append(".WhereInIds([");
         bool first = true;
         foreach (var id in ids) {
             if (!first) _sb.Append(", ");
             else first = false;
             _sb.Append('\"');
             _sb.Append(id);
+            _sb.Append('\"');
+        }
+        if (first) { // no ids given: a filter that matches nothing
+            _sb.Append('\"');
+            _sb.Append(Guid.Empty);
             _sb.Append('\"');
         }
         _sb.Append("])");

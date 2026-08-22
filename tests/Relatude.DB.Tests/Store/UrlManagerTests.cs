@@ -242,6 +242,59 @@ public class UrlManagerTests {
         StringAssert.Contains(db.Get<UrlPage>(pixelInfo).Body, "href=\"#\"");
     }
 
+    // ------------------------------------------------------------------ typed managers
+
+    // A manager written against the typed object model, like the Website.Simple sample: it
+    // materializes node objects whose HTML properties externalize during mapping, which calls back
+    // into the manager. The nested-externalization guard is what keeps that from recursing forever
+    // when pages link to each other.
+    class TypedTestManager(Func<NodeStore> db) : IUrlManager {
+        public void Initialize(IDataStore store) { }
+        public string? TryGetUrl(NodeMeta meta, bool absolute) {
+            var page = db().Get<UrlPage>(meta.Id);
+            var segments = new List<string>();
+            while (true) {
+                if (page.Slug.Length == 0 || segments.Count > 32) return null;
+                segments.Insert(0, page.Slug);
+                if (!page.Parent.TryGet(out page!)) break;
+            }
+            return "/" + string.Join('/', segments);
+        }
+        public IdKeyWithCultureId[] GetMatches(string completeUrl) {
+            var last = UrlUtil.GetLastSegment(completeUrl);
+            if (last == null) return [];
+            var path = UrlUtil.GetPath(completeUrl);
+            return db().GetNodeIdsFromAddress(last)
+                .Where(c => db().Datastore.TryGetNodeMeta(c.IdKey, out var m) && TryGetUrl(m, false) == path)
+                .ToArray();
+        }
+        public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) => true;
+    }
+
+    [TestMethod]
+    public void TypedManager_MutuallyLinkedPages_DoNotRecurse() {
+        NodeStore db = null!;
+        var manager = new TypedTestManager(() => db);
+        var dm = new Datamodel();
+        dm.Add<UrlPage>();
+        dm.Add<UrlPageTree>();
+        var data = new DataStoreLocal(dm, new SettingsLocal(), new IOProviderMemory(), urlManager: manager);
+        data.Open(true, true);
+        db = new NodeStore(data);
+        try {
+            var a = insert(db, "A", "a");
+            var b = insert(db, "B", "b");
+            var pageA = db.Get<UrlPage>(a); pageA.Body = "<a href=\"/b\">b</a>"; db.Update(pageA);
+            var pageB = db.Get<UrlPage>(b); pageB.Body = "<a href=\"/a\">a</a>"; db.Update(pageB);
+            // both bodies internalized to tokens, and reading either page terminates and resolves the link:
+            StringAssert.Contains(storedBody(db, a)!, "rdb:");
+            StringAssert.Contains(db.Get<UrlPage>(a).Body, "href=\"/b\"");
+            StringAssert.Contains(db.Get<UrlPage>(b).Body, "href=\"/a\"");
+        } finally {
+            db.Dispose();
+        }
+    }
+
     // ------------------------------------------------------------------ persistence
 
     [TestMethod]
