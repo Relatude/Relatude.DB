@@ -34,7 +34,7 @@ public class UrlManagerTests {
         var dm = new Datamodel();
         dm.Add<UrlPage>();
         dm.Add<UrlPageTree>();
-        IUrlManager? manager = withTreeManager ? new TreeUrlManager(new TreeUrlManagerOptions() {
+        IUrlManager? manager = withTreeManager ? new DefaultUrlManager(new DefaultUrlManagerOptions() {
             ParentRelationName = "UrlPageTree",
         }) : null;
         var data = new DataStoreLocal(dm, new SettingsLocal(), io ?? new IOProviderMemory(), urlManager: manager);
@@ -164,7 +164,7 @@ public class UrlManagerTests {
         dm.Add<UrlPageTree>();
         var rootOne = Guid.NewGuid();
         var rootTwo = Guid.NewGuid();
-        var manager = new TreeUrlManager(new TreeUrlManagerOptions() {
+        var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() {
             ParentRelationName = "UrlPageTree",
             Domains = [
                 new UrlDomain() { Host = "one.example", RootId = rootOne },
@@ -246,18 +246,18 @@ public class UrlManagerTests {
 
     // ------------------------------------------------------------------ url formats, roots, asset styles
 
-    static NodeStore openWithOptions(TreeUrlManagerOptions options, IIOProvider? io = null) {
+    static NodeStore openWithOptions(DefaultUrlManagerOptions options, IIOProvider? io = null) {
         var dm = new Datamodel();
         dm.Add<UrlPage>();
         dm.Add<UrlPageTree>();
-        var data = new DataStoreLocal(dm, new SettingsLocal(), io ?? new IOProviderMemory(), urlManager: new TreeUrlManager(options));
+        var data = new DataStoreLocal(dm, new SettingsLocal(), io ?? new IOProviderMemory(), urlManager: new DefaultUrlManager(options));
         data.Open(true, true);
         return new NodeStore(data);
     }
 
     [TestMethod]
     public void UrlFormat_AddressOrIntId_GivesNodesWithoutAnAddressAnIdUrl() {
-        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.AddressOrIntId });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.AddressOrIntId });
         var withAddress = insert(db, "Hello", "hello");
         var withoutAddress = insert(db, "No address", "");
         Assert.AreEqual("/hello", db.GetUrl(withAddress));
@@ -272,7 +272,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlFormat_IntIdAndAddress_IsResolvedByIdAlone_SoOldUrlsSurviveRenames() {
-        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, ParentRelationName = "UrlPageTree" });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, ParentRelationName = "UrlPageTree" });
         var section = insert(db, "Docs", "docs");
         var page = insert(db, "Intro", "intro", section);
         Assert.IsTrue(db.Datastore.TryGetNodeMeta(page, out var meta));
@@ -292,7 +292,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlFormat_GuidIdOnly() {
-        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlFormat = NodeUrlFormat.GuidIdOnly });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.GuidIdOnly });
         var page = insert(db, "Hello", "hello");
         Assert.AreEqual("/" + page, db.GetUrl(page));
         Assert.IsTrue(db.TryParseUrl("/" + page, out var keys));
@@ -302,7 +302,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlNodeRoot_PrefixesEveryPageUrl() {
-        using var db = openWithOptions(new TreeUrlManagerOptions() { UrlNodeRoot = "/content", IncludeTrailingSlash = true });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlNodeRoot = "/content", IncludeTrailingSlash = true });
         var page = insert(db, "Hello", "hello");
         Assert.AreEqual("/content/hello/", db.GetUrl(page));
         Assert.IsTrue(db.TryParseUrl("/content/hello/", out var keys));
@@ -311,9 +311,54 @@ public class UrlManagerTests {
     }
 
     [TestMethod]
+    public void BaseAddressPages_PrefixesEveryPageUrl() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { BaseAddressPages = "/app" });
+        var page = insert(db, "Hello", "hello");
+        Assert.AreEqual("/app/hello", db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl("/app/hello", out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        Assert.IsFalse(db.TryParseUrl("/hello", out _)); // outside the base
+        Assert.IsFalse(db.TryParseUrl("/apphello", out _)); // the base must end on a segment boundary
+    }
+
+    [TestMethod]
+    public void BaseAddressPages_ComposesOutsideUrlNodeRoot() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { BaseAddressPages = "/app", UrlNodeRoot = "/content" });
+        var page = insert(db, "Hello", "hello");
+        Assert.AreEqual("/app/content/hello", db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl("/app/content/hello", out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+    }
+
+    [TestMethod]
+    public void BaseAddressPages_WithHost_MakesPageUrlsAbsolute() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { BaseAddressPages = "https://www.example.com" });
+        var page = insert(db, "Hello", "hello");
+        Assert.AreEqual("https://www.example.com/hello", db.GetUrl(page)); // absolute even without asking
+        Assert.IsTrue(db.TryParseUrl("https://www.example.com/hello", out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        Assert.IsTrue(db.TryParseUrl("/hello", out _)); // matched by path, so relative requests resolve too
+    }
+
+    [TestMethod]
+    public void BaseAddressAssets_PrefixesEveryAssetUrl() {
+        const string cdn = "https://cdn.example.com/files";
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { BaseAddressAssets = cdn });
+        var page = insert(db, "No address", ""); // unroutable: GetUrl falls back to an asset token url
+        var url = db.GetUrl(page);
+        StringAssert.StartsWith(url, cdn + "/assets/");
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(UrlTarget.Node, keys.Target);
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        var relative = url[cdn.Length..]; // "/assets/{token}"
+        Assert.IsTrue(db.TryParseUrl("/files" + relative, out _)); // matched by path, so relative requests resolve too
+        Assert.IsFalse(db.TryParseUrl(relative, out _)); // without the base path
+    }
+
+    [TestMethod]
     public void AssetUrls_SignedTokens_RejectTampering() {
         var key = Guid.NewGuid();
-        using var db = openWithOptions(new TreeUrlManagerOptions() { AssetUrlSignatureKey = key });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { AssetUrlSignatureKey = key });
         var page = insert(db, "No address", ""); // unroutable: GetUrl falls back to a signed asset token url
         var url = db.GetUrl(page);
         StringAssert.StartsWith(url, "/assets/");
@@ -330,8 +375,8 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void AssetUrls_UnderPageUrl_BuildOnTheOwnersPageUrl() {
-        var options = new TreeUrlManagerOptions() { AssetUrlStyle = AssetUrlStyle.UnderPageUrl };
-        var manager = new TreeUrlManager(options);
+        var options = new DefaultUrlManagerOptions() { AssetUrlStyle = AssetUrlStyle.UnderPageUrl };
+        var manager = new DefaultUrlManager(options);
         var dm = new Datamodel();
         dm.Add<UrlPage>();
         dm.Add<UrlPageTree>();

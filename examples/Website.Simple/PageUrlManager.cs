@@ -9,17 +9,6 @@ using Website.Simple.Models;
 
 namespace Website.Simple;
 
-// A complete, project-specific url manager: URLs follow the page tree ([parent-slugs]/[slug]),
-// several pages may share a slug, and each host serves the subtree of its own root page.
-//
-// It is written directly against the typed model: Traverse walks down the tree when resolving a
-// URL, and Parent.TryGet walks up when building one. Compare with the generic, culture-aware
-// Relatude.DB.Web.TreeUrlManager, which does the same from NodeMeta and relation ids only - that
-// is the faster pattern for big sites, this is the simplest one to read and adapt.
-//
-// Deriving from UrlManagerBase keeps asset URLs (files, image variants, deeplinks) on the default
-// "/assets/{token}" placement - override GetAssetUrl/TryGetAssetToken to change that, or set
-// AssetUrlSignatureKey in the constructor to make asset URLs unguessable.
 public class PageUrlManager : UrlManagerBase {
 
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase) {

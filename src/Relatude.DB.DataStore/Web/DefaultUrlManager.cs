@@ -4,7 +4,7 @@ using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Web;
 
-/// <summary>One host served by a <see cref="TreeUrlManager"/>, mapped to the root node of its tree.</summary>
+/// <summary>One host served by a <see cref="DefaultUrlManager"/>, mapped to the root node of its tree.</summary>
 public class UrlDomain {
     /// <summary>Host name, e.g. "www.domain1.no". Compared case-insensitively, without port.</summary>
     public string Host { get; set; } = string.Empty;
@@ -12,7 +12,7 @@ public class UrlDomain {
     public Guid RootId { get; set; }
 }
 
-/// <summary>How <see cref="TreeUrlManager"/> renders the page URL of a node.</summary>
+/// <summary>How <see cref="DefaultUrlManager"/> renders the page URL of a node.</summary>
 public enum NodeUrlFormat {
     /// <summary>The segment path alone. Nodes without an address have no page URL. The default.</summary>
     Address,
@@ -30,7 +30,7 @@ public enum NodeUrlFormat {
     GuidIdOnly,
 }
 
-/// <summary>How <see cref="TreeUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
+/// <summary>How <see cref="DefaultUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
 public enum AssetUrlStyle {
     /// <summary>Under the reserved asset root: "{AssetUrlRoot}{token}/{fileName}". The default.</summary>
     AssetRoot,
@@ -38,7 +38,7 @@ public enum AssetUrlStyle {
     UnderPageUrl,
 }
 
-public class TreeUrlManagerOptions {
+public class DefaultUrlManagerOptions {
     /// <summary>The relation that connects a node to its parent. When neither this nor <see cref="ParentRelationName"/> is set, the manager runs flat: every node is top level and its URL is "/{address}".</summary>
     public Guid ParentRelationId { get; set; }
     /// <summary>CodeName or full name of the parent relation, resolved against the datamodel when the store initializes.</summary>
@@ -60,6 +60,15 @@ public class TreeUrlManagerOptions {
     public string? UrlNodeRoot { get; set; }
     /// <summary>Appends a trailing slash to page URLs.</summary>
     public bool IncludeTrailingSlash { get; set; }
+    /// <summary>
+    /// Base address prepended to every page URL, outermost - before <see cref="UrlNodeRoot"/>.
+    /// May be a path ("/app") or include scheme and host ("https://www.site.com/app"), which makes
+    /// page URLs always absolute. Inbound URLs are matched by their path, so both absolute and
+    /// relative requests resolve.
+    /// </summary>
+    public string? BaseAddressPages { get; set; }
+    /// <summary>Base address prepended to every asset URL, e.g. a CDN origin ("https://cdn.site.com") or a path ("/files"). See <see cref="UrlManagerBase.BaseAddressAssets"/>.</summary>
+    public string? BaseAddressAssets { get; set; }
 
     /// <summary>Where asset URLs live: under <see cref="UrlManagerBase.AssetUrlRoot"/> or on top of the owner's page URL.</summary>
     public AssetUrlStyle AssetUrlStyle { get; set; } = AssetUrlStyle.AssetRoot;
@@ -82,8 +91,8 @@ public class TreeUrlManagerOptions {
 /// the plain "/{address}" behavior. <see cref="NodeUrlFormat"/> adds id based URL variants, and
 /// <see cref="AssetUrlStyle"/> lets asset URLs build on top of the owning node's page URL.
 /// </summary>
-public class TreeUrlManager : UrlManagerBase {
-    readonly TreeUrlManagerOptions _o;
+public class DefaultUrlManager : UrlManagerBase {
+    readonly DefaultUrlManagerOptions _o;
     IDataStore _db = default!;
     Guid _relationId;
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase);
@@ -91,10 +100,15 @@ public class TreeUrlManager : UrlManagerBase {
     Guid _fallbackRootId;
     string _urlNodeRoot = string.Empty; // "" or "/prefix", no trailing slash
 
-    public TreeUrlManager(TreeUrlManagerOptions options) {
+    string _basePages = string.Empty;     // "" | "/app" | "https://www.site.com/app", no trailing slash
+    string _basePagesPath = string.Empty; // the path portion, used to match inbound URLs
+
+    public DefaultUrlManager(DefaultUrlManagerOptions options) {
         _o = options;
         if (options.AssetUrlRoot != null) AssetUrlRoot = options.AssetUrlRoot;
         AssetUrlSignatureKey = options.AssetUrlSignatureKey;
+        BaseAddressAssets = options.BaseAddressAssets;
+        (_basePages, _basePagesPath) = NormalizeBaseAddress(options.BaseAddressPages);
     }
     public override void Initialize(IDataStore store) {
         _db = store;
@@ -136,7 +150,8 @@ public class TreeUrlManager : UrlManagerBase {
         if (url == null) return null;
         url = _urlNodeRoot + url;
         if (_o.IncludeTrailingSlash && !url.EndsWith('/')) url += "/";
-        if (!absolute) return url;
+        url = _basePages + url;
+        if (!absolute || _basePages.Contains("://", StringComparison.Ordinal)) return url; // a base with scheme and host is absolute already
         if (rootId != Guid.Empty && _hostByRoot.TryGetValue(rootId, out var host)) return _o.Scheme + "://" + host + url;
         return url; // no domain to make it absolute against
     }
@@ -144,7 +159,8 @@ public class TreeUrlManager : UrlManagerBase {
     // pages, inbound ////////////////////////////////////////////////////////////////////////////
 
     public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
-        var path = UrlUtil.GetPath(completeUrl);
+        var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _basePagesPath);
+        if (path == null) return []; // outside the base address
         if (_urlNodeRoot.Length > 0) {
             if (!path.StartsWith(_urlNodeRoot, StringComparison.Ordinal)) return [];
             path = path.Length == _urlNodeRoot.Length ? "/" : path[_urlNodeRoot.Length..];

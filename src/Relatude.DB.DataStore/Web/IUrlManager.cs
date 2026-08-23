@@ -6,7 +6,7 @@ namespace Relatude.DB.Web;
 
 /// <summary>
 /// Pluggable mapping between public URLs and content. One instance per store; every store has one
-/// (the store creates a flat <see cref="TreeUrlManager"/> when none is configured).
+/// (the store creates a flat <see cref="DefaultUrlManager"/> when none is configured).
 /// <para>
 /// The manager owns two kinds of URLs. Page URLs map nodes to readable paths: addresses are local
 /// segments, several nodes may share an address as long as the manager produces unique complete

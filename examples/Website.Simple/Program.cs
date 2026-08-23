@@ -26,12 +26,6 @@ builder.AddRelatudeDB(options => {
         dm.Add<SitePage>();
         dm.Add<PageTree>(); // relation classes are not pulled in by Add<T>, so the tree relation is added explicitly
     };
-    // Dynamic URL example: page URLs are computed from the page tree instead of being stored on
-    // each node. The Slug of a page is only the last segment; the manager assembles the complete
-    // URL from the parent chain, maps hosts to the two site roots, and keeps the id based rdb:
-    // link tokens inside HTML bodies working across renames. PageUrlManager.cs is a small typed
-    // implementation written for this site; the built-in Relatude.DB.Web.TreeUrlManager offers
-    // the same behavior generically (configured with a parent relation and a domain list).
     //options.CreateUrlManager = settings => new PageUrlManager();
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());

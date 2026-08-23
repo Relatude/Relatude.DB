@@ -10,7 +10,7 @@ namespace Relatude.DB.Web;
 /// Base class for url managers. Implements the asset side of the contract with the default
 /// placement - "{AssetUrlRoot}{token}/{fileName}" - so a manager that only cares about page URLs
 /// implements just the three page methods. Managers can override the asset pair to place tokens
-/// anywhere (for instance on top of the owner's page URL, like <see cref="TreeUrlManager"/> does
+/// anywhere (for instance on top of the owner's page URL, like <see cref="DefaultUrlManager"/> does
 /// with <see cref="AssetUrlStyle.UnderPageUrl"/>).
 /// <para>
 /// When <see cref="AssetUrlSignatureKey"/> is set, every emitted token carries an HMAC signature
@@ -34,24 +34,58 @@ public abstract class UrlManagerBase : IUrlManager {
     /// <summary>When set (not Guid.Empty), asset tokens are HMAC signed with this key and URLs with a missing or invalid signature stop resolving. Use a stable secret, for instance the store id.</summary>
     public Guid AssetUrlSignatureKey { get; set; }
 
+    string _assetBase = string.Empty;     // "" | "/files" | "https://cdn.example.com/files", no trailing slash
+    string _assetBasePath = string.Empty; // the path portion, used to match inbound URLs
+    /// <summary>
+    /// Base address prepended to every asset URL, outermost. May be a path ("/files") or include
+    /// scheme and host ("https://cdn.example.com"), which makes asset URLs absolute - the classic
+    /// CDN offload. Inbound URLs are matched by their path, so both absolute and relative requests
+    /// resolve.
+    /// </summary>
+    public string? BaseAddressAssets {
+        get => _assetBase.Length == 0 ? null : _assetBase;
+        set => (_assetBase, _assetBasePath) = NormalizeBaseAddress(value);
+    }
+
     public abstract void Initialize(IDataStore store);
     public abstract IdKeyWithCultureId[] GetMatches(string completeUrl);
     public abstract string? TryGetUrl(NodeMeta meta, bool absolute);
     public abstract bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address);
 
     public virtual string GetAssetUrl(AssetUrl asset, bool absolute) {
-        var url = AssetUrlRoot + SignTokenIfConfigured(asset.Token);
+        var url = _assetBase + AssetUrlRoot + SignTokenIfConfigured(asset.Token);
         if (!string.IsNullOrEmpty(asset.FileName)) url += "/" + UrlSafeFileName(asset.FileName);
         return url;
     }
     public virtual string? TryGetAssetToken(string completeUrl) {
-        var path = UrlUtil.GetPath(completeUrl);
-        if (!path.StartsWith(AssetUrlRoot, StringComparison.Ordinal)) return null;
+        var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _assetBasePath);
+        if (path == null || !path.StartsWith(AssetUrlRoot, StringComparison.Ordinal)) return null;
         var start = AssetUrlRoot.Length;
         var end = start;
         while (end < path.Length && path[end] != '/') end++; // an optional cosmetic file name may follow the token
         if (end == start) return null;
         return ValidateAndStripSignature(path[start..end]);
+    }
+
+    /// <summary>Normalizes a base address to (full, path): full is what URLs are prefixed with, path is what inbound URLs are matched against. Both empty when no base is given.</summary>
+    protected static (string full, string path) NormalizeBaseAddress(string? value) {
+        if (string.IsNullOrWhiteSpace(value)) return (string.Empty, string.Empty);
+        var full = value.Trim().TrimEnd('/');
+        if (full.Length == 0) return (string.Empty, string.Empty);
+        if (full.Contains("://", StringComparison.Ordinal)) {
+            var path = UrlUtil.GetPath(full);
+            return (full, path == "/" ? string.Empty : path);
+        }
+        if (!full.StartsWith('/')) full = "/" + full;
+        return (full, full);
+    }
+    /// <summary>Removes the base path from an inbound path. Null when the path is outside the base; "/" when it equals the base. The base must end on a segment boundary.</summary>
+    protected static string? TryStripBasePath(string path, string basePath) {
+        if (basePath.Length == 0) return path;
+        if (!path.StartsWith(basePath, StringComparison.Ordinal)) return null;
+        if (path.Length == basePath.Length) return "/";
+        var rest = path[basePath.Length..];
+        return rest.StartsWith('/') ? rest : null;
     }
 
     /// <summary>Appends the HMAC signature to the token when <see cref="AssetUrlSignatureKey"/> is set, otherwise returns the token unchanged.</summary>

@@ -112,8 +112,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
         
-        var treeUrlOptions = settings?.UrlOptions ?? new TreeUrlManagerOptions();
-        urlManager ??= new TreeUrlManager(treeUrlOptions); // without a parent relation the built-in manager runs flat: every node at "/{address}"
+        var treeUrlOptions = settings?.UrlOptions ?? new DefaultUrlManagerOptions();
+        urlManager ??= new DefaultUrlManager(treeUrlOptions); // without a parent relation the built-in manager runs flat: every node at "/{address}"
         _urls = new UrlSystem(this, urlManager);
 
         _createIndexEngines = createIndexEngines;
