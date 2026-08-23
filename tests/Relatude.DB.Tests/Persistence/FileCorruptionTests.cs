@@ -20,7 +20,7 @@ namespace Relatude.Persistence {
             store.Dispose();
 
             // adds corruption to the log file:
-            io.AddCorruption("db.00000001.bin", 10000, 1); // corrupting one transaction somewhere in the log file
+            io.AddCorruption(new FileKeyUtility(null).WAL_GetFileKey(1), 10000, 1); // corrupting one transaction somewhere in the log file
 
             // validate that the store cannot be opened:
             Assert.ThrowsException<LogReadException>(() => {

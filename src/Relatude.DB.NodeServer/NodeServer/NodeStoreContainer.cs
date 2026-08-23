@@ -233,6 +233,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 toLog.Add("Queue path: " + queuePath);
                 queuePath = Path.Combine(queuePath, fileKeyUtility.Queue_GetFileKey("sqlite"));
+                // the queue file key is folder qualified (state/); sqlite does not create directories
+                var queueDir = Path.GetDirectoryName(queuePath);
+                if (!string.IsNullOrEmpty(queueDir) && !Directory.Exists(queueDir)) Directory.CreateDirectory(queueDir);
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             // the url manager owns the mapping between public URLs and content; when the factory

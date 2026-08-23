@@ -56,11 +56,11 @@ public class IOProviderDisk : IIOProvider {
     }
     public IReadStream OpenRead(string fileKey, long position) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
-        return openRead(Path.Combine(BaseFolder, fileKey), position);
+        return openRead(Path.Combine(BaseFolder, fileKey), fileKey, position);
     }
     public IReadStream OpenRead(string[] path, long position) {
         FileKeyUtility.ValidateFileKeyPath(path);
-        return openRead(Path.Combine([BaseFolder, .. path]), position);
+        return openRead(Path.Combine([BaseFolder, .. path]), string.Join('/', path), position);
     }
     public bool Exists(string fileKey) {
         FileKeyUtility.ValidateFileKeyString(fileKey);
@@ -72,17 +72,17 @@ public class IOProviderDisk : IIOProvider {
         var filePath = Path.Combine([BaseFolder, .. path]);
         return File.Exists(filePath);
     }
-    IReadStream openRead(string filePath, long position) {
+    IReadStream openRead(string filePath, string fileKey, long position) {
         lock (_lock) {
             IReadStream? stream = null;
             stream = new StoreStreamDiscRead(filePath, position, () => {
                 lock (_lock) {
-                    unregisterReader(filePath);
+                    unregisterReader(fileKey);
                     _openStreams.Remove(stream!);
                 }
             });
             stream = new StoreStreamBufferedRead(stream, 1024 * 1024); // turned out that buffering helps a lot in any case
-            registerReader(filePath);
+            registerReader(fileKey);
             _openStreams.Add(stream);
             return stream;
         }
@@ -95,7 +95,7 @@ public class IOProviderDisk : IIOProvider {
     public IAppendStream OpenAppend(string[] path) {
         FileKeyUtility.ValidateFileKeyPath(path);
         var filePath = Path.Combine([BaseFolder, .. path]);
-        var fileKey = Path.Combine(path);
+        var fileKey = string.Join('/', path);
         return openAppend(filePath, fileKey);
     }
     IAppendStream openAppend(string filePath, string fileKey) {
@@ -152,14 +152,19 @@ public class IOProviderDisk : IIOProvider {
     public FileMeta[] GetFiles() {
         lock (_lock) {
             if (!Directory.Exists(BaseFolder)) return [];
-            var files = new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo).ToArray();
-            lock (_lock) {
-                foreach (var f in files) {
-                    if (_openReaders.ContainsKey(f.Key)) f.Readers = _openReaders[f.Key];
-                    if (_openWriters.ContainsKey(f.Key)) f.Writers = _openWriters[f.Key];
-                }
+            // root files plus the well known system folders (data/state/bkup/log); other folders
+            // (the indexes folder, the multi file store folder) own their content and are not listed
+            var files = new List<FileMeta>(new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo));
+            foreach (var folder in FileKeyUtility.SystemFolderNames) {
+                var dir = new DirectoryInfo(Path.Combine(BaseFolder, folder));
+                if (!dir.Exists) continue;
+                files.AddRange(dir.GetFiles().Select(f => FileMeta.FromFileInfo(f, folder + "/" + f.Name)));
             }
-            return files;
+            foreach (var f in files) {
+                if (_openReaders.ContainsKey(f.Key)) f.Readers = _openReaders[f.Key];
+                if (_openWriters.ContainsKey(f.Key)) f.Writers = _openWriters[f.Key];
+            }
+            return files.ToArray();
         }
     }
     public void MoveFile(IOProviderDisk sourceIo, string sourceFileKey, string destFileKey, bool overwrite) {
@@ -171,6 +176,7 @@ public class IOProviderDisk : IIOProvider {
             var dest = Path.Combine(BaseFolder, destFileKey);
             if (overwrite) DeleteFileIfItExists(destFileKey);
             if (File.Exists(destFileKey)) throw new Exception($"File {destFileKey} already exists");
+            ensureParentFolder(dest);
             File.Move(source, dest);
         }
     }
@@ -181,8 +187,13 @@ public class IOProviderDisk : IIOProvider {
             var filePath = Path.Combine(BaseFolder, fileKey);
             var newFilePath = Path.Combine(BaseFolder, newFileKey);
             if (File.Exists(newFilePath)) throw new Exception($"File {newFileKey} already exists");
+            ensureParentFolder(newFilePath);
             File.Move(filePath, newFilePath);
         }
+    }
+    static void ensureParentFolder(string filePath) {
+        var dir = Path.GetDirectoryName(filePath);
+        if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
     }
     public bool CanRenameFile => true;
 
@@ -193,7 +204,7 @@ public class IOProviderDisk : IIOProvider {
             FileKeyUtility.ValidateFileKeyString(fileKey);
             var filePath = Path.Combine(BaseFolder, fileKey);
             if (!File.Exists(filePath)) throw new FileNotFoundException("File not found: " + fileKey);
-            if (_openReaders.ContainsKey(filePath) || _openWriters.ContainsKey(fileKey))
+            if (_openReaders.ContainsKey(fileKey) || _openWriters.ContainsKey(fileKey))
                 throw new Exception($"File {fileKey} has open streams and cannot be truncated. ");
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             if (newLength < 0 || newLength > fs.Length)
@@ -212,23 +223,34 @@ public class IOProviderDisk : IIOProvider {
         }
     }
 
-    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
-        ensureFolder();
-        FileKeyUtility.ValidateFileKeyPath(path);
-        var baseFolderMeta = FolderMeta.FromDirInfo(new DirectoryInfo(BaseFolder), BaseFolder);
-        var dirInfo = new DirectoryInfo(BaseFolder);
-        addAllSubFolders(dirInfo, baseFolderMeta, Path.Combine(path), recursive, withFiles);
-        return Task.FromResult(baseFolderMeta.SubFolders);
+    public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
+        lock (_lock) {
+            ensureFolder();
+            FileKeyUtility.ValidateFileKeyPath(path);
+            var relativePath = string.Join('/', path);
+            var dirInfo = new DirectoryInfo(Path.Combine([BaseFolder, .. path]));
+            if (!dirInfo.Exists) return Task.FromResult(new FolderMeta { Name = path.Length > 0 ? path[^1] : "" });
+            var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath);
+            addAllSubFolders(dirInfo, folderMeta, relativePath, recursive, withFiles);
+            return Task.FromResult(folderMeta);
+        }
     }
     void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath, bool recursive, bool withFiles) {
-        if (withFiles) folder.Files = [.. dirInfo.GetFiles().Select(FileMeta.FromFileInfo)];
-        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, Path.Combine(relativeParentPath, d.Name)))];
+        if (withFiles) folder.Files = [.. dirInfo.GetFiles().Select(f => fileMetaWithLockCounts(f, relativeKey(relativeParentPath, f.Name)))];
+        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, relativeKey(relativeParentPath, d.Name)))];
         if (recursive) {
             foreach (var subFolder in folder.SubFolders) {
                 var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
-                addAllSubFolders(subDirInfo, subFolder, Path.Combine(relativeParentPath, subFolder.Name), recursive, withFiles);
+                addAllSubFolders(subDirInfo, subFolder, relativeKey(relativeParentPath, subFolder.Name), recursive, withFiles);
             }
         }
+    }
+    static string relativeKey(string parent, string name) => parent.Length == 0 ? name : parent + "/" + name;
+    FileMeta fileMetaWithLockCounts(FileInfo fileInfo, string key) {
+        var meta = FileMeta.FromFileInfo(fileInfo, key);
+        if (_openReaders.TryGetValue(key, out var readers)) meta.Readers = readers;
+        if (_openWriters.TryGetValue(key, out var writers)) meta.Writers = writers;
+        return meta;
     }
     public void DeleteFolderIfItExists(string[] path) {
         lock (_lock) {

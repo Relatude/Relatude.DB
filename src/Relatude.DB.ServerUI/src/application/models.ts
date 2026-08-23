@@ -23,6 +23,12 @@ export interface FolderMeta {
     readers: number
     writers: number
     description: string
+    hasFiles: boolean
+    hasSubFolders: boolean
+}
+export interface FolderSize {
+    size: number
+    fileCount: number
 }
 export interface SimpleStoreContainer {
     id: string

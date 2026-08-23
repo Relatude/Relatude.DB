@@ -32,9 +32,15 @@ public interface IIOProvider {
     bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination);
     void DeleteFolderIfItExists(string[] path);
     void EnsureFolder(string[] path);
-    Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles);
+    /// <summary>The folder at the given path (the storage root for an empty path): its files (when
+    /// <paramref name="withFiles"/>) and its subfolders, one level deep unless <paramref name="recursive"/>.
+    /// File keys are folder qualified, so they can be passed straight back to the file operations.</summary>
+    Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles);
 }
 public static class IIOProviderExtensions {
+    public static async Task<FolderMeta[]> GetFoldersAsync(this IIOProvider io, string[] path, bool recursive, bool withFiles) {
+        return (await io.GetFolderAsync(path, recursive, withFiles)).SubFolders;
+    }
     public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {
         return io.GetFiles().Select(f => f.Key).FilterByWildcard(wildcardPattern).ToList();
     }

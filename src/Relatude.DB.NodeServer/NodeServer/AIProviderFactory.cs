@@ -8,7 +8,12 @@ public static class AIProviderFactory {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
             var fileKey = new FileKeyUtility(filePrefix).GetAiCacheFileKey(settings.CacheType);
-            filePath = dataFolder.SuperPathCombine(fileKey);
+            if (fileKey != null) {
+                filePath = dataFolder.SuperPathCombine(fileKey);
+                // the cache file lives in the indexes folder; the cache stores do not create it themselves
+                var dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            }
         }
         IEmbeddingCache? cache = settings.CacheType switch {
             null => null,

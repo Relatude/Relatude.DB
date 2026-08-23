@@ -229,12 +229,11 @@ public class IOProviderMemory : IIOProvider {
         FileKeyUtility.ValidateFileKeyPath(path);
         // Memory provider uses virtual folders via key prefixes; no-op needed.
     }
-    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
+    public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         FileKeyUtility.ValidateFileKeyPath(path);
         var prefix = path.Length > 0 ? string.Join(_virtualFolderChar, path) + _virtualFolderChar : string.Empty;
         lock (_lock) {
-            var root = buildVirtualFolder("root", prefix, recursive, withFiles);
-            return Task.FromResult(root.SubFolders);
+            return Task.FromResult(buildVirtualFolder(path.Length > 0 ? path[^1] : "", prefix, recursive, withFiles));
         }
     }
     FolderMeta buildVirtualFolder(string name, string prefix, bool recursive, bool withFiles) {
@@ -253,10 +252,13 @@ public class IOProviderMemory : IIOProvider {
         folder.HasSubFolders = subFolderNames.Count > 0;
         if (withFiles) folder.Files = [.. directFiles.Select(f => _disk[prefix + f].Meta)];
         folder.SubFolders = [.. subFolderNames.Select(sf => {
-            var sub = recursive
-                ? buildVirtualFolder(sf, prefix + sf + _virtualFolderChar, recursive, withFiles)
-                : new FolderMeta { Name = sf };
-            return sub;
+            var subPrefix = prefix + sf + _virtualFolderChar;
+            if (recursive) return buildVirtualFolder(sf, subPrefix, recursive, withFiles);
+            return new FolderMeta {
+                Name = sf,
+                HasFiles = _disk.Keys.Any(k => k.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase) && !k[subPrefix.Length..].Contains(_virtualFolderChar)),
+                HasSubFolders = _disk.Keys.Any(k => k.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase) && k[subPrefix.Length..].Contains(_virtualFolderChar)),
+            };
         })];
         return folder;
     }

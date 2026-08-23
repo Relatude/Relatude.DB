@@ -1,9 +1,10 @@
 ﻿namespace Relatude.DB.IO;
 
 public class FileMeta {
-    public static FileMeta FromFileInfo(FileInfo fileInfo) {
+    public static FileMeta FromFileInfo(FileInfo fileInfo) => FromFileInfo(fileInfo, fileInfo.Name);
+    public static FileMeta FromFileInfo(FileInfo fileInfo, string key) {
         return new() {
-            Key = fileInfo.Name,
+            Key = key,
             Size = fileInfo.Length,
             CreationTimeUtc = fileInfo.CreationTimeUtc,
             LastModifiedUtc = fileInfo.LastWriteTimeUtc,

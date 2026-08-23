@@ -24,10 +24,15 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     void ensurePrefix(Guid storeId, ref string fileKey) {
         var filePrefix = server.Containers[storeId].Settings?.LocalSettings?.FilePrefix;
         if (string.IsNullOrEmpty(filePrefix)) return;
-        if (!fileKey.StartsWith('.')) filePrefix += ".";
-        if (fileKey.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
-        fileKey = filePrefix + fileKey;
+        // keys may be folder qualified (data/state/bkup/log); the prefix belongs to the file name
+        var slash = fileKey.LastIndexOf('/');
+        var folder = slash < 0 ? "" : fileKey[..(slash + 1)];
+        var name = slash < 0 ? fileKey : fileKey[(slash + 1)..];
+        if (!name.StartsWith('.')) filePrefix += ".";
+        if (name.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
+        fileKey = folder + filePrefix + name;
     }
+    static string[] splitFolderPath(string? folderPath) => folderPath?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
     NodeStoreContainer container(Guid storeId) {
         if (server.Containers.TryGetValue(storeId, out var container)) return container;
         throw new Exception("Container not found.");
@@ -206,8 +211,21 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
         app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
         app.MapPost(path("can-have-folders"), (Guid storeId, Guid ioId) => new { CanHave = true });
-        app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync([], true, true));
-        app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists([folderName]));
+        app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync([], true, true)); // kept for older clients
+        // one level of the given folder ("" = the storage root): its files and subfolder stubs, no sizes computed
+        app.MapPost(path("get-folder"), (Guid storeId, Guid ioId, string? folderPath) => server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), false, true));
+        // recursive size of the given folder, on demand: walking a big tree can take a while, so the client asks per folder
+        app.MapPost(path("get-folder-size"), async (Guid storeId, Guid ioId, string? folderPath) => {
+            var folder = await server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), true, true);
+            long size = 0; long fileCount = 0;
+            void sum(FolderMeta f) {
+                foreach (var file in f.Files) { size += file.Size; fileCount++; }
+                foreach (var sub in f.SubFolders) sum(sub);
+            }
+            sum(folder);
+            return new { Size = size, FileCount = fileCount };
+        });
+        app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(splitFolderPath(folderName)));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => {
             if (ioId == Guid.Empty) {

@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -134,7 +134,8 @@ class MaintenanceAPI {
     close = (storeId: string) => this.server.execute(this.controller, 'close', { storeId });
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));
     canHaveFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-folders', { storeId, ioId }).then(r => r.canHave);
-    getFolders = (storeId: string, ioId: string, path: string) => fixFileFolderListMetaDates(this.server.queryJson<FolderMeta[]>(this.controller, 'get-folders', { storeId, ioId, path }));
+    getFolder = (storeId: string, ioId: string, folderPath: string) => this.server.queryJson<FolderMeta>(this.controller, 'get-folder', { storeId, ioId, folderPath }).then(fixFolderMetaDates);
+    getFolderSize = (storeId: string, ioId: string, folderPath: string) => this.server.queryJson<FolderSize>(this.controller, 'get-folder-size', { storeId, ioId, folderPath });
     getStoreFiles = (storeId: string, ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-store-files', { storeId, ioId }));
     canRenameFile = (storeId: string, ioId: string) => this.server.queryJson<{ canRename: boolean }>(this.controller, 'can-rename-file', { storeId, ioId }).then(r => r.canRename);
     renameFile = (storeId: string, ioId: string, fileName: string, newFileName: string) => this.server.execute(this.controller, 'rename-file', { storeId, ioId, fileName, newFileName });
@@ -143,15 +144,19 @@ class MaintenanceAPI {
     cancelRewriteIfAny = (storeId: string) => this.server.queryJson<{ fileKey?: string }>(this.controller, 'cancel-rewrite-if-any', { storeId });
     getFileKeyOfDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db', { storeId, ioId });
     getFileKeyOfNextDb = async (storeId: string, ioId: string, filePrefix?: string) => this.server.queryText(this.controller, 'get-file-key-of-db-next', { storeId, ioId });
-    validateDownloadFileRead = async (storeId: string, ioId: string, fileName: string) => {
+    validateDownloadFileRead = async (storeId: string, ioId: string, fileName: string, knownFile?: FileMeta) => {
+        if (knownFile) { // a file from a folder listing; the flat store file list does not cover browsed folders
+            if (knownFile.writers > 0) throw new Error("File is locked");
+            return;
+        }
         const allFiles = await this.getStoreFiles(storeId, ioId);
         const macthes = allFiles.filter(f => f.key === fileName);
         if (macthes.length === 0) throw new Error("File not found.");
         if (macthes.length > 1) throw new Error("Multiple files found with the same name");
         if (macthes[0].writers > 0) throw new Error("File is locked");
     }
-    downloadFile = async (storeId: string, ioId: string, fileName: string) => {
-        await this.validateDownloadFileRead(storeId, ioId, fileName);
+    downloadFile = async (storeId: string, ioId: string, fileName: string, knownFile?: FileMeta) => {
+        await this.validateDownloadFileRead(storeId, ioId, fileName, knownFile);
         this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });
@@ -193,10 +198,11 @@ const fixFileMetaDates = (file: FileMeta) => {
     file.lastModifiedUtc = new Date(file.lastModifiedUtc);
     return file;
 }
-const fixFileFolderListMetaDates = (folders: Promise<FolderMeta[]>) => folders.then(fs => fs.map(fixFolderMetaDates));
 const fixFolderMetaDates = (folder: FolderMeta) => {
     folder.creationTimeUtc = new Date(folder.creationTimeUtc);
     folder.lastModifiedUtc = new Date(folder.lastModifiedUtc);
+    folder.files?.forEach(fixFileMetaDates);
+    folder.subFolders?.forEach(fixFolderMetaDates);
     return folder;
 }
 class LogAPI {

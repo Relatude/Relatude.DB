@@ -119,6 +119,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _createIndexEngines = createIndexEngines;
         _fileKeys = new(_settings.FilePrefix);
         _logger = new(_ioLog, _fileKeys, datamodel);
+        moveLegacyDbLogFilesToDataFolder(); // must run before the rewrite cleanup below and before the WAL opens
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
         _fileConversionEngine = new(this, fileConverters, converterIoProvider, _fileKeys);
         RegisterRunner(new TextIndexTaskRunner(this));
@@ -164,6 +165,37 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
+    // Before the folder layout (data/state/bkup/log) every file lived in the storage root. Only the
+    // database log files are moved on startup: state, index and mapper files are rebuilt at their
+    // new locations, and old backups stay where they were taken.
+    void moveLegacyDbLogFilesToDataFolder() {
+        foreach (var legacyKey in _fileKeys.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileToDataFolder(_io, legacyKey);
+        var legacySecondary = _fileKeys.WAL_GetLegacyRootSecondaryFileKey();
+        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileToDataFolder(_ioLog2, legacySecondary);
+    }
+    void moveLegacyFileToDataFolder(IIOProvider io, string legacyKey) {
+        var newKey = FileKeyUtility.MapLegacyRootFileKeyToDataFolder(legacyKey);
+        if (io.Exists(newKey)) {
+            // an earlier migration crashed between copy and delete; anything but a completed copy is
+            // ambiguous and must be resolved by hand
+            if (io.GetFileSizeOrZeroIfUnknown(newKey) == io.GetFileSizeOrZeroIfUnknown(legacyKey)) {
+                io.DeleteFileIfItExists(legacyKey);
+                LogInfo($"Removed legacy database log file {legacyKey}, already migrated to {newKey}. ");
+                return;
+            }
+            throw new Exception($"Cannot move legacy file {legacyKey} to {newKey} as both exist with different sizes. Remove one of them manually. ");
+        }
+        io.EnsureFolder([FileKeyUtility.DataFolderName]);
+        if (io.CanRenameFile) {
+            io.RenameFile(legacyKey, newKey);
+        } else {
+            io.CopyFile(io, legacyKey, newKey);
+            if (io.GetFileSizeOrZeroIfUnknown(newKey) != io.GetFileSizeOrZeroIfUnknown(legacyKey))
+                throw new Exception($"Failed to copy legacy file {legacyKey} to {newKey}, size mismatch. ");
+            io.DeleteFileIfItExists(legacyKey);
+        }
+        LogInfo($"Moved database log file {legacyKey} to {newKey}. ");
+    }
     public QueryContext QueryContext => _defaultQueryCtx;
     public void SetDefaultQueryContext(QueryContext ctx) {
         _lock.EnterWriteLock();
@@ -199,7 +231,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     public IIOProvider IO => _io;
     public IIOProvider IOIndex => _ioIndex;
     public IIOProvider IOBackup => _ioAutoBackup;
-    public IEnumerable<IIOProvider> AllIOs => new[] { _io, _ioIndex, _ioAutoBackup, _ioLog, _ioLog2 }.Where(io => io != null);
+    // distinct: unconfigured roles fall back to the same instance, and consumers (file size totals,
+    // stream cleanup) must see each provider once
+    public IEnumerable<IIOProvider> AllIOs => new[] { _io, _ioIndex, _ioAutoBackup, _ioLog, _ioLog2 }.Where(io => io != null).Distinct();
     public SettingsLocal Settings => _settings;
     public long Timestamp {
         get {

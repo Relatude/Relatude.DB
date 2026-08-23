@@ -120,7 +120,7 @@ internal class FileConversionCache {
         var folders = _io.GetFoldersAsync(new[] { _baseFolder }, true, true).Result;
         foreach (var folder in folders) {
             if (folder.Name == _baseFolder) continue;
-            _io.DeleteFolderIfItExists(new[] { folder.Name });
+            _io.DeleteFolderIfItExists(new[] { _baseFolder, folder.Name }); // the guid folders live below the cache base folder
         }
         _smallCache.ClearAll_NotSize0();
     }
@@ -135,8 +135,9 @@ internal class FileConversionCache {
         var folders = _io.GetFoldersAsync(new[] { _baseFolder }, true, true).Result;
         foreach (var folder in folders) {
             if (folder.Name == _baseFolder) continue;
-            var pathError = getFilePathErrorStatus(Guid.Parse(folder.Name));
-            var errorFolder = new string[pathError.Length - 1];
+            if (!Guid.TryParse(folder.Name, out var key)) continue;
+            var pathError = getFilePathErrorStatus(key);
+            var errorFolder = pathError[..^1]; // the folder holding the error status file
             if (_io.Exists(pathError)) _io.DeleteFolderIfItExists(errorFolder);
         }
     }

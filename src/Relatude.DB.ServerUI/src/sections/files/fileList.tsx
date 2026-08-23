@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
-import { Table, Button, Group, Menu, MenuItem, Divider, ActionIcon, Checkbox } from '@mantine/core';
+import { Table, Button, Group, Menu, ActionIcon, Checkbox, Breadcrumbs, Anchor } from '@mantine/core';
 import { useApp } from '../../start/useApp';
 import IoSelector from './ioSelector';
-import { FileMeta, FolderMeta, NodeStoreContainer } from '../../application/models';
+import { FileMeta, FolderMeta, FolderSize, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
-import { IconDots, IconFile, IconFolder } from '@tabler/icons-react';
+import { IconDots, IconFolder } from '@tabler/icons-react';
 import { formatBytesString, formatDateToString } from '../../utils/formatting';
 import { iconSize, iconStroke } from '../../application/common';
 
@@ -16,14 +16,21 @@ type FileOrFolder = {
 export const component = (p: { storeId: string }) => {
     const app = useApp();
     const [store, setStore] = useState<NodeStoreContainer>();
+    const [path, setPath] = useState<string[]>([]);
     const [files, setFiles] = useState<FileMeta[]>();
     const [folders, setFolders] = useState<FolderMeta[]>();
+    const [folderSizes, setFolderSizes] = useState<Record<string, FolderSize>>({});
+    const [calculatingSizes, setCalculatingSizes] = useState<Record<string, boolean>>({});
     const [canRename, setCanRename] = useState<boolean>(false);
     const [selectedIo, setSelectedIo] = useState<string>();
     const [dbFile, setDbFile] = useState<string>("");
     const [selectedRows, setSelectedRows] = useState<FileOrFolder[]>([]);
     useEffect(() => { updateSettings(); }, [p.storeId]);
-    useEffect(() => { updateFilesAndFolders(); }, [selectedIo]);
+    useEffect(() => { setPath([]); }, [selectedIo]);
+    useEffect(() => { setSelectedRows([]); setFolderSizes({}); updateFilesAndFolders(); }, [selectedIo, path]);
+    const folderPrefix = path.length > 0 ? path.join('/') + '/' : '';
+    const fullFolderPath = (folderName: string) => folderPrefix + folderName;
+    const displayName = (key: string) => key.split('/').pop() ?? key;
     const updateSettings = async () => {
         if (p.storeId) {
             const store = await app.api.settings.getSettings(p.storeId, false);
@@ -36,11 +43,26 @@ export const component = (p: { storeId: string }) => {
     }
     const updateFilesAndFolders = async () => {
         const storeIsLoadedAndIoBelongsToStore = store?.id == p.storeId && store?.ioSettings?.find(io => io.id == selectedIo) != undefined;
-        setFiles(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!) : undefined);
-        setCanRename(storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canRenameFile(p.storeId, selectedIo!) : false);
-        const canHaveSubfolders = storeIsLoadedAndIoBelongsToStore ? await app.api.maintenance.canHaveFolders(p.storeId, selectedIo!) : false;
-        const folders = canHaveSubfolders ? await app.api.maintenance.getFolders(p.storeId, selectedIo!, "") : undefined;
-        setFolders(folders);
+        if (!storeIsLoadedAndIoBelongsToStore) {
+            setFiles(undefined);
+            setFolders(undefined);
+            setCanRename(false);
+            setDbFile("");
+            return;
+        }
+        setCanRename(await app.api.maintenance.canRenameFile(p.storeId, selectedIo!));
+        const canHaveSubfolders = await app.api.maintenance.canHaveFolders(p.storeId, selectedIo!);
+        if (path.length == 0) {
+            // the root shows this store's own files (filtered by its file prefix); folder content is unfiltered browsing
+            const storeFiles = await app.api.maintenance.getStoreFiles(p.storeId, selectedIo!);
+            setFiles(storeFiles.filter(f => !f.key.includes('/')));
+            const rootFolder = canHaveSubfolders ? await app.api.maintenance.getFolder(p.storeId, selectedIo!, "") : undefined;
+            setFolders(rootFolder?.subFolders);
+        } else {
+            const folder = await app.api.maintenance.getFolder(p.storeId, selectedIo!, path.join('/'));
+            setFiles(folder.files);
+            setFolders(folder.subFolders);
+        }
         const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         if (selectedIo) {
             const dbFile = await app.api.maintenance.getFileKeyOfDb(p.storeId, selectedIo, storeSettings.localSettings.filePrefix);
@@ -49,14 +71,26 @@ export const component = (p: { storeId: string }) => {
             setDbFile("");
         }
     }
+    const calculateFolderSize = async (folderName: string) => {
+        const fullPath = fullFolderPath(folderName);
+        setCalculatingSizes(s => ({ ...s, [fullPath]: true }));
+        try {
+            const size = await app.api.maintenance.getFolderSize(p.storeId, selectedIo!, fullPath);
+            setFolderSizes(s => ({ ...s, [fullPath]: size }));
+        } catch (e: any) {
+            alert(e.message);
+        } finally {
+            setCalculatingSizes(s => ({ ...s, [fullPath]: false }));
+        }
+    }
     const getStatus = (file: FileMeta) => {
         if (file.writers > 0) return "Write locked";
         if (file.readers > 0) return "Read locked";
         return "-";
     }
-    const downloadFile = async (fileName: string) => {
+    const downloadFile = async (file: FileMeta) => {
         try {
-            await app.api.maintenance.downloadFile(p.storeId, selectedIo!, fileName);
+            await app.api.maintenance.downloadFile(p.storeId, selectedIo!, file.key, path.length > 0 ? file : undefined);
         } catch (e: any) {
             alert(e.message);
         }
@@ -66,26 +100,26 @@ export const component = (p: { storeId: string }) => {
         await app.api.maintenance.closeAllOpenStreams(p.storeId, selectedIo!);
         await updateFilesAndFolders();
     }
-    const renameFile = async (fileName: string) => {
-        let oldName = fileName;
-        let newName = prompt("Please enter a new name:", oldName);
+    const promptForNewName = async (oldKey: string) => {
+        // the folder is fixed; only the file name part is edited and validated
+        let newName = prompt("Please enter a new name:", displayName(oldKey));
         while (!(await app.api.maintenance.isFileKeyLegal(newName))) {
-            if (!newName) return;
+            if (!newName) return null;
             newName = prompt("Sorry, not a valid filename, try again:", newName);
         }
-        if (!newName) return;
-        await app.api.maintenance.renameFile(p.storeId, selectedIo!, oldName, newName);
+        if (!newName) return null;
+        return folderPrefix + newName;
+    }
+    const renameFile = async (fileName: string) => {
+        const newKey = await promptForNewName(fileName);
+        if (!newKey) return;
+        await app.api.maintenance.renameFile(p.storeId, selectedIo!, fileName, newKey);
         await updateFilesAndFolders();
     }
     const copyFile = async (fileName: string) => {
-        let oldName = fileName;
-        let newName = prompt("Please enter a new name:", oldName);
-        while (!(await app.api.maintenance.isFileKeyLegal(newName))) {
-            if (!newName) return;
-            newName = prompt("Sorry, not a valid filename, try again:", newName);
-        }
-        if (!newName) return;
-        await app.api.maintenance.copyFile(p.storeId, selectedIo!, oldName, selectedIo!, newName);
+        const newKey = await promptForNewName(fileName);
+        if (!newKey) return;
+        await app.api.maintenance.copyFile(p.storeId, selectedIo!, fileName, selectedIo!, newKey);
         await updateFilesAndFolders();
     }
     const onFileError = (message: string) => {
@@ -135,9 +169,16 @@ export const component = (p: { storeId: string }) => {
     }
     const deleteFile = async (file: string) => {
         if (!confirm("Are you sure you want to permanently delete this file?")) return;
-        const storeSettings = await app.api.settings.getSettings(p.storeId, false);
         try {
             if (confirmInCaseOfDbFile(file)) await app.api.maintenance.deleteFile(p.storeId, selectedIo!, file);
+        } finally {
+            await updateFilesAndFolders();
+        }
+    }
+    const deleteFolder = async (folderName: string) => {
+        if (!confirm("Are you sure you want to permanently delete the folder \"" + folderName + "\" and everything in it?")) return;
+        try {
+            await app.api.maintenance.deleteFolder(p.storeId, selectedIo!, fullFolderPath(folderName));
         } finally {
             await updateFilesAndFolders();
         }
@@ -151,7 +192,7 @@ export const component = (p: { storeId: string }) => {
     }
     const onCompleteUpload = async (uploads: UploadedFile[]) => {
         for (const upload of uploads) {
-            await app.api.maintenance.completeUpload(p.storeId, selectedIo!, upload.uploadId, upload.name, false);
+            await app.api.maintenance.completeUpload(p.storeId, selectedIo!, upload.uploadId, folderPrefix + upload.name, false);
         }
         updateFilesAndFolders();
     }
@@ -176,21 +217,21 @@ export const component = (p: { storeId: string }) => {
         }
     }
     const selectAll = (checked: boolean) => {
-        // const allFiles = files!.map(f => ({ key: f.key, isFolder: false }));
-        // const allFolders = folders!.map(f => ({ key: f.name, isFolder: true }));
-        // setSelectedRows([...allFiles, ...allFolders]);
-        // return
-        const coundFilesAndFolders = (files?.length ?? 0) + (folders?.length ?? 0);
-        if (false && selectedRows.length === coundFilesAndFolders || !checked) {
+        if (!checked) {
             setSelectedRows([]);
         } else {
             const allFiles = files!.map(f => ({ key: f.key, isFolder: false }));
-            const allFolders = folders!.map(f => ({ key: f.name, isFolder: true }));
+            const allFolders = folders!.map(f => ({ key: fullFolderPath(f.name), isFolder: true }));
             setSelectedRows([...allFiles, ...allFolders]);
         }
     }
     let totalSize = files?.reduce((acc, file) => acc + file.size, 0) ?? 0;
-    totalSize += getFoldersRecursiveSize(folders);
+    let allFolderSizesKnown = true;
+    for (const folder of folders ?? []) {
+        const known = folderSizes[fullFolderPath(folder.name)];
+        if (known) totalSize += known.size;
+        else allFolderSizesKnown = false;
+    }
     const selectedIOIsDatabase = selectedIo ? app.ui.isIoUsedForCurrentDatabase(selectedIo) : false;
     const domainName = location.hostname;
     return (<>
@@ -212,11 +253,17 @@ export const component = (p: { storeId: string }) => {
         {(selectedIo && selectedRows.length > 0) && <Button variant="light" color='red' onClick={deleteSelectedFilesAndFolders}
             title={'Permanently delete ' + getSelectionText()}
         >Delete {getSelectionText()}</Button>}
+        {selectedIo && <Breadcrumbs mt="md" mb="xs">
+            {path.length > 0 ? <Anchor onClick={() => setPath([])}>Storage root</Anchor> : <span>Storage root</span>}
+            {path.map((segment, i) => i < path.length - 1
+                ? <Anchor key={i} onClick={() => setPath(path.slice(0, i + 1))}>{segment}</Anchor>
+                : <span key={i}>{segment}</span>)}
+        </Breadcrumbs>}
         <Table>
             <Table.Thead>
                 <Table.Tr>
                     <Table.Th><Checkbox
-                        checked={selectedRows.length == (files?.length ?? 0) + (folders?.length ?? 0)}
+                        checked={selectedRows.length > 0 && selectedRows.length == (files?.length ?? 0) + (folders?.length ?? 0)}
                         indeterminate={selectedRows.length > 0 && selectedRows.length < (files?.length ?? 0) + (folders?.length ?? 0)}
                         onChange={(e) => selectAll(e.currentTarget.checked)}
                     /></Table.Th>
@@ -230,6 +277,50 @@ export const component = (p: { storeId: string }) => {
                 </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
+                {folders?.map((folder) => {
+                    const fullPath = fullFolderPath(folder.name);
+                    const knownSize = folderSizes[fullPath];
+                    return (<Table.Tr key={"folder:" + folder.name}
+                        bg={selectedRows.filter(f => f.key === fullPath).length > 0 ? 'var(--mantine-color-blue-light)' : undefined}
+                    >
+                        <Table.Td>
+                            <Checkbox
+                                checked={selectedRows.filter(f => f.key === fullPath).length > 0}
+                                onChange={(e) => setSelectedRows(e.currentTarget.checked ? [...selectedRows, { key: fullPath, isFolder: true }] : selectedRows.filter((k) => k.key !== fullPath))}
+                            />
+                        </Table.Td>
+                        <Table.Td >
+                            <Anchor onClick={() => setPath([...path, folder.name])} title="Open folder">
+                                <IconFolder size={iconSize} stroke={iconStroke} style={{ verticalAlign: 'middle', marginRight: 5 }} />
+                                {folder.name}
+                            </Anchor>
+                        </Table.Td>
+                        <Table.Td>
+                            {knownSize
+                                ? <span title={knownSize.fileCount + " file" + (knownSize.fileCount == 1 ? "" : "s")}>{formatBytesString(knownSize.size)}</span>
+                                : <Button variant="subtle" size="compact-xs" loading={calculatingSizes[fullPath]} onClick={() => calculateFolderSize(folder.name)}
+                                    title="Calculate the total size of the folder. This can take a while for folders with many files. ">Calculate</Button>}
+                        </Table.Td>
+                        <Table.Td>{ }</Table.Td>
+                        <Table.Td>{folder.description && folder.description != "-" ? folder.description : "[Folder]"}</Table.Td>
+                        <Table.Td>{formatDateToString(folder.lastModifiedUtc)}</Table.Td>
+                        <Table.Td>{formatDateToString(folder.creationTimeUtc)}</Table.Td>
+                        <Table.Td>
+                            <Group gap={"sm"}>
+                                <Menu width={200} >
+                                    <Menu.Target>
+                                        <ActionIcon variant="transparent" ><IconDots></IconDots></ActionIcon>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        <Menu.Item onClick={() => setPath([...path, folder.name])}>Open</Menu.Item>
+                                        <Menu.Item onClick={() => calculateFolderSize(folder.name)}>Calculate size</Menu.Item>
+                                        <Menu.Item onClick={() => deleteFolder(folder.name)}>Delete</Menu.Item>
+                                    </Menu.Dropdown>
+                                </Menu>
+                            </Group>
+                        </Table.Td>
+                    </Table.Tr>);
+                })}
                 {files?.map((file) => (
                     <Table.Tr key={file.key}
                         bg={selectedRows.filter(f => f.key === file.key).length > 0 ? 'var(--mantine-color-blue-light)' : undefined}
@@ -239,8 +330,7 @@ export const component = (p: { storeId: string }) => {
                             onChange={(e) => setSelectedRows(e.currentTarget.checked ? [...selectedRows, { key: file.key, isFolder: false }] : selectedRows.filter((k) => k.key !== file.key))}
                         /></Table.Td>
                         <Table.Td >
-                            {/* {<IconFile size={iconSize} stroke={iconStroke} style={{ verticalAlign: 'middle', marginRight: 5 }} />} */}
-                            {file.key == dbFile ? <b title="Current database file" style={{ color: "" }}>{file.key}</b> : file.key}
+                            {file.key == dbFile ? <b title="Current database file" style={{ color: "" }}>{displayName(file.key)}</b> : displayName(file.key)}
                         </Table.Td>
                         <Table.Td>{formatBytesString(file.size)}</Table.Td>
                         <Table.Td>{getStatus(file)}</Table.Td>
@@ -254,7 +344,7 @@ export const component = (p: { storeId: string }) => {
                                         <ActionIcon variant="transparent"><IconDots></IconDots></ActionIcon>
                                     </Menu.Target>
                                     <Menu.Dropdown>
-                                        <Menu.Item onClick={() => downloadFile(file.key)} disabled={file.writers > 0}>Download</Menu.Item>
+                                        <Menu.Item onClick={() => downloadFile(file)} disabled={file.writers > 0}>Download</Menu.Item>
                                         {canRename && <Menu.Item onClick={() => renameFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Rename</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => deleteFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Delete</Menu.Item>}
                                         {canRename && <Menu.Item onClick={() => copyFile(file.key)} disabled={file.writers > 0 || file.readers > 0}>Copy</Menu.Item>}
@@ -266,44 +356,12 @@ export const component = (p: { storeId: string }) => {
                         </Table.Td>
                     </Table.Tr>
                 ))}
-                {folders?.map((folder) => (
-                    <Table.Tr key={folder.name}
-                        bg={selectedRows.filter(f => f.key === folder.name).length > 0 ? 'var(--mantine-color-blue-light)' : undefined}
-                    >
-                        <Table.Td>
-                            <Checkbox
-                                checked={selectedRows.filter(f => f.key === folder.name).length > 0}
-                                onChange={(e) => setSelectedRows(e.currentTarget.checked ? [...selectedRows, { key: folder.name, isFolder: true }] : selectedRows.filter((k) => k.key !== folder.name))}
-                            />
-                        </Table.Td>
-                        <Table.Td >
-                            <IconFolder size={iconSize} stroke={iconStroke} style={{ verticalAlign: 'middle', marginRight: 5 }} />
-                            {folder.name}
-                        </Table.Td>
-                        <Table.Td>{formatBytesString(getFoldersRecursiveSize([folder]))}</Table.Td>
-                        <Table.Td>{ }</Table.Td>
-                        <Table.Td>[Folder]{ }</Table.Td>
-                        <Table.Td>{formatDateToString(folder.lastModifiedUtc)}</Table.Td>
-                        <Table.Td>{formatDateToString(folder.creationTimeUtc)}</Table.Td>
-                        <Table.Td>
-                            <Group gap={"sm"}>
-                                <Menu width={200} >
-                                    <Menu.Target>
-                                        <ActionIcon variant="transparent" ><IconDots></IconDots></ActionIcon>
-                                    </Menu.Target>
-                                    <Menu.Dropdown>
-                                        {canRename && <Menu.Item onClick={() => deleteFile(folder.name)} disabled={false}>Delete</Menu.Item>}
-                                    </Menu.Dropdown>
-                                </Menu>
-                            </Group>
-
-                        </Table.Td>
-                    </Table.Tr>
-                ))}
                 <Table.Tr key={"db"}>
                     <Table.Td></Table.Td>
                     <Table.Td></Table.Td>
-                    <Table.Td><b>{formatBytesString(totalSize)}</b></Table.Td>
+                    <Table.Td><b title={allFolderSizesKnown ? undefined : "Excluding folders without a calculated size"}>
+                        {formatBytesString(totalSize) + (allFolderSizesKnown ? "" : " +")}
+                    </b></Table.Td>
                     <Table.Td></Table.Td>
                     <Table.Td></Table.Td>
                     <Table.Td></Table.Td>
@@ -313,15 +371,6 @@ export const component = (p: { storeId: string }) => {
             </Table.Tbody>
         </Table>
     </>)
-}
-const getFoldersRecursiveSize = (folders?: FolderMeta[]): number => {
-    if (!folders) return 0;
-    let total = 0;
-    for (const folder of folders) {
-        total += folder.files.reduce((acc, file) => acc + file.size, 0);
-        total += folder.subFolders.reduce((acc, subFolder) => acc + getFoldersRecursiveSize([subFolder]), 0);
-    }
-    return total;
 }
 
 const Files = observer(component);

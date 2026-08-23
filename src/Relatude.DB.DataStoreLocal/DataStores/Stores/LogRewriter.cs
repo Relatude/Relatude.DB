@@ -16,6 +16,13 @@ internal class LogRewriter {
             fileKey = stream.ReadString();
         }
         if (string.IsNullOrWhiteSpace(fileKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
+        // A flag written before the folder layout holds a root level key; the startup migration has
+        // since moved the file into the data folder, so the flagged key must be mapped with it or
+        // the partial rewrite output would survive there and be picked up as the latest log file.
+        if (!fileKey.Contains('/')) {
+            var migrated = FileKeyUtility.MapLegacyRootFileKeyToDataFolder(fileKey);
+            if (!io.Exists(fileKey) && io.Exists(migrated)) fileKey = migrated;
+        }
         // Defensive: never delete the flagged file if it is the only log file present.
         // While a rewrite is running the old log file always exists alongside the new one,
         // so if the flagged file is the only log file the hot swap must have completed

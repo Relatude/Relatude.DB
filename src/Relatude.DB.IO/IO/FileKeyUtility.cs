@@ -12,33 +12,56 @@ namespace Relatude.DB.IO;
 /// The middle part, separated by dots, is used for numbering or date/time stamps etc depending on the store
 /// The '-' char is special and reserved for delimiting date/time parts.
 /// The prefix can be used to separate different database instances in the same storage location.
+///
+/// Files are grouped in a set of well known folders below the storage root, delimited by '/':
+///     data/  = the database log files (primary and secondary)
+///     state/ = everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue
+///     bkup/  = backup files
+///     log/   = the system logger files and the critical error log
+/// The folder names are plain (no prefix); the instance prefix stays on the file name inside them,
+/// so several instances can still share one storage location. The prefixed indexes folder and the
+/// multi file store folder are unchanged.
 /// </summary>
 public class FileKeyUtility {
 
+    /// <summary>Folder of the database log files (primary and secondary).</summary>
+    public const string DataFolderName = "data";
+    /// <summary>Folder of everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue.</summary>
+    public const string StateFolderName = "state";
+    /// <summary>Folder of the backup files.</summary>
+    public const string BackupFolderName = "bkup";
+    /// <summary>Folder of the system logger files and the critical error log.</summary>
+    public const string LogFolderName = "log";
+    /// <summary>The well known folders below the storage root. Disk providers include these in file listings.</summary>
+    public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
+
     string _prefix = "";
     static HashSet<string> storeNames = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
-    string walSecondaryFilePattern => _prefix + "db.log";
-    string walFilePattern => _prefix + "db.*.bin";
-    string walFileBackupPattern => _prefix + "db.*.bkup";
-    string walFileBackupPatternKeepForever => _prefix + "db.bkup.keep.*.bkup";
+    string walSecondaryFilePattern => DataFolderName + "/" + _prefix + "db.log";
+    string walFilePattern => DataFolderName + "/" + _prefix + "db.*.bin";
+    string walFileBackupPattern => BackupFolderName + "/" + _prefix + "db.*.bkup";
+    string walFileBackupPatternKeepForever => BackupFolderName + "/" + _prefix + "db.bkup.keep.*.bkup";
 
     string multiFileStoreFolderPattern => _prefix + "files";
     string fileStorePattern => _prefix + "files.*.bin";
-    string fileStoreBackupPattern => _prefix + "files.*.bkup";
-    string fileStoreBackupPatternKeepForever => _prefix + "files.bkup.keep.*.bkup";
+    string fileStoreBackupPattern => BackupFolderName + "/" + _prefix + "files.*.bkup";
+    string fileStoreBackupPatternKeepForever => BackupFolderName + "/" + _prefix + "files.bkup.keep.*.bkup";
 
     string dateTimeTemplate => "yyyy-MM-dd-HH-mm-ss";
     string dateOnlyTemplate => "yyyy-MM-dd";
-    string stateFilePattern => _prefix + "state.bin";
-    string indexFilePattern => _prefix + "index.*.bin";
+    string stateFilePattern => StateFolderName + "/" + _prefix + "state.bin";
+    string indexFilePattern => StateFolderName + "/" + _prefix + "index.*.bin";
 
-    string aiCacheFilePattern => _prefix + "ai.cache.bin";
+    // the ai cache lives in the indexes folder; that folder is already prefixed, so like the index
+    // engine files below it the file name itself carries no prefix
+    string aiCacheFilePattern => indexStoreFolderPattern + "/ai.cache.bin";
+    string aiCacheNativeFilePattern => indexStoreFolderPattern + "/native.ai.cache.bin";
     string indexStoreFolderPattern => _prefix + "indexes";
 
-    string mapperDllFilePattern => _prefix + "mapper.*.dll";
+    string mapperDllFilePattern => StateFolderName + "/" + _prefix + "mapper.*.dll";
 
-    string loggerAllFilePattern => _prefix + "log.*";
-    string loggerPrefix => _prefix + "log";
+    string loggerAllFilePattern => LogFolderName + "/" + _prefix + "log.*";
+    string loggerPrefix => LogFolderName + "/" + _prefix + "log";
     string loggerFilePartDelim => ".";
     string loggerDatePartsDelim => "-"; // cannot be changed!
     string loggerStatisticsSuffix => "statistics";
@@ -46,10 +69,10 @@ public class FileKeyUtility {
     string loggerTextExt => ".txt";
     string loggerBkUpExt => ".bkup";
 
-    string criticalErrorLogFilePattern => _prefix + "critical.error.txt";
+    string criticalErrorLogFilePattern => LogFolderName + "/" + _prefix + "critical.error.txt";
 
-    string queueFileKey => _prefix + "queue";
-    string queueFileKeyPattern => _prefix + "queue.*";
+    string queueFileKey => StateFolderName + "/" + _prefix + "queue";
+    string queueFileKeyPattern => StateFolderName + "/" + _prefix + "queue.*";
 
     // Storage names of the persisted index engines. These live on the local disk below
     // IndexStoreFolderKey and carry no prefix of their own: that folder is already prefixed, and
@@ -88,7 +111,7 @@ public class FileKeyUtility {
         if (cacheProvider == null) return null;
         return cacheProvider.Value switch {
             AIProviderCacheType.None => null,
-            AIProviderCacheType.Native => "native." + aiCacheFilePattern,
+            AIProviderCacheType.Native => aiCacheNativeFilePattern,
             AIProviderCacheType.Memory => null,
             AIProviderCacheType.Sqlite => aiCacheFilePattern,
             _ => throw new NotImplementedException(),
@@ -98,8 +121,18 @@ public class FileKeyUtility {
 
     public string CriticalErrorLogFileKey => criticalErrorLogFilePattern;
 
-    public string[] GetAllFileKeys(IIOProvider io) => [.. io.Search(_prefix + "*").Order()];
-    public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.SearchMeta(_prefix + "*")];
+    public string[] GetAllFileKeys(IIOProvider io) => [.. io.GetFiles().Select(f => f.Key).Where(isInstanceFileKey).Order()];
+    public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.GetFiles().Where(f => isInstanceFileKey(f.Key)).OrderBy(f => f.Key)];
+    /// <summary>
+    /// Whether the key belongs to this instance: a root file or a system folder file whose name
+    /// carries the instance prefix. Keys in other folders (the prefixed indexes folder, the multi
+    /// file store folder) are matched on the whole key, as before the folder layout.
+    /// </summary>
+    bool isInstanceFileKey(string fileKey) {
+        var slash = fileKey.IndexOf('/');
+        if (slash > 0 && SystemFolderNames.Contains(fileKey[..slash])) return fileKey[(slash + 1)..].MatchesWildcard(_prefix + "*");
+        return fileKey.MatchesWildcard(_prefix + "*");
+    }
 
     public DateOnly SystemLog_GetFileDateTimeFromFileKey(string fileKey) {
         var parts = fileKey.Split('.');
@@ -133,6 +166,12 @@ public class FileKeyUtility {
     public string[] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern).Order()];
     public string WAL_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
     public bool WAL_KeepForever(string fileKey) => fileKey.MatchesWildcard(walFileBackupPatternKeepForever);
+
+    // Before the folder layout every file lived in the storage root. The startup migration moves
+    // the database log files (and only those) into the data folder using the helpers below.
+    public string[] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search(_prefix + "db.*.bin").Order()];
+    public string WAL_GetLegacyRootSecondaryFileKey() => _prefix + "db.log";
+    public static string MapLegacyRootFileKeyToDataFolder(string legacyRootFileKey) => DataFolderName + "/" + legacyRootFileKey;
 
     public string FileStore_GetFileKey(int n) => fileStorePattern.Replace("*", n.ToString("00000000"));
     public string[] FileStore_GetAllFileKeys(IIOProvider io) => io.Search(fileStorePattern).Order().ToArray();
@@ -251,7 +290,9 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPattern)) return "Backup";
         if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup Protected";
         if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
+        if (fileKey.MatchesWildcard(_anyPrefix.aiCacheNativeFilePattern)) return "AI Cache";
         if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern + "*")) return "AI Temp";
+        if (fileKey.MatchesWildcard(_anyPrefix.criticalErrorLogFilePattern)) return "Critical error log";
         if (fileKey.MatchesWildcard(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
         if (fileKey.MatchesWildcard(_anyPrefix.fileStorePattern)) return "Filestore";
         if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "State";
@@ -259,16 +300,23 @@ public class FileKeyUtility {
         if (fileKey.MatchesWildcard(_anyPrefix.queueFileKeyPattern)) return "Task queue";
         if (fileKey.MatchesWildcard(_anyPrefix.loggerAllFilePattern)) return "Log file";
         if (fileKey.MatchesWildcard(_anyPrefix.indexFilePattern)) return "Index";
-        // index engine files: unprefixed, inside their engine folder (see the region above)
-        if (fileKey == indexEngineNativeKvFile) return "Native index engine";
-        if (fileKey == indexEngineFacetSetsFile) return "Facet cache";
-        if (fileKey == indexEngineSqliteFile) return "Sqlite index engine";
-        if (fileKey == indexEngineLuceneWalIdFile) return "Lucene index engine log file id";
+        // index engine files: unprefixed, inside their engine folder (see the region above); matched
+        // on the last path segment so both bare names and folder qualified keys get a description
+        var name = fileKey[(fileKey.LastIndexOf('/') + 1)..];
+        if (name == indexEngineNativeKvFile) return "Native index engine";
+        if (name == indexEngineFacetSetsFile) return "Facet cache";
+        if (name == indexEngineSqliteFile) return "Sqlite index engine";
+        if (name == indexEngineLuceneWalIdFile) return "Lucene index engine log file id";
+        if (name == "ai.cache.bin" || name == "native.ai.cache.bin") return "AI Cache";
         return "-";
     }
 
     internal static string FolderTypeDescription(string relpath) {
         return relpath switch {
+            DataFolderName => "Database",
+            StateFolderName => "State",
+            BackupFolderName => "Backups",
+            LogFolderName => "Logs",
             var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Index Store",
             // the engine folders below the index store, matched on the last path segment
             var s when s.MatchesWildcard("*" + indexEngineNativeKvFolder) => "Native index engine",
@@ -306,7 +354,15 @@ public class FileKeyUtility {
     }
 
     public static void ValidateFileKeyString(string fileKey) {
-        if (!IsFileKeyValid(fileKey)) throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + 100 + " characters.");
+        // a key may be folder qualified ("data/db.00000001.bin"); every segment must be a valid
+        // file name on its own, so a key can never escape the storage root
+        if (string.IsNullOrEmpty(fileKey)) throwInvalidFileKey();
+        foreach (var segment in fileKey.Split('/')) {
+            if (segment == "." || segment == ".." || !IsFileKeyValid(segment)) throwInvalidFileKey();
+        }
+    }
+    static void throwInvalidFileKey() {
+        throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + MaxFileNameLength + " characters per '/' separated segment.");
     }
     static HashSet<char> _legalFilePrefixCharacters = "abcdefghijklmnopqrstuvwxyz0123456789".ToHashSet();
     public static bool IsFilePrefixValid(string prefix, [MaybeNullWhen(true)] out string? reason) {

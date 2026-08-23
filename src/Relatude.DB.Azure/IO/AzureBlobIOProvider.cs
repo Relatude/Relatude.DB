@@ -228,12 +228,12 @@ public class AzureBlobIOProvider:IIOProvider {
     }
     public void EnsureFolder(string[] path) {
     }
-    public Task<FolderMeta[]> GetFoldersAsync(string[] path, bool recursive, bool withFiles) {
+    public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         var prefix = path.Length > 0 ? string.Join(_virtualFolderChar, path) + _virtualFolderChar : "";
-        var blobs = _container.GetBlobs(prefix: prefix).ToArray();
+        var blobs = _container.GetBlobs(prefix: prefix.Length > 0 ? prefix : null).ToArray();
         var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
         addAzureSubFolders(root, prefix, blobs, recursive, withFiles);
-        return Task.FromResult(root.SubFolders);
+        return Task.FromResult(root);
     }
     void addAzureSubFolders(FolderMeta folder, string prefix, BlobItem[] blobs, bool recursive, bool withFiles) {
         var directChildren = blobs
@@ -251,7 +251,17 @@ public class AzureBlobIOProvider:IIOProvider {
             .ToArray();
 
         if (withFiles)
-            folder.Files = [.. fileNames.Select(f => _files.TryGetValue(prefix + f, out var m) ? m : new FileMeta { Key = prefix + f })];
+            folder.Files = [.. fileNames.Select(f => {
+                // prefer the tracked meta (it reflects open streams), else build from the listing
+                if (_files.TryGetValue(prefix + f, out var m)) return m;
+                var blob = blobs.First(b => b.Name == prefix + f);
+                return new FileMeta {
+                    Key = blob.Name,
+                    Size = blob.Properties.ContentLength ?? 0,
+                    LastModifiedUtc = blob.Properties.LastModified?.UtcDateTime ?? DateTime.MinValue,
+                    CreationTimeUtc = blob.Properties.CreatedOn?.UtcDateTime ?? DateTime.MinValue,
+                };
+            })];
 
         folder.HasFiles = fileNames.Length > 0;
         folder.HasSubFolders = subFolderNames.Length > 0;

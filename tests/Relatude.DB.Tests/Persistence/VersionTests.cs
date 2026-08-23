@@ -203,7 +203,7 @@ public class VersionTests {
     public void LegacyV1000LogFile_OpensAndReturnsNoVersions() {
         var dir = tempDir();
         var io = new IOProviderDisk(dir);
-        var fileKey = "db.00000001.bin"; // the default first log file key
+        var fileKey = "db.00000001.bin"; // the legacy root level key: the store moves it to the data folder on startup
         using (var s = io.OpenAppend(fileKey)) { // a v1000 log file header: records appended to it must stay in the legacy format
             s.WriteMarker(WALFile._logStartMarker);
             s.WriteVerifiedLong(WALFile._logVersionNumberV1000);
@@ -218,7 +218,8 @@ public class VersionTests {
             Assert.AreEqual(2, store.Get<VerArticle>(id).Number, "legacy records replay correctly");
             Assert.AreEqual(0, store.FindOlderVersions(id).Length);
         }
-        using (var s = io.OpenAppend(fileKey)) {
+        Assert.IsFalse(io.Exists(fileKey), "the legacy root file must have been moved to the data folder");
+        using (var s = io.OpenAppend(FileKeyUtility.MapLegacyRootFileKeyToDataFolder(fileKey))) {
             Assert.AreEqual(WALFile._logVersionNumberV1000, s.GetVerifiedLong(16), "appending must not upgrade the file format");
         }
     }

@@ -4,7 +4,7 @@
     {
       "name": "website-simple",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-build", "--urls", "http://localhost:5052"],
+      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5052"],
       "port": 5052
     }
   ]
