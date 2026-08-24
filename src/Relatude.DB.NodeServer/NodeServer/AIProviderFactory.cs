@@ -7,12 +7,14 @@ public static class AIProviderFactory {
     public static AIEngine Create(AIProviderSettings settings, string? dataFolder, string? filePrefix) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
-            var fileKey = new FileKeyUtility(filePrefix).GetAiCacheFileKey(settings.CacheType);
+            var fileKeys = new FileKeyUtility(filePrefix);
+            var fileKey = fileKeys.GetAiCacheFileKey(settings.CacheType);
             if (fileKey != null) {
                 filePath = Path.Combine([dataFolder, .. fileKey]);
                 // the cache file lives in the indexes folder; the cache stores do not create it themselves
                 var dir = Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                moveLegacyCacheFileIfAny(dataFolder, fileKeys.GetLegacyRootAiCacheFileName(settings.CacheType), filePath);
             }
         }
         IEmbeddingCache? cache = settings.CacheType switch {
@@ -25,5 +27,19 @@ public static class AIProviderFactory {
         };
         var provider = LateBindings.CreateAiProvider(settings);
         return new AIEngine(provider, settings, cache);
+    }
+    /// <summary>
+    /// Before the folder layout the cache file lived in the root of its local disk folder; it is
+    /// moved to its new path once, sqlite sidecar files (-wal/-shm) included. It is only a cache,
+    /// so an inconsistent move at worst rebuilds it, but moving preserves the paid-for embeddings.
+    /// </summary>
+    static void moveLegacyCacheFileIfAny(string dataFolder, string? legacyFileName, string newFilePath) {
+        if (legacyFileName == null) return;
+        var legacyPath = Path.Combine(dataFolder, legacyFileName);
+        if (!File.Exists(legacyPath) || File.Exists(newFilePath)) return;
+        File.Move(legacyPath, newFilePath);
+        foreach (var suffix in new[] { "-wal", "-shm" }) {
+            if (File.Exists(legacyPath + suffix) && !File.Exists(newFilePath + suffix)) File.Move(legacyPath + suffix, newFilePath + suffix);
+        }
     }
 }

@@ -214,16 +214,17 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync([], true, true)); // kept for older clients
         // one level of the given folder ("" = the storage root): its files and subfolder stubs, no sizes computed
         app.MapPost(path("get-folder"), (Guid storeId, Guid ioId, string? folderPath) => server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), false, true));
-        // recursive size of the given folder, on demand: walking a big tree can take a while, so the client asks per folder
+        // recursive size and counts of the given folder, on demand: walking a big tree can take a
+        // while, so the client asks per folder instead of the listing computing it eagerly
         app.MapPost(path("get-folder-size"), async (Guid storeId, Guid ioId, string? folderPath) => {
             var folder = await server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), true, true);
-            long size = 0; long fileCount = 0;
+            long size = 0; long fileCount = 0; long folderCount = 0;
             void sum(FolderMeta f) {
                 foreach (var file in f.Files) { size += file.Size; fileCount++; }
-                foreach (var sub in f.SubFolders) sum(sub);
+                foreach (var sub in f.SubFolders) { folderCount++; sum(sub); }
             }
             sum(folder);
-            return new { Size = size, FileCount = fileCount };
+            return new { Size = size, FileCount = fileCount, FolderCount = folderCount };
         });
         app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(splitFolderPath(folderName)));
         app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName.SplitKey()));

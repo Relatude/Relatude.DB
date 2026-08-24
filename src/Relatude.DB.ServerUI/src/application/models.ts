@@ -29,6 +29,7 @@ export interface FolderMeta {
 export interface FolderSize {
     size: number
     fileCount: number
+    folderCount: number
 }
 export interface SimpleStoreContainer {
     id: string

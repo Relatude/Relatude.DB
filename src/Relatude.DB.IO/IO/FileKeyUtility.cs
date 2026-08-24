@@ -243,10 +243,32 @@ public class FileKeyUtility {
     public string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
 
     // Before the folder layout every file lived in the storage root. The startup migration moves
-    // the database log files (and only those) into the data folder using the helpers below.
+    // those files into their folders using the helpers below.
     public string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search([_prefix + "db.*.bin"])];
     public string[] WAL_GetLegacyRootSecondaryFileKey() => [_prefix + "db.log"];
     public static string[] MapLegacyRootFileKeyToDataFolder(string[] legacyRootFileKey) => [DataFolderName, .. legacyRootFileKey];
+    /// <summary>Database and file store backups in the storage root; they now live in the bkup folder.</summary>
+    public string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)
+        => [.. io.Search([_prefix + "db.*.bkup"]), .. io.Search([_prefix + "files.*.bkup"])];
+    /// <summary>State snapshot, index states, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
+    public string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
+        => [.. io.Search([_prefix + "state.bin"]), .. io.Search([_prefix + "index.*.bin"]), .. io.Search([_prefix + "mapper.*.dll"]), .. io.Search([_prefix + "queue.*"])];
+    /// <summary>Logger files and the critical error log in the storage root; they now live in the log folder.</summary>
+    public string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
+        => [.. io.Search([_prefix + "log.*"]), .. io.Search([_prefix + "critical.error.txt"])];
+    /// <summary>
+    /// The file name the ai cache had in the root of its local disk folder before it moved into the
+    /// prefixed indexes folder (where the prefix left the file name), or null when the cache type
+    /// has no file. The cache lives on the local disk outside the IO providers, so this is a plain
+    /// file name for the server layer's migration.
+    /// </summary>
+    public string? GetLegacyRootAiCacheFileName(AIProviderCacheType? cacheProvider) {
+        return cacheProvider switch {
+            AIProviderCacheType.Native => "native." + _prefix + "ai.cache.bin",
+            AIProviderCacheType.Sqlite => _prefix + "ai.cache.bin",
+            _ => null,
+        };
+    }
 
     #region Index engine storage (static: no prefix, they sit below IndexStoreFolderKey)
 
@@ -308,10 +330,10 @@ public class FileKeyUtility {
     public static string FileTypeDescription(string fileKey) {
         var key = fileKey.SplitKey();
         if (key.Length == 0) return "-";
-        if (key.MatchesPattern(_anyPrefix.walFilePattern)) return "Database";
-        if (key.MatchesPattern(_anyPrefix.walSecondaryFilePattern)) return "Transaction log";
+        if (key.MatchesPattern(_anyPrefix.walFilePattern)) return "Primary database file";
+        if (key.MatchesPattern(_anyPrefix.walSecondaryFilePattern)) return "Secondary databasefile";
+        if (key.MatchesPattern(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup [Never expiring]";
         if (key.MatchesPattern(_anyPrefix.walFileBackupPattern)) return "Backup";
-        if (key.MatchesPattern(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup Protected";
         if (key.MatchesPattern(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
         if (key.MatchesPattern(_anyPrefix.aiCacheNativeFilePattern)) return "AI Cache";
         if (key.MatchesPattern([_anyPrefix.indexStoreFolderPattern, "ai.cache.bin*"])) return "AI Temp";
@@ -339,11 +361,13 @@ public class FileKeyUtility {
         var key = relpath.SplitKey();
         if (key.Length == 0) return "-";
         return key.FileName() switch {
-            DataFolderName => "Database",
-            StateFolderName => "State",
+            DataFolderName => "[Primary data files]",
+            StateFolderName => "State cache",
             BackupFolderName => "Backups",
+            "converted" => "Converted file cache",
+            "files" => "[Primary file store]",
             LogFolderName => "Logs",
-            var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Index Store",
+            var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Indexes",
             indexEngineNativeKvFolder => "Native index engine",
             indexEngineSqliteFolder => "Sqlite index engine",
             indexEngineLuceneFolder => "Lucene index engine",

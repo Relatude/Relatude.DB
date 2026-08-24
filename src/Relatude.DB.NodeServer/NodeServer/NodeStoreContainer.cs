@@ -232,10 +232,21 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (string.IsNullOrEmpty(queuePath)) queuePath = localDiskFolder;
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 toLog.Add("Queue path: " + queuePath);
-                queuePath = Path.Combine([queuePath, .. fileKeyUtility.Queue_GetFileKey("sqlite")]);
+                var queueKey = fileKeyUtility.Queue_GetFileKey("sqlite");
+                var queueBaseFolder = queuePath;
+                queuePath = Path.Combine([queuePath, .. queueKey]);
                 // the queue file key is folder qualified (state/); sqlite does not create directories
                 var queueDir = Path.GetDirectoryName(queuePath);
                 if (!string.IsNullOrEmpty(queueDir) && !Directory.Exists(queueDir)) Directory.CreateDirectory(queueDir);
+                // before the folder layout the queue file lived in the root of the queue folder;
+                // it keeps its file name, so the legacy path is the base folder plus that name
+                var legacyQueuePath = Path.Combine(queueBaseFolder, queueKey.FileName());
+                if (File.Exists(legacyQueuePath) && !File.Exists(queuePath)) {
+                    File.Move(legacyQueuePath, queuePath);
+                    foreach (var suffix in new[] { "-wal", "-shm" }) {
+                        if (File.Exists(legacyQueuePath + suffix) && !File.Exists(queuePath + suffix)) File.Move(legacyQueuePath + suffix, queuePath + suffix);
+                    }
+                }
                 queueStore = LateBindings.CreateSqliteQueueStore(queuePath);
             }
             // the url manager owns the mapping between public URLs and content; when the factory

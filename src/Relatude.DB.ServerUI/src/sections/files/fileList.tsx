@@ -297,9 +297,14 @@ export const component = (p: { storeId: string }) => {
                         </Table.Td>
                         <Table.Td>
                             {knownSize
-                                ? <span title={knownSize.fileCount + " file" + (knownSize.fileCount == 1 ? "" : "s")}>{formatBytesString(knownSize.size)}</span>
+                                ? <>
+                                    {formatBytesString(knownSize.size)}
+                                    <div style={{ fontSize: '0.78em', opacity: 0.65, whiteSpace: 'nowrap' }}>
+                                        {formatCount(knownSize.fileCount, "file")}, {formatCount(knownSize.folderCount, "subfolder")}
+                                    </div>
+                                </>
                                 : <Button variant="subtle" size="compact-xs" loading={calculatingSizes[fullPath]} onClick={() => calculateFolderSize(folder.name)}
-                                    title="Calculate the total size of the folder. This can take a while for folders with many files. ">Calculate</Button>}
+                                    title="Calculate the total size of the folder and count its files and subfolders. This can take a while for folders with many files. ">Calculate</Button>}
                         </Table.Td>
                         <Table.Td>{ }</Table.Td>
                         <Table.Td>{folder.description && folder.description != "-" ? folder.description : "[Folder]"}</Table.Td>
@@ -372,6 +377,8 @@ export const component = (p: { storeId: string }) => {
         </Table>
     </>)
 }
+
+const formatCount = (count: number, word: string) => count + " " + (count == 1 ? word : word + "s");
 
 const Files = observer(component);
 export default Files;

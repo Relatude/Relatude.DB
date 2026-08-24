@@ -118,8 +118,11 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         _createIndexEngines = createIndexEngines;
         _fileKeys = new(_settings.FilePrefix);
+        // must run before the logger below (which reads its files), before the rewrite cleanup and
+        // before the WAL opens; the messages are buffered and logged once the logger exists
+        var migrationLog = moveLegacyFilesIntoFolders();
         _logger = new(_ioLog, _fileKeys, datamodel);
-        moveLegacyDbLogFilesToDataFolder(); // must run before the rewrite cleanup below and before the WAL opens
+        foreach (var line in migrationLog) LogInfo(line);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
         _fileConversionEngine = new(this, fileConverters, converterIoProvider, _fileKeys);
         RegisterRunner(new TextIndexTaskRunner(this));
@@ -165,27 +168,50 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
-    // Before the folder layout (data/state/bkup/log) every file lived in the storage root. Only the
-    // database log files are moved on startup: state, index and mapper files are rebuilt at their
-    // new locations, and old backups stay where they were taken.
-    void moveLegacyDbLogFilesToDataFolder() {
-        foreach (var legacyKey in _fileKeys.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileToDataFolder(_io, legacyKey);
+    // Before the folder layout (data/state/bkup/log) every file lived in the storage root. On
+    // startup the old files are moved into their folders: the database log files, backups, the
+    // state snapshot, index states, mapper dlls, queue files and the logger files. The moved state
+    // snapshot is then used at open, so the upgrade keeps the fast startup. (The ai cache and the
+    // sqlite queue live on the local disk outside the IO providers and are moved by the server
+    // layer.) Returns the log lines describing what was moved, to be logged once the logger exists.
+    List<string> moveLegacyFilesIntoFolders() {
+        var log = new List<string>();
+        foreach (var key in _fileKeys.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
         var legacySecondary = _fileKeys.WAL_GetLegacyRootSecondaryFileKey();
-        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileToDataFolder(_ioLog2, legacySecondary);
+        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileIntoFolder(_ioLog2, legacySecondary, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
+        foreach (var key in _fileKeys.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, FileKeyUtility.BackupFolderName, LegacyConflict.LeaveLegacy, log);
+        foreach (var key in _fileKeys.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, FileKeyUtility.StateFolderName, LegacyConflict.DeleteLegacy, log);
+        foreach (var key in _fileKeys.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.LogFolderName, LegacyConflict.LeaveLegacy, log);
+        return log;
     }
-    void moveLegacyFileToDataFolder(IIOProvider io, string[] legacyKey) {
-        var newKey = FileKeyUtility.MapLegacyRootFileKeyToDataFolder(legacyKey);
+    // What to do when the destination already exists with a DIFFERENT size than the legacy file:
+    // Throw for the database log files (primary data, ambiguity must stop the startup), DeleteLegacy
+    // for everything rebuildable from the log (the folder version is the one the store has been
+    // using, the root file is stale), LeaveLegacy for backups and logger history (never delete,
+    // never block the startup over them).
+    enum LegacyConflict { Throw, DeleteLegacy, LeaveLegacy }
+    static void moveLegacyFileIntoFolder(IIOProvider io, string[] legacyKey, string folder, LegacyConflict onConflict, List<string> log) {
+        string[] newKey = [folder, .. legacyKey];
         if (io.Exists(newKey)) {
-            // an earlier migration crashed between copy and delete; anything but a completed copy is
-            // ambiguous and must be resolved by hand
             if (io.GetFileSizeOrZeroIfUnknown(newKey) == io.GetFileSizeOrZeroIfUnknown(legacyKey)) {
+                // an earlier migration crashed between copy and delete; finish it
                 io.DeleteFileIfItExists(legacyKey);
-                LogInfo($"Removed legacy database log file {legacyKey.AsKeyString()}, already migrated to {newKey.AsKeyString()}. ");
+                log.Add($"Removed legacy file {legacyKey.AsKeyString()}, already migrated to {newKey.AsKeyString()}. ");
                 return;
             }
-            throw new Exception($"Cannot move legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()} as both exist with different sizes. Remove one of them manually. ");
+            switch (onConflict) {
+                case LegacyConflict.DeleteLegacy:
+                    io.DeleteFileIfItExists(legacyKey);
+                    log.Add($"Removed stale legacy file {legacyKey.AsKeyString()}; {newKey.AsKeyString()} is in use. ");
+                    return;
+                case LegacyConflict.LeaveLegacy:
+                    log.Add($"Legacy file {legacyKey.AsKeyString()} left in the storage root: {newKey.AsKeyString()} already exists with a different size. ");
+                    return;
+                default:
+                    throw new Exception($"Cannot move legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()} as both exist with different sizes. Remove one of them manually. ");
+            }
         }
-        io.EnsureFolder([FileKeyUtility.DataFolderName]);
+        io.EnsureFolder([folder]);
         if (io.CanRenameFile) {
             io.RenameFile(legacyKey, newKey);
         } else {
@@ -194,7 +220,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception($"Failed to copy legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()}, size mismatch. ");
             io.DeleteFileIfItExists(legacyKey);
         }
-        LogInfo($"Moved database log file {legacyKey.AsKeyString()} to {newKey.AsKeyString()}. ");
+        log.Add($"Moved legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()}. ");
     }
     public QueryContext QueryContext => _defaultQueryCtx;
     public void SetDefaultQueryContext(QueryContext ctx) {

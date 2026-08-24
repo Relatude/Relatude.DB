@@ -144,6 +144,78 @@ public class FolderLayoutTests {
     }
 
     [TestMethod]
+    public void LegacyRootFilesOfAllCategories_AreMovedIntoTheirFolders() {
+        var io = new IOProviderMemory();
+        var keys = new FileKeyUtility(null);
+        // build a store so there is a real log file, state snapshot, index states and mapper dll
+        var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io);
+        var store = new NodeStore(storeData);
+        var articles = Helper.GenerateArticles(50);
+        foreach (var chunk in articles.Chunk(10)) store.Insert(chunk);
+        storeData.Maintenance(MaintenanceAction.SaveIndexStates);
+        store.Dispose();
+        // simulate the pre folder layout: every folder file back in the storage root...
+        foreach (var key in io.GetFiles().Select(f => f.KeyOf()).Where(k => k.Length == 2).ToList()) io.RenameFile(key, [key.FileName()]);
+        // ...plus legacy backups, logger files and a queue file that only existed in the old layout
+        io.WriteAllBytes(["db.2026-01-01-00-00-00.bkup"], [1, 2]);
+        io.WriteAllBytes(["db.bkup.keep.2026-01-02-00-00-00.bkup"], [1, 2, 3]);
+        io.WriteAllBytes(["files.2026-01-03-00-00-00.bkup"], [1]);
+        io.WriteAllBytes(["log.mylog.day.2026-01-01.bin"], [1]);
+        io.WriteAllBytes(["critical.error.txt"], [1]);
+        io.WriteAllBytes(["queue.bin"], []);
+        openAndAssertIntact(io, articles.Count);
+        Assert.IsTrue(io.Exists(keys.WAL_GetFileKey(1)));
+        Assert.IsTrue(io.Exists(keys.StateFileKey), "the migrated state snapshot must be used, not rebuilt");
+        Assert.AreEqual(1, keys.MapperDll_GetAllFileKeys(io).Length, "the mapper dll must be back in the state folder");
+        Assert.IsTrue(keys.Index_GetAll(io).Length > 0, "the index states must be back in the state folder");
+        Assert.IsTrue(io.Exists(["bkup", "db.2026-01-01-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["bkup", "files.2026-01-03-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["log", "log.mylog.day.2026-01-01.bin"]));
+        Assert.IsTrue(io.Exists(["log", "critical.error.txt"]));
+        // the queue file is moved to state/ too, but the queue store deletes an empty queue file
+        // after loading it, so its absence from the root (checked below) is what proves the move
+        var leftAtRoot = io.GetFiles().Select(f => f.Key).Where(k => !k.Contains('/')).ToArray();
+        Assert.AreEqual(0, leftAtRoot.Length, "no legacy files left in the storage root: " + string.Join(", ", leftAtRoot));
+        // the migrated keep-forever backup is recognized by the retention rules
+        Assert.IsTrue(keys.WAL_KeepForever(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
+        CollectionAssert.AreEquivalent(new[] { "bkup/db.2026-01-01-00-00-00.bkup", "bkup/db.bkup.keep.2026-01-02-00-00-00.bkup" },
+            keys.WAL_GetAllBackUpFileKeys(io).Select(k => k.AsKeyString()).ToArray());
+    }
+
+    [TestMethod]
+    public void StaleLegacyStateFiles_AreDeletedWhenTheFolderVersionIsNewer() {
+        // a store that already ran under the folder layout has current state files in state/;
+        // leftover root files from before the layout are stale, rebuildable data and must be
+        // removed without blocking the startup
+        var io = new IOProviderMemory();
+        var keys = new FileKeyUtility(null);
+        var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io);
+        var store = new NodeStore(storeData);
+        var articles = Helper.GenerateArticles(20);
+        foreach (var chunk in articles.Chunk(10)) store.Insert(chunk);
+        storeData.Maintenance(MaintenanceAction.SaveIndexStates);
+        store.Dispose();
+        var folderStateSize = io.GetFileSizeOrZeroIfUnknown(keys.StateFileKey);
+        io.WriteAllBytes([keys.StateFileKey.FileName()], [1, 2, 3]); // a stale root leftover with a different size
+        openAndAssertIntact(io, articles.Count);
+        Assert.IsFalse(io.Exists([keys.StateFileKey.FileName()]), "the stale root state file must be removed");
+        Assert.IsTrue(io.Exists(keys.StateFileKey));
+    }
+
+    [TestMethod]
+    public void ConflictingLegacyBackups_AreLeftInTheRootAndDoNotBlockTheStartup() {
+        // backups are never deleted on a conflict, and a conflict must not block the startup
+        var io = new IOProviderMemory();
+        var count = insertArticlesAndSimulateLegacyLayout(io, out _, out _);
+        io.WriteAllBytes(["db.2026-01-01-00-00-00.bkup"], [1, 2]);
+        io.WriteAllBytes(["bkup", "db.2026-01-01-00-00-00.bkup"], [1, 2, 3, 4]); // same name, different size
+        openAndAssertIntact(io, count);
+        Assert.IsTrue(io.Exists(["db.2026-01-01-00-00-00.bkup"]), "the conflicting legacy backup must be left in place");
+        Assert.AreEqual(4, io.GetFileSizeOrZeroIfUnknown(["bkup", "db.2026-01-01-00-00-00.bkup"]));
+    }
+
+    [TestMethod]
     public void InterruptedCopyMigration_IsCompletedOnTheNextStartup() {
         // a copy based migration that crashed between copy and delete leaves the file in both
         // places with equal sizes; the next startup finishes it by deleting the source
