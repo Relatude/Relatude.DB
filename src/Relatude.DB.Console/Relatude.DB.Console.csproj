@@ -9,7 +9,7 @@
 		<RootNamespace>Relatude.DB.Cli</RootNamespace>
 		<AssemblyName>relatude</AssemblyName>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<Version>0.2.0.140</Version>
+		<Version>0.2.0.141</Version>
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>relatude</ToolCommandName>
 		<PackageId>Relatude.DB.Tool</PackageId>
