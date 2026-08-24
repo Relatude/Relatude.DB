@@ -40,6 +40,7 @@
     <Project Path="src/Relatude.DB.Model/Relatude.DB.Model.csproj" />
     <Project Path="src/Relatude.DB.NodeServer/Relatude.DB.NodeServer.csproj" />
     <Project Path="src/Relatude.DB.NodeStore/Relatude.DB.NodeStore.csproj" />
+    <Project Path="src/Relatude.DB.Providers/Relatude.DB.Providers.csproj" />
     <Project Path="src/Relatude.DB.TextIndex/Relatude.DB.TextIndex.csproj" />
     <Project Path="src/Relatude.DB.VectorIndex/Relatude.DB.VectorIndex.csproj" Id="769f8091-3dd8-4107-9bf8-4bad46082faa" />
   </Folder>
@@ -58,7 +59,6 @@
     <Project Path="src/Relatude.DB.Azure/Relatude.DB.Azure.csproj" />
     <Project Path="src/Relatude.DB.FFMpeg/Relatude.DB.FFMpeg.csproj" />
     <Project Path="src/Relatude.DB.Lucene/Relatude.DB.Lucene.csproj" />
-    <Project Path="src/Relatude.DB.Providers/Relatude.DB.Providers.csproj" />
     <Project Path="src/Relatude.DB.Skia/Relatude.DB.Skia.csproj" />
     <Project Path="src/Relatude.DB.Sqlite/Relatude.DB.Sqlite.csproj" />
   </Folder>

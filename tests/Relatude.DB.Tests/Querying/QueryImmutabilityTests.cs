@@ -128,7 +128,7 @@ public class QueryImmutabilityTests {
         using var store = openStore();
         var q = store.Query<ImmProduct>().Where(p => p.Category == "Toys");
         var names = q.Select(p => p.Name);
-        Assert.IsFalse(q.ToString().Contains(".Select("));
+        Assert.IsFalse(q.ToString()?.Contains(".Select("));
         Assert.AreEqual(10, names.Execute().Count);
         Assert.AreEqual(10, q.Execute().Count); // base still returns full nodes
         Assert.IsTrue(q.Execute().First().Name.StartsWith("waterproof"));
@@ -141,7 +141,7 @@ public class QueryImmutabilityTests {
         var ids = q.SelectId();
         Assert.AreEqual(30, ids.Execute().Count);
         Assert.AreEqual(30, q.Execute().Count);
-        Assert.IsFalse(q.ToString().Contains(".SelectId("));
+        Assert.IsFalse(q.ToString()?.Contains(".SelectId("));
     }
 
     [TestMethod]
@@ -149,11 +149,11 @@ public class QueryImmutabilityTests {
         using var store = openStore();
         var q = store.Query<ImmProduct>().Where(p => p.Price == 10); // product 1, has a brand
         var withBrand = q.Include(p => p.Brand);
-        Assert.IsFalse(q.ToString().Contains(".Include("));
-        Assert.IsTrue(withBrand.ToString().Contains(".Include("));
+        Assert.IsFalse(q.ToString()?.Contains(".Include("));
+        Assert.IsTrue(withBrand.ToString()?.Contains(".Include("));
         Assert.IsNull(q.First().Brand); // not loaded without include
         Assert.IsNotNull(withBrand.First().Brand);
-        Assert.IsFalse(q.ToString().Contains(".Include(")); // still clean after executing the fork
+        Assert.IsFalse(q.ToString()?.Contains(".Include(")); // still clean after executing the fork
     }
 
     [TestMethod]
@@ -223,7 +223,7 @@ public class QueryImmutabilityTests {
         var q = store.Query<ImmProduct>();
         var hits = q.WhereSearch("gadget");
         Assert.AreEqual(30, hits.Execute().Count); // every product matches
-        Assert.IsFalse(q.ToString().Contains(".WhereSearch("));
+        Assert.IsFalse(q.ToString()?.Contains(".WhereSearch("));
         Assert.AreEqual(30, q.Execute().Count);
     }
 

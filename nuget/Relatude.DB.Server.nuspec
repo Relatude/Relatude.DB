@@ -34,6 +34,7 @@
 		<file src="..\src\Relatude.DB.KvStore\bin\Release\net8.0\Relatude.DB.KvStore.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.TextIndex\bin\Release\net8.0\Relatude.DB.TextIndex.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.VectorIndex\bin\Release\net8.0\Relatude.DB.VectorIndex.dll" target="lib\net8.0" />		
+		<file src="..\src\Relatude.DB.Providers\bin\Release\net8.0\Relatude.DB.Providers.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.Model\bin\Release\net8.0\Relatude.DB.Model.dll" target="lib\net8.0" />
 		<file src="..\src\Relatude.DB.NodeStore\bin\Release\net8.0\Relatude.DB.NodeStore.dll" target="lib\net8.0" />
 	</files>
