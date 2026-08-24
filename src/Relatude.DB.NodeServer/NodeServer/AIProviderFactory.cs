@@ -9,7 +9,7 @@ public static class AIProviderFactory {
         if (!string.IsNullOrEmpty(dataFolder)) {
             var fileKey = new FileKeyUtility(filePrefix).GetAiCacheFileKey(settings.CacheType);
             if (fileKey != null) {
-                filePath = dataFolder.SuperPathCombine(fileKey);
+                filePath = Path.Combine([dataFolder, .. fileKey]);
                 // the cache file lives in the indexes folder; the cache stores do not create it themselves
                 var dir = Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);

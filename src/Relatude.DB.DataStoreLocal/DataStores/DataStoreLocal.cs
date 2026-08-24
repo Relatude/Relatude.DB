@@ -173,17 +173,17 @@ public sealed partial class DataStoreLocal : IDataStore {
         var legacySecondary = _fileKeys.WAL_GetLegacyRootSecondaryFileKey();
         if (_ioLog2.Exists(legacySecondary)) moveLegacyFileToDataFolder(_ioLog2, legacySecondary);
     }
-    void moveLegacyFileToDataFolder(IIOProvider io, string legacyKey) {
+    void moveLegacyFileToDataFolder(IIOProvider io, string[] legacyKey) {
         var newKey = FileKeyUtility.MapLegacyRootFileKeyToDataFolder(legacyKey);
         if (io.Exists(newKey)) {
             // an earlier migration crashed between copy and delete; anything but a completed copy is
             // ambiguous and must be resolved by hand
             if (io.GetFileSizeOrZeroIfUnknown(newKey) == io.GetFileSizeOrZeroIfUnknown(legacyKey)) {
                 io.DeleteFileIfItExists(legacyKey);
-                LogInfo($"Removed legacy database log file {legacyKey}, already migrated to {newKey}. ");
+                LogInfo($"Removed legacy database log file {legacyKey.AsKeyString()}, already migrated to {newKey.AsKeyString()}. ");
                 return;
             }
-            throw new Exception($"Cannot move legacy file {legacyKey} to {newKey} as both exist with different sizes. Remove one of them manually. ");
+            throw new Exception($"Cannot move legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()} as both exist with different sizes. Remove one of them manually. ");
         }
         io.EnsureFolder([FileKeyUtility.DataFolderName]);
         if (io.CanRenameFile) {
@@ -191,10 +191,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else {
             io.CopyFile(io, legacyKey, newKey);
             if (io.GetFileSizeOrZeroIfUnknown(newKey) != io.GetFileSizeOrZeroIfUnknown(legacyKey))
-                throw new Exception($"Failed to copy legacy file {legacyKey} to {newKey}, size mismatch. ");
+                throw new Exception($"Failed to copy legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()}, size mismatch. ");
             io.DeleteFileIfItExists(legacyKey);
         }
-        LogInfo($"Moved database log file {legacyKey} to {newKey}. ");
+        LogInfo($"Moved database log file {legacyKey.AsKeyString()} to {newKey.AsKeyString()}. ");
     }
     public QueryContext QueryContext => _defaultQueryCtx;
     public void SetDefaultQueryContext(QueryContext ctx) {

@@ -10,11 +10,11 @@ public class SingleFileStore : IDisposable, IFileStore {
     object _fileLock = new();
     IAppendStream? _file;
     readonly IIOProvider _ioProvider;
-    readonly string _fileKey;
+    readonly string[] _fileKey;
     AsyncReaderWriterLock _asyncLock = new(); // multiple readers, single writer
     static readonly byte[] _fileEndMarker = Encoding.UTF8.GetBytes("JD-244Dm=" + "D411+-*" + "s5jk" + "mDsdchy").Reverse().ToArray();
     const long byteLengthOfMD5Checksum = 32;
-    public SingleFileStore(Guid id, IIOProvider ioProvider, string fileKey) {
+    public SingleFileStore(Guid id, IIOProvider ioProvider, string[] fileKey) {
         Id = id;
         _ioProvider = ioProvider;
         _fileKey = fileKey;

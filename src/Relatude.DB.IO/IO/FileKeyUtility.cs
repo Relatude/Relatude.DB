@@ -1,19 +1,20 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
 /// <summary>
 /// A common utility class for generating file keys and making sure naming is consistent and that the different stores do have conflicting names.
-/// The first part, separated by a dot, denotes the store type. 
+/// A file key is a string array: each element is a folder name and the last element is the file name.
+/// The first part of the file name, separated by a dot, denotes the store type.
 /// The last part, separated by a dot, (file extension) denotes the file type:
 ///     .bin = binary file
 ///     .txt = text file
 ///     .bkup = backup file
-///     
+///
 /// The middle part, separated by dots, is used for numbering or date/time stamps etc depending on the store
 /// The '-' char is special and reserved for delimiting date/time parts.
 /// The prefix can be used to separate different database instances in the same storage location.
 ///
-/// Files are grouped in a set of well known folders below the storage root, delimited by '/':
+/// Files are grouped in a set of well known folders below the storage root:
 ///     data/  = the database log files (primary and secondary)
 ///     state/ = everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue
 ///     bkup/  = backup files
@@ -21,6 +22,10 @@ namespace Relatude.DB.IO;
 /// The folder names are plain (no prefix); the instance prefix stays on the file name inside them,
 /// so several instances can still share one storage location. The prefixed indexes folder and the
 /// multi file store folder are unchanged.
+///
+/// Wildcard patterns are file keys with wildcards in their segments, matched segment by segment
+/// (<see cref="FileKeyExtensions.MatchesPattern"/>). Listings (<see cref="FileMeta.Key"/>) carry
+/// the joined ('/'-separated) form of a key.
 /// </summary>
 public class FileKeyUtility {
 
@@ -37,31 +42,32 @@ public class FileKeyUtility {
 
     string _prefix = "";
     static HashSet<string> storeNames = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
-    string walSecondaryFilePattern => DataFolderName + "/" + _prefix + "db.log";
-    string walFilePattern => DataFolderName + "/" + _prefix + "db.*.bin";
-    string walFileBackupPattern => BackupFolderName + "/" + _prefix + "db.*.bkup";
-    string walFileBackupPatternKeepForever => BackupFolderName + "/" + _prefix + "db.bkup.keep.*.bkup";
+    // patterns are file keys with wildcards in their segments, matched segment by segment
+    string[] walSecondaryFilePattern => [DataFolderName, _prefix + "db.log"];
+    string[] walFilePattern => [DataFolderName, _prefix + "db.*.bin"];
+    string[] walFileBackupPattern => [BackupFolderName, _prefix + "db.*.bkup"];
+    string[] walFileBackupPatternKeepForever => [BackupFolderName, _prefix + "db.bkup.keep.*.bkup"];
 
     string multiFileStoreFolderPattern => _prefix + "files";
-    string fileStorePattern => _prefix + "files.*.bin";
-    string fileStoreBackupPattern => BackupFolderName + "/" + _prefix + "files.*.bkup";
-    string fileStoreBackupPatternKeepForever => BackupFolderName + "/" + _prefix + "files.bkup.keep.*.bkup";
+    string[] fileStorePattern => [_prefix + "files.*.bin"];
+    string[] fileStoreBackupPattern => [BackupFolderName, _prefix + "files.*.bkup"];
+    string[] fileStoreBackupPatternKeepForever => [BackupFolderName, _prefix + "files.bkup.keep.*.bkup"];
 
     string dateTimeTemplate => "yyyy-MM-dd-HH-mm-ss";
     string dateOnlyTemplate => "yyyy-MM-dd";
-    string stateFilePattern => StateFolderName + "/" + _prefix + "state.bin";
-    string indexFilePattern => StateFolderName + "/" + _prefix + "index.*.bin";
+    string[] stateFilePattern => [StateFolderName, _prefix + "state.bin"];
+    string[] indexFilePattern => [StateFolderName, _prefix + "index.*.bin"];
 
     // the ai cache lives in the indexes folder; that folder is already prefixed, so like the index
     // engine files below it the file name itself carries no prefix
-    string aiCacheFilePattern => indexStoreFolderPattern + "/ai.cache.bin";
-    string aiCacheNativeFilePattern => indexStoreFolderPattern + "/native.ai.cache.bin";
+    string[] aiCacheFilePattern => [indexStoreFolderPattern, "ai.cache.bin"];
+    string[] aiCacheNativeFilePattern => [indexStoreFolderPattern, "native.ai.cache.bin"];
     string indexStoreFolderPattern => _prefix + "indexes";
 
-    string mapperDllFilePattern => StateFolderName + "/" + _prefix + "mapper.*.dll";
+    string[] mapperDllFilePattern => [StateFolderName, _prefix + "mapper.*.dll"];
 
-    string loggerAllFilePattern => LogFolderName + "/" + _prefix + "log.*";
-    string loggerPrefix => LogFolderName + "/" + _prefix + "log";
+    string[] loggerAllFilePattern => [LogFolderName, _prefix + "log.*"];
+    string loggerNamePrefix => _prefix + "log"; // the file name part; logger files live in the log folder
     string loggerFilePartDelim => ".";
     string loggerDatePartsDelim => "-"; // cannot be changed!
     string loggerStatisticsSuffix => "statistics";
@@ -69,10 +75,13 @@ public class FileKeyUtility {
     string loggerTextExt => ".txt";
     string loggerBkUpExt => ".bkup";
 
-    string criticalErrorLogFilePattern => LogFolderName + "/" + _prefix + "critical.error.txt";
+    string[] criticalErrorLogFilePattern => [LogFolderName, _prefix + "critical.error.txt"];
 
-    string queueFileKey => StateFolderName + "/" + _prefix + "queue";
-    string queueFileKeyPattern => StateFolderName + "/" + _prefix + "queue.*";
+    string queueFileName => _prefix + "queue";
+    string[] queueFileKeyPattern => [StateFolderName, _prefix + "queue.*"];
+
+    /// <summary>The key a pattern describes, with the wildcard in its file name filled in.</summary>
+    static string[] fill(string[] pattern, string value) => [.. pattern[..^1], pattern[^1].Replace("*", value)];
 
     // Storage names of the persisted index engines. These live on the local disk below
     // IndexStoreFolderKey and carry no prefix of their own: that folder is already prefixed, and
@@ -106,8 +115,8 @@ public class FileKeyUtility {
     }
 
     public string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
-    public string StateFileKey => stateFilePattern;
-    public string? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
+    public string[] StateFileKey => stateFilePattern;
+    public string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
         if (cacheProvider == null) return null;
         return cacheProvider.Value switch {
             AIProviderCacheType.None => null,
@@ -119,103 +128,103 @@ public class FileKeyUtility {
     }
     public string IndexStoreFolderKey => indexStoreFolderPattern;
 
-    public string CriticalErrorLogFileKey => criticalErrorLogFilePattern;
+    public string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;
 
-    public string[] GetAllFileKeys(IIOProvider io) => [.. io.GetFiles().Select(f => f.Key).Where(isInstanceFileKey).Order()];
-    public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.GetFiles().Where(f => isInstanceFileKey(f.Key)).OrderBy(f => f.Key)];
+    public string[][] GetAllFileKeys(IIOProvider io) => [.. io.GetFiles().Select(f => f.KeyOf()).Where(isInstanceFileKey).OrderBy(k => k.AsKeyString())];
+    public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.GetFiles().Where(f => isInstanceFileKey(f.KeyOf())).OrderBy(f => f.Key)];
     /// <summary>
     /// Whether the key belongs to this instance: a root file or a system folder file whose name
     /// carries the instance prefix. Keys in other folders (the prefixed indexes folder, the multi
-    /// file store folder) are matched on the whole key, as before the folder layout.
+    /// file store folder) are matched on their first segment, as before the folder layout.
     /// </summary>
-    bool isInstanceFileKey(string fileKey) {
-        var slash = fileKey.IndexOf('/');
-        if (slash > 0 && SystemFolderNames.Contains(fileKey[..slash])) return fileKey[(slash + 1)..].MatchesWildcard(_prefix + "*");
-        return fileKey.MatchesWildcard(_prefix + "*");
+    bool isInstanceFileKey(string[] key) {
+        if (key.Length > 1 && SystemFolderNames.Contains(key[0])) return key[1].MatchesWildcard(_prefix + "*");
+        return key[0].MatchesWildcard(_prefix + "*");
     }
 
-    public DateOnly SystemLog_GetFileDateTimeFromFileKey(string fileKey) {
-        var parts = fileKey.Split('.');
+    public DateOnly SystemLog_GetFileDateTimeFromFileKey(string[] fileKey) {
+        var parts = fileKey.FileName().Split('.');
         var dtSection = parts[^2];
         return DateOnly.ParseExact(dtSection, dateOnlyTemplate, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public string Index_GetFileKey(string indexId) {
-        return indexFilePattern.Replace("*", indexId);
+    public string[] Index_GetFileKey(string indexId) {
+        return fill(indexFilePattern, indexId);
     }
-    public string[] Index_GetAll(IIOProvider io) {
-        return io.Search(indexFilePattern).Order().ToArray();
+    public string[][] Index_GetAll(IIOProvider io) {
+        return [.. io.Search(indexFilePattern)];
     }
 
 
-    public string WAL_GetFileKey(int n) => walFilePattern.Replace("*", n.ToString("00000000"));
-    public string[] WAL_GetAllFileKeys(IIOProvider io) => io.Search(walFilePattern).Order().ToArray();
-    public string WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
-    public string WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
-    public string WAL_NextFileKey(IIOProvider io) {
-        var parts = WAL_GetLatestFileKey(io).Split('.');
+    public string[] WAL_GetFileKey(int n) => fill(walFilePattern, n.ToString("00000000"));
+    public string[][] WAL_GetAllFileKeys(IIOProvider io) => [.. io.Search(walFilePattern)];
+    public string[] WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
+    public string[] WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
+    public string[] WAL_NextFileKey(IIOProvider io) {
+        var parts = WAL_GetLatestFileKey(io).FileName().Split('.');
         var numberSection = parts[^2];
         return WAL_GetFileKey(int.Parse(numberSection) + 1);
     }
-    public DateTime WAL_GetBackUpDateTimeFromFileKey(string fileKey) {
-        var parts = fileKey.Split('.');
+    public DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) {
+        var parts = fileKey.FileName().Split('.');
         var dtSection = parts[^2];
         var dt = DateTime.ParseExact(dtSection, dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
         return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
     }
-    public string[] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern).Order()];
-    public string WAL_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
-    public bool WAL_KeepForever(string fileKey) => fileKey.MatchesWildcard(walFileBackupPatternKeepForever);
+    public string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
+    public string[] WAL_GetFileKeyForBackup(DateTime dt, bool keepForever)
+        => fill(keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern, dt.ToString(dateTimeTemplate));
+    public bool WAL_KeepForever(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPatternKeepForever);
 
-    // Before the folder layout every file lived in the storage root. The startup migration moves
-    // the database log files (and only those) into the data folder using the helpers below.
-    public string[] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search(_prefix + "db.*.bin").Order()];
-    public string WAL_GetLegacyRootSecondaryFileKey() => _prefix + "db.log";
-    public static string MapLegacyRootFileKeyToDataFolder(string legacyRootFileKey) => DataFolderName + "/" + legacyRootFileKey;
-
-    public string FileStore_GetFileKey(int n) => fileStorePattern.Replace("*", n.ToString("00000000"));
-    public string[] FileStore_GetAllFileKeys(IIOProvider io) => io.Search(fileStorePattern).Order().ToArray();
-    public string FileStore_GetLatestFileKey(IIOProvider io) => FileStore_GetAllFileKeys(io).LastOrDefault() ?? FileStore_GetFileKey(1);
-    public string FileStore_NextFileKey(IIOProvider io) {
-        var parts = FileStore_GetLatestFileKey(io).Split('.');
+    public string[] FileStore_GetFileKey(int n) => fill(fileStorePattern, n.ToString("00000000"));
+    public string[][] FileStore_GetAllFileKeys(IIOProvider io) => [.. io.Search(fileStorePattern)];
+    public string[] FileStore_GetLatestFileKey(IIOProvider io) => FileStore_GetAllFileKeys(io).LastOrDefault() ?? FileStore_GetFileKey(1);
+    public string[] FileStore_NextFileKey(IIOProvider io) {
+        var parts = FileStore_GetLatestFileKey(io).FileName().Split('.');
         var numberSection = parts[^2];
         return FileStore_GetFileKey(int.Parse(numberSection) + 1);
     }
-    public DateTime FileStore_GetBackUpDateTimeFromFileKey(string fileKey) {
-        var parts = fileKey.Split('.');
+    public DateTime FileStore_GetBackUpDateTimeFromFileKey(string[] fileKey) {
+        var parts = fileKey.FileName().Split('.');
         var dtSection = parts[^2];
         var dt = DateTime.ParseExact(dtSection, dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
         return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
     }
-    public string[] FileStore_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(fileStoreBackupPattern).Order()];
-    public string FileStore_GetFileKeyForBackup(DateTime dt, bool keepForever) => (keepForever ? fileStoreBackupPatternKeepForever : fileStoreBackupPattern).Replace("*", dt.ToString(dateTimeTemplate));
-    public bool FileStore_KeepForever(string fileKey) => fileKey.MatchesWildcard(fileStoreBackupPatternKeepForever);
+    public string[][] FileStore_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(fileStoreBackupPattern)];
+    public string[] FileStore_GetFileKeyForBackup(DateTime dt, bool keepForever)
+        => fill(keepForever ? fileStoreBackupPatternKeepForever : fileStoreBackupPattern, dt.ToString(dateTimeTemplate));
+    public bool FileStore_KeepForever(string[] fileKey) => fileKey.MatchesPattern(fileStoreBackupPatternKeepForever);
 
-    public string MapperDll_GetFileKey(ulong hash) => mapperDllFilePattern.Replace("*", hash.ToString());
-    public string[] MapperDll_GetAllFileKeys(IIOProvider io) => io.Search(mapperDllFilePattern).Order().ToArray();
+    public string[] MapperDll_GetFileKey(ulong hash) => fill(mapperDllFilePattern, hash.ToString());
+    public string[][] MapperDll_GetAllFileKeys(IIOProvider io) => [.. io.Search(mapperDllFilePattern)];
 
-    public string Logger_GetStatistics(string loggerKey) => loggerPrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt;
-    public string Logger_GetStatisticsBackUp(string loggerKey) => Logger_GetStatistics(loggerKey) + loggerBkUpExt;
-    public string Logger_Prefix(string logName, FileInterval fileInterval) => loggerPrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
-    public string Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) {
+    public string[] Logger_GetStatistics(string loggerKey) => [LogFolderName, loggerNamePrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt];
+    public string[] Logger_GetStatisticsBackUp(string loggerKey) {
+        var key = Logger_GetStatistics(loggerKey);
+        return [.. key[..^1], key.FileName() + loggerBkUpExt];
+    }
+    /// <summary>The file name prefix (inside the log folder) of one log's files for the given interval.</summary>
+    public string Logger_NamePrefix(string logName, FileInterval fileInterval) => loggerNamePrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
+    public string[] Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) {
         return logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
     }
-    public string Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) {
+    public string[] Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) {
         return logger_FileName(logName, fileInterval, floored, loggerTextExt);
     }
     public List<DateTime> Logger_FileDatesBin(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerBinaryExt);
     public List<DateTime> Logger_FileDatesTxt(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerTextExt);
-    string logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) {
-        return (Logger_Prefix(logName, fileInterval) + fileInterval switch {
+    string[] logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) {
+        var name = (Logger_NamePrefix(logName, fileInterval) + fileInterval switch {
             FileInterval.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),
             FileInterval.Hour => floored.ToString("yyyy-MM-dd-HH"),
             FileInterval.Day => floored.ToString("yyyy-MM-dd"),
             FileInterval.Month => floored.ToString("yyyy-MM"),
             _ => throw new NotImplementedException(),
         }).ToLower() + fileExt;
+        return [LogFolderName, name];
     }
-    DateTime logger_ParseFileName(string fullName, string logName, FileInterval fileInterval, string fileExt) {
-        var datePart = fullName[Logger_Prefix(logName, fileInterval).Length..];
+    DateTime logger_ParseFileName(string fileName, string logName, FileInterval fileInterval, string fileExt) {
+        var datePart = fileName[Logger_NamePrefix(logName, fileInterval).Length..];
         datePart = datePart.Substring(0, datePart.Length - fileExt.Length);
         var p = datePart.Split(loggerDatePartsDelim).Select(p => int.Parse(p)).ToArray();
         return fileInterval switch {
@@ -227,10 +236,17 @@ public class FileKeyUtility {
         };
     }
     List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
-        return io.Search(Logger_Prefix(logName, fileInterval) + "*" + fileExt).Select(f => logger_ParseFileName(f, logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
+        string[] pattern = [LogFolderName, Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
+        return io.Search(pattern).Select(f => logger_ParseFileName(f.FileName(), logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
     }
 
-    public string Queue_GetFileKey(string ext) => queueFileKey + "." + ext;
+    public string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
+
+    // Before the folder layout every file lived in the storage root. The startup migration moves
+    // the database log files (and only those) into the data folder using the helpers below.
+    public string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search([_prefix + "db.*.bin"])];
+    public string[] WAL_GetLegacyRootSecondaryFileKey() => [_prefix + "db.log"];
+    public static string[] MapLegacyRootFileKeyToDataFolder(string[] legacyRootFileKey) => [DataFolderName, .. legacyRootFileKey];
 
     #region Index engine storage (static: no prefix, they sit below IndexStoreFolderKey)
 
@@ -271,12 +287,15 @@ public class FileKeyUtility {
     public static string IndexEngine_VectorIndexIndexFolderKey(string indexId) => indexId.ToLowerInvariant();
 
     /// <summary>
-    /// The sibling name to write to before atomically replacing <paramref name="fileKey"/>, so a
+    /// The sibling key to write to before atomically replacing <paramref name="fileKey"/>, so a
     /// crash mid-write cannot leave a half-written file in place of the real one. A binary extension
     /// is replaced rather than appended to, keeping the temp file out of ".bin" search patterns.
     /// </summary>
-    public static string TempFileKey(string fileKey)
-        => fileKey.EndsWith(binaryExtension) ? fileKey[..^binaryExtension.Length] + tempExtension : fileKey + tempExtension;
+    public static string[] TempFileKey(string[] fileKey) => [.. fileKey[..^1], TempFileName(fileKey.FileName())];
+    /// <summary>Same rule as <see cref="TempFileKey"/> for a single file name or a full local path
+    /// (the index engines write real files on the local disk).</summary>
+    public static string TempFileName(string fileNameOrPath)
+        => fileNameOrPath.EndsWith(binaryExtension) ? fileNameOrPath[..^binaryExtension.Length] + tempExtension : fileNameOrPath + tempExtension;
 
     #endregion
 
@@ -284,25 +303,29 @@ public class FileKeyUtility {
 
     static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
 
+    /// <summary>The description of a file, from the joined form of its key as listings carry it
+    /// (<see cref="FileMeta.Key"/>); folder browsers may pass a bare file name.</summary>
     public static string FileTypeDescription(string fileKey) {
-        if (fileKey.MatchesWildcard(_anyPrefix.walFilePattern)) return "Database";
-        if (fileKey.MatchesWildcard(_anyPrefix.walSecondaryFilePattern)) return "Transaction log";
-        if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPattern)) return "Backup";
-        if (fileKey.MatchesWildcard(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup Protected";
-        if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
-        if (fileKey.MatchesWildcard(_anyPrefix.aiCacheNativeFilePattern)) return "AI Cache";
-        if (fileKey.MatchesWildcard(_anyPrefix.aiCacheFilePattern + "*")) return "AI Temp";
-        if (fileKey.MatchesWildcard(_anyPrefix.criticalErrorLogFilePattern)) return "Critical error log";
-        if (fileKey.MatchesWildcard(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
-        if (fileKey.MatchesWildcard(_anyPrefix.fileStorePattern)) return "Filestore";
-        if (fileKey.MatchesWildcard(_anyPrefix.stateFilePattern)) return "State";
-        if (fileKey.MatchesWildcard(_anyPrefix.indexStoreFolderPattern)) return "Index Store";
-        if (fileKey.MatchesWildcard(_anyPrefix.queueFileKeyPattern)) return "Task queue";
-        if (fileKey.MatchesWildcard(_anyPrefix.loggerAllFilePattern)) return "Log file";
-        if (fileKey.MatchesWildcard(_anyPrefix.indexFilePattern)) return "Index";
+        var key = fileKey.SplitKey();
+        if (key.Length == 0) return "-";
+        if (key.MatchesPattern(_anyPrefix.walFilePattern)) return "Database";
+        if (key.MatchesPattern(_anyPrefix.walSecondaryFilePattern)) return "Transaction log";
+        if (key.MatchesPattern(_anyPrefix.walFileBackupPattern)) return "Backup";
+        if (key.MatchesPattern(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup Protected";
+        if (key.MatchesPattern(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
+        if (key.MatchesPattern(_anyPrefix.aiCacheNativeFilePattern)) return "AI Cache";
+        if (key.MatchesPattern([_anyPrefix.indexStoreFolderPattern, "ai.cache.bin*"])) return "AI Temp";
+        if (key.MatchesPattern(_anyPrefix.criticalErrorLogFilePattern)) return "Critical error log";
+        if (key.MatchesPattern(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
+        if (key.MatchesPattern(_anyPrefix.fileStorePattern)) return "Filestore";
+        if (key.MatchesPattern(_anyPrefix.stateFilePattern)) return "State";
+        if (key.MatchesPattern([_anyPrefix.indexStoreFolderPattern])) return "Index Store";
+        if (key.MatchesPattern(_anyPrefix.queueFileKeyPattern)) return "Task queue";
+        if (key.MatchesPattern(_anyPrefix.loggerAllFilePattern)) return "Log file";
+        if (key.MatchesPattern(_anyPrefix.indexFilePattern)) return "Index";
         // index engine files: unprefixed, inside their engine folder (see the region above); matched
-        // on the last path segment so both bare names and folder qualified keys get a description
-        var name = fileKey[(fileKey.LastIndexOf('/') + 1)..];
+        // on the last segment so both bare names and folder qualified keys get a description
+        var name = key.FileName();
         if (name == indexEngineNativeKvFile) return "Native index engine";
         if (name == indexEngineFacetSetsFile) return "Facet cache";
         if (name == indexEngineSqliteFile) return "Sqlite index engine";
@@ -311,17 +334,19 @@ public class FileKeyUtility {
         return "-";
     }
 
+    /// <summary>The description of a folder, from its relative path in the joined form.</summary>
     internal static string FolderTypeDescription(string relpath) {
-        return relpath switch {
+        var key = relpath.SplitKey();
+        if (key.Length == 0) return "-";
+        return key.FileName() switch {
             DataFolderName => "Database",
             StateFolderName => "State",
             BackupFolderName => "Backups",
             LogFolderName => "Logs",
             var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Index Store",
-            // the engine folders below the index store, matched on the last path segment
-            var s when s.MatchesWildcard("*" + indexEngineNativeKvFolder) => "Native index engine",
-            var s when s.MatchesWildcard("*" + indexEngineSqliteFolder) => "Sqlite index engine",
-            var s when s.MatchesWildcard("*" + indexEngineLuceneFolder) => "Lucene index engine",
+            indexEngineNativeKvFolder => "Native index engine",
+            indexEngineSqliteFolder => "Sqlite index engine",
+            indexEngineLuceneFolder => "Lucene index engine",
             _ => "-",
         };
     }
@@ -354,15 +379,12 @@ public class FileKeyUtility {
     }
 
     public static void ValidateFileKeyString(string fileKey) {
-        // a key may be folder qualified ("data/db.00000001.bin"); every segment must be a valid
-        // file name on its own, so a key can never escape the storage root
+        // a segment must be a valid file name on its own, so a key can never escape the storage root
         if (string.IsNullOrEmpty(fileKey)) throwInvalidFileKey();
-        foreach (var segment in fileKey.Split('/')) {
-            if (segment == "." || segment == ".." || !IsFileKeyValid(segment)) throwInvalidFileKey();
-        }
+        if (fileKey == "." || fileKey == ".." || !IsFileKeyValid(fileKey)) throwInvalidFileKey();
     }
     static void throwInvalidFileKey() {
-        throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + MaxFileNameLength + " characters per '/' separated segment.");
+        throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + MaxFileNameLength + " characters per path segment.");
     }
     static HashSet<char> _legalFilePrefixCharacters = "abcdefghijklmnopqrstuvwxyz0123456789".ToHashSet();
     public static bool IsFilePrefixValid(string prefix, [MaybeNullWhen(true)] out string? reason) {

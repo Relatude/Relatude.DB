@@ -1,11 +1,11 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Relatude.DB.IO;
 
 namespace Relatude.Common;
 
 /// <summary>
 /// The storage naming rules that persisted data depends on: a name is how the data is found again
-/// after a restart, so any drift in these rules silently orphans a store's files — the engine then
+/// after a restart, so any drift in these rules silently orphans a store's files â€” the engine then
 /// looks at an empty folder, believes the index is new, and rebuilds it from the log.
 /// </summary>
 [TestClass]
@@ -23,7 +23,7 @@ public class FileKeyUtilityTests {
 
     [TestMethod]
     public void LuceneIndexFolderKey_DoesNotDependOnTheCurrentCulture() {
-        // Turkish lowercases 'I' to 'ı', so a culture sensitive ToLower() would name the folder
+        // Turkish lowercases 'I' to 'Ä±', so a culture sensitive ToLower() would name the folder
         // differently depending on the locale the process happens to run under, and the index would
         // look fresh (and be rebuilt) the next time it is opened elsewhere.
         var invariant = FileKeyUtility.IndexEngine_LuceneIndexFolderKey(_indexId);
@@ -49,7 +49,7 @@ public class FileKeyUtilityTests {
     public void TempFileKey_ReplacesABinaryExtensionAndAppendsOtherwise() {
         // replacing (not appending to) ".bin" keeps the temp file out of the index.*.bin search
         // pattern and keeps the key within the maximum file name length
-        Assert.AreEqual("index.abc.tmp", FileKeyUtility.TempFileKey("index.abc.bin"));
-        Assert.AreEqual("engine.walid.tmp", FileKeyUtility.TempFileKey("engine.walid"));
+        Assert.AreEqual("index.abc.tmp", FileKeyUtility.TempFileName("index.abc.bin"));
+        Assert.AreEqual("engine.walid.tmp", FileKeyUtility.TempFileName("engine.walid"));
     }
 }

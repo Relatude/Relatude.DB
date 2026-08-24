@@ -34,7 +34,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileValue;
     }
-    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, IIOProvider source, string sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) {
+    public async Task<FileValue> FileUploadAsync(PropertyPath propertyPath, IIOProvider source, string[] sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
@@ -42,7 +42,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         using var inputStream = source.OpenRead(sourceFileKey, 0);
-        fileName ??= sourceFileKey;
+        fileName ??= sourceFileKey.FileName();
         var r = await fileStore.InsertAsync(newFileId, inputStream, fileName);
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, propertyPath);
         var t = new TransactionData();

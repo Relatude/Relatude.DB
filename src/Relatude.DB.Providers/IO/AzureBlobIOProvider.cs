@@ -71,17 +71,9 @@ public class AzureBlobIOProvider : IIOProvider {
         foreach (var k in deleted) _files.Remove(k);
     }
 
-    public IReadStream OpenRead(string fileKey, long position) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        return openRead(position, fileKey);
-    }
     public IReadStream OpenRead(string[] path, long position) {
         var blobName = getAndValidateBlobName(path);
         return openRead(position, blobName);
-    }
-    public bool Exists(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        return Client.GetProperties(fileKey) != null;
     }
     public bool Exists(string[] path) {
         var blobName = getAndValidateBlobName(path);
@@ -105,12 +97,6 @@ public class AzureBlobIOProvider : IIOProvider {
             _openStreams.Add(stream);
         }
         return stream;
-    }
-    public IAppendStream OpenAppend(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_lock) {
-            return openAppend(fileKey);
-        }
     }
     public IAppendStream OpenAppend(string[] path) {
         var blobName = getAndValidateBlobName(path);
@@ -140,10 +126,6 @@ public class AzureBlobIOProvider : IIOProvider {
         _openStreams.Add(stream);
         return stream;
     }
-    public void DeleteFileIfItExists(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        deleteFileIfItExists(fileKey);
-    }
     public void DeleteFileIfItExists(string[] path) {
         var blobName = getAndValidateBlobName(path);
         deleteFileIfItExists(blobName);
@@ -162,9 +144,9 @@ public class AzureBlobIOProvider : IIOProvider {
             if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
         }
     }
-    public bool DoesNotExistOrIsEmpty(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var properties = Client.GetProperties(fileKey);
+    public bool DoesNotExistOrIsEmpty(string[] path) {
+        var blobName = getAndValidateBlobName(path);
+        var properties = Client.GetProperties(blobName);
         if (properties == null) return true;
         return properties.ContentLength == 0;
     }
@@ -173,12 +155,6 @@ public class AzureBlobIOProvider : IIOProvider {
         lock (_lock) {
             syncDirInfo(existing);
             return _files.Values.ToArray();
-        }
-    }
-    public long GetFileSizeOrZeroIfUnknown(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        lock (_lock) {
-            return getFileSizeOrZeroIfUnknown(fileKey);
         }
     }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {
@@ -190,12 +166,12 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public bool CanRenameFile => false;
     public bool CanTruncate => false;
-    public void TruncateFile(string fileKey, long newLength) {
+    public void TruncateFile(string[] path, long newLength) {
         throw new NotSupportedException("Azure blob storage cannot truncate a blob in place. ");
     }
-    public void RenameFile(string fileKey, string newFileKey) {
+    public void RenameFile(string[] path, string[] newPath) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
+            FileKeyUtility.ValidateFileKeyPath(path);
             throw new NotSupportedException();
         }
     }

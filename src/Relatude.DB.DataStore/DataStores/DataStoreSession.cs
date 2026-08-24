@@ -104,7 +104,7 @@ public class DataStoreSession : IDataStore {
     public bool TryGetValue<T>(PropertyPath path, [MaybeNullWhen(false)] out T value, QueryContext? ctx = null) => _datastore.TryGetValue(path, out value, ctx ?? QueryContext);
     public T GetValue<T>(PropertyPath path, QueryContext? ctx = null) => _datastore.GetValue<T>(path, ctx ?? QueryContext);
 
-    public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string fileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null)
+    public Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string[] fileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null)
         => _datastore.FileUploadAsync(target, source, fileKey, fileName, maxWaitForMetaUpdate, ctx ?? QueryContext);
     public Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate, QueryContext? ctx = null)
         => _datastore.FileUploadAsync(target, source, fileName, maxWaitForMetaUpdate, ctx ?? QueryContext);
@@ -161,10 +161,10 @@ public class DataStoreSession : IDataStore {
     public IIOProvider IOIndex => _datastore.IOIndex;
     public IIOProvider IOBackup => _datastore.IOBackup;
 
-    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null)
+    public void RewriteStore(bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null)
         => _datastore.RewriteStore(hotSwapToNewFile, newLogFileKey, destinationIO);
     public string? CancelRunningRewriteIfAny() => _datastore.CancelRunningRewriteIfAny();
-    public void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null)
+    public void CopyStore(string[] newLogFileKey, IIOProvider? destinationIO = null)
         => _datastore.CopyStore(newLogFileKey, destinationIO);
     public int DeleteOldLogs() => _datastore.DeleteOldLogs();
     public void SetTimestamp(long timestamp) => _datastore.SetTimestamp(timestamp);

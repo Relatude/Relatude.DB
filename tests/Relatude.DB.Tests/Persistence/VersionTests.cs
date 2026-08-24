@@ -1,4 +1,4 @@
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
@@ -20,7 +20,7 @@ public class VerArticle {
 /// <summary>
 /// FindOlderVersions: older versions of a node read straight from the version chains in the
 /// transaction log files. Every node write appends the full node together with the position of the
-/// node's previous version in the same file, so history is walked by chain — never cached. The
+/// node's previous version in the same file, so history is walked by chain â€” never cached. The
 /// primary log reaches back to the last log rewrite; the secondary backup log survives rewrites and
 /// extends the reach. The current version is never included and deleted nodes are not supported.
 /// </summary>
@@ -145,8 +145,8 @@ public class VersionTests {
             // secondary and must collapse into it, not show up as an extra version
             var versions = store.FindOlderVersions<VerArticle>(id);
             assertVersions(versions, 4, 3, 2, 1, 0);
-            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetSecondaryFileKey()), "deep history read from the secondary log");
-            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetLatestFileKey(db.IO)), "recent history read from the primary log");
+            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetSecondaryFileKey().AsKeyString()), "deep history read from the secondary log");
+            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetLatestFileKey(db.IO).AsKeyString()), "recent history read from the primary log");
         }
         using (var store = openDiskStore(dir, secondaryLog: true)) {
             // reopens from the persisted chain state written at the rewrite; the deep history in
@@ -203,7 +203,7 @@ public class VersionTests {
     public void LegacyV1000LogFile_OpensAndReturnsNoVersions() {
         var dir = tempDir();
         var io = new IOProviderDisk(dir);
-        var fileKey = "db.00000001.bin"; // the legacy root level key: the store moves it to the data folder on startup
+        string[] fileKey = ["db.00000001.bin"]; // the legacy root level key: the store moves it to the data folder on startup
         using (var s = io.OpenAppend(fileKey)) { // a v1000 log file header: records appended to it must stay in the legacy format
             s.WriteMarker(WALFile._logStartMarker);
             s.WriteVerifiedLong(WALFile._logVersionNumberV1000);

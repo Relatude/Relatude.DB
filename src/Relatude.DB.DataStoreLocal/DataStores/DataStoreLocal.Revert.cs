@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
@@ -20,8 +20,8 @@ namespace Relatude.DB.DataStores;
 // regardless of the gates and is reset and rebuilt from the log on rollback.
 //
 // DeleteTransactionsAfter is the general form against any timestamp: correct on any store, but
-// whatever persisted state has advanced past the timestamp — the state snapshot, memory index
-// files, index engines — is reset and rebuilt from the truncated log, which can mean a full replay.
+// whatever persisted state has advanced past the timestamp â€” the state snapshot, memory index
+// files, index engines â€” is reset and rebuilt from the truncated log, which can mean a full replay.
 public sealed partial class DataStoreLocal : IDataStore {
 
     RevertWindowInfo? _revertWindow;
@@ -270,7 +270,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// <summary>Truncates the primary log file, keeping the secondary in sync: a secondary that is
     /// byte-identical (same length) is truncated at the same position, anything else is deleted so
     /// the next open recreates it as a copy of the truncated primary. Log streams must be closed.</summary>
-    void truncateWalFiles(string walFileKey, long keepEnd, long preTruncateSize) {
+    void truncateWalFiles(string[] walFileKey, long keepEnd, long preTruncateSize) {
         _io.TruncateFile(walFileKey, keepEnd);
         if (!_settings.SecondaryBackupLog) return;
         var secondaryKey = _fileKeys.WAL_GetSecondaryFileKey();

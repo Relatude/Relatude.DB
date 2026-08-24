@@ -23,19 +23,19 @@ internal class LogReader : IDisposable {
     readonly Definition _definition;
     long _fileSize;
     long _formatVersion = WALFile._logVersionNumberV1000;
-    public LogReader(string fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp) {
+    public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp) {
         _fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
         if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _, out _formatVersion);
         _definition = definition;
         _lastTimestampID = fromTimestamp;
     }
-    public static Guid ReadFileId(string fileKey, IIOProvider io) {
+    public static Guid ReadFileId(string[] fileKey, IIOProvider io) {
         Guid fileId;
         using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId, out _)) {
             return fileId;
         }
     }
-    static IReadStream verifyFileAndOpen(string fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId, out long formatVersion) {
+    static IReadStream verifyFileAndOpen(string[] fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId, out long formatVersion) {
         var readStream = io.OpenRead(fileKey, 0);
         try {
             readStream.ValidateMarker(WALFile._logStartMarker);

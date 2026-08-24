@@ -150,7 +150,7 @@ public class NodeStore : IDisposable {
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
         var fileKey = datastore.FileKeys.MapperDll_GetFileKey(codeHash);
         foreach (var f in datastore.FileKeys.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
-            if (f != fileKey) datastore.IOIndex.DeleteFileIfItExists(f);
+            if (!f.IsSameKey(fileKey)) datastore.IOIndex.DeleteFileIfItExists(f);
         }
         byte[] dll;
         if (datastore.IOIndex.DoesNotExistsOrIsEmpty(fileKey)) {
@@ -1251,7 +1251,7 @@ public class NodeStore : IDisposable {
     public Task FileDeleteAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression) => FileDeleteAsync(nodeId, Mapper.GetProperty(expression).Id);
 
     /// <summary>Uploads a file that already lives in another IO provider, copying it into the file store.</summary>
-    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
+    public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, IIOProvider source, string[] sourceFileKey, string? fileName = null) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, sourceFileKey, fileName);
     /// <summary>Uploads from a stream, for instance straight from an HTTP request body, and returns the stored file value.</summary>
     public Task<FileValue> FileUploadAsync(Guid nodeId, Guid propertyId, Stream source, string fileName) => Datastore.FileUploadAsync(new(nodeId, propertyId), source, fileName);
     /// <summary>Uploads a file from the local file system into the file property named by the lambda.</summary>
@@ -1272,7 +1272,7 @@ public class NodeStore : IDisposable {
     /// <summary>Uploads a byte array into the file property named by the lambda.</summary>
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileName);
     /// <summary>Uploads a file from another IO provider into the file property named by the lambda.</summary>
-    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, sourceFileKey, fileName);
+    public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, IIOProvider source, string[] sourceFileKey, string? fileName = null) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, sourceFileKey, fileName);
 
     /// <summary>Uploads a local file into a file property of the node this object represents.</summary>
     public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, string filePath, string? fileName = null) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, filePath, fileName);
@@ -1281,7 +1281,7 @@ public class NodeStore : IDisposable {
     /// <summary>Uploads a byte array into a file property of the node this object represents.</summary>
     public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, new MemoryStream(data), fileName);
     /// <summary>Uploads a file from another IO provider into a file property of the node this object represents.</summary>
-    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, IIOProvider source, string sourceFileKey, string? fileName = null) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, sourceFileKey, fileName);
+    public Task FileUploadAsync<T>(T node, Expression<Func<T, FileValue>> expression, IIOProvider source, string[] sourceFileKey, string? fileName = null) where T : notnull => FileUploadAsync(Mapper.GetIdGuid(node), expression, source, sourceFileKey, fileName);
 
     /// <summary>Streams the file held by the property named by the lambda into the given stream.</summary>
     public Task FileDownloadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream outStream) => FileDownloadAsync(nodeId, Mapper.GetProperty(expression).Id, outStream);

@@ -1,4 +1,4 @@
-using Relatude.DB.IO;
+﻿using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 
@@ -111,10 +111,10 @@ public class StatisticsUnitTests {
         a.RecordIfPossible(H.T0.AddHours(1).AddMinutes(1), true);
         Assert.IsTrue(a.IsDirty);
         var io = new IOProviderMemory();
-        using (var s = io.OpenAppend("stat")) a.SaveState(s);
+        using (var s = io.OpenAppend(["stat"])) a.SaveState(s);
         Assert.IsFalse(a.IsDirty); // saving clears the dirty flag
         var b = new StatisticsCount(new StatisticsInfo(StatisticsType.Count), DayOfWeek.Monday, "k");
-        using (var r = io.OpenRead("stat", 0)) b.LoadState(r);
+        using (var r = io.OpenRead(["stat"], 0)) b.LoadState(r);
         Assert.IsFalse(b.IsDirty);
         var expected = a.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(2), false, true, null).Select(v => v.Value).ToArray();
         var actual = b.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(2), false, true, null).Select(v => v.Value).ToArray();
@@ -126,9 +126,9 @@ public class StatisticsUnitTests {
         var a = new StatisticsCount(new StatisticsInfo(StatisticsType.Count), DayOfWeek.Monday, "k");
         a.RecordIfPossible(H.T0, true);
         var io = new IOProviderMemory();
-        using (var s = io.OpenAppend("stat")) a.SaveState(s);
+        using (var s = io.OpenAppend(["stat"])) a.SaveState(s);
         var b = new StatisticsCount(new StatisticsInfo(StatisticsType.Count), DayOfWeek.Sunday, "k");
-        using (var r = io.OpenRead("stat", 0)) b.LoadState(r);
+        using (var r = io.OpenRead(["stat"], 0)) b.LoadState(r);
         Assert.AreEqual(0, b.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(1), false, false, null).Count());
     }
     [TestMethod]

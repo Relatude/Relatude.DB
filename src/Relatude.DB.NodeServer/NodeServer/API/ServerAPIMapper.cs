@@ -226,7 +226,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             return new { Size = size, FileCount = fileCount };
         });
         app.MapPost(path("delete-folder"), (Guid storeId, Guid ioId, string folderName) => server.GetIO(ioId).DeleteFolderIfItExists(splitFolderPath(folderName)));
-        app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName));
+        app.MapPost(path("file-exist"), (Guid storeId, Guid ioId, string fileName) => !server.GetIO(ioId).DoesNotExistOrIsEmpty(fileName.SplitKey()));
         app.MapPost(path("backup-now"), (Guid storeId, Guid ioId, bool truncate, bool keepForever) => {
             if (ioId == Guid.Empty) {
                 var settings = container(storeId).Settings;
@@ -242,59 +242,62 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => {
             var settings = container(storeId).Settings;
             if (settings.IoDatabase != ioId) return string.Empty;
-            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId));
+            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId)).AsKeyString();
         });
         app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => {
             var settings = container(storeId).Settings;
             if (settings.IoDatabase != ioId) return string.Empty;
-            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_NextFileKey(server.GetIO(ioId));
+            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_NextFileKey(server.GetIO(ioId)).AsKeyString();
         });
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
-            var ioStream = server.GetIO(ioId).OpenRead(fileName, 0);
+            var fileKey = fileName.SplitKey();
+            var ioStream = server.GetIO(ioId).OpenRead(fileKey, 0);
             var stream = ReadStreamWrapper.Wrap(ioStream);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileName, null, null, true);
+            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileKey.FileName(), null, null, true);
         });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             ensurePrefix(storeId, ref fileName);
-            server.GetIO(ioId).DeleteFileIfItExists(fileName);
+            server.GetIO(ioId).DeleteFileIfItExists(fileName.SplitKey());
         });
         app.MapPost(path("can-rename-file"), (Guid storeId, Guid ioId) => new { CanRename = server.GetIO(ioId).CanRenameFile });
         app.MapPost(path("rename-file"), (Guid storeId, Guid ioId, string fileName, string newFileName) => {
             ensurePrefix(storeId, ref fileName);
             ensurePrefix(storeId, ref newFileName);
-            server.GetIO(ioId).RenameFile(fileName, newFileName);
+            server.GetIO(ioId).RenameFile(fileName.SplitKey(), newFileName.SplitKey());
         });
         app.MapPost(path("initiate-upload"), () => { return new { Value = Guid.NewGuid().ToString() }; });
         app.MapPost(path("upload-part"), async (HttpContext ctx, Guid uploadId) => {
-            using var ioStream = server.TempIO.OpenAppend(uploadId.ToString());
+            using var ioStream = server.TempIO.OpenAppend([uploadId.ToString()]);
             using var writeStream = new WriteStreamWrapper(ioStream);
             await ctx.Request.Body.CopyToAsync(writeStream);
         });
-        app.MapPost(path("cancel-upload"), (HttpContext ctx, Guid uploadId) => server.TempIO.DeleteFileIfItExists(uploadId.ToString()));
+        app.MapPost(path("cancel-upload"), (HttpContext ctx, Guid uploadId) => server.TempIO.DeleteFileIfItExists([uploadId.ToString()]));
         app.MapPost(path("complete-upload"), (HttpContext ctx, Guid storeId, Guid ioId, Guid uploadId, string fileName, bool overwrite) => {
-            if (server.TempIO.DoesNotExistsOrIsEmpty(uploadId.ToString())) throw new Exception("Upload not found");
+            string[] uploadKey = [uploadId.ToString()];
+            if (server.TempIO.DoesNotExistsOrIsEmpty(uploadKey)) throw new Exception("Upload not found");
             var destIo = server.GetIO(ioId);
             ensurePrefix(storeId, ref fileName);
+            var fileKey = fileName.SplitKey();
             var fileKeys = new FileKeyUtility(server.Containers[storeId].Settings?.LocalSettings?.FilePrefix);
-            if (fileKeys.StateFileKey.ToLower() == fileName.ToLower()) {
-                server.TempIO.DeleteFileIfItExists(uploadId.ToString());
+            if (fileKeys.StateFileKey.IsSameKey(fileKey)) {
+                server.TempIO.DeleteFileIfItExists(uploadKey);
                 throw new Exception("Uploading state file is not allowed. ");
             }
             destIo.DeleteFileIfItExists(fileKeys.StateFileKey); // delete the state file to avoid old statefile and newer log file!
             if (destIo is IOProviderDisk diskIO && server.TempIO is IOProviderDisk tempDiskIO) {
-                diskIO.MoveFile(tempDiskIO, uploadId.ToString(), fileName, overwrite);
+                diskIO.MoveFile(tempDiskIO, uploadKey, fileKey, overwrite);
                 return;
             }
-            using var ioSourceStream = server.TempIO.OpenRead(uploadId.ToString(), 0);
-            if (!destIo.DoesNotExistsOrIsEmpty(fileName) && !overwrite) throw new Exception("File already exists");
-            destIo.DeleteFileIfItExists(fileName);
-            using var ioDestStream = destIo.OpenAppend(fileName);
+            using var ioSourceStream = server.TempIO.OpenRead(uploadKey, 0);
+            if (!destIo.DoesNotExistsOrIsEmpty(fileKey) && !overwrite) throw new Exception("File already exists");
+            destIo.DeleteFileIfItExists(fileKey);
+            using var ioDestStream = destIo.OpenAppend(fileKey);
             using var readStream = ReadStreamWrapper.Wrap(ioSourceStream);
             using var writeStream = new WriteStreamWrapper(ioDestStream);
             readStream.CopyTo(writeStream);
             ioSourceStream.Dispose();
-            server.TempIO.DeleteFileIfItExists(uploadId.ToString());
+            server.TempIO.DeleteFileIfItExists(uploadKey);
         });
         app.MapPost(path("truncate-log"), (HttpContext ctx, Guid storeId, bool deleteOld) => {
             var options = MaintenanceAction.TruncateLog;
@@ -312,13 +315,13 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (store == null) return null;
             return await store.Datastore.GetInfoAsync();
         });
-        app.MapPost(path("clean-temp-files"), () => server.TempIO.GetFiles().ForEach(file => { try { server.TempIO.DeleteFileIfItExists(file.Key); } catch { } }));
+        app.MapPost(path("clean-temp-files"), () => server.TempIO.GetFiles().ForEach(file => { try { server.TempIO.DeleteFileIfItExists(file.KeyOf()); } catch { } }));
         app.MapPost(path("get-size-temp-files"), () => new { TotalSize = server.TempIO.GetFiles().Sum(file => file.Size) });
         app.MapGet(path("download-truncated-db"), (Guid storeId, string namePrefix) => {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
             if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
             if (namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
-            var fileKey = Guid.NewGuid().ToString();
+            string[] fileKey = [Guid.NewGuid().ToString()];
             db(storeId).Datastore.RewriteStore(false, fileKey, server.TempIO);
             var ioStream = server.TempIO.OpenRead(fileKey, 0);
             var stream = ReadStreamWrapper.Wrap(ioStream);
@@ -332,7 +335,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
             if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
             if (namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
-            var fileKey = Guid.NewGuid().ToString();
+            string[] fileKey = [Guid.NewGuid().ToString()];
             var datastore = container(storeId).Store!.Datastore;
             datastore.CopyStore(fileKey, server.TempIO);
             var ioStream = server.TempIO.OpenRead(fileKey, 0);
@@ -347,7 +350,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             ensurePrefix(storeId, ref fromFileName);
             ensurePrefix(storeId, ref toIoFileName);
             var io = server.GetIO(toIoId);
-            io.CopyFile(fromFileName, toIoFileName);
+            io.CopyFile(fromFileName.SplitKey(), toIoFileName.SplitKey());
         });
         app.MapPost(path("delete-all-but-db"), (Guid storeId) => {
             var settings = container(storeId).Settings;
@@ -361,11 +364,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var indexFile = fileKeys.StateFileKey;
             foreach (var file in fileKeys.GetAllFiles(io)) {
                 if (file.Writers > 0 || file.Readers > 0) continue;
-                if (indexFile == file.Key) continue;
-                if (dbFile == file.Key) continue;
-                if (fileStore == file.Key) continue;
-                if (fileKeys.WAL_KeepForever(file.Key)) continue;
-                io.DeleteFileIfItExists(file.Key);
+                var fileKey = file.KeyOf();
+                if (indexFile.IsSameKey(fileKey)) continue;
+                if (dbFile.IsSameKey(fileKey)) continue;
+                if (fileStore.IsSameKey(fileKey)) continue;
+                if (fileKeys.WAL_KeepForever(fileKey)) continue;
+                io.DeleteFileIfItExists(fileKey);
             }
         });
         app.MapPost(path("delete-all-files"), (Guid storeId, Guid ioId) => {
@@ -375,7 +379,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var io = server.GetIO(ioId);
             foreach (var file in fileKeys.GetAllFiles(io)) {
                 if (file.Writers > 0 || file.Readers > 0) continue;
-                io.DeleteFileIfItExists(file.Key);
+                io.DeleteFileIfItExists(file.KeyOf());
             }
         });
     }

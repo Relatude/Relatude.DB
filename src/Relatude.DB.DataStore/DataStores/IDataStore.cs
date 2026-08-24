@@ -129,7 +129,7 @@ public interface IDataStore : IDisposable {
     void RegisterRunner(ITaskRunner runner);
 
     // File handling
-    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
+    Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string[] sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
@@ -160,9 +160,9 @@ public interface IDataStore : IDisposable {
     IIOProvider IO { get; }
     IIOProvider IOIndex { get; }
     IIOProvider IOBackup { get; }
-    void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null);
+    void RewriteStore(bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null);
     string? CancelRunningRewriteIfAny();
-    void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null);
+    void CopyStore(string[] newLogFileKey, IIOProvider? destinationIO = null);
     int DeleteOldLogs();
     void SetTimestamp(long timestamp);
     long Timestamp { get; }

@@ -1,4 +1,4 @@
-using Relatude.DB.DataStores.Sets;
+﻿using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Indexes;
@@ -8,7 +8,7 @@ namespace Relatude.DB.DataStores.Indexes;
 /// <c>&lt;indexFolder&gt;/lucene</c>. Writes are near-real-time (searchable immediately without a
 /// commit), so the engine transaction is in-memory only: <see cref="IndexEngineBase"/>'s
 /// CommitTransaction just records the published timestamp, and durability happens in
-/// <see cref="MakeDurableCore"/> — called by the data store right after every successful WAL flush —
+/// <see cref="MakeDurableCore"/> â€” called by the data store right after every successful WAL flush â€”
 /// where each index with pending changes commits with its position (timestamp + WAL file id) in
 /// the Lucene commit user data. A crash therefore loses only documents the durable log can replay:
 /// on the next open every index reports the position of its last durable commit
@@ -17,7 +17,7 @@ namespace Relatude.DB.DataStores.Indexes;
 ///
 /// <para>The engine-level WAL file id lives in a small marker file next to the index directories.
 /// Per index, the commit user data must carry the same id; anything else (legacy index, partial
-/// re-bind, restored files) resets that index to empty so the replay rebuilds it — see
+/// re-bind, restored files) resets that index to empty so the replay rebuilds it â€” see
 /// <see cref="WordIndexLucene"/>.</para>
 /// </summary>
 public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
@@ -61,7 +61,7 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     }
 
     /// <summary>The engine's durable position: the oldest position among its indexes (each commits
-    /// its own). 0 with no indexes open, or when any index is fresh — forcing a full replay for it.</summary>
+    /// its own). 0 with no indexes open, or when any index is fresh â€” forcing a full replay for it.</summary>
     public override long GetTimestamp() {
         if (_indexes.Count == 0) return _currentTimestamp;
         return _indexes.Values.Min(v => v.index.PersistedTimestamp);
@@ -88,7 +88,7 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     }
     void writeMarkerFile(Guid walFileId) {
         var path = Path.Combine(_luceneFolderPath, FileKeyUtility.IndexEngine_LuceneWalIdFileKey);
-        var tmp = FileKeyUtility.TempFileKey(path);
+        var tmp = FileKeyUtility.TempFileName(path);
         File.WriteAllText(tmp, walFileId.ToString("D"));
         File.Move(tmp, path, overwrite: true);
     }

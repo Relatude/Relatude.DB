@@ -8,18 +8,19 @@ using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
-    static readonly string _logRewriterStartFile = "rewrite.flag";
+    static readonly string[] _logRewriterStartFile = ["rewrite.flag"];
     public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io, FileKeyUtility keys) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
-        string fileKey;
+        string flaggedKey; // the flag file stores the key in its joined form
         using (var stream = io.OpenRead(_logRewriterStartFile, 0)) {
-            fileKey = stream.ReadString();
+            flaggedKey = stream.ReadString();
         }
-        if (string.IsNullOrWhiteSpace(fileKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
+        if (string.IsNullOrWhiteSpace(flaggedKey)) throw new Exception("Log rewriter start file does not contain a valid file key. ");
+        var fileKey = flaggedKey.SplitKey();
         // A flag written before the folder layout holds a root level key; the startup migration has
         // since moved the file into the data folder, so the flagged key must be mapped with it or
         // the partial rewrite output would survive there and be picked up as the latest log file.
-        if (!fileKey.Contains('/')) {
+        if (fileKey.Length == 1) {
             var migrated = FileKeyUtility.MapLegacyRootFileKeyToDataFolder(fileKey);
             if (!io.Exists(fileKey) && io.Exists(migrated)) fileKey = migrated;
         }
@@ -28,7 +29,7 @@ internal class LogRewriter {
         // so if the flagged file is the only log file the hot swap must have completed
         // and the flagged file is the live log file. Deleting it would lose all data.
         var allLogFiles = keys.WAL_GetAllFileKeys(io);
-        var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0] == fileKey;
+        var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0].IsSameKey(fileKey);
         if (!flaggedFileIsOnlyLogFile) io.DeleteFileIfItExists(fileKey);
         io.DeleteFileIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
         io.DeleteFileIfItExists(_logRewriterStartFile);
@@ -36,22 +37,22 @@ internal class LogRewriter {
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {
         return !io.DoesNotExistOrIsEmpty(_logRewriterStartFile);
     }
-    public static void CreateFlagFileToIndicateLogRewriterInprogress(IIOProvider io, string newLogFileKey) {
+    public static void CreateFlagFileToIndicateLogRewriterInprogress(IIOProvider io, string[] newLogFileKey) {
         if (LogRewriterAlreadyInprogress(io)) throw new Exception("Log rewriter start file already exists. ");
         using var stream = io.OpenAppend(_logRewriterStartFile);
-        stream.WriteString(newLogFileKey);
+        stream.WriteString(newLogFileKey.AsKeyString()); // stored in its joined form
     }
-    public static void DeleteFlagFileToIndicateLogRewriterStart(IIOProvider io, string newLogFileKey) {
+    public static void DeleteFlagFileToIndicateLogRewriterStart(IIOProvider io, string[] newLogFileKey) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) throw new Exception("Log rewriter start file does not exist. ");
         using var stream = io.OpenRead(_logRewriterStartFile, 0);
         var fileKey = stream.ReadString();
-        if (fileKey != newLogFileKey) throw new Exception("Log rewriter start file does not match new log file key. ");
+        if (fileKey != newLogFileKey.AsKeyString()) throw new Exception("Log rewriter start file does not match new log file key. ");
         stream.Dispose();
         io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     readonly Definition _definition;
     readonly IIOProvider _destIO;
-    public readonly string FileKey;
+    public readonly string[] FileKey;
     public volatile bool _cancelled = false; // volatile, set by Cancel() on another thread while Step1 is running
     List<ExecutedPrimitiveTransaction> _newTransactionsWhileRewriting;
     (int nodeId, NodeSegment segment)[] _snapshot;
@@ -61,7 +62,7 @@ internal class LogRewriter {
     readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
     readonly ReadSegmentsFunc _threadSafeReadSegments;
     bool _finalizing = false;
-    public LogRewriter(string newFileKey, Definition definition,
+    public LogRewriter(string[] newFileKey, Definition definition,
         IIOProvider destinationIO,
         (int nodeId, NodeSegment segment)[] snapshot,
         (Guid relId, RelData[] relations, PrimitiveRelationReorderAction[] reorders)[] relations,

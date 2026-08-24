@@ -31,10 +31,10 @@ internal class LogTextStream : IDisposable {
     IAppendStream? _lastAppendStream;
     IAppendStream getCorrectStream(DateTime timestamp) {
         var floored = timestamp.Floor(_fileInterval);
-        var fileKey = _fileKeys.Logger_FileNameTxt(_logName,_fileInterval, floored);
+        var fileKey = _fileKeys.Logger_FileNameTxt(_logName, _fileInterval, floored);
         if (_lastAppendStream == null) {
             _lastAppendStream = _io.OpenAppend(fileKey);
-        } else if (_lastAppendStream.FileKey != fileKey) {
+        } else if (_lastAppendStream.FileKey != fileKey.AsKeyString()) {
             _lastAppendStream.Dispose();
             _lastAppendStream = _io.OpenAppend(fileKey);
         }

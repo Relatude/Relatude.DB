@@ -39,7 +39,8 @@ internal class LogStream : IDisposable {
         _fileKeys = fileKeys;
     }
     public void Record(LogRecord record, bool flushToDisk = false) {
-        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, record.TimeStamp);
+        // the buffer is keyed by the joined form of the file key
+        var fileKey = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, record.TimeStamp).AsKeyString();
         if (_buffer.TryGetValue(fileKey, out var records)) records.Add(record);
         else _buffer.Add(fileKey, new() { record });
         _dataInBuffer += record.Data.Length + 29;
@@ -65,10 +66,10 @@ internal class LogStream : IDisposable {
             var data = ms.ToArray();
             if (_compressed) data = CompressionUtility.Compress(data);
             if (_lastAppendStream == null) {
-                _lastAppendStream = _io.OpenAppend(fileKey);
+                _lastAppendStream = _io.OpenAppend(fileKey.SplitKey());
             } else if (_lastAppendStream.FileKey != fileKey) {
                 _lastAppendStream.Dispose();
-                _lastAppendStream = _io.OpenAppend(fileKey);
+                _lastAppendStream = _io.OpenAppend(fileKey.SplitKey());
             }
             _lastAppendStream.WriteGuid(_startMarker);
             _lastAppendStream.WriteDateTimeUtc(dtFirst);
@@ -200,7 +201,7 @@ internal class LogStream : IDisposable {
         flushBufferAndReleaseOpenFiles();
         var maxTotalSize = maxTotalSizeOfLogFilesInMb * 1024L * 1024L;
         var currentFile = _fileKeys.Logger_FileNameBin(_logName, _fileInterval, DateTime.UtcNow.Floor(_fileInterval));
-        var files = GetLogFileDates().Select(d => _fileKeys.Logger_FileNameBin(_logName, _fileInterval, d)).Where(f => f != currentFile).OrderBy(f => f).ToList();
+        var files = GetLogFileDates().Select(d => _fileKeys.Logger_FileNameBin(_logName, _fileInterval, d)).Where(f => !f.IsSameKey(currentFile)).OrderBy(f => f.AsKeyString()).ToList();
         var currentTotalSize = files.Sum(_io.GetFileSizeOrZeroIfUnknown) + _io.GetFileSizeOrZeroIfUnknown(currentFile);
         foreach (var f in files) { // oldest first
             if (currentTotalSize <= maxTotalSize) return;

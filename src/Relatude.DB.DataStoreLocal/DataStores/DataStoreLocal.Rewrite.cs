@@ -17,12 +17,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     readonly object _isRewritingOrCopyingLock = new();
     bool _isRewritingOrCopying = false;
-    public void RewriteStore(bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
+    public void RewriteStore(bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null) {
         lock (_isRewritingOrCopyingLock) {
             if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
             _isRewritingOrCopying = true;
         }
-        var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Rewriting to " + newLogFileKey, 0);
+        var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Rewriting to " + newLogFileKey.AsKeyString(), 0);
         var subActivityId = RegisterChildActvity(activityId, DataStoreActivityCategory.Rewriting);
         try {
             rewriteStore(subActivityId, hotSwapToNewFile, newLogFileKey, destinationIO);
@@ -32,7 +32,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
         }
     }
-    void rewriteStore(long activityId, bool hotSwapToNewFile, string newLogFileKey, IIOProvider? destinationIO = null) {
+    void rewriteStore(long activityId, bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null) {
         // written to minimize locking while rewriting store
         validateDatabaseState();
         // a hot swap replaces the log file the revert window's position and file id refer to, and
@@ -40,8 +40,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (hotSwapToNewFile && RevertWindowIsActive)
             throw new Exception("Log rewrite is not possible while a revert window is active. Commit or roll back the revert window first. ");
         if (destinationIO == null) destinationIO = _io;
-        if (string.IsNullOrEmpty(newLogFileKey)) throw new Exception("New log file name cannot be empty. ");
-        if (newLogFileKey == _wal.FileKey) throw new Exception("New log file name cannot be the same as current. ");
+        if (newLogFileKey is not { Length: > 0 }) throw new Exception("New log file name cannot be empty. ");
+        if (newLogFileKey.IsSameKey(_wal.FileKey)) throw new Exception("New log file name cannot be the same as current. ");
         if (_rewriter != null) throw new Exception("Rewriter already initialized. ");
         var sw = Stopwatch.StartNew();
         UpdateActivity(activityId, "Flushing stream before rewrite lock", 1);
@@ -124,7 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (_rewriter != null) {
-                var fileKey = _rewriter.FileKey;
+                var fileKey = _rewriter.FileKey.AsKeyString();
                 _rewriter.Cancel(FileKeys);
                 _rewriter = null;
                 return fileKey;

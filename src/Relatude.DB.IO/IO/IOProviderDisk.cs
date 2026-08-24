@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.IO;
 
@@ -16,6 +16,7 @@ public class IOProviderDisk : IIOProvider {
 
     readonly bool _readOnly;
     readonly object _lock = new();
+    // internally files are tracked by the joined ('/'-separated) form of their key
     readonly Dictionary<string, int> _openReaders = [];
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
@@ -32,6 +33,10 @@ public class IOProviderDisk : IIOProvider {
         _dirExists = true;
     }
     public string BaseFolder { get; }
+    string filePathOf(string[] path) {
+        FileKeyUtility.ValidateFileKeyPath(path);
+        return Path.Combine([BaseFolder, .. path]);
+    }
     void registerReader(string fileKey) {
         if (_openReaders.ContainsKey(fileKey)) _openReaders[fileKey]++;
         else _openReaders[fileKey] = 1;
@@ -54,25 +59,9 @@ public class IOProviderDisk : IIOProvider {
             }
         }
     }
-    public IReadStream OpenRead(string fileKey, long position) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        return openRead(Path.Combine(BaseFolder, fileKey), fileKey, position);
-    }
     public IReadStream OpenRead(string[] path, long position) {
-        FileKeyUtility.ValidateFileKeyPath(path);
-        return openRead(Path.Combine([BaseFolder, .. path]), string.Join('/', path), position);
-    }
-    public bool Exists(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(BaseFolder, fileKey);
-        return File.Exists(filePath);
-    }
-    public bool Exists(string[] path) {
-        FileKeyUtility.ValidateFileKeyPath(path);
-        var filePath = Path.Combine([BaseFolder, .. path]);
-        return File.Exists(filePath);
-    }
-    IReadStream openRead(string filePath, string fileKey, long position) {
+        var filePath = filePathOf(path);
+        var fileKey = path.AsKeyString();
         lock (_lock) {
             IReadStream? stream = null;
             stream = new StoreStreamDiscRead(filePath, position, () => {
@@ -87,18 +76,12 @@ public class IOProviderDisk : IIOProvider {
             return stream;
         }
     }
-    public IAppendStream OpenAppend(string fileKey) {
-        FileKeyUtility.ValidateFileKeyString(fileKey);
-        var filePath = Path.Combine(BaseFolder, fileKey);
-        return openAppend(filePath, fileKey);
+    public bool Exists(string[] path) {
+        return File.Exists(filePathOf(path));
     }
     public IAppendStream OpenAppend(string[] path) {
-        FileKeyUtility.ValidateFileKeyPath(path);
-        var filePath = Path.Combine([BaseFolder, .. path]);
-        var fileKey = string.Join('/', path);
-        return openAppend(filePath, fileKey);
-    }
-    IAppendStream openAppend(string filePath, string fileKey) {
+        var filePath = filePathOf(path);
+        var fileKey = path.AsKeyString();
         lock (_lock) {
             StoreStreamDiscWrite? stream = null;
             stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
@@ -112,39 +95,21 @@ public class IOProviderDisk : IIOProvider {
             return stream;
         }
     }
-    public void DeleteFileIfItExists(string fileKey) {
-        lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
-            if (File.Exists(filePath)) File.Delete(filePath);
-        }
-    }
     public void DeleteFileIfItExists(string[] path) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyPath(path);
-            var filePath = Path.Combine([BaseFolder, .. path]);
+            var filePath = filePathOf(path);
             if (File.Exists(filePath)) File.Delete(filePath);
         }
     }
-    public bool DoesNotExistOrIsEmpty(string fileKey) {
+    public bool DoesNotExistOrIsEmpty(string[] path) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
+            var filePath = filePathOf(path);
             return !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
-        }
-    }
-    public long GetFileSizeOrZeroIfUnknown(string fileKey) {
-        lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
-            if (!File.Exists(filePath)) return 0;
-            return new FileInfo(filePath).Length;
         }
     }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyPath(path);
-            var filePath = Path.Combine([BaseFolder, .. path]);
+            var filePath = filePathOf(path);
             if (!File.Exists(filePath)) return 0;
             return new FileInfo(filePath).Length;
         }
@@ -167,26 +132,23 @@ public class IOProviderDisk : IIOProvider {
             return files.ToArray();
         }
     }
-    public void MoveFile(IOProviderDisk sourceIo, string sourceFileKey, string destFileKey, bool overwrite) {
+    public void MoveFile(IOProviderDisk sourceIo, string[] sourcePath, string[] destPath, bool overwrite) {
         lock (_lock) {
             ensureFolder();
-            FileKeyUtility.ValidateFileKeyString(sourceFileKey);
-            FileKeyUtility.ValidateFileKeyString(destFileKey);
-            var source = Path.Combine(sourceIo.BaseFolder, sourceFileKey);
-            var dest = Path.Combine(BaseFolder, destFileKey);
-            if (overwrite) DeleteFileIfItExists(destFileKey);
-            if (File.Exists(destFileKey)) throw new Exception($"File {destFileKey} already exists");
+            FileKeyUtility.ValidateFileKeyPath(sourcePath);
+            var source = Path.Combine([sourceIo.BaseFolder, .. sourcePath]);
+            var dest = filePathOf(destPath);
+            if (overwrite) DeleteFileIfItExists(destPath);
+            if (File.Exists(dest)) throw new Exception($"File {destPath.AsKeyString()} already exists");
             ensureParentFolder(dest);
             File.Move(source, dest);
         }
     }
-    public void RenameFile(string fileKey, string newFileKey) {
+    public void RenameFile(string[] path, string[] newPath) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            FileKeyUtility.ValidateFileKeyString(newFileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
-            var newFilePath = Path.Combine(BaseFolder, newFileKey);
-            if (File.Exists(newFilePath)) throw new Exception($"File {newFileKey} already exists");
+            var filePath = filePathOf(path);
+            var newFilePath = filePathOf(newPath);
+            if (File.Exists(newFilePath)) throw new Exception($"File {newPath.AsKeyString()} already exists");
             ensureParentFolder(newFilePath);
             File.Move(filePath, newFilePath);
         }
@@ -198,11 +160,11 @@ public class IOProviderDisk : IIOProvider {
     public bool CanRenameFile => true;
 
     public bool CanTruncate => !_readOnly;
-    public void TruncateFile(string fileKey, long newLength) {
+    public void TruncateFile(string[] path, long newLength) {
         lock (_lock) {
             if (_readOnly) throw new Exception("The IO provider is read only. ");
-            FileKeyUtility.ValidateFileKeyString(fileKey);
-            var filePath = Path.Combine(BaseFolder, fileKey);
+            var filePath = filePathOf(path);
+            var fileKey = path.AsKeyString();
             if (!File.Exists(filePath)) throw new FileNotFoundException("File not found: " + fileKey);
             if (_openReaders.ContainsKey(fileKey) || _openWriters.ContainsKey(fileKey))
                 throw new Exception($"File {fileKey} has open streams and cannot be truncated. ");

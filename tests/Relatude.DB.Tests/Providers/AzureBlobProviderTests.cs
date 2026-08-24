@@ -1,4 +1,4 @@
-using Relatude.DB.IO;
+﻿using Relatude.DB.IO;
 using System.Net.Sockets;
 using System.Text;
 
@@ -33,7 +33,7 @@ public class AzureBlobProviderTests {
     public void AppendFlushAndReadBackRoundTrip() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
-        var key = "db.00000001.bin";
+        string[] key = ["db.00000001.bin"];
 
         using (var append = io.OpenAppend(key)) {
             append.Append(bytes("hello "));
@@ -77,7 +77,7 @@ public class AzureBlobProviderTests {
     public async Task AsyncAppendAndAsyncReadWork() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
-        var key = "db.00000002.bin";
+        string[] key = ["db.00000002.bin"];
         var payload = new byte[300_000]; // forces the read ahead buffer to refill at least once
         Random.Shared.NextBytes(payload);
 
@@ -103,7 +103,7 @@ public class AzureBlobProviderTests {
     public void FilesAndVirtualFoldersAreListedAndDeleted() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
-        using (var a = io.OpenAppend("state.bin")) a.Append(bytes("root"));
+        using (var a = io.OpenAppend(["state.bin"])) a.Append(bytes("root"));
         using (var b = io.OpenAppend(new[] { "backups", "2026", "state copy.bin" })) b.Append(bytes("nested"));
 
         var files = io.GetFiles();
@@ -124,17 +124,17 @@ public class AzureBlobProviderTests {
 
         io.DeleteFolderIfItExists(["backups"]);
         Assert.IsFalse(io.Exists(new[] { "backups", "2026", "state copy.bin" }));
-        io.DeleteFileIfItExists("state.bin");
-        Assert.IsFalse(io.Exists("state.bin"));
+        io.DeleteFileIfItExists(["state.bin"]);
+        Assert.IsFalse(io.Exists(["state.bin"]));
         Assert.AreEqual(0, io.GetFiles().Length);
-        io.DeleteFileIfItExists("state.bin"); // deleting a missing blob is a no-op
+        io.DeleteFileIfItExists(["state.bin"]); // deleting a missing blob is a no-op
     }
 
     [TestMethod]
     public void LargeFlushIsSplitIntoMultipleAppendBlocks() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
-        var key = "files.00000001.bin";
+        string[] key = ["files.00000001.bin"];
         var payload = new byte[22 * 1024 * 1024]; // over the 20MB flush segmentation limit
         Random.Shared.NextBytes(payload);
         using (var append = io.OpenAppend(key)) {
@@ -165,10 +165,10 @@ public class AzureBlobProviderTests {
         Assert.AreEqual(2, client.GetProperties(key)!.ContentLength);
 
         // a locked provider stream leaves the blob unleased after dispose
-        using (var append = io.OpenAppend("db.00000010.bin")) append.Append(bytes("data"));
+        using (var append = io.OpenAppend(["db.00000010.bin"])) append.Append(bytes("data"));
         var io2 = new AzureBlobIOProvider(container, _connectionString, lockBlob: true);
-        using (var append = io2.OpenAppend("db.00000010.bin")) append.Append(bytes(" more"));
-        using (var read = io2.OpenRead("db.00000010.bin", 0)) {
+        using (var append = io2.OpenAppend(["db.00000010.bin"])) append.Append(bytes(" more"));
+        using (var read = io2.OpenRead(["db.00000010.bin"], 0)) {
             Assert.AreEqual("data more", Encoding.UTF8.GetString(read.Read(9)));
         }
     }

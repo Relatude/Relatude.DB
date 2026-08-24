@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
+using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Tasks;
 
@@ -448,8 +449,9 @@ internal class Scheduler {
     }
     void deleteOlderBackupsIfDue() {
         var now = DateTime.UtcNow;
-        var files = _db.FileKeys.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = _db.FileKeys.WAL_GetBackUpDateTimeFromFileKey(f) });
-        files = files.Where(f => _db.FileKeys.WAL_KeepForever(f.FileKey) == false); // do not delete files that are marked to keep forever
+        // keys are handled in their joined form here, so they can live in hash sets and set operations
+        var files = _db.FileKeys.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f.AsKeyString(), Timestamp = _db.FileKeys.WAL_GetBackUpDateTimeFromFileKey(f) });
+        files = files.Where(f => _db.FileKeys.WAL_KeepForever(f.FileKey.SplitKey()) == false); // do not delete files that are marked to keep forever
         HashSet<string> filesToKeep = new();
 
         // based on yearly backups, keep one per year:
@@ -509,7 +511,7 @@ internal class Scheduler {
         var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep); // the opoosite of keep
         foreach (var f in filesToDelete) {
             _db.LogInfo("Deleting: " + f);
-            _db.IO.DeleteFileIfItExists(f);
+            _db.IO.DeleteFileIfItExists(f.SplitKey());
         }
     }
 

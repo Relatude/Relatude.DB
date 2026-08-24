@@ -1,4 +1,4 @@
-using Relatude.DB.CodeGeneration;
+﻿using Relatude.DB.CodeGeneration;
 using Relatude.DB.IO;
 using System.Reflection;
 
@@ -14,7 +14,7 @@ public static class DatamodelSourceLoader {
     public const string DefaultCSharpFolder = "Models/CSharp";
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
-    /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
+    /// <param name="rootFolder">The folder relative file paths resolve against â€” the folder holding the settings file.</param>
     /// <param name="resolveIO">Resolves an IO provider by id, only needed for legacy JsonFile sources using FileIO.</param>
     public static void Load(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO = null) {
         if (source.Id == Guid.Empty) throw new Exception("The datamodel source has no Id. Every datamodel source must have a unique id. ");
@@ -86,7 +86,7 @@ public static class DatamodelSourceLoader {
             var io = resolveIO?.Invoke(source.FileIO.Value);
             if (io == null) throw new Exception("No IO provider with id " + source.FileIO.Value + " is configured. ");
             if (string.IsNullOrEmpty(source.Reference)) throw new Exception("The datamodel source has no Reference. Set Reference to the file name of the JSON datamodel. ");
-            dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(source.Reference), source.Reference), source.Id, source.Reference);
+            dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(source.Reference.SplitKey()), source.Reference), source.Id, source.Reference);
             return;
         }
         var (files, baseFolder) = resolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");

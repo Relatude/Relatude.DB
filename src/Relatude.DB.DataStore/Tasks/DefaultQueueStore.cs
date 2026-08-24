@@ -15,7 +15,7 @@ public class DefaultQueueStore : IQueueStore {
     IIOProvider? _io;
     readonly bool _persistToDisk;
     IAppendStream? _stream;
-    string? _fileKey;
+    string[]? _fileKey;
     IAppendStream stream {
         get {
             if (_stream != null) return _stream;
@@ -28,15 +28,15 @@ public class DefaultQueueStore : IQueueStore {
     Dictionary<Guid, IBatch> _batchesById = [];
     readonly Dictionary<string, ITaskRunner> _runners;
     bool _unflushed = true;
-    public DefaultQueueStore(Dictionary<string, ITaskRunner> runners, IIOProvider? io = null, string? fileKey = null) {
+    public DefaultQueueStore(Dictionary<string, ITaskRunner> runners, IIOProvider? io = null, string[]? fileKey = null) {
         _io = io;
         _fileKey = fileKey;
         _runners = runners;
-        _persistToDisk = _io != null && !string.IsNullOrEmpty(_fileKey);
+        _persistToDisk = _io != null && _fileKey is { Length: > 0 };
         //ReOpen();
     }
     static Guid _marker = Guid.Parse("a833eb7b-9cfb-4625-a7f3-d431e063fdc6");
-    static Dictionary<Guid, IBatch> loadFromDisk(Dictionary<string, ITaskRunner> runners, IIOProvider io, string fileKey) {
+    static Dictionary<Guid, IBatch> loadFromDisk(Dictionary<string, ITaskRunner> runners, IIOProvider io, string[] fileKey) {
         Dictionary<Guid, IBatch> batchesById = [];
         if (io.DoesNotExistOrIsEmpty(fileKey)) return batchesById;
         using var reader = io.OpenRead(fileKey, 0);
@@ -63,10 +63,10 @@ public class DefaultQueueStore : IQueueStore {
                         // ignore
                     }
                 } else {
-                    throw new Exception($"Invalid state flag {isStateFlag} in queue store file {fileKey}. Expected 10 (deleted) or 20 (not deleted).");
+                    throw new Exception($"Invalid state flag {isStateFlag} in queue store file {fileKey.AsKeyString()}. Expected 10 (deleted) or 20 (not deleted).");
                 }
             } catch (Exception ex) {
-                Console.WriteLine($"Error reading batch from queue store file {fileKey} at position {reader.Position}: {ex.Message}");
+                Console.WriteLine($"Error reading batch from queue store file {fileKey.AsKeyString()} at position {reader.Position}: {ex.Message}");
                 // ignore, move to next marker
             }
         }
@@ -190,7 +190,7 @@ public class DefaultQueueStore : IQueueStore {
     public void ReOpen() {
         Dispose();
         if (_persistToDisk) {
-            if (_io == null || string.IsNullOrEmpty(_fileKey)) throw new InvalidOperationException("IOProvider or fileKey not set.");
+            if (_io == null || _fileKey is not { Length: > 0 }) throw new InvalidOperationException("IOProvider or fileKey not set.");
             try {
                 _batchesById = loadFromDisk(_runners, _io, _fileKey);
             } catch {

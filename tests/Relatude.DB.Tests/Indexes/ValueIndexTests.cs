@@ -12,7 +12,7 @@ public class ValueIndexTests {
     public void TestingCacheKeyLogic() {
         var s = new SetRegister(100);
         var memIo = new IOProviderMemory();
-        var file = memIo.OpenAppend("test");
+        var file = memIo.OpenAppend(["test"]);
         var fileKeyUtil = new FileKeyUtility(null);
         var index = new ValueIndex<int>(s, "test", "Test", memIo, fileKeyUtil, (v, s) => s.WriteInt(v), (s) => s.ReadInt());
 

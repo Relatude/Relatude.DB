@@ -34,7 +34,7 @@ internal class WALFile : IDisposable {
     readonly static Guid _chainStateMarker = new Guid("b7c9d1f3-4a52-4b1e-9e0d-6c2f8a1d5e73"); // frames the version-chain section of the state file
     const long posOfFirstTransaction = 64; // start of first transaction
     internal Guid FileId { get; private set; } // a unique id for the file, created at start up and links til file to a statefile
-    internal string FileKey { get; private set; }
+    internal string[] FileKey { get; private set; }
     readonly Definition _definition;
     readonly RegisterNodeSegmentCallbackFunc _registerAndConfrimeNodeWrite; // callback to store to register byte position a node in log file
     readonly LogQueue _workQueue; // queue for write operations, to make sure they are written in bacthes for better performance
@@ -42,7 +42,7 @@ internal class WALFile : IDisposable {
     IIOProvider? _ioSecondary;
     IAppendStream _appendStream;
     IAppendStream? _secondaryAppendStream;
-    string? _secondaryFileKey;
+    string[]? _secondaryFileKey;
     long _lastTimestampID;
     long _formatVersion; // format version of the primary log file
     long _secondaryFormatVersion; // format version of the secondary log file
@@ -55,7 +55,7 @@ internal class WALFile : IDisposable {
     readonly object _chainLock = new();
     Dictionary<int, NodeSegment> _chainHeads = [];
     readonly Dictionary<int, NodeSegment> _secondaryChainHeads = [];
-    public WALFile(string fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, IIOProvider? ioSecondary, string? secondaryFileKey) {
+    public WALFile(string[] fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, IIOProvider? ioSecondary, string[]? secondaryFileKey) {
         FileKey = fileKey;
         _io = io;
         _definition = definition;
@@ -90,7 +90,7 @@ internal class WALFile : IDisposable {
             return _appendStream.Length;
         }
     }
-    IAppendStream getWriteStream(IIOProvider io, string fileKey, bool isSecondaryLog, out long formatVersion) {
+    IAppendStream getWriteStream(IIOProvider io, string[] fileKey, bool isSecondaryLog, out long formatVersion) {
         IAppendStream? s = null;
         try {
             s = io.OpenAppend(fileKey);
@@ -293,7 +293,7 @@ internal class WALFile : IDisposable {
         _appendStream.Dispose();
         if (_secondaryAppendStream != null) _secondaryAppendStream.Dispose();
     }
-    internal void ReplaceDataFile(string newFileKey, long lastTimestamp, Dictionary<int, NodeSegment> newFileChainHeads) {
+    internal void ReplaceDataFile(string[] newFileKey, long lastTimestamp, Dictionary<int, NodeSegment> newFileChainHeads) {
         FirstTimestamp = 0; // 0 means it will be read from file
         // transactions queued during a rewrite carry timestamps newer than the new file's last timestamp,
         // so the timestamp may only move forward, otherwise duplicate timestamps could be issued after the swap:
@@ -327,7 +327,7 @@ internal class WALFile : IDisposable {
     internal void AddInfo(DataStoreInfo s) {
         s.LogWritesQueuedTransactions = _workQueue.EstimateTransactionCount;
         s.LogWritesQueuedActions = _workQueue.GetQueueActionCount();
-        s.LogFileKey = FileKey;
+        s.LogFileKey = FileKey.AsKeyString();
         try {
             s.LogFileSize = _appendStream?.Length ?? 0;
         } catch { } // file may be closed....
@@ -335,11 +335,11 @@ internal class WALFile : IDisposable {
             s.SecondaryLogFileSize = _secondaryAppendStream?.Length ?? 0;
         } catch { } // file may be closed....
     }
-    internal void Copy(string newLogFileKey, IIOProvider? destinationIO = null) {
+    internal void Copy(string[] newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         try {
             if (destinationIO == null) destinationIO = _io;
-            if (newLogFileKey == FileKey && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
+            if (newLogFileKey.IsSameKey(FileKey) && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
             destinationIO.DeleteFileIfItExists(newLogFileKey);
             Close();
             using IReadStream readStream = _io.OpenRead(FileKey, 0);
@@ -539,14 +539,14 @@ internal class WALFile : IDisposable {
                 lock (_chainLock) _chainHeads.TryGetValue(id, out start);
                 skipFirst = false;
             }
-            walkChain(_appendStream, FileKey, start, skipFirst, nodeGuid, maxCount, seenTimestamps, results);
+            walkChain(_appendStream, FileKey.AsKeyString(), start, skipFirst, nodeGuid, maxCount, seenTimestamps, results);
         }
         if (_secondaryAppendStream != null && _secondaryFormatVersion >= _logVersioNumber && _secondaryFileKey != null) {
             NodeSegment head;
             lock (_chainLock) _secondaryChainHeads.TryGetValue(id, out head);
             // the secondary head is the current version, or one the primary walk already covered
             // (the primary is written first within a flush), so it is always skipped
-            walkChain(_secondaryAppendStream, _secondaryFileKey, head, skipFirst: true, nodeGuid, maxCount, seenTimestamps, results);
+            walkChain(_secondaryAppendStream, _secondaryFileKey.AsKeyString(), head, skipFirst: true, nodeGuid, maxCount, seenTimestamps, results);
         }
         return results;
     }

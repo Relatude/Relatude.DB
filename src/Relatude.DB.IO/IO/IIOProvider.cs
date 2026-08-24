@@ -1,31 +1,29 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.IO;
-// thread-safe interface for IO operations. 
+// thread-safe interface for IO operations.
 /// <summary>
 /// Thread safe interface for IO operations. Implementations should ensure that multiple threads can read/write/delete files concurrently without causing data corruption or inconsistent states. This involves using locks and synchronization mechanisms as needed.
+/// A file key is a string array: each element is a folder name and the last element is the file name.
+/// Listings (<see cref="FileMeta.Key"/>) carry the same key joined with '/' for display and matching;
+/// use <see cref="FileKeyExtensions.SplitKey"/> to turn one back into a path.
 /// </summary>
 public interface IIOProvider {
-    IReadStream OpenRead(string fileKey, long position);
     IReadStream OpenRead(string[] path, long position);
-    IAppendStream OpenAppend(string fileKey);
     IAppendStream OpenAppend(string[] path);
-    bool Exists(string fileKey);
     bool Exists(string[] path);
-    bool DoesNotExistOrIsEmpty(string fileKey);
+    bool DoesNotExistOrIsEmpty(string[] path);
     void DeleteFileIfItExists(string[] path);
-    void DeleteFileIfItExists(string fileKey);
     FileMeta[] GetFiles();
-    long GetFileSizeOrZeroIfUnknown(string file);
     long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
-    void RenameFile(string fileKey, string newFileKey);
+    void RenameFile(string[] path, string[] newPath);
     /// <summary>Whether <see cref="TruncateFile"/> is supported. Providers that cannot shorten a
     /// file in place (e.g. append-only blob storage) return false and throw from TruncateFile.</summary>
     bool CanTruncate { get; }
     /// <summary>Shortens the file to exactly <paramref name="newLength"/> bytes, discarding the
     /// rest. The file must exist, have no open streams, and be at least that long already.</summary>
-    void TruncateFile(string fileKey, long newLength);
+    void TruncateFile(string[] path, long newLength);
     void CloseAllOpenStreams();
     bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath);
     bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath);
@@ -37,68 +35,79 @@ public interface IIOProvider {
     /// File keys are folder qualified, so they can be passed straight back to the file operations.</summary>
     Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles);
 }
+/// <summary>Helpers for the string array file keys and their joined ('/'-separated) listing form.</summary>
+public static class FileKeyExtensions {
+    public const char KeyDelimiter = '/';
+    /// <summary>The listing/display form of a key: its segments joined with '/'.</summary>
+    public static string AsKeyString(this string[] path) => string.Join(KeyDelimiter, path);
+    /// <summary>Splits a joined listing key back into a path array.</summary>
+    public static string[] SplitKey(this string key) => key.Split(KeyDelimiter, StringSplitOptions.RemoveEmptyEntries);
+    /// <summary>The file name part of a key: its last segment.</summary>
+    public static string FileName(this string[] path) => path[^1];
+    public static bool IsSameKey(this string[]? path, string[]? other) {
+        if (ReferenceEquals(path, other)) return true;
+        if (path == null || other == null) return false;
+        return path.AsSpan().SequenceEqual(other, StringComparer.OrdinalIgnoreCase);
+    }
+    /// <summary>Whether the key matches the pattern: same number of segments, each segment matching
+    /// the corresponding pattern segment's wildcard.</summary>
+    public static bool MatchesPattern(this string[] key, string[] pattern) {
+        if (key.Length != pattern.Length) return false;
+        for (int i = 0; i < key.Length; i++) {
+            if (!key[i].MatchesWildcard(pattern[i])) return false;
+        }
+        return true;
+    }
+    public static string[] KeyOf(this FileMeta meta) => meta.Key.SplitKey();
+}
 public static class IIOProviderExtensions {
     public static async Task<FolderMeta[]> GetFoldersAsync(this IIOProvider io, string[] path, bool recursive, bool withFiles) {
         return (await io.GetFolderAsync(path, recursive, withFiles)).SubFolders;
     }
-    public static List<string> Search(this IIOProvider io, string? wildcardPattern = null) {
-        return io.GetFiles().Select(f => f.Key).FilterByWildcard(wildcardPattern).ToList();
-    }
-    public static List<FileMeta> SearchMeta(this IIOProvider io, string? wildcardPattern = null) {
-        return io.GetFiles().Where(f => wildcardPattern != null && f.Key.MatchesWildcard(wildcardPattern)).OrderBy(f => f.Key).ToList();
-    }
-    public static string ReadString(this IIOProvider io, string fileKey, string? fallback = null) {
-        if (io.GetFileSizeOrZeroIfUnknown(fileKey) == 0) return fallback ?? string.Empty;
-        using var stream = io.OpenRead(fileKey, 0);
-        return stream.ReadString();
+    /// <summary>The keys of all listed files matching the pattern, segment by segment (see
+    /// <see cref="FileKeyExtensions.MatchesPattern"/>), ordered by their joined form.</summary>
+    public static List<string[]> Search(this IIOProvider io, string[] wildcardPattern) {
+        return io.GetFiles().Select(f => f.KeyOf()).Where(k => k.MatchesPattern(wildcardPattern)).OrderBy(k => k.AsKeyString()).ToList();
     }
     public static string ReadString(this IIOProvider io, string[] path, string? fallback = null) {
         if (io.GetFileSizeOrZeroIfUnknown(path) == 0) return fallback ?? string.Empty;
         using var stream = io.OpenRead(path, 0);
         return stream.ReadString();
     }
-    public static void WriteString(this IIOProvider io, string fileKey, string content) {
-        io.DeleteFileIfItExists(fileKey);
-        using var stream = io.OpenAppend(fileKey);
-        stream.WriteString(content);
-    }
     public static void WriteString(this IIOProvider io, string[] path, string content) {
         io.DeleteFileIfItExists(path);
         using var stream = io.OpenAppend(path);
         stream.WriteString(content);
     }
-    public static byte[] ReadAllBytes(this IIOProvider io, string fileKey) {
-        using var stream = io.OpenRead(fileKey, 0);
+    public static byte[] ReadAllBytes(this IIOProvider io, string[] path) {
+        using var stream = io.OpenRead(path, 0);
         return stream.Read((int)stream.Length);
     }
-    public static void WriteAllBytes(this IIOProvider io, string fileKey, byte[] content) {
-        io.DeleteFileIfItExists(fileKey);
-        using var stream = io.OpenAppend(fileKey);
+    public static void WriteAllBytes(this IIOProvider io, string[] path, byte[] content) {
+        io.DeleteFileIfItExists(path);
+        using var stream = io.OpenAppend(path);
         stream.Append(content);
     }
-    public static string ReadAllTextUTF8(this IIOProvider io, string fileKey) {
-        using var stream = io.OpenRead(fileKey, 0);
+    public static string ReadAllTextUTF8(this IIOProvider io, string[] path) {
+        using var stream = io.OpenRead(path, 0);
         return stream.ReadUTF8StringNoLengthPrefix((int)stream.Length);
     }
-    public static void WriteAllTextUTF8(this IIOProvider io, string fileKey, string content) {
-        io.DeleteFileIfItExists(fileKey);
-        using var stream = io.OpenAppend(fileKey);
+    public static void WriteAllTextUTF8(this IIOProvider io, string[] path, string content) {
+        io.DeleteFileIfItExists(path);
+        using var stream = io.OpenAppend(path);
         stream.WriteUTF8StringNoLengthPrefix(content);
-    }
-    public static bool DoesNotExistsOrIsEmpty(this IIOProvider io, string fileKey) {
-        return io.GetFileSizeOrZeroIfUnknown(fileKey) == 0;
     }
     public static bool DoesNotExistsOrIsEmpty(this IIOProvider io, string[] path) {
         return io.GetFileSizeOrZeroIfUnknown(path) == 0;
     }
-    public static bool ExistsAndIsNotEmpty(this IIOProvider io, string fileKey) {
-        return io.GetFileSizeOrZeroIfUnknown(fileKey) > 0;
+    public static bool ExistsAndIsNotEmpty(this IIOProvider io, string[] path) {
+        return io.GetFileSizeOrZeroIfUnknown(path) > 0;
     }
-    public static void CopyIfItExistsAndOverwrite(this IIOProvider io, string fileKeySource, string fileKeyDest) {
-        if (io.DoesNotExistOrIsEmpty(fileKeySource)) return;
-        io.DeleteFileIfItExists(fileKeyDest);
-        using var readStream = io.OpenRead(fileKeySource, 0);
-        using var writeStream = io.OpenAppend(fileKeyDest);
+    public static void CopyIfItExistsAndOverwrite(this IIOProvider io, string[] pathSource, string[] pathDest) {
+        if (io.DoesNotExistOrIsEmpty(pathSource)) return;
+        io.DeleteFileIfItExists(pathDest);
+        using var readStream = io.OpenRead(pathSource, 0);
+        using var writeStream = io.OpenAppend(pathDest);
         if (readStream.Length > 1024 * 1024 * 100) { // max 100 mb this method
             throw new Exception("File too big to copy. ");
         }
@@ -128,26 +137,26 @@ public static class IIOProviderExtensions {
         if (path2.Length == 0) return path1;
         return path1 + delimiter + path2;
     }
-    public static void CopyFile(this IIOProvider io, string fromFileName, string toIoFileName) {
-        if (!io.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
-        using var fromReader = io.OpenRead(fromFileName, 0);
-        using var toWriter = io.OpenAppend(toIoFileName);
+    public static void CopyFile(this IIOProvider io, string[] fromPath, string[] toPath) {
+        if (!io.DoesNotExistsOrIsEmpty(toPath)) throw new Exception("File already exists");
+        using var fromReader = io.OpenRead(fromPath, 0);
+        using var toWriter = io.OpenAppend(toPath);
         using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         readStream.CopyTo(writeStream);
     }
-    public static void CopyFile(this IIOProvider fromIo, IIOProvider toIo, string fromFileName, string toIoFileName) {
-        if (!toIo.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
-        using var fromReader = fromIo.OpenRead(fromFileName, 0);
-        using var toWriter = toIo.OpenAppend(toIoFileName);
+    public static void CopyFile(this IIOProvider fromIo, IIOProvider toIo, string[] fromPath, string[] toPath) {
+        if (!toIo.DoesNotExistsOrIsEmpty(toPath)) throw new Exception("File already exists");
+        using var fromReader = fromIo.OpenRead(fromPath, 0);
+        using var toWriter = toIo.OpenAppend(toPath);
         using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         readStream.CopyTo(writeStream);
     }
-    public static void CopyFile(this IIOProvider fromIo, IIOProvider toIo, string fromFileName, string toIoFileName, Action<int> progress) {
-        if (!toIo.DoesNotExistsOrIsEmpty(toIoFileName)) throw new Exception("File already exists");
-        using var fromReader = fromIo.OpenRead(fromFileName, 0);
-        using var toWriter = toIo.OpenAppend(toIoFileName);
+    public static void CopyFile(this IIOProvider fromIo, IIOProvider toIo, string[] fromPath, string[] toPath, Action<int> progress) {
+        if (!toIo.DoesNotExistsOrIsEmpty(toPath)) throw new Exception("File already exists");
+        using var fromReader = fromIo.OpenRead(fromPath, 0);
+        using var toWriter = toIo.OpenAppend(toPath);
         using var readStream = ReadStreamWrapper.Wrap(fromReader);
         using var writeStream = new WriteStreamWrapper(toWriter);
         var totalLength = readStream.Length;

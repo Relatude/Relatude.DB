@@ -8,7 +8,7 @@ namespace Relatude.DB.Tasks;
 public class RewriteTask : TaskData {
     public bool HotSwapToNewFile;
     public bool DeleteOldDbFilesAfterHotSwap;
-    required public string? NewLogFileKey;
+    required public string[]? NewLogFileKey;
     required public IIOProvider IO;
     public bool IsBackup;
     public bool Truncate = true;
@@ -22,9 +22,9 @@ public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
             }
             var sw = Stopwatch.StartNew();
             if (t.IsBackup) {
-                db.Log(SystemLogEntryType.Backup, "Backup started: " + t.NewLogFileKey);
+                db.Log(SystemLogEntryType.Backup, "Backup started: " + t.NewLogFileKey.AsKeyString());
             } else {
-                db.Log(SystemLogEntryType.Info, "Rewrite started: " + t.NewLogFileKey);
+                db.Log(SystemLogEntryType.Info, "Rewrite started: " + t.NewLogFileKey.AsKeyString());
             }
             if (t.Truncate) {
                 db.RewriteStore(t.HotSwapToNewFile, t.NewLogFileKey, t.IO);

@@ -13,8 +13,8 @@ internal class Log : IDisposable {
     readonly LogSettings _setting;
     readonly IIOProvider _io;
     readonly LogTextStream _logTextStream;
-    readonly string _statFileKey;
-    readonly string _backupStatFile;
+    readonly string[] _statFileKey;
+    readonly string[] _backupStatFile;
     static string getStatisticsFileKey(string property, StatisticsInfo info, LogSettings settings) {
         // a unique that prevents collisions between different statistical settings
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
@@ -113,14 +113,14 @@ internal class Log : IDisposable {
     }
     static byte[] getStatBytes(IStatistics s) {
         var io = new IOProviderMemory();
-        using (var stream = io.OpenAppend("stat")) s.SaveState(stream);
-        using var read = io.OpenRead("stat", 0);
+        using (var stream = io.OpenAppend(["stat"])) s.SaveState(stream);
+        using var read = io.OpenRead(["stat"], 0);
         return read.Read((int)read.Length);
     }
     static void loadStatStateFromBytes(IStatistics s, byte[] bytes) {
         var io = new IOProviderMemory();
-        using (var stream = io.OpenAppend("stat")) stream.Append(bytes);
-        using var read = io.OpenRead("stat", 0);
+        using (var stream = io.OpenAppend(["stat"])) stream.Append(bytes);
+        using var read = io.OpenRead(["stat"], 0);
         s.LoadState(read);
     }
     void loadStatisticsState() {
@@ -177,7 +177,7 @@ internal class Log : IDisposable {
     static readonly Guid _hasEndMarker = Guid.Parse("95a2c0ae-c9f2-4e2a-b2c0-0b65991f759f");
     static readonly Guid _endMarker = Guid.Parse("f44e7f3f-5a86-4739-9b10-229cc624776c");
     // returns true if file is confirmed to be invalid, but only if it can be confirmed ( is new format and has end markers)
-    static bool canConfirmFileIsNotValid(IIOProvider io, string fileKey) {
+    static bool canConfirmFileIsNotValid(IIOProvider io, string[] fileKey) {
         var bytesForTwoGuids = 16 + 16;
         var fileLength = io.GetFileSizeOrZeroIfUnknown(fileKey);
         if (fileLength < bytesForTwoGuids) return false; // indeterminate, so cannot confirm invalid

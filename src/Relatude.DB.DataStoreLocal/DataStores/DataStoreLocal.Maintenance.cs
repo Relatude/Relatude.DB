@@ -53,7 +53,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             DeRegisterActivity(activityId);
         }
     }
-    public void CopyStore(string newLogFileKey, IIOProvider? destinationIO = null) {
+    public void CopyStore(string[] newLogFileKey, IIOProvider? destinationIO = null) {
         lock (_isRewritingOrCopyingLock) {
             if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
             _isRewritingOrCopying = true;
@@ -99,9 +99,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             foreach (var f in _fileKeys.WAL_GetAllFileKeys(_io)) {
-                if (_wal.FileKey != f) {
+                if (!_wal.FileKey.IsSameKey(f)) {
                     _io.DeleteFileIfItExists(f);
-                    LogInfo($"Deleted old log file {f}. ");
+                    LogInfo($"Deleted old log file {f.AsKeyString()}. ");
                     fileDeleted++;
                 }
             }
@@ -328,7 +328,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
 
             lock (_isRewritingOrCopyingLock) {
-                info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey : null;
+                info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey.AsKeyString() : null;
             }
 
             _sets.AddInfo(info);

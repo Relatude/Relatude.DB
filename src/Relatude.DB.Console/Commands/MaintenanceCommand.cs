@@ -1,4 +1,4 @@
-using Relatude.DB.DataStores;
+﻿using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer;
 
@@ -43,7 +43,7 @@ public static class MaintenanceCommand {
                     var deleted = args.Flag("delete-old") ? datastore.DeleteOldLogs() : 0;
                     var after = host.Info();
                     Output.WriteLine("Log truncated: " + Output.Bytes(before.LogFileSize) + " -> " + Output.Bytes(after.LogFileSize)
-                        + "  (" + (after.LogFileKey ?? newKey) + ")");
+                        + "  (" + (after.LogFileKey ?? newKey.AsKeyString()) + ")");
                     Output.WriteLine(deleted > 0 ? deleted + " old log file(s) deleted."
                         : "The previous log file is kept" + (args.Flag("delete-old") ? "." : ", pass --delete-old to remove it."));
                     break;
@@ -77,11 +77,11 @@ public static class MaintenanceCommand {
         var truncate = args.Flag("truncate");
         var keepForever = args.Flag("keep-forever");
         var fileKey = datastore.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
-        Output.Info("Writing backup to " + fileKey + "...");
+        Output.Info("Writing backup to " + fileKey.AsKeyString() + "...");
         if (truncate) datastore.RewriteStore(false, fileKey, io); // rewritten: current state only
         else datastore.CopyStore(fileKey, io); // copied: the whole history
         var size = io.GetFileSizeOrZeroIfUnknown(fileKey);
-        Output.WriteLine("Backup written: " + fileKey + (size > 0 ? "  " + Output.Bytes(size) : string.Empty)
+        Output.WriteLine("Backup written: " + fileKey.AsKeyString() + (size > 0 ? "  " + Output.Bytes(size) : string.Empty)
             + (truncate ? "  (current state only)" : "  (full history)")
             + (keepForever ? "  (excluded from backup rotation)" : string.Empty));
     }
@@ -114,7 +114,7 @@ public static class MaintenanceCommand {
                 if (io.DoesNotExistOrIsEmpty(key)) continue;
                 io.DeleteFileIfItExists(key);
                 deleted++;
-                Output.Detail("Deleted " + key);
+                Output.Detail("Deleted " + key.AsKeyString());
             }
         }
         Output.WriteLine("Deleted " + deleted + " state and index file(s). The next start rebuilds them from the log.");
