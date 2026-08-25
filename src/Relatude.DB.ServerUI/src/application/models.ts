@@ -31,6 +31,15 @@ export interface FolderSize {
     fileCount: number
     folderCount: number
 }
+export interface UnreferencedFilesProgress {
+    state: "running" | "done" | "cancelled" | "failed"
+    description: string
+    percent: number
+    error?: string
+    totalBytesDeleted: number
+    totalFilesDeleted: number
+    totalFoldersDeleted: number
+}
 export interface SimpleStoreContainer {
     id: string
     name: string

@@ -91,6 +91,27 @@ public class DeleteUnreferencedTests {
     }
 
     [TestMethod]
+    public async Task DeleteUnreferenced_KeepsRecentFilesAndReportsProgress() {
+        var io = new IOProviderMemory();
+        using var store = new MultiFileStore(Guid.NewGuid(), io, 2);
+        await insert(store, Guid.Parse("11111111-0000-0000-0000-000000000000"), "a.txt", 10);
+        await insert(store, Guid.Parse("22222222-0000-0000-0000-000000000000"), "b.txt", 20);
+        var progress = new List<(long processed, long total)>();
+        // everything is unreferenced, but both files were just created so the cutoff keeps them
+        var result = await store.DeleteUnreferenced(new HashSet<string>(),
+            keepFilesNewerThanUtc: DateTime.UtcNow.AddMinutes(-5),
+            onProgress: (processed, total) => progress.Add((processed, total)));
+        Assert.AreEqual(0, result.TotalFilesDeleted);
+        Assert.AreEqual(0, result.TotalFoldersDeleted);
+        Assert.AreEqual(2, io.GetFiles().Length);
+        Assert.AreEqual(2, progress.Count);
+        Assert.AreEqual((2L, 2L), progress[^1]);
+        // with the cutoff in the future no file counts as recent, so both go
+        var deleted = await store.DeleteUnreferenced(new HashSet<string>(), keepFilesNewerThanUtc: DateTime.UtcNow.AddMinutes(5));
+        Assert.AreEqual(2, deleted.TotalFilesDeleted);
+    }
+
+    [TestMethod]
     public async Task DeleteUnreferenced_ComparesReferencesCaseInsensitively() {
         var io = new IOProviderMemory();
         using var store = new MultiFileStore(Guid.NewGuid(), io, 2);

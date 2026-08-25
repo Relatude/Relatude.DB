@@ -334,6 +334,72 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var io = server.GetIO(toIoId);
             io.CopyFile(fromFileName.SplitKey(), toIoFileName.SplitKey());
         });
+
+        // counting/deleting unreferenced files can take a while on big stores, so it runs as a
+        // background job the client polls for progress and can cancel
+        app.MapPost(path("delete-unreferenced-files-start"), (Guid storeId, bool countOnly) => {
+            if (db(storeId).Datastore is not DataStoreLocal local) throw new Exception("Only supported for local data stores. ");
+            var job = new UnreferencedFilesJob();
+            lock (_unreferencedFilesJobs) {
+                if (_unreferencedFilesJobs.Values.Any(j => j.StoreId == storeId && j.State == UnreferencedFilesJob.Running))
+                    throw new Exception("An unreferenced files job is already running for this store. ");
+                foreach (var old in _unreferencedFilesJobs.Values.Where(j => j.State != UnreferencedFilesJob.Running && DateTime.UtcNow - j.StartedUtc > TimeSpan.FromHours(1)).ToArray())
+                    _unreferencedFilesJobs.Remove(old.Id);
+                job.StoreId = storeId;
+                _unreferencedFilesJobs[job.Id] = job;
+            }
+            _ = Task.Run(async () => {
+                try {
+                    job.Result = await local.DeleteUnreferencedFilesAsync(countOnly, (description, percent) => {
+                        job.Description = description;
+                        job.Percent = percent;
+                    }, job.Cancellation.Token);
+                    job.State = UnreferencedFilesJob.Done;
+                } catch (OperationCanceledException) {
+                    job.State = UnreferencedFilesJob.Cancelled;
+                } catch (Exception e) {
+                    job.Error = e.Message;
+                    job.State = UnreferencedFilesJob.Failed;
+                }
+            });
+            return new { JobId = job.Id };
+        });
+        app.MapPost(path("delete-unreferenced-files-progress"), (Guid storeId, Guid jobId) => {
+            var job = getUnreferencedFilesJob(jobId);
+            return new {
+                job.State,
+                job.Description,
+                job.Percent,
+                job.Error,
+                TotalBytesDeleted = job.Result?.TotalBytesDeleted ?? 0,
+                TotalFilesDeleted = job.Result?.TotalFilesDeleted ?? 0,
+                TotalFoldersDeleted = job.Result?.TotalFoldersDeleted ?? 0,
+            };
+        });
+        app.MapPost(path("delete-unreferenced-files-cancel"), (Guid storeId, Guid jobId) => getUnreferencedFilesJob(jobId).Cancellation.Cancel());
+    }
+    class UnreferencedFilesJob {
+        public const string Running = "running";
+        public const string Done = "done";
+        public const string Cancelled = "cancelled";
+        public const string Failed = "failed";
+        public Guid Id { get; } = Guid.NewGuid();
+        public Guid StoreId;
+        public DateTime StartedUtc { get; } = DateTime.UtcNow;
+        public CancellationTokenSource Cancellation { get; } = new();
+        // written by the job task, read by polling requests; torn values are harmless for display
+        public volatile string State = Running;
+        public volatile string Description = "";
+        public volatile int Percent;
+        public volatile string? Error;
+        public DataStores.Files.DeleteUnReferenceResult? Result;
+    }
+    static readonly Dictionary<Guid, UnreferencedFilesJob> _unreferencedFilesJobs = [];
+    static UnreferencedFilesJob getUnreferencedFilesJob(Guid jobId) {
+        lock (_unreferencedFilesJobs) {
+            if (_unreferencedFilesJobs.TryGetValue(jobId, out var job)) return job;
+            throw new Exception("Unreferenced files job not found. ");
+        }
     }
     void mapServer(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-store-containers"), () => {

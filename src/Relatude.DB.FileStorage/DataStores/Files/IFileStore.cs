@@ -44,9 +44,12 @@ public interface IFileStoreDeleteUnreferenced : IFileStore {
     Task<string> GetInternalReference(FileValue value);
     /// <summary>Deletes every file in the store whose internal reference is not in
     /// <paramref name="validInternalReferences"/>, along with any folders left empty. The set must
-    /// cover all files worth keeping when the call starts, including in-flight uploads, and nothing
-    /// may be inserted while it runs: a file inserted after the set was built is not in it and would
-    /// be deleted as unreferenced. With <paramref name="countOnly"/> nothing is deleted and the
-    /// result reports what a real run would have deleted.</summary>
-    Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, CancellationToken cancellationToken = default);
+    /// cover all files worth keeping when the call starts, including in-flight uploads; files created
+    /// on or after <paramref name="keepFilesNewerThanUtc"/> are treated as referenced, which is what
+    /// lets the call run while inserts are happening - without a cutoff nothing may be inserted while
+    /// it runs, as a file inserted after the set was built is not in it and would be deleted as
+    /// unreferenced. With <paramref name="countOnly"/> nothing is deleted and the result reports what
+    /// a real run would have deleted. <paramref name="onProgress"/> is called as (processed, total)
+    /// file counts while the store is scanned.</summary>
+    Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, DateTime? keepFilesNewerThanUtc = null, Action<long, long>? onProgress = null, CancellationToken cancellationToken = default);
 }

@@ -124,13 +124,20 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
     }
 
     public Task<string> GetInternalReference(FileValue value) => Task.FromResult(getFullPath(value).AsKeyString());
-    public async Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, CancellationToken cancellationToken = default) {
+    public async Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, DateTime? keepFilesNewerThanUtc = null, Action<long, long>? onProgress = null, CancellationToken cancellationToken = default) {
         // rebuilt with the file key comparer, as the caller's set may compare ordinally
         var valid = new HashSet<string>(validInternalReferences, StringComparer.OrdinalIgnoreCase);
         var root = await _ioProvider.GetFolderAsync(_basePath, true, true);
         long bytesDeleted = 0;
         int filesDeleted = 0;
         int foldersDeleted = 0;
+        long totalFiles = 0;
+        long processedFiles = 0;
+        void countFiles(FolderMeta folder) {
+            totalFiles += folder.Files.Length;
+            foreach (var subFolder in folder.SubFolders) countFiles(subFolder);
+        }
+        countFiles(root);
         // depth first: unreferenced files first, then any subfolder left empty. A folder reports itself
         // empty instead of deleting itself so the parent can take it; the store root is always kept.
         bool deleteIn(FolderMeta folder, string[] folderPath) {
@@ -147,7 +154,10 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             }
             foreach (var file in folder.Files) {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (valid.Contains(file.Key)) { empty = false; continue; }
+                processedFiles++;
+                onProgress?.Invoke(processedFiles, totalFiles);
+                var keep = valid.Contains(file.Key) || (keepFilesNewerThanUtc.HasValue && file.CreationTimeUtc >= keepFilesNewerThanUtc.Value);
+                if (keep) { empty = false; continue; }
                 if (!countOnly) _ioProvider.DeleteFileIfItExists(file.KeyOf());
                 bytesDeleted += file.Size;
                 filesDeleted++;

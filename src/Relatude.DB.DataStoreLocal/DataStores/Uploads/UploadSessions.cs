@@ -50,4 +50,7 @@ internal class UploadSessions(DataStoreLocal store) {
             _uploadSessions[fileValue.FileId] = new UploadSession(fileValue);
         }
     }
+    public FileValue[] GetActiveFileValues() {
+        lock (_uploadSessions) return [.. _uploadSessions.Values.Select(s => s.FileValue)];
+    }
 }

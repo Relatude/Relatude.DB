@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import FileList from './fileList';
+import UnreferencedFiles from './unreferencedFiles';
 import { useApp } from '../../start/useApp';
 import { observer } from 'mobx-react-lite';
 import { Box, Group } from '@mantine/core';
@@ -26,6 +27,9 @@ export const component = (P: { storeId: string }) => {
                 </> : null */}                
                 <Group>
                     <FileList storeId={app.ui.selectedStoreId!} />
+                </Group>
+                <Group mt="md">
+                    <UnreferencedFiles storeId={app.ui.selectedStoreId!} disabled={!app.ui.isCurrentStoreOpen()} />
                 </Group>
 
             </Box>

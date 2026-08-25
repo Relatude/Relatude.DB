@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize, UnreferencedFilesProgress } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -158,6 +158,9 @@ class MaintenanceAPI {
         this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });
+    deleteUnreferencedFilesStart = async (storeId: string, countOnly: boolean) => (await this.server.queryJson<{ jobId: string }>(this.controller, 'delete-unreferenced-files-start', { storeId, countOnly: countOnly ? "true" : "false" })).jobId;
+    deleteUnreferencedFilesProgress = (storeId: string, jobId: string) => this.server.queryJson<UnreferencedFilesProgress>(this.controller, 'delete-unreferenced-files-progress', { storeId, jobId });
+    deleteUnreferencedFilesCancel = (storeId: string, jobId: string) => this.server.execute(this.controller, 'delete-unreferenced-files-cancel', { storeId, jobId });
     deleteFolder = (storeId: string, ioId: string, folderName: string) => this.server.execute(this.controller, 'delete-folder', { storeId, ioId, folderName });
     initiateUpload = async (storeId: string) => (await this.server.queryJson<{ value: string }>(this.controller, 'initiate-upload', { storeId })).value;
     uploadPart = (uploadId: string, data: ArrayBuffer) => this.server.upload(this.controller, 'upload-part', { uploadId }, data);

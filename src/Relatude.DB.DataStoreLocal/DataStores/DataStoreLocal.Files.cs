@@ -198,4 +198,88 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = _uploads.getMultiPartStore(session);
         await fileStore.DeleteAsync(session.FileValue);
     }
+
+    // uploads insert into the file store before the transaction referencing them executes, so a file
+    // this young may look unreferenced while it is being linked up; such files are always kept
+    static readonly TimeSpan _unreferencedFileGracePeriod = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// Deletes every file in the container's file stores that no current node references, along with
+    /// folders left empty. Only stores implementing <see cref="IFileStoreDeleteUnreferenced"/> are
+    /// cleaned. References are collected from every node including all revisions and embedded
+    /// objects, plus in-flight uploads, and files younger than a grace period are always kept, so
+    /// the call is safe while the store is in use. With <paramref name="countOnly"/> nothing is
+    /// deleted and the result reports what a real run would have deleted. <paramref name="onProgress"/>
+    /// is called with a phase description and a 0-100 percentage.
+    /// </summary>
+    public async Task<DeleteUnReferenceResult> DeleteUnreferencedFilesAsync(bool countOnly, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
+        validateDatabaseState();
+        var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, countOnly ? "Counting unreferenced files" : "Deleting unreferenced files");
+        try {
+            var lastPct = -1;
+            void report(string description, int pct) {
+                if (pct == lastPct) return;
+                lastPct = pct;
+                UpdateActivity(activityId, description, pct);
+                onProgress?.Invoke(description, pct);
+            }
+            var cutoffUtc = DateTime.UtcNow - _unreferencedFileGracePeriod;
+            var stores = _fileStores.Values.Append(_defaultFileStore).DistinctBy(s => s.Id).OfType<IFileStoreDeleteUnreferenced>().ToArray();
+            if (stores.Length == 0) return new DeleteUnReferenceResult(0, 0, 0);
+            var validByStore = stores.ToDictionary(s => s.Id, _ => new HashSet<string>());
+            async Task addReference(FileValue fileValue) {
+                var storageId = fileValue.StorageId == Guid.Empty ? _defaultFileStore.Id : fileValue.StorageId;
+                if (!validByStore.TryGetValue(storageId, out var references)) return; // store missing or not cleanable
+                references.Add(await ((IFileStoreDeleteUnreferenced)getFileStore(storageId)).GetInternalReference(fileValue));
+            }
+            var fileValues = new List<FileValue>();
+            var ids = _nodes.Snapshot().Select(s => s.nodeId).ToArray();
+            const int batchSize = 1000;
+            for (var offset = 0; offset < ids.Length; offset += batchSize) {
+                cancellationToken.ThrowIfCancellationRequested();
+                fileValues.Clear();
+                var end = Math.Min(offset + batchSize, ids.Length);
+                _lock.EnterReadLock();
+                try {
+                    for (var i = offset; i < end; i++) {
+                        if (_nodes.TryGet(ids[i], out var node, out _)) collectFileValues(node, fileValues);
+                    }
+                } finally {
+                    _lock.ExitReadLock();
+                }
+                foreach (var fileValue in fileValues) await addReference(fileValue);
+                report("Collecting file references", (int)(end * 50L / ids.Length));
+            }
+            foreach (var fileValue in _uploads.GetActiveFileValues()) await addReference(fileValue);
+            long bytes = 0; int files = 0, folders = 0;
+            for (var i = 0; i < stores.Length; i++) {
+                cancellationToken.ThrowIfCancellationRequested();
+                var store = stores[i];
+                var storeNo = i; // captured by the progress callback below
+                var description = (countOnly ? "Scanning file store " : "Cleaning file store ") + (i + 1) + " of " + stores.Length;
+                var result = await store.DeleteUnreferenced(validByStore[store.Id], countOnly, cutoffUtc,
+                    (processed, total) => report(description, 50 + (int)((storeNo + (total == 0 ? 1.0 : (double)processed / total)) * 50 / stores.Length)),
+                    cancellationToken);
+                bytes += result.TotalBytesDeleted;
+                files += result.TotalFilesDeleted;
+                folders += result.TotalFoldersDeleted;
+            }
+            report(countOnly ? "Count completed" : "Cleanup completed", 100);
+            return new DeleteUnReferenceResult(bytes, files, folders);
+        } finally {
+            DeRegisterActivity(activityId);
+        }
+    }
+    static void collectFileValues(INodeData node, List<FileValue> into) {
+        if (node is NodeDataRevisions revisions) { // revision containers hold no values of their own
+            foreach (var revision in revisions.Revisions) collectFileValues(revision, into);
+            return;
+        }
+        foreach (var entry in node.Values) {
+            if (entry.Value is FileValue fileValue) {
+                if (!fileValue.IsEmpty) into.Add(fileValue);
+            } else if (entry.Value is IInnerNodeDataMap innerNodes) {
+                foreach (var inner in innerNodes) collectFileValues(inner, into);
+            }
+        }
+    }
 }
