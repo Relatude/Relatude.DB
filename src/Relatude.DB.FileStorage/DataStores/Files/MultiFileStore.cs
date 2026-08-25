@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 namespace Relatude.DB.DataStores.Files;
 
-public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport {
+public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport, IFileStoreDeleteUnreferenced {
     readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }

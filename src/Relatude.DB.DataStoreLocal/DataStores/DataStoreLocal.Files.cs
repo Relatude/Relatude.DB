@@ -148,7 +148,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
-        return fileStore.SupportsMultipartUploads();
+        return fileStore is IFileStoreMultiPartSupport;
     }
     public async Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
         await _uploads.removeOldSessions();

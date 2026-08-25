@@ -11,7 +11,6 @@ public class FileInsertResult(string fileHash, byte[] storeKey, long length) {
 
 public interface IFileStore : IDisposable {
     Guid Id { get; }
-    //Task<Stream> OpenReadStream(FileValue value);
     Task ExtractAsync(FileValue value, Stream outStream);
     Task ExtractAsync(FileValue value, IAppendStream outStream);
     Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName = null);
@@ -19,7 +18,6 @@ public interface IFileStore : IDisposable {
     Task<bool> ContainsFileAsync(FileValue fileValue);
     Task DeleteAsync(FileValue value);
     long GetSizeForMetrics();
-    bool SupportsMultipartUploads() => this is IFileStoreMultiPartSupport;
     bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string localFilePath);
 }
 public static class FileStoreExtensions {
@@ -33,4 +31,12 @@ public static class FileStoreExtensions {
 public interface IFileStoreMultiPartSupport : IFileStore {
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
     Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer, int length);
+}
+public class DeleteUnReferenceResult {
+    public long TotalBytesDeleted { get; }
+    public int TotalFilesDeleted { get; }
+}
+public interface IFileStoreDeleteUnreferenced : IFileStore {
+    Task<string> GetInternalReference(FileValue value);
+    Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<Guid> validInternalReferences, CancellationToken cancellationToken = default);
 }
