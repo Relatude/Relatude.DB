@@ -50,7 +50,10 @@ public class FFMpegVideoConverter : IFileConverter {
     public bool tryGetConverter(FileFormat from, FileFormat to, [MaybeNullWhen(false)] out IFileConverter converter) {
         return engine.ConverterLibrary.TryGetConverter(new FormatPair(from, to), out converter);
     }
-    string getTempPath(FileFormat format) => Path.Combine(engine.LocalTempFolderPath, $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(format)}");
+    string getTempPath(FileFormat format) {
+        Directory.CreateDirectory(engine.LocalTempFolderPath); // ffmpeg does not create missing output folders
+        return Path.Combine(engine.LocalTempFolderPath, $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(format)}");
+    }
 
     static async Task ensureFFMpegBinAsync() {
         if (_ffmpegBinReady) return;

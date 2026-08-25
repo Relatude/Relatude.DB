@@ -42,8 +42,11 @@ public class FileConversionEngine : IDisposable {
         } else {
             Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. 0 files to delete. ");
         }
-        //if (!Directory.Exists(_localTempFolderPath)) 
-        //    Directory.CreateDirectory(_localTempFolderPath);
+        try {
+            Directory.CreateDirectory(_localTempFolderPath);
+        } catch (Exception ex) {
+            Store.LogError("Failed to recreate temp folder for file conversions. ", ex);
+        }
     }
     bool tryReserveWork(ProgressEntry entry) {
         try {
