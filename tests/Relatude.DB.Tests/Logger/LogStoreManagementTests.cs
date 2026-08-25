@@ -199,8 +199,8 @@ public class LogStoreManagementTests {
         for (var i = 0; i < 220; i++) store.Record("test", H.Entry(day1.AddSeconds(i), ("p", payload))); // ~0.9 mb
         store.Record("test", H.Entry(DateTime.UtcNow, ("p", "current")));
         store.EnforceLimits(); // ~1.8 mb total, limit 1 mb: only the oldest full day-file fits the cut
-        var day2Key = H.FileKeys.Logger_FileNameBin("test", FileInterval.Day, day2.Date);
-        var day1Key = H.FileKeys.Logger_FileNameBin("test", FileInterval.Day, day1.Date);
+        var day2Key = FileKeyUtility.Logger_FileNameBin("test", FileInterval.Day, day2.Date);
+        var day1Key = FileKeyUtility.Logger_FileNameBin("test", FileInterval.Day, day1.Date);
         Assert.IsTrue(io.DoesNotExistOrIsEmpty(day2Key));
         Assert.IsTrue(io.ExistsAndIsNotEmpty(day1Key));
         Assert.AreEqual(day1, store.GetTimestampOfFirstRecord("test"));

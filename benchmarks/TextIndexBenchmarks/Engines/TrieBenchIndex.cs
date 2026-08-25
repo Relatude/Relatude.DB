@@ -15,16 +15,14 @@ namespace TextIndexBenchmarks.Engines;
 public sealed class TrieBenchIndex : IBenchWordIndex {
     readonly WordIndexTrie _trie;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
-    readonly string _dir;
+readonly string _dir;
     readonly Guid _walId;
     public TrieBenchIndex(string dir, Guid walId, int minWordLength, int maxWordLength, bool prefix, bool infix, bool reopen) {
         Directory.CreateDirectory(dir);
         _dir = dir;
         _walId = walId;
         _io = new IOProviderDisk(dir);
-        _fileKeys = new FileKeyUtility(null);
-        _trie = new WordIndexTrie(new SetRegister(0), "bench", "bench", _io, _fileKeys, minWordLength, maxWordLength, prefix, infix);
+_trie = new WordIndexTrie(new SetRegister(0), "bench", "bench", _io, minWordLength, maxWordLength, prefix, infix);
         // the store applies the same wrapper to memory indexes (see IndexFactory)
         Index = new OptimizedWordIndex(_trie);
         if (reopen) _trie.ReadStateForMemoryIndexes(walId);

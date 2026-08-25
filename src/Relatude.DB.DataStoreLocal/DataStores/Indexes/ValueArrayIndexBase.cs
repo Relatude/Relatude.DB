@@ -15,16 +15,14 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     readonly ValueArrayInternTable<T> _arrays = new();
     readonly SetRegister _sets;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
     // true whenever the in-memory state may differ from the persisted body; starts true so an
     // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
     bool _changedSinceLastSave = true;
-    internal ValueArrayIndexBase(Definition def, string uniqueKey, string freindlyName, IIOProvider io, FileKeyUtility fileKey) {
+    internal ValueArrayIndexBase(Definition def, string uniqueKey, string freindlyName, IIOProvider io) {
         _nodeIdByValue = new(def.Sets);
         UniqueKey = uniqueKey;
         FriendlyName = freindlyName;
         _io = io;
-        _fileKeys = fileKey;
         _sets = def.Sets;
     }
     public string UniqueKey { get; private set; }
@@ -93,14 +91,14 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         // same on-disk format as before normalization (one nodeId + array per node), so existing
@@ -117,7 +115,7 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         var count_valueByNodeId = stream.ReadVerifiedInt();

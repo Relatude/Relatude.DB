@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;

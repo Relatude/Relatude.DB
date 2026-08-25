@@ -4,17 +4,16 @@ using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
 
 public static class AIProviderFactory {
-    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, string? filePrefix) {
+    public static AIEngine Create(AIProviderSettings settings, string? dataFolder) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
-            var fileKeys = new FileKeyUtility(filePrefix);
-            var fileKey = fileKeys.GetAiCacheFileKey(settings.CacheType);
+            var fileKey = FileKeyUtility.GetAiCacheFileKey(settings.CacheType);
             if (fileKey != null) {
                 filePath = Path.Combine([dataFolder, .. fileKey]);
                 // the cache file lives in the indexes folder; the cache stores do not create it themselves
                 var dir = Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                moveLegacyCacheFileIfAny(dataFolder, fileKeys.GetLegacyRootAiCacheFileName(settings.CacheType), filePath);
+                moveLegacyCacheFileIfAny(dataFolder, FileKeyUtility.GetLegacyRootAiCacheFileName(settings.CacheType), filePath);
             }
         }
         IEmbeddingCache? cache = settings.CacheType switch {

@@ -11,7 +11,7 @@ namespace KvBenchmarks.Engines;
 /// value for point lookups, and an ordered tree keyed by the composite (value bytes + id) for
 /// range scans. Writes go straight to the trees (ZoneTree WAL = AsyncCompressed); the engine's
 /// transactions only group work, rollback is not supported, and durable commits save metadata
-/// (best effort â€” ZoneTree has no group-commit primitive).
+/// (best effort — ZoneTree has no group-commit primitive).
 /// </summary>
 public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
 {
@@ -46,7 +46,7 @@ public sealed class ZoneTreeEngine : IStorageEngine, IBenchFlush, IDisposable
     }
 
     /// <summary>
-    /// The unordered layout: the id → value tree alone, without the composite (value, id) tree
+    /// The unordered layout: the id ? value tree alone, without the composite (value, id) tree
     /// <see cref="OpenOrCreateSortedIntIndex{T}"/> maintains beside it. Every write then touches one LSM
     /// tree instead of two, and ordered queries are gone rather than slow.
     /// </summary>

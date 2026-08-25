@@ -164,7 +164,7 @@ public class LogStoreRecordExtractTests {
         var store = H.Store(io, H.Settings(configure: s => s.EnableLogTextFormat = true));
         store.Record("test", H.Entry(H.T0, ("a", "va\tl"), ("b", "x\ny"), ("n", 42)));
         store.Dispose();
-        var txtKey = H.FileKeys.Logger_FileNameTxt("test", FileInterval.Day, H.T0.Date);
+        var txtKey = FileKeyUtility.Logger_FileNameTxt("test", FileInterval.Day, H.T0.Date);
         Assert.IsTrue(io.ExistsAndIsNotEmpty(txtKey));
         var txt = io.ReadAllTextUTF8(txtKey);
         StringAssert.Contains(txt, "2026-06-01 10:00:00.000");

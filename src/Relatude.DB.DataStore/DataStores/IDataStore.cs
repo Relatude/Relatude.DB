@@ -156,7 +156,6 @@ public interface IDataStore : IDisposable {
     Task<Guid> RequestLockAsync(Guid nodeId, double lockDurationInMs, double maxWaitTimeInMs);
     Task<Guid> RequestLockAsync(int nodeId, double lockDurationInMs, double maxWaitTimeInMs);
     void ReleaseLock(Guid lockId);
-    FileKeyUtility FileKeys { get; }
     IIOProvider IO { get; }
     IIOProvider IOIndex { get; }
     IIOProvider IOBackup { get; }
@@ -237,7 +236,7 @@ public static class IDataStoreExtensions {
     }
     public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
         if (destination == null) destination = store.IOBackup;
-        var fileKey = store.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
+        var fileKey = FileKeyUtility.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
         var task = new RewriteTask() {
             HotSwapToNewFile = false,
             DeleteOldDbFilesAfterHotSwap = false,

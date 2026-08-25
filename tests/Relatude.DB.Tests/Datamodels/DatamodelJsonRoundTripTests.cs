@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.RoundTripModels;

@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Tracer;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
@@ -124,7 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         sb.AppendLine();
         sb.AppendLine();
         lock (_criticalLogLock) {
-            var fileKey = _fileKeys.CriticalErrorLogFileKey;
+            var fileKey = FileKeyUtility.CriticalErrorLogFileKey;
             var io = _ioLog;
             using var stream = io.OpenAppend(fileKey);
             stream.WriteUTF8StringNoLengthPrefix(sb.ToString());

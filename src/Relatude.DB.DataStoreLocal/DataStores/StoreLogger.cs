@@ -202,18 +202,16 @@ public class StoreLogger : IDisposable, IStoreLogger {
     public bool LoggingAny => _enableSystemLog || _enableSystemLogStatistics || _enableSystemQueryLog || _enableSystemQueryLogStatistics || _enableTransactionLog || _enableTransactionLogStatistics || _enableActionLog || _enableActionLogStatistics || _enableTaskLog || _enableTaskLogStatistics || _enableTaskBatchLog || _enableTaskBatchLogStatistics || _enableMetricsLog || _enableMetricsLogStatistics;
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
-    FileKeyUtility _fileKeys;
-    public StoreLogger(IIOProvider io, FileKeyUtility fileKeys, Datamodel? datamodel) {
+    public StoreLogger(IIOProvider io, Datamodel? datamodel) {
         _io = io;
         _datamodel = datamodel;
-        _fileKeys = fileKeys;
-        _logStore = new LogStore(_io, getSettings(), fileKeys);
+        _logStore = new LogStore(_io, getSettings());
     }
     void reloadLogsWithNewSettings() {
         // swap in the new store before disposing the old one, so concurrent Record* calls
         // never see a disposed store through the field (creating the new store does IO and takes time)
         var oldStore = _logStore;
-        _logStore = new LogStore(_io, getSettings(), _fileKeys);
+        _logStore = new LogStore(_io, getSettings());
         oldStore?.Dispose();
     }
 

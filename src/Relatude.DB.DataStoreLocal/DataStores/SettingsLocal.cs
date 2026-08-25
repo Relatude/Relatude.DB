@@ -9,12 +9,6 @@ public class SettingsLocal {
     public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Everyone;
     public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.MultiFile;
 
-    //public Guid GlobalUrlCacheKey { get; set; } = Guid.Empty;
-    //public int FileRequestCacheSizeInMb { get; set; } = 100;
-    //public int FileRequestCacheEntryLimit { get; set; } = 100;
-    //public UrlProviderType UrlProviderType;
-
-    public string? FilePrefix { get; set; }
     public Guid? DefaultFileStore { get; set; }
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;

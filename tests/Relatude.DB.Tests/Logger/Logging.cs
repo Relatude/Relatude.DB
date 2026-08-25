@@ -64,7 +64,7 @@ public class Logging {
             log.Properties.Add("p2", p);
         }
         IIOProvider io = new IOProviderMemory();
-        var store = new LogStore(io, new[] { log }, new FileKeyUtility(null));
+        var store = new LogStore(io, [ log ]);
         long chk = 0;
         var noRecs = 10000;
         var rand = new Random();
@@ -89,7 +89,7 @@ public class Logging {
         }
         n = n.AddTicks(1);
         store.Dispose();
-        var store2 = new LogStore(io, new[] { log }, new (null));
+        var store2 = new LogStore(io, new[] { log });
         var d = store2.ExtractLog("test", now, n, 0, 10000, true, out _).ToList();
         var inv = IntervalType.Hour;
         var now2 = DateTime.UtcNow;

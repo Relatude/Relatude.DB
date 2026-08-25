@@ -14,7 +14,7 @@ public static class DatamodelSourceLoader {
     public const string DefaultCSharpFolder = "Models/CSharp";
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
-    /// <param name="rootFolder">The folder relative file paths resolve against â€” the folder holding the settings file.</param>
+    /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
     /// <param name="resolveIO">Resolves an IO provider by id, only needed for legacy JsonFile sources using FileIO.</param>
     public static void Load(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO = null) {
         if (source.Id == Guid.Empty) throw new Exception("The datamodel source has no Id. Every datamodel source must have a unique id. ");

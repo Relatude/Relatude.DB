@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
@@ -19,36 +19,24 @@ public class FolderLayoutTests {
 
     [TestMethod]
     public void FileKeys_UseTheFolderLayout() {
-        var keys = new FileKeyUtility(null);
-        Assert.AreEqual("data/db.00000001.bin", keys.WAL_GetFileKey(1).AsKeyString());
-        Assert.AreEqual("data/db.log", keys.WAL_GetSecondaryFileKey().AsKeyString());
-        Assert.AreEqual("state/state.bin", keys.StateFileKey.AsKeyString());
-        Assert.AreEqual("state/index.abc.bin", keys.Index_GetFileKey("abc").AsKeyString());
-        Assert.AreEqual("state/mapper.5.dll", keys.MapperDll_GetFileKey(5).AsKeyString());
-        Assert.AreEqual("state/queue.bin", keys.Queue_GetFileKey("bin").AsKeyString());
+        Assert.AreEqual("data/db.00000001.bin", FileKeyUtility.WAL_GetFileKey(1).AsKeyString());
+        Assert.AreEqual("data/db.log", FileKeyUtility.WAL_GetSecondaryFileKey().AsKeyString());
+        Assert.AreEqual("state/state.bin", FileKeyUtility.StateFileKey.AsKeyString());
+        Assert.AreEqual("state/index.abc.bin", FileKeyUtility.Index_GetFileKey("abc").AsKeyString());
+        Assert.AreEqual("state/mapper.5.dll", FileKeyUtility.MapperDll_GetFileKey(5).AsKeyString());
+        Assert.AreEqual("state/queue.bin", FileKeyUtility.Queue_GetFileKey("bin").AsKeyString());
         var dt = new DateTime(2026, 8, 23, 10, 30, 0, DateTimeKind.Utc);
-        Assert.AreEqual("bkup/db.2026-08-23-10-30-00.bkup", keys.WAL_GetFileKeyForBackup(dt, false).AsKeyString());
-        Assert.AreEqual("bkup/db.bkup.keep.2026-08-23-10-30-00.bkup", keys.WAL_GetFileKeyForBackup(dt, true).AsKeyString());
-        Assert.AreEqual("bkup/files.2026-08-23-10-30-00.bkup", keys.FileStore_GetFileKeyForBackup(dt, false).AsKeyString());
-        Assert.AreEqual("log/critical.error.txt", keys.CriticalErrorLogFileKey.AsKeyString());
-        Assert.AreEqual("indexes/ai.cache.bin", keys.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
-        Assert.AreEqual("indexes/native.ai.cache.bin", keys.GetAiCacheFileKey(AIProviderCacheType.Native)!.AsKeyString());
+        Assert.AreEqual("bkup/db.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, false).AsKeyString());
+        Assert.AreEqual("bkup/db.bkup.keep.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, true).AsKeyString());
+        Assert.AreEqual("bkup/files.2026-08-23-10-30-00.bkup", FileKeyUtility.FileStore_GetFileKeyForBackup(dt, false).AsKeyString());
+        Assert.AreEqual("log/critical.error.txt", FileKeyUtility.CriticalErrorLogFileKey.AsKeyString());
+        Assert.AreEqual("indexes/ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
+        Assert.AreEqual("indexes/native.ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Native)!.AsKeyString());
         // unchanged: the multi file store and the log rewrite date parsing conventions
-        Assert.AreEqual("files", keys.MultiFileStoreFolderKey);
-        Assert.AreEqual(dt, keys.WAL_GetBackUpDateTimeFromFileKey(keys.WAL_GetFileKeyForBackup(dt, false)));
-        Assert.IsTrue(keys.WAL_KeepForever(keys.WAL_GetFileKeyForBackup(dt, true)));
-        Assert.AreEqual("state/index.abc.tmp", FileKeyUtility.TempFileKey(keys.Index_GetFileKey("abc")).AsKeyString());
-    }
-
-    [TestMethod]
-    public void FileKeys_KeepThePrefixOnTheFileNameInsideTheFolder() {
-        // plain folder names, prefix on the file name: several instances can share one storage location
-        var keys = new FileKeyUtility("abc");
-        Assert.AreEqual("data/abc.db.00000001.bin", keys.WAL_GetFileKey(1).AsKeyString());
-        Assert.AreEqual("state/abc.state.bin", keys.StateFileKey.AsKeyString());
-        Assert.AreEqual("bkup/abc.db.2026-08-23-10-30-00.bkup", keys.WAL_GetFileKeyForBackup(new DateTime(2026, 8, 23, 10, 30, 0, DateTimeKind.Utc), false).AsKeyString());
-        // the indexes folder itself is prefixed, so the ai cache file inside it is not
-        Assert.AreEqual("abc.indexes/ai.cache.bin", keys.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
+        Assert.AreEqual("files", FileKeyUtility.MultiFileStoreFolderKey);
+        Assert.AreEqual(dt, FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(FileKeyUtility.WAL_GetFileKeyForBackup(dt, false)));
+        Assert.IsTrue(FileKeyUtility.WAL_KeepForever(FileKeyUtility.WAL_GetFileKeyForBackup(dt, true)));
+        Assert.AreEqual("state/index.abc.tmp", FileKeyUtility.TempFileKey(FileKeyUtility.Index_GetFileKey("abc")).AsKeyString());
     }
 
     [TestMethod]
@@ -75,17 +63,6 @@ public class FolderLayoutTests {
         } finally {
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
-    }
-
-    [TestMethod]
-    public void GetAllFileKeys_ListsOnlyThisInstancesFiles() {
-        var io = new IOProviderMemory();
-        io.WriteAllBytes(["data", "db.00000001.bin"], [1]);
-        io.WriteAllBytes(["state", "state.bin"], [1]);
-        io.WriteAllBytes(["data", "abc.db.00000001.bin"], [1]);
-        io.WriteAllBytes(["state", "abc.state.bin"], [1]);
-        var prefixed = new FileKeyUtility("abc").GetAllFileKeys(io).Select(k => k.AsKeyString()).ToArray();
-        CollectionAssert.AreEqual(new[] { "data/abc.db.00000001.bin", "state/abc.state.bin" }, prefixed);
     }
 
     [TestMethod]
@@ -146,7 +123,6 @@ public class FolderLayoutTests {
     [TestMethod]
     public void LegacyRootFilesOfAllCategories_AreMovedIntoTheirFolders() {
         var io = new IOProviderMemory();
-        var keys = new FileKeyUtility(null);
         // build a store so there is a real log file, state snapshot, index states and mapper dll
         var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io);
         var store = new NodeStore(storeData);
@@ -164,10 +140,10 @@ public class FolderLayoutTests {
         io.WriteAllBytes(["critical.error.txt"], [1]);
         io.WriteAllBytes(["queue.bin"], []);
         openAndAssertIntact(io, articles.Count);
-        Assert.IsTrue(io.Exists(keys.WAL_GetFileKey(1)));
-        Assert.IsTrue(io.Exists(keys.StateFileKey), "the migrated state snapshot must be used, not rebuilt");
-        Assert.AreEqual(1, keys.MapperDll_GetAllFileKeys(io).Length, "the mapper dll must be back in the state folder");
-        Assert.IsTrue(keys.Index_GetAll(io).Length > 0, "the index states must be back in the state folder");
+        Assert.IsTrue(io.Exists(FileKeyUtility.WAL_GetFileKey(1)));
+        Assert.IsTrue(io.Exists(FileKeyUtility.StateFileKey), "the migrated state snapshot must be used, not rebuilt");
+        Assert.AreEqual(1, FileKeyUtility.MapperDll_GetAllFileKeys(io).Length, "the mapper dll must be back in the state folder");
+        Assert.IsTrue(FileKeyUtility.Index_GetAll(io).Length > 0, "the index states must be back in the state folder");
         Assert.IsTrue(io.Exists(["bkup", "db.2026-01-01-00-00-00.bkup"]));
         Assert.IsTrue(io.Exists(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
         Assert.IsTrue(io.Exists(["bkup", "files.2026-01-03-00-00-00.bkup"]));
@@ -178,9 +154,9 @@ public class FolderLayoutTests {
         var leftAtRoot = io.GetFiles().Select(f => f.Key).Where(k => !k.Contains('/')).ToArray();
         Assert.AreEqual(0, leftAtRoot.Length, "no legacy files left in the storage root: " + string.Join(", ", leftAtRoot));
         // the migrated keep-forever backup is recognized by the retention rules
-        Assert.IsTrue(keys.WAL_KeepForever(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
+        Assert.IsTrue(FileKeyUtility.WAL_KeepForever(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
         CollectionAssert.AreEquivalent(new[] { "bkup/db.2026-01-01-00-00-00.bkup", "bkup/db.bkup.keep.2026-01-02-00-00-00.bkup" },
-            keys.WAL_GetAllBackUpFileKeys(io).Select(k => k.AsKeyString()).ToArray());
+            FileKeyUtility.WAL_GetAllBackUpFileKeys(io).Select(k => k.AsKeyString()).ToArray());
     }
 
     [TestMethod]
@@ -189,18 +165,17 @@ public class FolderLayoutTests {
         // leftover root files from before the layout are stale, rebuildable data and must be
         // removed without blocking the startup
         var io = new IOProviderMemory();
-        var keys = new FileKeyUtility(null);
         var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io);
         var store = new NodeStore(storeData);
         var articles = Helper.GenerateArticles(20);
         foreach (var chunk in articles.Chunk(10)) store.Insert(chunk);
         storeData.Maintenance(MaintenanceAction.SaveIndexStates);
         store.Dispose();
-        var folderStateSize = io.GetFileSizeOrZeroIfUnknown(keys.StateFileKey);
-        io.WriteAllBytes([keys.StateFileKey.FileName()], [1, 2, 3]); // a stale root leftover with a different size
+        var folderStateSize = io.GetFileSizeOrZeroIfUnknown(FileKeyUtility.StateFileKey);
+        io.WriteAllBytes([FileKeyUtility.StateFileKey.FileName()], [1, 2, 3]); // a stale root leftover with a different size
         openAndAssertIntact(io, articles.Count);
-        Assert.IsFalse(io.Exists([keys.StateFileKey.FileName()]), "the stale root state file must be removed");
-        Assert.IsTrue(io.Exists(keys.StateFileKey));
+        Assert.IsFalse(io.Exists([FileKeyUtility.StateFileKey.FileName()]), "the stale root state file must be removed");
+        Assert.IsTrue(io.Exists(FileKeyUtility.StateFileKey));
     }
 
     [TestMethod]
@@ -232,17 +207,16 @@ public class FolderLayoutTests {
     /// disk: the log file in the storage root and no state files. Returns the article count.
     /// </summary>
     static int insertArticlesAndSimulateLegacyLayout(IOProviderMemory io, out string[] legacyKey, out string[] newKey) {
-        var keys = new FileKeyUtility(null);
         var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io);
         var store = new NodeStore(storeData);
         var articles = Helper.GenerateArticles(100);
         foreach (var chunk in articles.Chunk(10)) store.Insert(chunk);
         store.Dispose();
-        newKey = keys.WAL_GetFileKey(1);
+        newKey = FileKeyUtility.WAL_GetFileKey(1);
         legacyKey = ["db.00000001.bin"];
         io.RenameFile(newKey, legacyKey);
-        io.DeleteFileIfItExists(keys.StateFileKey);
-        foreach (var f in keys.Index_GetAll(io)) io.DeleteFileIfItExists(f);
+        io.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        foreach (var f in FileKeyUtility.Index_GetAll(io)) io.DeleteFileIfItExists(f);
         return articles.Count;
     }
 

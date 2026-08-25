@@ -30,12 +30,9 @@ export const DataStorage = (P: { info: DataStoreInfo, storestate: StoreStates })
 
     return (<>
         <div style={{ height: '278px', overflowY: 'auto' }}>
-            {formatBytes(P.info.totalFileSize)} total file size<br />
             {formatBytes(P.info.logFileSize)} bytes in main log file<br />
             {hasSecLog ? <>{formatBytes(P.info.secondaryLogFileSize)} bytes in secondary log<br /></> : null}
             {formatBytes(P.info.logStateFileSize)} bytes in state log file<br />
-            {formatBytes(P.info.indexFileSize)} bytes in indexes<br />
-            {formatBytes(P.info.fileStoreSize)} bytes in filestore<br />
             {formatBytes(P.info.backupFileSize)} bytes in backups<br />
             {formatBytes(P.info.loggingFileSize)} bytes in logging<br />
             <span style={{ color: P.info.logActionsNotItInStatefile > 0 ? 'orange' : 'inherit' }}>

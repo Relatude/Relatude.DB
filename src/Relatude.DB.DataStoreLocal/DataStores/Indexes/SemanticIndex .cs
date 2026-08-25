@@ -12,19 +12,17 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     readonly AIEngine _ai;
     readonly SetRegister _register;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
     long _searchIndexStateId;
     // true whenever the in-memory state may differ from the persisted body; starts true so an
     // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
     bool _changedSinceLastSave = true;
-    public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, AIEngine ai) {
+    public MemorySemanticIndex(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, AIEngine ai) {
         _register = sets;
         UniqueKey = uniqueKey;
         _index = new FlatMemoryVectorIndex();
         _ai = ai;
         newSetState();
         _io = io;
-        _fileKeys = fileKey;
         FriendlyName = friendlyName;
     }
     public string UniqueKey { get; private set; }
@@ -89,14 +87,14 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         newSetState();
@@ -108,7 +106,7 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         newSetState();

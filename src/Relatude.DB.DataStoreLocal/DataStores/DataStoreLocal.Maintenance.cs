@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
 using System.Diagnostics;
@@ -29,7 +29,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             TaskQueuePersisted?.FlushDisk();
             if (Engines.Any) {
                 // Persisted indexes commit only in memory at transaction execution and are made
-                // durable here, AFTER the WAL flush — so the durable indexes can never contain
+                // durable here, AFTER the WAL flush � so the durable indexes can never contain
                 // transactions the durable log is missing. The write lock (briefly, the lock
                 // supports recursion) excludes executes, and the final drain covers transactions
                 // that executed while the flush above was writing, so at the durable write the
@@ -98,7 +98,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Deleting old logs");
         try {
             validateDatabaseState();
-            foreach (var f in _fileKeys.WAL_GetAllFileKeys(_io)) {
+            foreach (var f in FileKeyUtility.WAL_GetAllFileKeys(_io)) {
                 if (!_wal.FileKey.IsSameKey(f)) {
                     _io.DeleteFileIfItExists(f);
                     LogInfo($"Deleted old log file {f.AsKeyString()}. ");
@@ -136,7 +136,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock ( inside try so the write lock is released if it throws )
                 validateDatabaseState();
                 var anyOutOfSyncIndexes = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Any();
-                if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {
+                if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {
                     var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
                     saveMainState(activityId); // requires WriteLock after flush due to node segments
@@ -154,9 +154,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     void resetStateAndIndexes() {
-        var stateFileExisted = IOIndex.ExistsAndIsNotEmpty(_fileKeys.StateFileKey);
-        IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
-        var indexesFiles = FileKeys.Index_GetAll(IOIndex);
+        var stateFileExisted = IOIndex.ExistsAndIsNotEmpty(FileKeyUtility.StateFileKey);
+        IOIndex.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        var indexesFiles = FileKeyUtility.Index_GetAll(IOIndex);
         foreach (var i in indexesFiles) IOIndex.DeleteFileIfItExists(i);
         if (stateFileExisted) {
             _noPrimitiveActionsSinceLastStateSnapshot = Settings.AutoSaveIndexStatesActionCountUpperLimit + 1;
@@ -321,18 +321,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
 
             try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
-            try { info.FileStoreSize = _fileStores.Sum(kv => kv.Value.GetSizeForMetrics()); } catch { }
-            try { info.BackupFileSize = FileKeys.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Sum(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)); } catch { }
-            try { info.IndexFileSize = Engines.GetTotalDiskSpace() + FileKeys.Index_GetAll(_ioIndex).Sum(f => _ioIndex.GetFileSizeOrZeroIfUnknown(f)); } catch { }
-            try { info.TotalFileSize = AllIOs.SelectMany(io => io.GetFiles()).Sum(f => f.Size); } catch { }
-            // info.TotalFileSize = info.LogFileSize + info.FileStoreSize + info.LogStateFileSize + info.LoggingFileSize + info.SecondaryLogFileSize + info.BackupFileSize + info.IndexFileSize;
+            try { info.BackupFileSize = FileKeyUtility.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Sum(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)); } catch { }
 
             lock (_isRewritingOrCopyingLock) {
                 info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey.AsKeyString() : null;
             }
 
             _sets.AddInfo(info);
-            info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(_fileKeys.StateFileKey);
+            info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(FileKeyUtility.StateFileKey);
         } finally {
             _lock.ExitWriteLock();
         }

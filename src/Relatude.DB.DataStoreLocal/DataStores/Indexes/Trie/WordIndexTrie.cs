@@ -9,17 +9,15 @@ internal class WordIndexTrie : IWordIndex {
     long _searchIndexStateId;
     SetRegister _register;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
     readonly Action<string, Exception>? _logError;
     // true whenever the in-memory state may differ from the persisted body; starts true so an
     // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
     bool _changedSinceLastSave = true;
-    public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, Action<string, Exception>? logError = null) {
+    public WordIndexTrie(SetRegister sets, string uniqueKey, string friendlyName, IIOProvider io, int minWordLength, int maxWordLength, bool prefixSearch, bool infixSearch, Action<string, Exception>? logError = null) {
         _trie = new(minWordLength, maxWordLength, prefixSearch, infixSearch);
         _register = sets;
         UniqueKey = uniqueKey;
         _io = io;
-        _fileKeys = fileKey;
         _logError = logError;
         newSetState();
         FriendlyName = friendlyName;
@@ -71,14 +69,14 @@ internal class WordIndexTrie : IWordIndex {
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         if (_io.CanRenameFile) {
             // write to a temp file and swap, so a crash during save does not also lose the previous good state
             // swapping the extension keeps the key length unchanged (file keys have a max length) and keeps it out of the index.*.bin pattern
@@ -103,7 +101,7 @@ internal class WordIndexTrie : IWordIndex {
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         _trie.ReadState(stream);

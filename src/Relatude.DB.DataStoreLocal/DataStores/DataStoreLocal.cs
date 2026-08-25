@@ -36,7 +36,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal Variables _variables = default!;
     long _startUpTimeMs;
     readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
-    readonly FileKeyUtility _fileKeys;
     internal readonly UrlSystem _urls;
     readonly FileConversionEngine _fileConversionEngine;
     readonly IIOProvider _io;
@@ -117,21 +116,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         _urls = new UrlSystem(this, urlManager);
 
         _createIndexEngines = createIndexEngines;
-        _fileKeys = new(_settings.FilePrefix);
         // must run before the logger below (which reads its files), before the rewrite cleanup and
         // before the WAL opens; the messages are buffered and logged once the logger exists
         var migrationLog = moveLegacyFilesIntoFolders();
-        _logger = new(_ioLog, _fileKeys, datamodel);
+        _logger = new(_ioLog, datamodel);
         foreach (var line in migrationLog) LogInfo(line);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
-        _fileConversionEngine = new(this, fileConverters, converterIoProvider, _fileKeys);
+        _fileConversionEngine = new(this, fileConverters, converterIoProvider);
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
         TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
         if (queueStore == null) {
             if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
-                queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, _fileKeys.Queue_GetFileKey("bin"));
+                queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, FileKeyUtility.Queue_GetFileKey("bin"));
             } else if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Memory) {
                 queueStore = new DefaultQueueStore(_taskRunners);
             } else {
@@ -153,12 +151,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         if (_defaultFileStore == null) {
             _defaultFileStore = _settings.DefaultFileStoreEngine switch {
-                FileStoreEngine.MultiFile => new MultiFileStore(Guid.Empty, _io, _fileKeys, 2),
-                FileStoreEngine.SingleFile => new SingleFileStore(Guid.Empty, _io, _fileKeys.FileStore_GetLatestFileKey(_io)),
+                FileStoreEngine.MultiFile => new MultiFileStore(Guid.Empty, _io, 2),
+                FileStoreEngine.SingleFile => new SingleFileStore(Guid.Empty, _io, FileKeyUtility.FileStore_GetLatestFileKey(_io)),
                 _ => throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine)
             };
         }
-        LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io, FileKeys);
+        LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
         _scheduler = new(this);
         _uploads = new(this);
         try {
@@ -176,12 +174,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     // layer.) Returns the log lines describing what was moved, to be logged once the logger exists.
     List<string> moveLegacyFilesIntoFolders() {
         var log = new List<string>();
-        foreach (var key in _fileKeys.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
-        var legacySecondary = _fileKeys.WAL_GetLegacyRootSecondaryFileKey();
+        foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
+        var legacySecondary = FileKeyUtility.WAL_GetLegacyRootSecondaryFileKey();
         if (_ioLog2.Exists(legacySecondary)) moveLegacyFileIntoFolder(_ioLog2, legacySecondary, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
-        foreach (var key in _fileKeys.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, FileKeyUtility.BackupFolderName, LegacyConflict.LeaveLegacy, log);
-        foreach (var key in _fileKeys.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, FileKeyUtility.StateFolderName, LegacyConflict.DeleteLegacy, log);
-        foreach (var key in _fileKeys.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.LogFolderName, LegacyConflict.LeaveLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, FileKeyUtility.BackupFolderName, LegacyConflict.LeaveLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, FileKeyUtility.StateFolderName, LegacyConflict.DeleteLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.LogFolderName, LegacyConflict.LeaveLegacy, log);
         return log;
     }
     // What to do when the destination already exists with a DIFFERENT size than the legacy file:
@@ -250,7 +248,6 @@ public sealed partial class DataStoreLocal : IDataStore {
             TaskQueuePersisted.Enqueue(task, jobId);
         }
     }
-    public FileKeyUtility FileKeys => _fileKeys;
     public ILogStore LogStore => _logger.LogStore;
     public AIEngine AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
     public IStoreLogger Logger => _logger;
@@ -304,9 +301,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         _definition = new(_sets, Datamodel, this);
 
         Engines = _createIndexEngines?.Invoke() ?? IndexEngines.Empty;
-        var fileKey = _fileKeys.WAL_GetLatestFileKey(_io);
+        var fileKey = FileKeyUtility.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
-        var fileKey2 = _settings.SecondaryBackupLog ? _fileKeys.WAL_GetSecondaryFileKey() : null;
+        var fileKey2 = _settings.SecondaryBackupLog ? FileKeyUtility.WAL_GetSecondaryFileKey() : null;
         _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, io2, fileKey2);
         _nodes = new(_definition, _settings, readSegments);
         _relations = new(_definition);

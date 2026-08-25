@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+﻿    using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
@@ -41,15 +41,13 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     readonly ValueByIdMap<T> _valueById = new(); // id -> value, dense-array backed when large (fast one-pass facet counting)
     readonly StateIdValueTracker<T> _stateId;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
     // true whenever the in-memory state may differ from the persisted body; starts true so an
     // index that was never persisted is never re-stamped as if it were (see WriteNewTimestampDueToRewriteHotswap)
     bool _changedSinceLastSave = true;
-    public ValueIndex(SetRegister register, string uniqueKey, string friendlyName, IIOProvider io, FileKeyUtility fileKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
+    public ValueIndex(SetRegister register, string uniqueKey, string friendlyName, IIOProvider io, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) {
         _writeValue = writeValue;
         _readValue = readValue;
         _io = io;
-        _fileKeys = fileKey;
         _sets = register;
         _stateId = new();
         _idByValue = new(register);
@@ -210,14 +208,14 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedLong(newTimestamp);
         stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
         using var stream = _io.OpenAppend(fileName);
         stream.WriteVerifiedInt(_valueById.Count);
@@ -232,7 +230,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = _fileKeys.Index_GetFileKey(UniqueKey);
+        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
         if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
         using var stream = _io.OpenRead(fileName, 0);
         var noIds = stream.ReadVerifiedInt();

@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Definitions;
@@ -48,7 +48,7 @@ internal static class IndexFactory {
             index = store.Engines.Value.OpenStringArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+            index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
         }
         return index;
     }
@@ -83,7 +83,7 @@ internal static class IndexFactory {
             index = store.Engines.Value.OpenGuidArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Guid Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = new GuidArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+            index = new GuidArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
         }
         return index;
     }
@@ -118,7 +118,7 @@ internal static class IndexFactory {
             index = store.Engines.Value.OpenIntArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Int Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = new IntArrayIndex(store._definition, uniqueKey, name, store.IOIndex, store.FileKeys, property.Id);
+            index = new IntArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
         }
         return index;
     }
@@ -155,7 +155,7 @@ internal static class IndexFactory {
             index = store.Engines.Value.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Value Index " + classDef.CodeName + "." + property.CodeName;
-            index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, store.FileKeys, writeValue, readValue);
+            index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, writeValue, readValue);
             if (useOptimizedIndexes) index = new OptimizedValueIndex<T>(index);
         }
         return index;
@@ -194,7 +194,7 @@ internal static class IndexFactory {
             return store.Engines.Text.OpenWordIndex(sets, uniqueKey, name, new WordIndexOptions(p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch));
         } else {
             var name = "Memory Word Index " + classDef.CodeName + "." + p.CodeName;
-            index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, store.FileKeys, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));
+            index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));
         }
         if (!useOptimizedIndexes) return index;
         return new OptimizedWordIndex(index);
@@ -224,7 +224,7 @@ internal static class IndexFactory {
             return store.Engines.Semantic.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
         }
         return new MemorySemanticIndex(def.Sets, uniqueKey, "Semantic " + classDef.CodeName + "." + p.Model.CodeName,
-            store.IOIndex, store.FileKeys, ai);
+            store.IOIndex, ai);
     }
 
 }

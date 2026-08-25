@@ -6,12 +6,10 @@ public class LogStore : IDisposable, ILogStore {
     // volatile + copy on write in AddLog, so lock free lookups are safe while logs are added
     volatile Dictionary<string, Log> _logs;
     readonly object _addLock = new();
-    readonly FileKeyUtility _fileKeys;
     readonly IIOProvider _io;
-    public LogStore(IIOProvider io, IEnumerable<LogSettings> logSettings, FileKeyUtility fileKeys) {
+    public LogStore(IIOProvider io, IEnumerable<LogSettings> logSettings) {
         _io = io;
-        _fileKeys = fileKeys;
-        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io, fileKeys), StringComparer.OrdinalIgnoreCase);
+        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io), StringComparer.OrdinalIgnoreCase);
     }
     Log? get(string logKey) => _logs.TryGetValue(logKey, out var log) ? log : null;
     public bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null) {
@@ -59,7 +57,7 @@ public class LogStore : IDisposable, ILogStore {
     public void AddLog(LogSettings settings) {
         lock (_addLock) {
             var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
-            logs.Add(settings.Key, new Log(settings, _io, _fileKeys));
+            logs.Add(settings.Key, new Log(settings, _io));
             _logs = logs;
         }
     }

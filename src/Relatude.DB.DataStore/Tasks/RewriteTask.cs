@@ -18,7 +18,7 @@ public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
     public override async Task ExecuteAsync(Batch<RewriteTask> batch, TaskLogger? taskLogger) {
         foreach (var t in batch.Tasks) {
             if (t.NewLogFileKey == null) {
-                t.NewLogFileKey = db.FileKeys.WAL_NextFileKey(db.IO);
+                t.NewLogFileKey = FileKeyUtility.WAL_NextFileKey(db.IO);
             }
             var sw = Stopwatch.StartNew();
             if (t.IsBackup) {

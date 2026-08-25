@@ -126,17 +126,6 @@ export const component = (p: { storeId: string }) => {
         alert(message);
         updateFilesAndFolders();
     }
-    const deleteAllButDb = async () => {
-        const selectedIOIsDatabase = selectedIo ? app.ui.isIoUsedForCurrentDatabase(selectedIo) : false;
-        if (selectedIOIsDatabase) {
-            if (!confirm("Are you sure you want to delete all files except the database?")) return;
-            await app.api.maintenance.deleteAllButDb(p.storeId);
-        } else {
-            if (!confirm("Are you sure you want to delete all files?")) return;
-            await app.api.maintenance.deleteAllFiles(p.storeId, selectedIo!);
-        }
-        await updateFilesAndFolders();
-    }
     const getSelectionText = () => {
         const nofiles = selectedRows.filter(f => !f.isFolder).length;
         const noFolders = selectedRows.filter(f => f.isFolder).length;

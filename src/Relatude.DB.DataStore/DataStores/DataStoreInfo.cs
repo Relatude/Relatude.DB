@@ -23,14 +23,12 @@ public class DataStoreInfo {
     public int LogWritesQueuedTransactions { get; set; }
     public int LogWritesQueuedActions { get; set; }
     public string? LogFileKey { get; set; }
+
     public long LogFileSize { get; set; }
     public long LogStateFileSize { get; set; }
-    public long TotalFileSize { get; set; }
-    public long FileStoreSize { get; set; }
     public long LoggingFileSize { get; set; }
     public long BackupFileSize { get; set; }
     public long SecondaryLogFileSize { get; set; }
-    public long IndexFileSize{ get; set; }
 
     public long CountActionsSinceClearCache { get; set; }
     public long CountTransactionsSinceClearCache { get; set; }

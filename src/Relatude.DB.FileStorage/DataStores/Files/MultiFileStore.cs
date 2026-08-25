@@ -10,10 +10,10 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
     readonly string[] _basePath;
     public Guid Id { get; }
     readonly int folderDepth;
-    public MultiFileStore(Guid id, IIOProvider ioProvider, FileKeyUtility fileKeyUtility, int? folderDepth) {
+    public MultiFileStore(Guid id, IIOProvider ioProvider, int? folderDepth) {
         Id = id;
         _ioProvider = ioProvider;
-        _basePath = [fileKeyUtility.MultiFileStoreFolderKey];
+        _basePath = [FileKeyUtility.MultiFileStoreFolderKey];
         this.folderDepth = folderDepth.HasValue ? folderDepth.Value : 2;
     }
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName) {

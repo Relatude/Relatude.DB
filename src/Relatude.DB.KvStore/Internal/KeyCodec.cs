@@ -7,12 +7,12 @@ using Relatude.DB.Common;
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
-/// Order-preserving, prefix-free binary encoding for index keys.
+/// Order-preserving, prefix-free binary encoding for index FileKeyUtility.
 /// Encodings compare correctly with an unsigned byte-wise comparison
 /// (<see cref="MemoryExtensions.SequenceCompareTo{T}(ReadOnlySpan{T}, ReadOnlySpan{T})"/>),
 /// which lets the B+Tree work on raw bytes for every supported type.
 /// Prefix-freedom guarantees that no encoded value is a byte-prefix of another,
-/// which is required for composite (value, id) keys.
+/// which is required for composite (value, id) FileKeyUtility.
 /// </summary>
 internal interface IKeyCodec<T> where T : notnull
 {
@@ -36,7 +36,7 @@ internal static class KeyCodec
 
     /// <summary>
     /// The codec for a store that only ever compares encodings for equality — the hash layout,
-    /// which has no value tree, no ordering and no composite keys. Order-preservation and
+    /// which has no value tree, no ordering and no composite FileKeyUtility. Order-preservation and
     /// prefix-freedom are what force the variable-length types to escape their content
     /// (<see cref="ByteArrayCodec"/>, <see cref="StringCodec"/>, <see cref="FloatArrayCodec"/>),
     /// and neither buys the hash layout anything: it stores the payload with an explicit length and

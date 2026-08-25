@@ -1,4 +1,4 @@
-﻿using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Relations;
 public struct RelData{
@@ -34,7 +34,7 @@ public interface IRelationIndex {
     IdSet Get(int id, bool fromTargetToSource);
     /// <summary>The distinct ids valid as first argument to <see cref="Get"/> for the given
     /// direction, i.e. the ids with at least one edge. Symmetric relations return all
-    /// participants regardless of direction. O(1) to obtain, live view of the internal keys.</summary>
+    /// participants regardless of direction. O(1) to obtain, live view of the internal FileKeyUtility.</summary>
     IEnumerable<int> DistinctIds(bool fromTargetToSource);
     IEnumerable<RelData> Values { get; }
     DateTime GetDateTime(int source, int target);

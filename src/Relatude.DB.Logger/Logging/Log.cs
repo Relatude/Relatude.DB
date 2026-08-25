@@ -20,13 +20,13 @@ internal class Log : IDisposable {
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
         return "stat_" + property + "_" + info.Resolution + "_" + settings.FirstDayOfWeek + "_" + info.StatisticsType;
     }
-    public Log(LogSettings settings, IIOProvider io, FileKeyUtility fileKeys) {
+    public Log(LogSettings settings, IIOProvider io) {
         _setting = settings;
         _io = io;
-        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval, fileKeys);
-        _logTextStream = new(io, _setting.Key, _setting.FileInterval, fileKeys);
-        _statFileKey = fileKeys.Logger_GetStatistics(_setting.Key);
-        _backupStatFile = fileKeys.Logger_GetStatisticsBackUp(_setting.Key);
+        _logStream = new(_io, _setting.Key, _setting.Compressed, _setting.FileInterval);
+        _logTextStream = new(io, _setting.Key, _setting.FileInterval);
+        _statFileKey = FileKeyUtility.Logger_GetStatistics(_setting.Key);
+        _backupStatFile = FileKeyUtility.Logger_GetStatisticsBackUp(_setting.Key);
         loadAllStatistics();
     }
     void loadAllStatistics() {

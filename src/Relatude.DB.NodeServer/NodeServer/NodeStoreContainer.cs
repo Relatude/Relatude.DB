@@ -28,7 +28,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public IStoreLogger GetLogger() {
         lock (_lock) {
             if (IsOpenOrOpening()) return Store!.Datastore.Logger;
-            if (_logger == null) _logger = new StoreLogger(getLoggerIO(), getLoggerFileKeys(), null);
+            if (_logger == null) _logger = new StoreLogger(getLoggerIO(), null);
             return _logger;
         }
     }
@@ -58,24 +58,23 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public void DeleteAllStateAndIndexFiles() {
         var settingsLocal = settings.LocalSettings;
         if (settingsLocal == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
-        var fileKeyUtil = new FileKeyUtility(settingsLocal.FilePrefix);
         var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
         var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
         var ioProvidersToClean = new List<IIOProvider>();
         if (ioDatabase != null) ioProvidersToClean.Add(ioDatabase);
         if (ioIndexes != null) ioProvidersToClean.Add(ioIndexes);
         foreach (var io in ioProvidersToClean) {
-            io.DeleteFolderIfItExists([fileKeyUtil.IndexStoreFolderKey]);
-            io.DeleteFileIfItExists(fileKeyUtil.StateFileKey);
-            fileKeyUtil.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteFileIfItExists);
-            fileKeyUtil.Index_GetAll(io).ForEach(io.DeleteFileIfItExists);
+            io.DeleteFolderIfItExists([FileKeyUtility.IndexStoreFolderKey]);
+            io.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+            FileKeyUtility.MapperDll_GetAllFileKeys(io).ForEach(io.DeleteFileIfItExists);
+            FileKeyUtility.Index_GetAll(io).ForEach(io.DeleteFileIfItExists);
         }
         // The index engines own their files on the local disk, in a folder that is not necessarily
         // below any of the IO providers above (PersistedValueIndexFolderPath can point anywhere),
         // so the loop alone can leave engine data behind - and this method exists to force a full
         // rebuild from the log. Deleting the whole folder covers every engine subfolder at once.
         if (usesPersistedIndexEngines(settingsLocal, semanticIndexType())) {
-            var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase), fileKeyUtil);
+            var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase));
             if (Directory.Exists(indexFolder)) Directory.Delete(indexFolder, true);
         }
     }
@@ -105,11 +104,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// server data folder, as for the queue store. Every engine claims its own subfolder below the
     /// returned path (nativekv, sqlite, lucene), which is what lets them share one index folder.
     /// </summary>
-    string resolveIndexFolderPath(SettingsLocal local, string localDiskFolder, FileKeyUtility fileKeys) {
+    string resolveIndexFolderPath(SettingsLocal local, string localDiskFolder) {
         var path = local.PersistedValueIndexFolderPath;
         if (string.IsNullOrEmpty(path)) path = localDiskFolder;
         if (!Path.IsPathRooted(path)) path = server.RootDataFolderPath.SuperPathCombine(path);
-        return Path.Combine(path, fileKeys.IndexStoreFolderKey);
+        return Path.Combine(path, FileKeyUtility.IndexStoreFolderKey);
     }
 
     /// <summary>
@@ -165,10 +164,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         };
     }
 
-    private FileKeyUtility getLoggerFileKeys() {
-        if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
-        return new FileKeyUtility(settings.LocalSettings.FilePrefix);
-    }
     private IIOProvider getLoggerIO() {
         IIOProvider? ioLog = settings.IoLog.HasValue && settings.IoLog != Guid.Empty ? server.GetIO(settings.IoLog.Value) : null;
         if (ioLog == null) {
@@ -192,7 +187,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
 
             var localDiskFolder = getLocalDiskFolder(ioIndexes, ioDatabase);
-            FileKeyUtility fileKeyUtility = new FileKeyUtility(local.FilePrefix);
             IFileStore[]? fs = null;
             if (settings.FileStoreSettings != null) {
                 foreach (var ioFilesSetting in settings.FileStoreSettings) {
@@ -200,12 +194,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     if (fs == null) fs = [];
                     switch (ioFilesSetting.StoreType) {
                         case FileStoreEngine.SingleFile: {
-                                var fileKey = fileKeyUtility.FileStore_GetLatestFileKey(ioFiles);
+                                var fileKey = FileKeyUtility.FileStore_GetLatestFileKey(ioFiles);
                                 fs = [.. fs, new SingleFileStore(ioFilesSetting.Id, ioFiles, fileKey)];
                             }
                             break;
                         case FileStoreEngine.MultiFile: {
-                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, ioFiles, fileKeyUtility, ioFilesSetting.MultiFileFolderDepth)];
+                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, ioFiles, ioFilesSetting.MultiFileFolderDepth)];
                             }
                             break;
                         default:
@@ -220,11 +214,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
                 if (!Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder);
-                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, local.FilePrefix);
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder);
             }
 
             List<string> toLog = new();
-            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder, fileKeyUtility), toLog, settings.AISettings);
+            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder), toLog, settings.AISettings);
 
             IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
@@ -232,7 +226,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (string.IsNullOrEmpty(queuePath)) queuePath = localDiskFolder;
                 if (!Path.IsPathRooted(queuePath)) queuePath = server.RootDataFolderPath.SuperPathCombine(queuePath);
                 toLog.Add("Queue path: " + queuePath);
-                var queueKey = fileKeyUtility.Queue_GetFileKey("sqlite");
+                var queueKey = FileKeyUtility.Queue_GetFileKey("sqlite");
                 var queueBaseFolder = queuePath;
                 queuePath = Path.Combine([queuePath, .. queueKey]);
                 // the queue file key is folder qualified (state/); sqlite does not create directories

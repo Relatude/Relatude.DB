@@ -8,12 +8,10 @@ internal class LogTextStream : IDisposable {
     readonly FileInterval _fileInterval;
     readonly string _logName;
     readonly IIOProvider _io;
-    readonly FileKeyUtility _fileKeys;
-    public LogTextStream(IIOProvider io, string logName, FileInterval fileInterval, FileKeyUtility fileKeys) {
+    public LogTextStream(IIOProvider io, string logName, FileInterval fileInterval) {
         _io = io;
         _logName = logName;
         _fileInterval = fileInterval;
-        _fileKeys = fileKeys;
     }
 
     public void Record(LogEntry entry, bool flushToDisk = false) {
@@ -31,7 +29,7 @@ internal class LogTextStream : IDisposable {
     IAppendStream? _lastAppendStream;
     IAppendStream getCorrectStream(DateTime timestamp) {
         var floored = timestamp.Floor(_fileInterval);
-        var fileKey = _fileKeys.Logger_FileNameTxt(_logName, _fileInterval, floored);
+        var fileKey = FileKeyUtility.Logger_FileNameTxt(_logName, _fileInterval, floored);
         if (_lastAppendStream == null) {
             _lastAppendStream = _io.OpenAppend(fileKey);
         } else if (_lastAppendStream.FileKey != fileKey.AsKeyString()) {
@@ -47,7 +45,7 @@ internal class LogTextStream : IDisposable {
         }
     }
     public List<DateTime> GetLogFileDates() {
-        return _fileKeys.Logger_FileDatesTxt(_io, _logName, _fileInterval);
+        return FileKeyUtility.Logger_FileDatesTxt(_io, _logName, _fileInterval);
     }
     public void FlushToDisk() {
         if (_lastAppendStream != null) _lastAppendStream.Flush(true);
@@ -56,13 +54,13 @@ internal class LogTextStream : IDisposable {
         releaseOpenFiles();
         foreach (var f in GetLogFileDates()) {
             var fileTo = f.AddInterval(_fileInterval);
-            if (fileTo <= to) _io.DeleteFileIfItExists(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, f));
+            if (fileTo <= to) _io.DeleteFileIfItExists(FileKeyUtility.Logger_FileNameTxt(_logName, _fileInterval, f));
         }
     }
     public void Dispose() {
         releaseOpenFiles();
     }
     internal long Size() {
-        return GetLogFileDates().Select(f => _io.GetFileSizeOrZeroIfUnknown(_fileKeys.Logger_FileNameTxt(_logName, _fileInterval, f))).Sum();
+        return GetLogFileDates().Select(f => _io.GetFileSizeOrZeroIfUnknown(FileKeyUtility.Logger_FileNameTxt(_logName, _fileInterval, f))).Sum();
     }
 }

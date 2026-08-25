@@ -68,7 +68,6 @@ public static class SettingsCommand {
                     ("task queue", local.PersistedQueueStoreEngine + (local.AutoDequeTasks ? ", running" : ", not running")),
                     ("file store", local.DefaultFileStoreEngine.ToString()),
                     ("index folder", local.PersistedValueIndexFolderPath ?? "(with the index provider)"),
-                    ("file prefix", string.IsNullOrEmpty(local.FilePrefix) ? "(none)" : local.FilePrefix),
                     ("auto backup", local.AutoBackUp ? "on" : "off"),
                     ("auto truncate", local.AutoTruncate ? "on" : "off"),
                     ("default culture", local.DefaultCultureCode ?? "(none)"),
@@ -107,7 +106,7 @@ public static class SettingsCommand {
         if (io == null) return;
         FileMeta[] files;
         try {
-            files = new FileKeyUtility(c.LocalSettings?.FilePrefix).GetAllFiles(io);
+            files = io.GetFiles();
         } catch (Exception err) {
             Output.Warn("Could not list the database files: " + err.Message);
             return;

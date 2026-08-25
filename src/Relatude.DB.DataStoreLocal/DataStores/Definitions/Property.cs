@@ -147,10 +147,6 @@ namespace Relatude.DB.DataStores.Definitions {
                 facets.AddValue(new FacetValue(from, to, null) { ToInclusive = last });
             }
             facets.IsRangeFacet = true;
-            try {
-                facets.MinValue = Convert.ToDouble(min);
-                facets.MaxValue = Convert.ToDouble(max);
-            } catch { } // not double-representable (DateTime/TimeSpan)
         }
         // Builds the caches the first FILTERED facet query would otherwise build inline: the
         // per-value id sets of the equality buckets and the default range-bucket sets. Unfiltered

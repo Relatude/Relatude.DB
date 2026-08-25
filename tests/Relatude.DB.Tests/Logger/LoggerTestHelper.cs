@@ -6,8 +6,7 @@ namespace Relatude.Logger;
 internal static class H {
     // Monday 2026-06-01 10:00 UTC, fixed so interval math is deterministic
     public static readonly DateTime T0 = new(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
-    public static readonly FileKeyUtility FileKeys = new(null);
-    public static LogSettings Settings(string key = "test", Action<LogSettings>? configure = null) {
+public static LogSettings Settings(string key = "test", Action<LogSettings>? configure = null) {
         var s = new LogSettings {
             Key = key,
             Name = key,
@@ -45,7 +44,7 @@ internal static class H {
             configure?.Invoke(s);
         });
     }
-    public static LogStore Store(IIOProvider io, params LogSettings[] settings) => new(io, settings, new FileKeyUtility(null));
+    public static LogStore Store(IIOProvider io, params LogSettings[] settings) => new(io, settings);
     public static LogEntry Entry(DateTime timestamp, params (string Key, object Value)[] values) {
         var e = new LogEntry { Timestamp = timestamp };
         foreach (var (key, value) in values) e.Values.Add(key, value);

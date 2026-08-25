@@ -275,7 +275,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
             // The encoding of an existing index is a property of its stored bytes: it is read from
             // the catalog and never reinterpreted. A new one gets the best encoding its layout
             // allows — unescaped for a hash index, order-preserving for a sorted one, whose values
-            // are tree keys.
+            // are tree FileKeyUtility.
             byte encoding;
             if (existed)
             {

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 
 namespace KvBenchmarks.Harness;

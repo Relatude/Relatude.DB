@@ -1,4 +1,4 @@
-ï»¿using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Indexes;
@@ -32,7 +32,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableTextIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings.FilePrefix);
         return s.GenerateHashGuid();
         //var g = s.GenerateGuid();
         //Log(SystemLogEntryType.Info, "Model hash: " + g);
@@ -40,9 +39,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         //return g;
     }
     void saveMainState(long activityId) {
-        IOIndex.DeleteFileIfItExists(_fileKeys.StateFileKey);
-        UpdateActivity(activityId, "Opening " + _fileKeys.StateFileKey + "...");
-        using var stream = IOIndex.OpenAppend(_fileKeys.StateFileKey);
+        IOIndex.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        UpdateActivity(activityId, "Opening " + FileKeyUtility.StateFileKey + "...");
+        using var stream = IOIndex.OpenAppend(FileKeyUtility.StateFileKey);
         stream.WriteVerifiedInt(_stateFileVersion); // fileversion
         stream.WriteVerifiedLong(_wal.LastTimestamp);
         stream.WriteVerifiedLong(_wal.GetPositionAfterLastTransaction());
@@ -117,7 +116,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         // reading statefile progress 50-55%
-        if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) { // no state file, so read from beginning of log file
+        if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("Index state file empty. ");
         } else { // read state, before reading rest from log file
@@ -126,7 +125,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, "Reading state file", 0);
                 setStartupProgressEstimate(50);
                 byte[] stateBytes;
-                using (var fileStream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0)) {
+                using (var fileStream = IOIndex.OpenRead(FileKeyUtility.StateFileKey, 0)) {
                     stateBytes = new byte[fileStream.Length];
                     var off = 0;
                     while (off < stateBytes.Length) {
@@ -284,7 +283,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         // Divergence check: an index claiming a timestamp newer than anything the log contains holds
         // transactions the durable log lost (e.g. a crash dropped a queued WAL batch after the indexes
-        // had committed). Replay cannot repair that â€” the phantom entries would survive â€” and the
+        // had committed). Replay cannot repair that — the phantom entries would survive — and the
         // commit below would overwrite the too-new timestamp and mask the only evidence, so the check
         // must run here, on the first startup after the damage. _wal.LastTimestamp is at this point
         // max(state file, replayed transactions) = the newest timestamp the durable log covers.

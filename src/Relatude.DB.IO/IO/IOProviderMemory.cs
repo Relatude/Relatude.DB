@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 namespace Relatude.DB.IO;

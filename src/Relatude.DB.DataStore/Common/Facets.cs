@@ -32,8 +32,6 @@ public class Facets {
     public bool? IsRangeFacet { get; set; }
     public int RangeCount = 10;
     public double RangePowerBase = 1.8d; // finer buckets near the minimum (typical for prices); DateTime properties default to 1 (linear) in the constructor
-    public double MaxValue;
-    public double MinValue;
     public int MaxValues; // 0 = unlimited; selected values are never trimmed away
     public int MinCount; // values with a lower count are dropped (unless selected); 0 = keep all
     public bool IncludeMissing; // adds a bucket (Value == null) for nodes without a value for the property

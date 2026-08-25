@@ -169,15 +169,13 @@ export interface DataStoreInfo {
     logWritesQueuedTransactions: number;
     logWritesQueuedActions: number;
     logFileKey: string | null;
+
     logFileSize: number;
     logStateFileSize: number;
-
-    totalFileSize: number;
-    fileStoreSize: number;
     loggingFileSize: number;
     backupFileSize: number;
     secondaryLogFileSize: number;
-    indexFileSize: number;
+    
     runningRewriteFile: string | null;
 
     countActionsSinceClearCache: number;

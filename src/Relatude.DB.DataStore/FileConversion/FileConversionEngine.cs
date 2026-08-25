@@ -15,7 +15,7 @@ public class FileConversionEngine : IDisposable {
     readonly FileConversionScheduler _scheduler;
     readonly string? _localTempFolderPath;
     public readonly IDataStore Store;
-    public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io, FileKeyUtility fileKeys) {
+    public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io) {
         Store = store;
         _fileConverters = new(converters);
         foreach (var c in converters) c.Initialize(this);

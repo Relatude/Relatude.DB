@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -134,7 +134,7 @@ public class Properties<T> {
 //        int size = _size;
 //        ReadOnlySpan<Guid> keys = _keys.AsSpan(0, size);
 
-//        for (int i = 0; i < keys.Length; i++) {
+//        for (int i = 0; i < FileKeyUtility.Length; i++) {
 //            if (keys[i] == key) {
 //                value = _values[i];
 //                return true;
@@ -159,7 +159,7 @@ public class Properties<T> {
 
 //    public bool ContainsKey(Guid key) {
 //        ReadOnlySpan<Guid> keys = _keys.AsSpan(0, _size);
-//        for (int i = 0; i < keys.Length; i++) {
+//        for (int i = 0; i < FileKeyUtility.Length; i++) {
 //            if (keys[i] == key) return true;
 //        }
 //        return false;
@@ -167,7 +167,7 @@ public class Properties<T> {
 
 //    public void AddOrUpdate(Guid key, T value) {
 //        Span<Guid> keys = _keys.AsSpan(0, _size);
-//        for (int i = 0; i < keys.Length; i++) {
+//        for (int i = 0; i < FileKeyUtility.Length; i++) {
 //            if (keys[i] == key) {
 //                _values[i] = value;
 //                return;
@@ -178,7 +178,7 @@ public class Properties<T> {
 
 //    public void RemoveIfPresent(Guid key) {
 //        Span<Guid> keys = _keys.AsSpan(0, _size);
-//        for (int i = 0; i < keys.Length; i++) {
+//        for (int i = 0; i < FileKeyUtility.Length; i++) {
 //            if (keys[i] == key) {
 //                int lastIdx = --_size;
 //                // Move the last element into the hole (Order is not preserved)

@@ -9,7 +9,7 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
     static readonly string[] _logRewriterStartFile = ["rewrite.flag"];
-    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io, FileKeyUtility keys) {
+    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
         string flaggedKey; // the flag file stores the key in its joined form
         using (var stream = io.OpenRead(_logRewriterStartFile, 0)) {
@@ -28,10 +28,10 @@ internal class LogRewriter {
         // While a rewrite is running the old log file always exists alongside the new one,
         // so if the flagged file is the only log file the hot swap must have completed
         // and the flagged file is the live log file. Deleting it would lose all data.
-        var allLogFiles = keys.WAL_GetAllFileKeys(io);
+        var allLogFiles = FileKeyUtility.WAL_GetAllFileKeys(io);
         var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0].IsSameKey(fileKey);
         if (!flaggedFileIsOnlyLogFile) io.DeleteFileIfItExists(fileKey);
-        io.DeleteFileIfItExists(keys.StateFileKey); // delete state file as well it may contain references to an old log file
+        io.DeleteFileIfItExists(FileKeyUtility.StateFileKey); // delete state file as well it may contain references to an old log file
         io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {
@@ -87,12 +87,12 @@ internal class LogRewriter {
         }, null, null); // no ValueIndex store, or secondary log store
         _newTransactionsWhileRewriting = new();
     }
-    public void Cancel(FileKeyUtility fileKeys) {
+    public void Cancel() {
         _cancelled = true;
         _newWAL.Dispose();
         _destIO.DeleteFileIfItExists(FileKey);
         if (LogRewriterAlreadyInprogress(_destIO)) DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey); // flag file is already deleted if the hot swap completed
-        CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO, fileKeys);
+        CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO);
     }
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
         lock (_newTransactionsWhileRewriting) _newTransactionsWhileRewriting.Add(t);

@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
@@ -13,8 +13,7 @@ public class ValueIndexTests {
         var s = new SetRegister(100);
         var memIo = new IOProviderMemory();
         var file = memIo.OpenAppend(["test"]);
-        var fileKeyUtil = new FileKeyUtility(null);
-        var index = new ValueIndex<int>(s, "test", "Test", memIo, fileKeyUtil, (v, s) => s.WriteInt(v), (s) => s.ReadInt());
+        var index = new ValueIndex<int>(s, "test", "Test", memIo, (v, s) => s.WriteInt(v), (s) => s.ReadInt());
 
         index.Add(10, 1);
         index.Add(11, 2);

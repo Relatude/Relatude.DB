@@ -20,7 +20,7 @@ namespace Relatude.Persistence {
             store.Dispose();
 
             // adds corruption to the log file:
-            io.AddCorruption(new FileKeyUtility(null).WAL_GetFileKey(1), 10000, 1); // corrupting one transaction somewhere in the log file
+            io.AddCorruption(FileKeyUtility.WAL_GetFileKey(1), 10000, 1); // corrupting one transaction somewhere in the log file
 
             // validate that the store cannot be opened:
             Assert.ThrowsException<LogReadException>(() => {
@@ -50,7 +50,7 @@ namespace Relatude.Persistence {
             store.Dispose();
 
             // add corruption to the state file:
-            io.AddCorruption(new FileKeyUtility(null).StateFileKey, 1000, 1000);
+            io.AddCorruption(FileKeyUtility.StateFileKey, 1000, 1000);
 
             // will throw exception because the index state file is corrupted
             try {

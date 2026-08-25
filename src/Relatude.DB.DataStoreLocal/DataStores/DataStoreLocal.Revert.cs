@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
@@ -20,8 +20,8 @@ namespace Relatude.DB.DataStores;
 // regardless of the gates and is reset and rebuilt from the log on rollback.
 //
 // DeleteTransactionsAfter is the general form against any timestamp: correct on any store, but
-// whatever persisted state has advanced past the timestamp â€” the state snapshot, memory index
-// files, index engines â€” is reset and rebuilt from the truncated log, which can mean a full replay.
+// whatever persisted state has advanced past the timestamp — the state snapshot, memory index
+// files, index engines — is reset and rebuilt from the truncated log, which can mean a full replay.
 public sealed partial class DataStoreLocal : IDataStore {
 
     RevertWindowInfo? _revertWindow;
@@ -147,7 +147,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var walFileKey = _wal.FileKey;
             var walFileSize = _wal.FileSize;
             var stateHeaderOk = tryReadStateFileHeader(out var stateTimestamp, out var statePosition);
-            var stateFileExists = IOIndex.ExistsAndIsNotEmpty(_fileKeys.StateFileKey);
+            var stateFileExists = IOIndex.ExistsAndIsNotEmpty(FileKeyUtility.StateFileKey);
 
             // find where to truncate, and count what falls off. The log streams must be closed
             // while an independent reader scans the file (and stay closed for the truncation):
@@ -273,7 +273,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     void truncateWalFiles(string[] walFileKey, long keepEnd, long preTruncateSize) {
         _io.TruncateFile(walFileKey, keepEnd);
         if (!_settings.SecondaryBackupLog) return;
-        var secondaryKey = _fileKeys.WAL_GetSecondaryFileKey();
+        var secondaryKey = FileKeyUtility.WAL_GetSecondaryFileKey();
         var secondarySize = _ioLog2.GetFileSizeOrZeroIfUnknown(secondaryKey);
         if (secondarySize == 0) return;
         if (secondarySize == preTruncateSize) {
@@ -290,8 +290,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         timestamp = 0;
         positionAfterLastTransaction = 0;
         try {
-            if (IOIndex.DoesNotExistOrIsEmpty(_fileKeys.StateFileKey)) return false;
-            using var stream = IOIndex.OpenRead(_fileKeys.StateFileKey, 0);
+            if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey)) return false;
+            using var stream = IOIndex.OpenRead(FileKeyUtility.StateFileKey, 0);
             var version = stream.ReadVerifiedInt();
             if (version != _stateFileVersion) return false;
             timestamp = stream.ReadVerifiedLong();

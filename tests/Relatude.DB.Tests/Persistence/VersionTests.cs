@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
@@ -20,7 +20,7 @@ public class VerArticle {
 /// <summary>
 /// FindOlderVersions: older versions of a node read straight from the version chains in the
 /// transaction log files. Every node write appends the full node together with the position of the
-/// node's previous version in the same file, so history is walked by chain â€” never cached. The
+/// node's previous version in the same file, so history is walked by chain — never cached. The
 /// primary log reaches back to the last log rewrite; the secondary backup log survives rewrites and
 /// extends the reach. The current version is never included and deleted nodes are not supported.
 /// </summary>
@@ -122,7 +122,7 @@ public class VersionTests {
         var db = (DataStoreLocal)store.Datastore;
         var id = insertAndUpdate(store, 3);
         assertVersions(store.FindOlderVersions<VerArticle>(id), 2, 1, 0);
-        db.RewriteStore(true, db.FileKeys.WAL_NextFileKey(db.IO));
+        db.RewriteStore(true, FileKeyUtility.WAL_NextFileKey(db.IO));
         // a rewrite keeps only the current version of each node, so without a secondary log the history is gone
         Assert.AreEqual(0, store.FindOlderVersions(id).Length, "history gone after rewrite");
         // the rewritten record becomes the previous version of the next write
@@ -137,7 +137,7 @@ public class VersionTests {
         using (var store = openDiskStore(dir, secondaryLog: true)) {
             var db = (DataStoreLocal)store.Datastore;
             id = insertAndUpdate(store, 3); // v0..v3
-            db.RewriteStore(true, db.FileKeys.WAL_NextFileKey(db.IO));
+            db.RewriteStore(true, FileKeyUtility.WAL_NextFileKey(db.IO));
             // the primary chain is reset, but the secondary log survives the rewrite with the full history
             assertVersions(store.FindOlderVersions<VerArticle>(id), 2, 1, 0);
             update(store, id, 4, 5); // v4, v5 written to both files
@@ -145,8 +145,8 @@ public class VersionTests {
             // secondary and must collapse into it, not show up as an extra version
             var versions = store.FindOlderVersions<VerArticle>(id);
             assertVersions(versions, 4, 3, 2, 1, 0);
-            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetSecondaryFileKey().AsKeyString()), "deep history read from the secondary log");
-            Assert.IsTrue(versions.Any(v => v.Source == db.FileKeys.WAL_GetLatestFileKey(db.IO).AsKeyString()), "recent history read from the primary log");
+            Assert.IsTrue(versions.Any(v => v.Source == FileKeyUtility.WAL_GetSecondaryFileKey().AsKeyString()), "deep history read from the secondary log");
+            Assert.IsTrue(versions.Any(v => v.Source == FileKeyUtility.WAL_GetLatestFileKey(db.IO).AsKeyString()), "recent history read from the primary log");
         }
         using (var store = openDiskStore(dir, secondaryLog: true)) {
             // reopens from the persisted chain state written at the rewrite; the deep history in

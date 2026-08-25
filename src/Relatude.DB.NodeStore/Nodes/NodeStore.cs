@@ -148,8 +148,8 @@ public class NodeStore : IDisposable {
         var totalCode = string.Join("\n", code.Select(c => c.code));
         ulong codeHash = 0;
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
-        var fileKey = datastore.FileKeys.MapperDll_GetFileKey(codeHash);
-        foreach (var f in datastore.FileKeys.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
+        var fileKey = FileKeyUtility.MapperDll_GetFileKey(codeHash);
+        foreach (var f in FileKeyUtility.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
             if (!f.IsSameKey(fileKey)) datastore.IOIndex.DeleteFileIfItExists(f);
         }
         byte[] dll;

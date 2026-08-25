@@ -10,7 +10,7 @@
 namespace Relatude.DB.DataStores.Indexes.Trie.TrieNet; 
 /// <summary>
 /// Interface to be implemented by a data structure 
-/// which allows adding values <see cref="TValue"/> associated with <b>string</b> keys.
+/// which allows adding values <see cref="TValue"/> associated with <b>string</b> FileKeyUtility.
 /// The interface allows retrieveal of multiple values 
 /// </summary>
 /// <typeparam name="TValue"></typeparam>

@@ -24,7 +24,7 @@ public sealed class MemoryBenchIndex : SemanticBenchIndex {
         _io = new IOProviderDisk(dir);
         // A disabled set cache (size 0): the unranked filter phase must reach the index on every
         // call, not be answered by the SetRegister, which is not what this benchmark is measuring.
-        Index = new MemorySemanticIndex(new SetRegister(0), "bench", "bench", _io, new FileKeyUtility(null), ai);
+        Index = new MemorySemanticIndex(new SetRegister(0), "bench", "bench", _io, ai);
         Index.ReadStateForMemoryIndexes(walId);
     }
     protected override ISemanticIndex Index { get; }

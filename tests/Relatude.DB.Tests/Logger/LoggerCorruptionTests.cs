@@ -15,7 +15,7 @@ public class LoggerCorruptionTests {
             store.Record("test", H.Entry(H.T0.AddMinutes(i), ("p1", "AAAA")), flushToDisk: true);
         }
         store.Dispose();
-        var fileKey = H.FileKeys.Logger_FileNameBin("test", FileInterval.Day, H.T0.Date);
+        var fileKey = FileKeyUtility.Logger_FileNameBin("test", FileInterval.Day, H.T0.Date);
         var fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
         Assert.IsTrue(fileSize > 0);
         Assert.AreEqual(0L, fileSize % 3);
@@ -36,8 +36,8 @@ public class LoggerCorruptionTests {
         for (var i = 0; i < 5; i++) store.Record("test", H.Entry(H.T0.AddSeconds(10 + i), ("pInt", 1)));
         store.SaveStatistics(); // second save, the backup now holds the 5 row state
         store.Dispose();
-        var statKey = H.FileKeys.Logger_GetStatistics("test");
-        var backupKey = H.FileKeys.Logger_GetStatisticsBackUp("test");
+        var statKey = FileKeyUtility.Logger_GetStatistics("test");
+        var backupKey = FileKeyUtility.Logger_GetStatisticsBackUp("test");
         var statSize = io.GetFileSizeOrZeroIfUnknown(statKey);
         Assert.IsTrue(statSize > 32);
         Assert.IsTrue(io.ExistsAndIsNotEmpty(backupKey));
@@ -56,8 +56,8 @@ public class LoggerCorruptionTests {
         for (var i = 0; i < 5; i++) store.Record("test", H.Entry(H.T0.AddSeconds(10 + i), ("pInt", 1)));
         store.SaveStatistics();
         store.Dispose();
-        var statKey = H.FileKeys.Logger_GetStatistics("test");
-        var backupKey = H.FileKeys.Logger_GetStatisticsBackUp("test");
+        var statKey = FileKeyUtility.Logger_GetStatistics("test");
+        var backupKey = FileKeyUtility.Logger_GetStatisticsBackUp("test");
         io.AddCorruption(statKey, io.GetFileSizeOrZeroIfUnknown(statKey) - 16, 16);
         io.AddCorruption(backupKey, io.GetFileSizeOrZeroIfUnknown(backupKey) - 16, 16);
         var store2 = H.Store(io, H.RichSettings());

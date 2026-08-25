@@ -9,7 +9,7 @@ namespace Relatude.DB.DataStores.Indexes;
 /// per word index under <c>&lt;indexFolder&gt;/textindex</c>. Writes go to each index's in-memory
 /// write buffer and are searchable immediately, so the engine transaction is in-memory only:
 /// CommitTransaction just records the published timestamp, and durability happens in
-/// <see cref="MakeDurableCore"/> â€” called by the data store right after every successful WAL flush â€”
+/// <see cref="MakeDurableCore"/> — called by the data store right after every successful WAL flush —
 /// where each index flushes its buffer to an immutable segment and re-points its manifest,
 /// stamped with the position (timestamp + WAL file id). A crash therefore loses only ops the
 /// durable log can replay: on the next open every index reports the position of its last durable
@@ -17,7 +17,7 @@ namespace Relatude.DB.DataStores.Indexes;
 ///
 /// <para>The engine-level WAL file id lives in a small marker file next to the index folders.
 /// Per index, the manifest must carry the same id; anything else (foreign log file, restored or
-/// torn files) resets that index to empty so the replay rebuilds it â€” see <see cref="TextIndex"/>.</para>
+/// torn files) resets that index to empty so the replay rebuilds it — see <see cref="TextIndex"/>.</para>
 /// </summary>
 public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
     readonly string _folderPath;
@@ -44,7 +44,7 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
     /// <summary>
     /// What the shared read cache currently holds, against its budget. Everything else the engine
     /// keeps in memory is O(documents) or O(segments), not O(text), so this is the number to watch
-    /// when the process footprint is bigger than expected â€” and the one
+    /// when the process footprint is bigger than expected — and the one
     /// <see cref="TextIndexOptions.MaxCacheBytes"/> bounds.
     /// </summary>
     public (long UsedBytes, long MaxBytes, int Entries) GetCacheStats() => (_cache.UsedBytes, _cache.MaxBytes, _cache.Count);
@@ -74,7 +74,7 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
     }
 
     /// <summary>The engine's durable position: the oldest position among its indexes (each persists
-    /// its own). 0 with no indexes open, or when any index is fresh â€” forcing a full replay for it.</summary>
+    /// its own). 0 with no indexes open, or when any index is fresh — forcing a full replay for it.</summary>
     public override long GetTimestamp() {
         if (_indexes.Count == 0) return _currentTimestamp;
         return _indexes.Values.Min(v => v.index.PersistedTimestamp);
@@ -138,7 +138,7 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
     protected override void DisposeCore() {
         // Any un-flushed buffer is discarded, never flushed here: a clean close has already been
         // made durable by the store's final WAL flush, and after a failed transaction the buffer
-        // is not commit-consistent â€” persisting it would put phantom ops ahead of the log. The
+        // is not commit-consistent — persisting it would put phantom ops ahead of the log. The
         // persisted timestamp still points at the last durable manifest, so the replay repairs it.
         foreach (var (index, _) in _indexes.Values) {
             try { index.Dispose(); } catch { }

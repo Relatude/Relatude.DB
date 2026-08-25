@@ -120,8 +120,6 @@ class SettingsAPI {
 }
 class MaintenanceAPI {
     constructor(private server: API, private controller: string) { }
-    deleteAllButDb = (storeId: string) => this.server.execute(this.controller, 'delete-all-but-db', { storeId });
-    deleteAllFiles = (storeId: string, ioId: string) => this.server.execute(this.controller, 'delete-all-files', { storeId, ioId });
     downloadFullDb = (storeId: string, namePrefix: string) => this.server.userDownload(this.controller, 'download-full-db', { storeId, namePrefix });
     downloadTruncatedDb = (storeId: string, namePrefix: string) => this.server.userDownload(this.controller, 'download-truncated-db', { storeId, namePrefix });
     closeAllOpenStreams(storeId: string, ioId: string) { return this.server.execute(this.controller, 'close-all-open-streams', { storeId, ioId }); }

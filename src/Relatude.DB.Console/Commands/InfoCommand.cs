@@ -47,11 +47,8 @@ public static class InfoCommand {
         Output.Table([
             ("log", (info.LogFileKey ?? "?") + "  " + Output.Bytes(info.LogFileSize)),
             ("state", Output.Bytes(info.LogStateFileSize)),
-            ("indexes", Output.Bytes(info.IndexFileSize)),
-            ("file store", Output.Bytes(info.FileStoreSize)),
             ("backups", Output.Bytes(info.BackupFileSize)),
             ("logging", Output.Bytes(info.LoggingFileSize)),
-            ("total", Output.Bytes(info.TotalFileSize)),
         ]);
         Output.WriteLine();
         Output.WriteLine("Log");

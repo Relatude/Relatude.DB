@@ -38,7 +38,7 @@ public static class MaintenanceCommand {
                     }
                     Output.Info("Truncating " + Output.Bytes(before.LogFileSize) + " of log, "
                         + before.LogTruncatableActions.ToString("N0") + " action(s) can go...");
-                    var newKey = datastore.FileKeys.WAL_NextFileKey(datastore.IO);
+                    var newKey = FileKeyUtility.WAL_NextFileKey(datastore.IO);
                     datastore.RewriteStore(true, newKey, datastore.IO); // hot swap: the store continues on the new file
                     var deleted = args.Flag("delete-old") ? datastore.DeleteOldLogs() : 0;
                     var after = host.Info();
@@ -76,7 +76,7 @@ public static class MaintenanceCommand {
         var io = ioId == null || ioId == Guid.Empty ? datastore.IOBackup : host.Server.GetIO(ioId.Value);
         var truncate = args.Flag("truncate");
         var keepForever = args.Flag("keep-forever");
-        var fileKey = datastore.FileKeys.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
+        var fileKey = FileKeyUtility.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
         Output.Info("Writing backup to " + fileKey.AsKeyString() + "...");
         if (truncate) datastore.RewriteStore(false, fileKey, io); // rewritten: current state only
         else datastore.CopyStore(fileKey, io); // copied: the whole history
@@ -97,7 +97,6 @@ public static class MaintenanceCommand {
         }
         var settings = SettingsReader.Read(target);
         var container = SettingsReader.SelectContainer(settings, target.Store);
-        var keys = new FileKeyUtility(container.LocalSettings?.FilePrefix);
         var deleted = 0;
         foreach (var id in new[] { container.IoIndexes, container.IoDatabase }.Distinct()) {
             if (id == null || id == Guid.Empty) continue;
@@ -109,8 +108,8 @@ public static class MaintenanceCommand {
             } catch (Exception err) {
                 throw new CliException("Could not open the storage provider \"" + ioSettings.Name + "\": " + err.Message, err);
             }
-            io.DeleteFolderIfItExists([keys.IndexStoreFolderKey]);
-            foreach (var key in new[] { keys.StateFileKey }.Concat(keys.MapperDll_GetAllFileKeys(io)).Concat(keys.Index_GetAll(io))) {
+            io.DeleteFolderIfItExists([FileKeyUtility.IndexStoreFolderKey]);
+            foreach (var key in new[] { FileKeyUtility.StateFileKey }.Concat(FileKeyUtility.MapperDll_GetAllFileKeys(io)).Concat(FileKeyUtility.Index_GetAll(io))) {
                 if (io.DoesNotExistOrIsEmpty(key)) continue;
                 io.DeleteFileIfItExists(key);
                 deleted++;

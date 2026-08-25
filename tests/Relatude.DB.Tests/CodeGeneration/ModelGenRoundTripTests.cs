@@ -1,4 +1,4 @@
-using System.Runtime.Loader;
+﻿using System.Runtime.Loader;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Relatude.DB.CodeGeneration;

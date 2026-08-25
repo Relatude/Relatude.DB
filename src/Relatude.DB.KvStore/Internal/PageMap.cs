@@ -1,9 +1,9 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
-/// The write transaction's pageId → page map: open addressing with linear probing and a
+/// The write transaction's pageId â†’ page map: open addressing with linear probing and a
 /// Fibonacci-mixed hash. It is probed several times per index operation (every page read inside
 /// a transaction checks it before the committed store), which is exactly the lookup a generic
 /// dictionary spends most of its time around rather than in. Single-threaded by contract — it

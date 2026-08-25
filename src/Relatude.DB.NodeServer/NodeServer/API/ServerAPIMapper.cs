@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -21,17 +21,6 @@ namespace Relatude.DB.NodeServer.API;
 public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;
     string ApiUrlRoot => server.ApiUrlRoot;
-    void ensurePrefix(Guid storeId, ref string fileKey) {
-        var filePrefix = server.Containers[storeId].Settings?.LocalSettings?.FilePrefix;
-        if (string.IsNullOrEmpty(filePrefix)) return;
-        // keys may be folder qualified (data/state/bkup/log); the prefix belongs to the file name
-        var slash = fileKey.LastIndexOf('/');
-        var folder = slash < 0 ? "" : fileKey[..(slash + 1)];
-        var name = slash < 0 ? fileKey : fileKey[(slash + 1)..];
-        if (!name.StartsWith('.')) filePrefix += ".";
-        if (name.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase)) return;
-        fileKey = folder + filePrefix + name;
-    }
     static string[] splitFolderPath(string? folderPath) => folderPath?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
     NodeStoreContainer container(Guid storeId) {
         if (server.Containers.TryGetValue(storeId, out var container)) return container;
@@ -209,7 +198,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             } catch { }
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
-        app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => new FileKeyUtility(container(storeId).Settings?.LocalSettings?.FilePrefix).GetAllFiles(server.GetIO(ioId)));
+        app.MapPost(path("get-store-files"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFiles());
         app.MapPost(path("can-have-folders"), (Guid storeId, Guid ioId) => new { CanHave = true });
         app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync([], true, true)); // kept for older clients
         // one level of the given folder ("" = the storage root): its files and subfolder stubs, no sizes computed
@@ -243,28 +232,24 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("get-file-key-of-db"), (Guid storeId, Guid ioId) => {
             var settings = container(storeId).Settings;
             if (settings.IoDatabase != ioId) return string.Empty;
-            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_GetLatestFileKey(server.GetIO(ioId)).AsKeyString();
+            return FileKeyUtility.WAL_GetLatestFileKey(server.GetIO(ioId)).AsKeyString();
         });
         app.MapPost(path("get-file-key-of-db-next"), (Guid storeId, Guid ioId) => {
             var settings = container(storeId).Settings;
             if (settings.IoDatabase != ioId) return string.Empty;
-            return new FileKeyUtility(settings.LocalSettings!.FilePrefix).WAL_NextFileKey(server.GetIO(ioId)).AsKeyString();
+            return FileKeyUtility.WAL_NextFileKey(server.GetIO(ioId)).AsKeyString();
         });
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
-            ensurePrefix(storeId, ref fileName);
             var fileKey = fileName.SplitKey();
             var ioStream = server.GetIO(ioId).OpenRead(fileKey, 0);
             var stream = ReadStreamWrapper.Wrap(ioStream);
             return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileKey.FileName(), null, null, true);
         });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
-            ensurePrefix(storeId, ref fileName);
             server.GetIO(ioId).DeleteFileIfItExists(fileName.SplitKey());
         });
         app.MapPost(path("can-rename-file"), (Guid storeId, Guid ioId) => new { CanRename = server.GetIO(ioId).CanRenameFile });
         app.MapPost(path("rename-file"), (Guid storeId, Guid ioId, string fileName, string newFileName) => {
-            ensurePrefix(storeId, ref fileName);
-            ensurePrefix(storeId, ref newFileName);
             server.GetIO(ioId).RenameFile(fileName.SplitKey(), newFileName.SplitKey());
         });
         app.MapPost(path("initiate-upload"), () => { return new { Value = Guid.NewGuid().ToString() }; });
@@ -278,14 +263,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             string[] uploadKey = [uploadId.ToString()];
             if (server.TempIO.DoesNotExistsOrIsEmpty(uploadKey)) throw new Exception("Upload not found");
             var destIo = server.GetIO(ioId);
-            ensurePrefix(storeId, ref fileName);
             var fileKey = fileName.SplitKey();
-            var fileKeys = new FileKeyUtility(server.Containers[storeId].Settings?.LocalSettings?.FilePrefix);
-            if (fileKeys.StateFileKey.IsSameKey(fileKey)) {
+            if (FileKeyUtility.StateFileKey.IsSameKey(fileKey)) {
                 server.TempIO.DeleteFileIfItExists(uploadKey);
                 throw new Exception("Uploading state file is not allowed. ");
             }
-            destIo.DeleteFileIfItExists(fileKeys.StateFileKey); // delete the state file to avoid old statefile and newer log file!
+            destIo.DeleteFileIfItExists(FileKeyUtility.StateFileKey); // delete the state file to avoid old statefile and newer log file!
             if (destIo is IOProviderDisk diskIO && server.TempIO is IOProviderDisk tempDiskIO) {
                 diskIO.MoveFile(tempDiskIO, uploadKey, fileKey, overwrite);
                 return;
@@ -329,7 +312,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
-            //var fileName = datastore.FileKeys.Log_NextFileKey(datastore.IO);
+            //var fileName = FileKeyUtility.Log_NextFileKey(datastore.IO);
             return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
         });
         app.MapGet(path("download-full-db"), (Guid storeId, string namePrefix) => {
@@ -344,44 +327,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
-            //var fileName = datastore.FileKeys.Log_NextFileKey(datastore.IO);
+            //var fileName = FileKeyUtility.Log_NextFileKey(datastore.IO);
             return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
         });
         app.MapPost(path("copy-file"), (Guid storeId, Guid fromIoId, string fromFileName, Guid toIoId, string toIoFileName) => {
-            ensurePrefix(storeId, ref fromFileName);
-            ensurePrefix(storeId, ref toIoFileName);
             var io = server.GetIO(toIoId);
             io.CopyFile(fromFileName.SplitKey(), toIoFileName.SplitKey());
-        });
-        app.MapPost(path("delete-all-but-db"), (Guid storeId) => {
-            var settings = container(storeId).Settings;
-            if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings");
-            var fileKeys = new FileKeyUtility(settings.LocalSettings.FilePrefix);
-            IIOProvider io;
-            if (!settings.IoDatabase.HasValue || settings.IoDatabase == Guid.Empty) throw new Exception("IoDatabase is required for NodeStoreContainerSettings");
-            io = server.GetIO(settings.IoDatabase.Value);
-            var dbFile = fileKeys.WAL_GetLatestFileKey(io);
-            var fileStore = fileKeys.FileStore_GetLatestFileKey(io);
-            var indexFile = fileKeys.StateFileKey;
-            foreach (var file in fileKeys.GetAllFiles(io)) {
-                if (file.Writers > 0 || file.Readers > 0) continue;
-                var fileKey = file.KeyOf();
-                if (indexFile.IsSameKey(fileKey)) continue;
-                if (dbFile.IsSameKey(fileKey)) continue;
-                if (fileStore.IsSameKey(fileKey)) continue;
-                if (fileKeys.WAL_KeepForever(fileKey)) continue;
-                io.DeleteFileIfItExists(fileKey);
-            }
-        });
-        app.MapPost(path("delete-all-files"), (Guid storeId, Guid ioId) => {
-            var settings = container(storeId).Settings;
-            if (settings.LocalSettings == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings");
-            var fileKeys = new FileKeyUtility(settings.LocalSettings.FilePrefix);
-            var io = server.GetIO(ioId);
-            foreach (var file in fileKeys.GetAllFiles(io)) {
-                if (file.Writers > 0 || file.Readers > 0) continue;
-                io.DeleteFileIfItExists(file.KeyOf());
-            }
         });
     }
     void mapServer(WebApplication app, Func<string, string> path) {

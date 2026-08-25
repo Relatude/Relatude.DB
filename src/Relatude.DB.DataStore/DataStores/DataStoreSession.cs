@@ -156,7 +156,6 @@ public class DataStoreSession : IDataStore {
         => _datastore.RequestLockAsync(nodeId, lockDurationInMs, maxWaitTimeInMs);
     public void ReleaseLock(Guid lockId) => _datastore.ReleaseLock(lockId);
 
-    public FileKeyUtility FileKeys => _datastore.FileKeys;
     public IIOProvider IO => _datastore.IO;
     public IIOProvider IOIndex => _datastore.IOIndex;
     public IIOProvider IOBackup => _datastore.IOBackup;

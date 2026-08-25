@@ -5,7 +5,7 @@ namespace Relatude.Common;
 
 /// <summary>
 /// The storage naming rules that persisted data depends on: a name is how the data is found again
-/// after a restart, so any drift in these rules silently orphans a store's files â€” the engine then
+/// after a restart, so any drift in these rules silently orphans a store's files — the engine then
 /// looks at an empty folder, believes the index is new, and rebuilds it from the log.
 /// </summary>
 [TestClass]

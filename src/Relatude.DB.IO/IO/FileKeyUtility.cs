@@ -27,58 +27,51 @@ namespace Relatude.DB.IO;
 /// (<see cref="FileKeyExtensions.MatchesPattern"/>). Listings (<see cref="FileMeta.Key"/>) carry
 /// the joined ('/'-separated) form of a key.
 /// </summary>
-public class FileKeyUtility {
+public static class FileKeyUtility {
 
-    /// <summary>Folder of the database log files (primary and secondary).</summary>
     public const string DataFolderName = "data";
-    /// <summary>Folder of everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue.</summary>
     public const string StateFolderName = "state";
-    /// <summary>Folder of the backup files.</summary>
     public const string BackupFolderName = "bkup";
-    /// <summary>Folder of the system logger files and the critical error log.</summary>
     public const string LogFolderName = "log";
-    /// <summary>The well known folders below the storage root. Disk providers include these in file listings.</summary>
     public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
 
-    string _prefix = "";
-    static HashSet<string> storeNames = new() { "db", "files", "index", "ai", "log", "mapper", "ai", "queue" }; // starting with these are reserved
+    static readonly HashSet<string> storeNames = ["db", "files", "index", "ai", "log", "mapper", "queue"]; // starting with these are reserved
     // patterns are file keys with wildcards in their segments, matched segment by segment
-    string[] walSecondaryFilePattern => [DataFolderName, _prefix + "db.log"];
-    string[] walFilePattern => [DataFolderName, _prefix + "db.*.bin"];
-    string[] walFileBackupPattern => [BackupFolderName, _prefix + "db.*.bkup"];
-    string[] walFileBackupPatternKeepForever => [BackupFolderName, _prefix + "db.bkup.keep.*.bkup"];
+    static readonly string[] walSecondaryFilePattern = [DataFolderName, "db.log"];
+    static readonly string[] walFilePattern = [DataFolderName, "db.*.bin"];
+    static readonly string[] walFileBackupPattern = [BackupFolderName, "db.*.bkup"];
+    static readonly string[] walFileBackupPatternKeepForever = [BackupFolderName, "db.bkup.keep.*.bkup"];
 
-    string multiFileStoreFolderPattern => _prefix + "files";
-    string[] fileStorePattern => [_prefix + "files.*.bin"];
-    string[] fileStoreBackupPattern => [BackupFolderName, _prefix + "files.*.bkup"];
-    string[] fileStoreBackupPatternKeepForever => [BackupFolderName, _prefix + "files.bkup.keep.*.bkup"];
+    const string multiFileStoreFolderPattern = "files";
+    static readonly string[] fileStorePattern = ["files.*.bin"];
+    static readonly string[] fileStoreBackupPattern = [BackupFolderName, "files.*.bkup"];
+    static readonly string[] fileStoreBackupPatternKeepForever = [BackupFolderName, "files.bkup.keep.*.bkup"];
 
-    string dateTimeTemplate => "yyyy-MM-dd-HH-mm-ss";
-    string dateOnlyTemplate => "yyyy-MM-dd";
-    string[] stateFilePattern => [StateFolderName, _prefix + "state.bin"];
-    string[] indexFilePattern => [StateFolderName, _prefix + "index.*.bin"];
+    const string dateTimeTemplate = "yyyy-MM-dd-HH-mm-ss";
+    const string dateOnlyTemplate = "yyyy-MM-dd";
+    static readonly string[] stateFilePattern = [StateFolderName, "state.bin"];
+    static readonly string[] indexFilePattern = [StateFolderName, "index.*.bin"];
 
     // the ai cache lives in the indexes folder; that folder is already prefixed, so like the index
     // engine files below it the file name itself carries no prefix
-    string[] aiCacheFilePattern => [indexStoreFolderPattern, "ai.cache.bin"];
-    string[] aiCacheNativeFilePattern => [indexStoreFolderPattern, "native.ai.cache.bin"];
-    string indexStoreFolderPattern => _prefix + "indexes";
+    const string indexStoreFolderPattern = "indexes";
+    static readonly string[] aiCacheFilePattern = [indexStoreFolderPattern, "ai.cache.bin"];
+    static readonly string[] aiCacheNativeFilePattern = [indexStoreFolderPattern, "native.ai.cache.bin"];
 
-    string[] mapperDllFilePattern => [StateFolderName, _prefix + "mapper.*.dll"];
+    static readonly string[] mapperDllFilePattern = [StateFolderName, "mapper.*.dll"];
 
-    string[] loggerAllFilePattern => [LogFolderName, _prefix + "log.*"];
-    string loggerNamePrefix => _prefix + "log"; // the file name part; logger files live in the log folder
-    string loggerFilePartDelim => ".";
-    string loggerDatePartsDelim => "-"; // cannot be changed!
-    string loggerStatisticsSuffix => "statistics";
-    string loggerBinaryExt => ".bin";
-    string loggerTextExt => ".txt";
-    string loggerBkUpExt => ".bkup";
+    static readonly string[] loggerAllFilePattern = [LogFolderName, "log.*"];
+    const string loggerNamePrefix = "log"; // the file name part; logger files live in the log folder
+    const string loggerFilePartDelim = ".";
+    const string loggerStatisticsSuffix = "statistics";
+    const string loggerBinaryExt = ".bin";
+    const string loggerTextExt = ".txt";
+    const string loggerBkUpExt = ".bkup";
 
-    string[] criticalErrorLogFilePattern => [LogFolderName, _prefix + "critical.error.txt"];
+    static readonly string[] criticalErrorLogFilePattern = [LogFolderName, "critical.error.txt"];
 
-    string queueFileName => _prefix + "queue";
-    string[] queueFileKeyPattern => [StateFolderName, _prefix + "queue.*"];
+    const string queueFileName = "queue";
+    static readonly string[] queueFileKeyPattern = [StateFolderName, "queue.*"];
 
     /// <summary>The key a pattern describes, with the wildcard in its file name filled in.</summary>
     static string[] fill(string[] pattern, string value) => [.. pattern[..^1], pattern[^1].Replace("*", value)];
@@ -101,22 +94,9 @@ public class FileKeyUtility {
     const string binaryExtension = ".bin";
     const string tempExtension = ".tmp";
 
-    public FileKeyUtility(string? prefix) {
-        // filter prefix for letters, numbers, and underscores:
-        if (prefix != null) {
-            ValidateFilePrefixString(prefix);
-            foreach (var c in prefix) {
-                if (!char.IsLetterOrDigit(c) && c != '_' && c != '.')
-                    throw new ArgumentException("Prefix can only contain letters, numbers, and underscores.");
-            }
-        }
-        _prefix = string.IsNullOrEmpty(prefix) ? "" : prefix.Trim();
-        if (_prefix.Length > 0 && !_prefix.EndsWith(".")) _prefix += ".";
-    }
-
-    public string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
-    public string[] StateFileKey => stateFilePattern;
-    public string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
+    public static string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
+    public static string[] StateFileKey => stateFilePattern;
+    public static string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
         if (cacheProvider == null) return null;
         return cacheProvider.Value switch {
             AIProviderCacheType.None => null,
@@ -126,146 +106,111 @@ public class FileKeyUtility {
             _ => throw new NotImplementedException(),
         };
     }
-    public string IndexStoreFolderKey => indexStoreFolderPattern;
+    public static string IndexStoreFolderKey => indexStoreFolderPattern;
 
-    public string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;
+    public static string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;
 
-    public string[][] GetAllFileKeys(IIOProvider io) => [.. io.GetFiles().Select(f => f.KeyOf()).Where(isInstanceFileKey).OrderBy(k => k.AsKeyString())];
-    public FileMeta[] GetAllFiles(IIOProvider io) => [.. io.GetFiles().Where(f => isInstanceFileKey(f.KeyOf())).OrderBy(f => f.Key)];
-    /// <summary>
-    /// Whether the key belongs to this instance: a root file or a system folder file whose name
-    /// carries the instance prefix. Keys in other folders (the prefixed indexes folder, the multi
-    /// file store folder) are matched on their first segment, as before the folder layout.
-    /// </summary>
-    bool isInstanceFileKey(string[] key) {
-        if (key.Length > 1 && SystemFolderNames.Contains(key[0])) return key[1].MatchesWildcard(_prefix + "*");
-        return key[0].MatchesWildcard(_prefix + "*");
-    }
-
-    public DateOnly SystemLog_GetFileDateTimeFromFileKey(string[] fileKey) {
+    public static DateOnly SystemLog_GetFileDateTimeFromFileKey(string[] fileKey) {
         var parts = fileKey.FileName().Split('.');
         var dtSection = parts[^2];
         return DateOnly.ParseExact(dtSection, dateOnlyTemplate, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public string[] Index_GetFileKey(string indexId) {
+    public static string[] Index_GetFileKey(string indexId) {
         return fill(indexFilePattern, indexId);
     }
-    public string[][] Index_GetAll(IIOProvider io) {
+    public static string[][] Index_GetAll(IIOProvider io) {
         return [.. io.Search(indexFilePattern)];
     }
 
 
-    public string[] WAL_GetFileKey(int n) => fill(walFilePattern, n.ToString("00000000"));
-    public string[][] WAL_GetAllFileKeys(IIOProvider io) => [.. io.Search(walFilePattern)];
-    public string[] WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
-    public string[] WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
-    public string[] WAL_NextFileKey(IIOProvider io) {
-        var parts = WAL_GetLatestFileKey(io).FileName().Split('.');
-        var numberSection = parts[^2];
-        return WAL_GetFileKey(int.Parse(numberSection) + 1);
-    }
-    public DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) {
-        var parts = fileKey.FileName().Split('.');
-        var dtSection = parts[^2];
-        var dt = DateTime.ParseExact(dtSection, dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
-        return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-    }
-    public string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
-    public string[] WAL_GetFileKeyForBackup(DateTime dt, bool keepForever)
+    public static string[] WAL_GetFileKey(int n) => fill(walFilePattern, n.ToString("00000000"));
+    public static string[][] WAL_GetAllFileKeys(IIOProvider io) => [.. io.Search(walFilePattern)];
+    public static string[] WAL_GetSecondaryFileKey() => walSecondaryFilePattern;
+    public static string[] WAL_GetLatestFileKey(IIOProvider io) => WAL_GetAllFileKeys(io).LastOrDefault() ?? WAL_GetFileKey(1);
+    public static string[] WAL_NextFileKey(IIOProvider io) => nextFileKey(WAL_GetLatestFileKey(io), WAL_GetFileKey);
+    public static DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
+    public static string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
+    public static string[] WAL_GetFileKeyForBackup(DateTime dt, bool keepForever)
         => fill(keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern, dt.ToString(dateTimeTemplate));
-    public bool WAL_KeepForever(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPatternKeepForever);
+    public static bool WAL_KeepForever(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPatternKeepForever);
 
-    public string[] FileStore_GetFileKey(int n) => fill(fileStorePattern, n.ToString("00000000"));
-    public string[][] FileStore_GetAllFileKeys(IIOProvider io) => [.. io.Search(fileStorePattern)];
-    public string[] FileStore_GetLatestFileKey(IIOProvider io) => FileStore_GetAllFileKeys(io).LastOrDefault() ?? FileStore_GetFileKey(1);
-    public string[] FileStore_NextFileKey(IIOProvider io) {
-        var parts = FileStore_GetLatestFileKey(io).FileName().Split('.');
-        var numberSection = parts[^2];
-        return FileStore_GetFileKey(int.Parse(numberSection) + 1);
-    }
-    public DateTime FileStore_GetBackUpDateTimeFromFileKey(string[] fileKey) {
-        var parts = fileKey.FileName().Split('.');
-        var dtSection = parts[^2];
-        var dt = DateTime.ParseExact(dtSection, dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
-        return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-    }
-    public string[][] FileStore_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(fileStoreBackupPattern)];
-    public string[] FileStore_GetFileKeyForBackup(DateTime dt, bool keepForever)
+    public static string[] FileStore_GetFileKey(int n) => fill(fileStorePattern, n.ToString("00000000"));
+    public static string[][] FileStore_GetAllFileKeys(IIOProvider io) => [.. io.Search(fileStorePattern)];
+    public static string[] FileStore_GetLatestFileKey(IIOProvider io) => FileStore_GetAllFileKeys(io).LastOrDefault() ?? FileStore_GetFileKey(1);
+    public static string[] FileStore_NextFileKey(IIOProvider io) => nextFileKey(FileStore_GetLatestFileKey(io), FileStore_GetFileKey);
+    public static DateTime FileStore_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
+    public static string[][] FileStore_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(fileStoreBackupPattern)];
+    public static string[] FileStore_GetFileKeyForBackup(DateTime dt, bool keepForever)
         => fill(keepForever ? fileStoreBackupPatternKeepForever : fileStoreBackupPattern, dt.ToString(dateTimeTemplate));
-    public bool FileStore_KeepForever(string[] fileKey) => fileKey.MatchesPattern(fileStoreBackupPatternKeepForever);
+    public static bool FileStore_KeepForever(string[] fileKey) => fileKey.MatchesPattern(fileStoreBackupPatternKeepForever);
 
-    public string[] MapperDll_GetFileKey(ulong hash) => fill(mapperDllFilePattern, hash.ToString());
-    public string[][] MapperDll_GetAllFileKeys(IIOProvider io) => [.. io.Search(mapperDllFilePattern)];
+    static string[] nextFileKey(string[] fileKey, Func<int, string[]> getFileKey) => getFileKey(int.Parse(fileKey.FileName().Split('.')[^2]) + 1);
+    static DateTime backupDateTime(string[] fileKey) => DateTime.SpecifyKind(DateTime.ParseExact(fileKey.FileName().Split('.')[^2], dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
 
-    public string[] Logger_GetStatistics(string loggerKey) => [LogFolderName, loggerNamePrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt];
-    public string[] Logger_GetStatisticsBackUp(string loggerKey) {
+    public static string[] MapperDll_GetFileKey(ulong hash) => fill(mapperDllFilePattern, hash.ToString());
+    public static string[][] MapperDll_GetAllFileKeys(IIOProvider io) => [.. io.Search(mapperDllFilePattern)];
+
+    public static string[] Logger_GetStatistics(string loggerKey) => [LogFolderName, loggerNamePrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt];
+    public static string[] Logger_GetStatisticsBackUp(string loggerKey) {
         var key = Logger_GetStatistics(loggerKey);
         return [.. key[..^1], key.FileName() + loggerBkUpExt];
     }
     /// <summary>The file name prefix (inside the log folder) of one log's files for the given interval.</summary>
-    public string Logger_NamePrefix(string logName, FileInterval fileInterval) => loggerNamePrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
-    public string[] Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) {
-        return logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
-    }
-    public string[] Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) {
-        return logger_FileName(logName, fileInterval, floored, loggerTextExt);
-    }
-    public List<DateTime> Logger_FileDatesBin(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerBinaryExt);
-    public List<DateTime> Logger_FileDatesTxt(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerTextExt);
-    string[] logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) {
-        var name = (Logger_NamePrefix(logName, fileInterval) + fileInterval switch {
+    public static string Logger_NamePrefix(string logName, FileInterval fileInterval) => loggerNamePrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
+    public static string[] Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) => logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
+    public static string[] Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) => logger_FileName(logName, fileInterval, floored, loggerTextExt);
+    public static List<DateTime> Logger_FileDatesBin(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerBinaryExt);
+    public static List<DateTime> Logger_FileDatesTxt(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerTextExt);
+    static string[] logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) => [LogFolderName, (Logger_NamePrefix(logName, fileInterval) + (fileInterval switch {
             FileInterval.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),
             FileInterval.Hour => floored.ToString("yyyy-MM-dd-HH"),
             FileInterval.Day => floored.ToString("yyyy-MM-dd"),
             FileInterval.Month => floored.ToString("yyyy-MM"),
             _ => throw new NotImplementedException(),
-        }).ToLower() + fileExt;
-        return [LogFolderName, name];
-    }
-    DateTime logger_ParseFileName(string fileName, string logName, FileInterval fileInterval, string fileExt) {
+        })).ToLower() + fileExt];
+    static DateTime logger_ParseFileName(string fileName, string logName, FileInterval fileInterval, string fileExt) {
         var datePart = fileName[Logger_NamePrefix(logName, fileInterval).Length..];
         datePart = datePart.Substring(0, datePart.Length - fileExt.Length);
-        var p = datePart.Split(loggerDatePartsDelim).Select(p => int.Parse(p)).ToArray();
-        return fileInterval switch {
-            FileInterval.Minute => new DateTime(p[0], p[1], p[2], p[3], p[4], 0, DateTimeKind.Utc),
-            FileInterval.Hour => new DateTime(p[0], p[1], p[2], p[3], 0, 0, DateTimeKind.Utc),
-            FileInterval.Day => new DateTime(p[0], p[1], p[2], 0, 0, 0, DateTimeKind.Utc),
-            FileInterval.Month => new DateTime(p[0], p[1], 1, 0, 0, 0, DateTimeKind.Utc),
+        return DateTime.SpecifyKind(DateTime.ParseExact(datePart, fileInterval switch {
+            FileInterval.Minute => "yyyy-MM-dd-HH-mm",
+            FileInterval.Hour => "yyyy-MM-dd-HH",
+            FileInterval.Day => "yyyy-MM-dd",
+            FileInterval.Month => "yyyy-MM",
             _ => throw new NotImplementedException(),
-        };
+        }, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
     }
-    List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
+    static List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
         string[] pattern = [LogFolderName, Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
         return io.Search(pattern).Select(f => logger_ParseFileName(f.FileName(), logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
     }
 
-    public string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
+    public static string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
 
     // Before the folder layout every file lived in the storage root. The startup migration moves
     // those files into their folders using the helpers below.
-    public string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search([_prefix + "db.*.bin"])];
-    public string[] WAL_GetLegacyRootSecondaryFileKey() => [_prefix + "db.log"];
+    public static string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search(["db.*.bin"])];
+    public static string[] WAL_GetLegacyRootSecondaryFileKey() => ["db.log"];
     public static string[] MapLegacyRootFileKeyToDataFolder(string[] legacyRootFileKey) => [DataFolderName, .. legacyRootFileKey];
     /// <summary>Database and file store backups in the storage root; they now live in the bkup folder.</summary>
-    public string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)
-        => [.. io.Search([_prefix + "db.*.bkup"]), .. io.Search([_prefix + "files.*.bkup"])];
+    public static string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)
+        => [.. io.Search(["db.*.bkup"]), .. io.Search(["files.*.bkup"])];
     /// <summary>State snapshot, index states, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
-    public string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
-        => [.. io.Search([_prefix + "state.bin"]), .. io.Search([_prefix + "index.*.bin"]), .. io.Search([_prefix + "mapper.*.dll"]), .. io.Search([_prefix + "queue.*"])];
+    public static string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
+        => [.. io.Search(["state.bin"]), .. io.Search(["index.*.bin"]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
     /// <summary>Logger files and the critical error log in the storage root; they now live in the log folder.</summary>
-    public string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
-        => [.. io.Search([_prefix + "log.*"]), .. io.Search([_prefix + "critical.error.txt"])];
+    public static string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
+        => [.. io.Search(["log.*"]), .. io.Search(["critical.error.txt"])];
     /// <summary>
     /// The file name the ai cache had in the root of its local disk folder before it moved into the
     /// prefixed indexes folder (where the prefix left the file name), or null when the cache type
     /// has no file. The cache lives on the local disk outside the IO providers, so this is a plain
     /// file name for the server layer's migration.
     /// </summary>
-    public string? GetLegacyRootAiCacheFileName(AIProviderCacheType? cacheProvider) {
+    public static string? GetLegacyRootAiCacheFileName(AIProviderCacheType? cacheProvider) {
         return cacheProvider switch {
-            AIProviderCacheType.Native => "native." + _prefix + "ai.cache.bin",
-            AIProviderCacheType.Sqlite => _prefix + "ai.cache.bin",
+            AIProviderCacheType.Native => "native.ai.cache.bin",
+            AIProviderCacheType.Sqlite => "ai.cache.bin",
             _ => null,
         };
     }
@@ -323,28 +268,25 @@ public class FileKeyUtility {
 
     #region STATIC helpers:
 
-    static FileKeyUtility _anyPrefix = new(null) { _prefix = "*" }; // done so description can be static...
-
     /// <summary>The description of a file, from the joined form of its key as listings carry it
     /// (<see cref="FileMeta.Key"/>); folder browsers may pass a bare file name.</summary>
     public static string FileTypeDescription(string fileKey) {
         var key = fileKey.SplitKey();
         if (key.Length == 0) return "-";
-        if (key.MatchesPattern(_anyPrefix.walFilePattern)) return "Primary database file";
-        if (key.MatchesPattern(_anyPrefix.walSecondaryFilePattern)) return "Secondary databasefile";
-        if (key.MatchesPattern(_anyPrefix.walFileBackupPatternKeepForever)) return "Backup [Never expiring]";
-        if (key.MatchesPattern(_anyPrefix.walFileBackupPattern)) return "Backup";
-        if (key.MatchesPattern(_anyPrefix.aiCacheFilePattern)) return "AI Cache";
-        if (key.MatchesPattern(_anyPrefix.aiCacheNativeFilePattern)) return "AI Cache";
-        if (key.MatchesPattern([_anyPrefix.indexStoreFolderPattern, "ai.cache.bin*"])) return "AI Temp";
-        if (key.MatchesPattern(_anyPrefix.criticalErrorLogFilePattern)) return "Critical error log";
-        if (key.MatchesPattern(_anyPrefix.mapperDllFilePattern)) return "Mapper DLL";
-        if (key.MatchesPattern(_anyPrefix.fileStorePattern)) return "Filestore";
-        if (key.MatchesPattern(_anyPrefix.stateFilePattern)) return "State";
-        if (key.MatchesPattern([_anyPrefix.indexStoreFolderPattern])) return "Index Store";
-        if (key.MatchesPattern(_anyPrefix.queueFileKeyPattern)) return "Task queue";
-        if (key.MatchesPattern(_anyPrefix.loggerAllFilePattern)) return "Log file";
-        if (key.MatchesPattern(_anyPrefix.indexFilePattern)) return "Index";
+        if (key.MatchesPattern(walFilePattern)) return "Primary database file";
+        if (key.MatchesPattern(walSecondaryFilePattern)) return "Secondary databasefile";
+        if (key.MatchesPattern(walFileBackupPatternKeepForever)) return "Backup [Never expiring]";
+        if (key.MatchesPattern(walFileBackupPattern)) return "Backup";
+        if (key.MatchesPattern(aiCacheFilePattern) || key.MatchesPattern(aiCacheNativeFilePattern)) return "AI Cache";
+        if (key.MatchesPattern([indexStoreFolderPattern, "ai.cache.bin*"])) return "AI Temp";
+        if (key.MatchesPattern(criticalErrorLogFilePattern)) return "Critical error log";
+        if (key.MatchesPattern(mapperDllFilePattern)) return "Mapper DLL";
+        if (key.MatchesPattern(fileStorePattern)) return "Filestore";
+        if (key.MatchesPattern(stateFilePattern)) return "State";
+        if (key.MatchesPattern([indexStoreFolderPattern])) return "Index Store";
+        if (key.MatchesPattern(queueFileKeyPattern)) return "Task queue";
+        if (key.MatchesPattern(loggerAllFilePattern)) return "Log file";
+        if (key.MatchesPattern(indexFilePattern)) return "Index";
         // index engine files: unprefixed, inside their engine folder (see the region above); matched
         // on the last segment so both bare names and folder qualified keys get a description
         var name = key.FileName();
@@ -367,7 +309,7 @@ public class FileKeyUtility {
             "converted" => "Converted file cache",
             "files" => "[Primary file store]",
             LogFolderName => "Logs",
-            var s when s.MatchesWildcard(_anyPrefix.indexStoreFolderPattern) => "Indexes",
+            var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",
             indexEngineNativeKvFolder => "Native index engine",
             indexEngineSqliteFolder => "Sqlite index engine",
             indexEngineLuceneFolder => "Lucene index engine",
