@@ -5,6 +5,7 @@ import { useApp } from '../../start/useApp';
 import IoSelector from './ioSelector';
 import { FileMeta, FolderMeta, FolderSize, NodeStoreContainer } from '../../application/models';
 import Upload, { UploadedFile } from './upload';
+import DownloadFolder from './downloadFolder';
 import { IconDots, IconFolder } from '@tabler/icons-react';
 import { formatBytesString, formatDateToString } from '../../utils/formatting';
 import { iconSize, iconStroke } from '../../application/common';
@@ -25,6 +26,7 @@ export const component = (p: { storeId: string }) => {
     const [selectedIo, setSelectedIo] = useState<string>();
     const [dbFile, setDbFile] = useState<string>("");
     const [selectedRows, setSelectedRows] = useState<FileOrFolder[]>([]);
+    const [folderDownload, setFolderDownload] = useState<{ folderPath: string, dirHandle: FileSystemDirectoryHandle } | null>(null);
     useEffect(() => { updateSettings(); }, [p.storeId]);
     useEffect(() => { setPath([]); }, [selectedIo]);
     useEffect(() => { setSelectedRows([]); setFolderSizes({}); updateFilesAndFolders(); }, [selectedIo, path]);
@@ -93,6 +95,19 @@ export const component = (p: { storeId: string }) => {
             await app.api.maintenance.downloadFile(p.storeId, selectedIo!, file.key, path.length > 0 ? file : undefined);
         } catch (e: any) {
             alert(e.message);
+        }
+    }
+    const downloadFolder = async (folderName: string) => {
+        // the directory picker must be opened inside the click gesture; the download itself runs in the dialog
+        if (!(window as any).showDirectoryPicker) {
+            alert("Downloading a folder requires a browser with the File System Access API, like Chrome or Edge.");
+            return;
+        }
+        try {
+            const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ mode: "readwrite", id: "relatude-folder-download" });
+            setFolderDownload({ folderPath: fullFolderPath(folderName), dirHandle });
+        } catch (e: any) {
+            if (e?.name !== "AbortError") alert(e.message); // AbortError = the user closed the picker
         }
     }
     const closeAllOpenStreams = async () => {
@@ -308,6 +323,7 @@ export const component = (p: { storeId: string }) => {
                                     <Menu.Dropdown>
                                         <Menu.Item onClick={() => setPath([...path, folder.name])}>Open</Menu.Item>
                                         <Menu.Item onClick={() => calculateFolderSize(folder.name)}>Calculate size</Menu.Item>
+                                        <Menu.Item onClick={() => downloadFolder(folder.name)}>Download folder</Menu.Item>
                                         <Menu.Item onClick={() => deleteFolder(folder.name)}>Delete</Menu.Item>
                                     </Menu.Dropdown>
                                 </Menu>
@@ -364,6 +380,7 @@ export const component = (p: { storeId: string }) => {
                 </Table.Tr>
             </Table.Tbody>
         </Table>
+        {folderDownload && <DownloadFolder storeId={p.storeId} ioId={selectedIo!} folderPath={folderDownload.folderPath} dirHandle={folderDownload.dirHandle} onClose={() => setFolderDownload(null)} />}
     </>)
 }
 
