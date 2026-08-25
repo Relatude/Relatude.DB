@@ -203,6 +203,8 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("get-folders"), (Guid storeId, Guid ioId) => server.GetIO(ioId).GetFoldersAsync([], true, true)); // kept for older clients
         // one level of the given folder ("" = the storage root): its files and subfolder stubs, no sizes computed
         app.MapPost(path("get-folder"), (Guid storeId, Guid ioId, string? folderPath) => server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), false, true));
+        // the full tree of the given folder, used by the client side folder download to plan the files to fetch
+        app.MapPost(path("get-folder-recursive"), (Guid storeId, Guid ioId, string? folderPath) => server.GetIO(ioId).GetFolderAsync(splitFolderPath(folderPath), true, true));
         // recursive size and counts of the given folder, on demand: walking a big tree can take a
         // while, so the client asks per folder instead of the listing computing it eagerly
         app.MapPost(path("get-folder-size"), async (Guid storeId, Guid ioId, string? folderPath) => {
@@ -241,9 +243,27 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
         app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             var fileKey = fileName.SplitKey();
-            var ioStream = server.GetIO(ioId).OpenRead(fileKey, 0);
+            var io = server.GetIO(ioId);
+            var contentType = MediaTypeHeaderValue.Parse("application/octet-stream").ToString();
+            // Disk backed files are opened directly: engine owned files (e.g. the index stores) can be
+            // OS locked without the provider knowing, and the provider's OpenRead retries such files
+            // for minutes while holding the provider lock, stalling every other file operation. A
+            // locked file fails fast as 423 instead, so a folder download can warn and keep going.
+            if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
+                try {
+                    var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return Results.File(fileStream, contentType, fileKey.FileName(), null, null, true);
+                } catch (FileNotFoundException) {
+                    return Results.NotFound();
+                } catch (DirectoryNotFoundException) {
+                    return Results.NotFound();
+                } catch (IOException) {
+                    return Results.StatusCode(StatusCodes.Status423Locked);
+                }
+            }
+            var ioStream = io.OpenRead(fileKey, 0);
             var stream = ReadStreamWrapper.Wrap(ioStream);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), fileKey.FileName(), null, null, true);
+            return Results.File(stream, contentType, fileKey.FileName(), null, null, true);
         });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             server.GetIO(ioId).DeleteFileIfItExists(fileName.SplitKey());

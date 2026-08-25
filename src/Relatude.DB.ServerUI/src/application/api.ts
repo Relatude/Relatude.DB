@@ -133,6 +133,10 @@ class MaintenanceAPI {
     getAllFiles = (ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-all-files', { ioId }));
     canHaveFolders = (storeId: string, ioId: string) => this.server.queryJson<{ canHave: boolean }>(this.controller, 'can-have-folders', { storeId, ioId }).then(r => r.canHave);
     getFolder = (storeId: string, ioId: string, folderPath: string) => this.server.queryJson<FolderMeta>(this.controller, 'get-folder', { storeId, ioId, folderPath }).then(fixFolderMetaDates);
+    getFolderRecursive = (storeId: string, ioId: string, folderPath: string) => this.server.queryJson<FolderMeta>(this.controller, 'get-folder-recursive', { storeId, ioId, folderPath }).then(fixFolderMetaDates);
+    // raw fetch of a file's content, so callers can stream the body (used by the folder download)
+    downloadFileResponse = (storeId: string, ioId: string, fileName: string, signal?: AbortSignal) =>
+        fetch(this.server.baseUrl + this.controller + '/download-file?' + new URLSearchParams({ storeId, ioId, fileName }), { credentials: 'include', signal });
     getFolderSize = (storeId: string, ioId: string, folderPath: string) => this.server.queryJson<FolderSize>(this.controller, 'get-folder-size', { storeId, ioId, folderPath });
     getStoreFiles = (storeId: string, ioId: string) => fixFileListMetaDates(this.server.queryJson<FileMeta[]>(this.controller, 'get-store-files', { storeId, ioId }));
     canRenameFile = (storeId: string, ioId: string) => this.server.queryJson<{ canRename: boolean }>(this.controller, 'can-rename-file', { storeId, ioId }).then(r => r.canRename);
