@@ -122,5 +122,40 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         var path = getFullPath(value);
         return _ioProvider.TryGetLocalFilePath(path, out localFilePath);
     }
+
+    public Task<string> GetInternalReference(FileValue value) => Task.FromResult(getFullPath(value).AsKeyString());
+    public async Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, CancellationToken cancellationToken = default) {
+        // rebuilt with the file key comparer, as the caller's set may compare ordinally
+        var valid = new HashSet<string>(validInternalReferences, StringComparer.OrdinalIgnoreCase);
+        var root = await _ioProvider.GetFolderAsync(_basePath, true, true);
+        long bytesDeleted = 0;
+        int filesDeleted = 0;
+        int foldersDeleted = 0;
+        // depth first: unreferenced files first, then any subfolder left empty. A folder reports itself
+        // empty instead of deleting itself so the parent can take it; the store root is always kept.
+        bool deleteIn(FolderMeta folder, string[] folderPath) {
+            cancellationToken.ThrowIfCancellationRequested();
+            var empty = true;
+            foreach (var subFolder in folder.SubFolders) {
+                string[] subFolderPath = [.. folderPath, subFolder.Name];
+                if (deleteIn(subFolder, subFolderPath)) {
+                    if (!countOnly) _ioProvider.DeleteFolderIfItExists(subFolderPath);
+                    foldersDeleted++;
+                } else {
+                    empty = false;
+                }
+            }
+            foreach (var file in folder.Files) {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (valid.Contains(file.Key)) { empty = false; continue; }
+                if (!countOnly) _ioProvider.DeleteFileIfItExists(file.KeyOf());
+                bytesDeleted += file.Size;
+                filesDeleted++;
+            }
+            return empty;
+        }
+        deleteIn(root, _basePath);
+        return new DeleteUnReferenceResult(bytesDeleted, filesDeleted, foldersDeleted);
+    }
 }
 

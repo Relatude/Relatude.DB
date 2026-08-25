@@ -32,11 +32,21 @@ public interface IFileStoreMultiPartSupport : IFileStore {
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
     Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer, int length);
 }
-public class DeleteUnReferenceResult {
-    public long TotalBytesDeleted { get; }
-    public int TotalFilesDeleted { get; }
+public class DeleteUnReferenceResult(long totalBytesDeleted, int totalFilesDeleted, int totalFoldersDeleted) {
+    public long TotalBytesDeleted { get; } = totalBytesDeleted;
+    public int TotalFilesDeleted { get; } = totalFilesDeleted;
+    public int TotalFoldersDeleted { get; } = totalFoldersDeleted;
 }
+/// <summary>Optional file store capability: enumerating everything the store holds and deleting the
+/// files no longer referenced. A reference is the store's internal identity of a stored file — for
+/// key based stores the '/'-joined file key — and is compared case-insensitively.</summary>
 public interface IFileStoreDeleteUnreferenced : IFileStore {
     Task<string> GetInternalReference(FileValue value);
-    Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<Guid> validInternalReferences, CancellationToken cancellationToken = default);
+    /// <summary>Deletes every file in the store whose internal reference is not in
+    /// <paramref name="validInternalReferences"/>, along with any folders left empty. The set must
+    /// cover all files worth keeping when the call starts, including in-flight uploads, and nothing
+    /// may be inserted while it runs: a file inserted after the set was built is not in it and would
+    /// be deleted as unreferenced. With <paramref name="countOnly"/> nothing is deleted and the
+    /// result reports what a real run would have deleted.</summary>
+    Task<DeleteUnReferenceResult> DeleteUnreferenced(IReadOnlySet<string> validInternalReferences, bool countOnly = false, CancellationToken cancellationToken = default);
 }
