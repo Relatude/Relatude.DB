@@ -31,7 +31,7 @@ public static class FileKeyUtility {
 
     public const string DataFolderName = "data";
     public const string StateFolderName = "state";
-    public const string BackupFolderName = "bkup";
+    public const string BackupFolderName = "backup";
     public const string LogFolderName = "log";
     public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
 
