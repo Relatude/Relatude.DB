@@ -6,7 +6,7 @@ using System.Text;
 namespace Relatude.DB.Web;
 
 /// <summary>
-/// Readable, lossless URL representations of <see cref="FileAdjustment"/> - the alternative to
+/// Readable, lossless URL representations of <see cref="FileAdjustmentBase"/> - the alternative to
 /// carrying the adjustment inside the opaque asset token (see <see cref="AssetUrlFormat"/>).
 /// Two framings share one key set: query parameters ("w=100&amp;h=200&amp;f=jpeg") and a compact
 /// path segment ("w100h200fjpeg"). Keys not set on the adjustment are omitted, unknown keys fail
@@ -53,22 +53,28 @@ public static class FileAdjustmentUrlCodec {
     // encoding ///////////////////////////////////////////////////////////////////////////////////
 
     /// <summary>The adjustment as query parameters without a leading "?", e.g. "w=100&amp;h=200&amp;f=jpeg". False for adjustment types the codec does not know.</summary>
-    public static bool TryToQueryString(FileAdjustment adjustment, out string query) {
+    public static bool TryToQueryString(FileAdjustmentBase adjustment, out string query) {
         return tryEncode(adjustment, pair: (sb, key, value) => {
             if (sb.Length > 0) sb.Append('&');
             sb.Append(key).Append('=').Append(value);
         }, out query);
     }
     /// <summary>The adjustment as a compact path segment, e.g. "w100h200fjpeg". False for adjustment types the codec does not know.</summary>
-    public static bool TryToShortString(FileAdjustment adjustment, out string shortString) {
+    public static bool TryToShortString(FileAdjustmentBase adjustment, out string shortString) {
         return tryEncode(adjustment, pair: (sb, key, value) => sb.Append(key).Append(value), out shortString);
     }
-    static bool tryEncode(FileAdjustment adjustment, Action<StringBuilder, string, string> pair, out string result) {
+    // keys whose value equals the fresh-instance default of the adjustment type are omitted,
+    // and parsing starts from a fresh instance, so the round trip stays lossless
+    static readonly FileFormat _defaultImageFormat = new FileAdjustmentImage().RequestedFormat;
+    static readonly FileFormat _defaultVideoFormat = new FileAdjustmentVideo().RequestedFormat;
+    static readonly FileFormat _defaultMetaFormat = new FileAdjustmentMeta().RequestedFormat;
+
+    static bool tryEncode(FileAdjustmentBase adjustment, Action<StringBuilder, string, string> pair, out string result) {
         result = string.Empty;
         var sb = new StringBuilder(48);
         switch (adjustment) {
             case FileAdjustmentImage img:
-                pair(sb, "f", name(img.RequestedFormat));
+                if (img.RequestedFormat != _defaultImageFormat) pair(sb, "f", name(img.RequestedFormat));
                 num(sb, "w", img.Width); num(sb, "h", img.Height); num(sb, "q", img.Quality);
                 if (img.CropMode != null) pair(sb, "crop", name(img.CropMode.Value));
                 dbl(sb, "zm", img.Zoom);
@@ -86,7 +92,7 @@ public static class FileAdjustmentUrlCodec {
                 break;
             case FileAdjustmentVideo vid:
                 pair(sb, "k", "v");
-                pair(sb, "f", name(vid.RequestedFormat));
+                if (vid.RequestedFormat != _defaultVideoFormat) pair(sb, "f", name(vid.RequestedFormat));
                 num(sb, "w", vid.Width); num(sb, "h", vid.Height);
                 if (vid.TargetBitRateInMbps != 0) pair(sb, "br", dblString(vid.TargetBitRateInMbps));
                 if (vid.CropNotZoom) pair(sb, "cnz", "1");
@@ -94,7 +100,7 @@ public static class FileAdjustmentUrlCodec {
                 break;
             case FileAdjustmentMeta meta:
                 pair(sb, "k", "m");
-                pair(sb, "f", name(meta.RequestedFormat));
+                if (meta.RequestedFormat != _defaultMetaFormat) pair(sb, "f", name(meta.RequestedFormat));
                 if (!meta.Temporary) pair(sb, "tmp", "0"); // meta defaults to temporary
                 break;
             default:
@@ -113,7 +119,7 @@ public static class FileAdjustmentUrlCodec {
     // decoding ///////////////////////////////////////////////////////////////////////////////////
 
     /// <summary>The adjustment carried in the query string of the URL, or null when no adjustment keys are present or a value is invalid. Unknown query parameters are ignored.</summary>
-    public static FileAdjustment? TryParseQuery(string completeUrl) {
+    public static FileAdjustmentBase? TryParseQuery(string completeUrl) {
         Dictionary<string, string>? found = null;
         foreach (var def in _keys) {
             var value = UrlUtil.GetQueryParameter(completeUrl, def.Key);
@@ -124,7 +130,7 @@ public static class FileAdjustmentUrlCodec {
         return found == null ? null : build(found);
     }
     /// <summary>The adjustment encoded in a short string produced by <see cref="TryToShortString"/>, or null when the string is not one.</summary>
-    public static FileAdjustment? TryParseShortString(string shortString) {
+    public static FileAdjustmentBase? TryParseShortString(string shortString) {
         if (string.IsNullOrEmpty(shortString)) return null;
         var found = new Dictionary<string, string>();
         return tryParseShort(shortString, 0, found) ? build(found) : null;
@@ -179,7 +185,7 @@ public static class FileAdjustmentUrlCodec {
         _ => false,
     };
 
-    static FileAdjustment? build(Dictionary<string, string> found) {
+    static FileAdjustmentBase? build(Dictionary<string, string> found) {
         found.TryGetValue("k", out var adjustmentKind);
         try {
             switch (adjustmentKind) {
@@ -245,7 +251,7 @@ public static class FileAdjustmentUrlCodec {
         static int i(string v) => int.Parse(v, CultureInfo.InvariantCulture);
         static double d(string v) => double.Parse(v, CultureInfo.InvariantCulture);
     }
-    static bool fmt(string value, FileAdjustment adjustment) {
+    static bool fmt(string value, FileAdjustmentBase adjustment) {
         if (!tryEnumName<FileFormat>(value, out var format)) return false;
         adjustment.RequestedFormat = format;
         return true;

@@ -82,17 +82,25 @@ public sealed class AssetUrl {
     /// <summary>The token without the adjustment, addressing the original file. Null for targets without an adjustment. Lets a manager render the adjustment readably (see <see cref="AssetUrlFormat"/> and <see cref="FileAdjustmentUrlCodec"/>) while the token still addresses the file.</summary>
     public string? BaseToken { get; init; }
     /// <summary>The requested file variant when Target is PropertyAdjusted, otherwise null. What a readable rendering serializes.</summary>
-    public FileAdjustment? Adjustment { get; init; }
+    public FileAdjustmentBase? Adjustment { get; init; }
+    /// <summary>The property behind Property and PropertyAdjusted targets, otherwise null. Lets a manager render the target readably (see <see cref="PropertyPathUrlFormat"/>) instead of using the token.</summary>
+    public PropertyPath? PropertyPath { get; init; }
+    /// <summary>Cache-busting version of the file content, otherwise carried inside the token. A readable rendering emits it as a "v" query parameter; inbound parsing ignores it.</summary>
+    public string? ContentVersionId { get; init; }
 }
 
 /// <summary>
-/// What <see cref="IUrlManager.TryGetAssetToken"/> found in a URL: the token, and - when the
-/// manager rendered the adjustment readably instead of inside the token - the parsed adjustment.
-/// The store combines the two; the token must then address the original file. A plain string
-/// converts implicitly, so managers without readable adjustments just return the token.
+/// What <see cref="IUrlManager.TryGetAssetToken"/> found in a URL: a token, or a property path the
+/// manager rendered readably (see <see cref="PropertyPathUrlFormat"/>) - and, when the adjustment
+/// was rendered readably too, the parsed adjustment, which the store combines with the target.
+/// A plain string converts implicitly, so managers without readable renderings just return the token.
 /// </summary>
 public sealed class AssetTokenMatch {
-    public required string Token { get; init; }
-    public FileAdjustment? Adjustment { get; init; }
+    /// <summary>The opaque token, null when the manager identified the target as a property path instead.</summary>
+    public string? Token { get; init; }
+    /// <summary>The file property the URL addresses, when the manager rendered it readably. Takes precedence over Token.</summary>
+    public PropertyPath? PropertyPath { get; init; }
+    /// <summary>An adjustment rendered readably by the manager, parsed back. Null when the token is self contained.</summary>
+    public FileAdjustmentBase? Adjustment { get; init; }
     public static implicit operator AssetTokenMatch?(string? token) => token == null ? null : new AssetTokenMatch { Token = token };
 }

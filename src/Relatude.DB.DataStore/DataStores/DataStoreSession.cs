@@ -208,12 +208,12 @@ public class DataStoreSession : IDataStore {
     public string InternalizeContentLinks(string content, QueryContext? ctx = null) => _datastore.InternalizeContentLinks(content, ctx ?? QueryContext);
 
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
-    public bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
+    public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
 
     public string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodeKey, absolute, ctx ?? QueryContext);
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);
     public string GetUrl(PropertyPath propertyPath, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, absolute, ctx ?? QueryContext);
-    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
+    public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys parseResult, QueryContext? ctx = null) => _datastore.TryParseUrl(url, out parseResult, ctx ?? QueryContext);
     public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent parseResultContent, int maxWait = -1, QueryContext? ctx = null) => _datastore.TryParseUrlForContent(url, out parseResultContent, maxWait, ctx ?? QueryContext);
@@ -222,17 +222,17 @@ public class DataStoreSession : IDataStore {
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext);
     public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFileStream(propertyPath, ctx ?? QueryContext);
-    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait, QueryContext? ctx = null)
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null)
         => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext);
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait, QueryContext? ctx = null)
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null)
         => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext);
     public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
         => _datastore.GetFileStreamAndValue(propertyPath, ctx ?? QueryContext);
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
         => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? QueryContext);
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null)
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null)
         => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? QueryContext);
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null)
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null)
         => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? QueryContext);
 
     public FileConversions GetConversions(QueryContext? ctx = null) => _datastore.GetConversions(ctx ?? QueryContext);

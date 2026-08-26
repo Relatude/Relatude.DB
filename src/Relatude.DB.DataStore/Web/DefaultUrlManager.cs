@@ -35,16 +35,20 @@ public enum NodeUrlFormat {
 public enum AssetUrlFormat {
     /// <summary>The adjustment travels inside the opaque token. The default; supports every adjustment, and with <see cref="UrlManagerBase.AssetUrlSignatureKey"/> the whole variant is tamper proof.</summary>
     Encrypted,
-    /// <summary>Readable query parameters, e.g. "?w=100&amp;h=200&amp;f=jpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable by design, so anyone who can see a file can request other variants of it.</summary>
+    /// <summary>Readable query parameters, e.g. "?w=100&amp;h=200&amp;f=jpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable, so anyone who can see a file can request other variants of it - unless <see cref="UrlManagerBase.AssetUrlSignatureKey"/> is set, which adds a "sig" parameter covering the adjustment and makes edited URLs stop resolving.</summary>
     QueryParameters,
-    /// <summary>A short readable path segment after the token, e.g. "w100h200fjpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable by design, like <see cref="QueryParameters"/>. With <see cref="AssetUrlStyle.UnderPageUrl"/> the adjustment is rendered as query parameters instead, since the path belongs to the page.</summary>
+    /// <summary>A short readable path segment after the token, e.g. "w100h200fjpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable like <see cref="QueryParameters"/>, and equally covered by the "sig" parameter when <see cref="UrlManagerBase.AssetUrlSignatureKey"/> is set. With <see cref="AssetUrlStyle.UnderPageUrl"/> the adjustment is rendered as query parameters instead, since the path belongs to the page.</summary>
     FriendlyShortString,
 }
 
+/// <summary>How <see cref="DefaultUrlManager"/> renders the target of asset URLs: which file property on which node.</summary>
 public enum PropertyPathUrlFormat {
+    /// <summary>The target travels inside the opaque token. The default; supports embedded-content deeplinks and, with <see cref="UrlManagerBase.AssetUrlSignatureKey"/>, tamper proofing.</summary>
     Encrypted,
-    QueryParameters, // pn=propertyValue&pid=otherValue
-    FriendlyShortString, // [propertyName]-[Id] etc
+    /// <summary>Readable query parameters: "?pn={propertyName}&amp;pid={node id}". Guessable unless <see cref="UrlManagerBase.AssetUrlSignatureKey"/> is set, which adds a "sig" parameter covering the target and the adjustment - then only URLs the store handed out resolve.</summary>
+    QueryParameters,
+    /// <summary>A readable path segment in the token's place: "{propertyName}-{internal int id}", e.g. "/assets/File-123/pic.jpg". Guessable unless <see cref="UrlManagerBase.AssetUrlSignatureKey"/> is set, like <see cref="QueryParameters"/>. With <see cref="AssetUrlStyle.UnderPageUrl"/> the target is rendered as query parameters instead, since the path belongs to the page.</summary>
+    FriendlyShortString,
 }
 
 /// <summary>How <see cref="DefaultUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
@@ -54,7 +58,6 @@ public enum AssetUrlStyle {
     /// <summary>On top of the owning node's page URL: "{pageUrl}/{fileName}?{AssetUrlParamName}={token}". Falls back to the asset root when the owner has no page URL.</summary>
     UnderPageUrl,
 }
-
 public class DefaultUrlManagerOptions {
     /// <summary>The relation that connects a node to its parent. When neither this nor <see cref="ParentRelationName"/> is set, the manager runs flat: every node is top level and its URL is "/{address}".</summary>
     public Guid ParentRelationId { get; set; }
@@ -73,20 +76,26 @@ public class DefaultUrlManagerOptions {
 
     /// <summary>How page URLs are rendered: readable paths, ids, or both.</summary>
     public NodeUrlFormat UrlFormat { get; set; } = NodeUrlFormat.Address;
-    /// <summary>Optional prefix for every page URL, e.g. "/content".</summary>
-    public string? UrlNodeRoot { get; set; }
+    /// <summary>
+    /// Base address prepended to every URL, pages and assets alike, and applied first - before
+    /// <see cref="BaseAddressPages"/> and <see cref="BaseAddressAssets"/>. May be a path ("/app")
+    /// or include scheme and host ("https://www.site.com"), which makes every URL absolute.
+    /// A lane base that carries its own scheme and host (a CDN origin) is a complete origin and
+    /// replaces this rather than being appended to it. Inbound URLs are matched by their path, so
+    /// both absolute and relative requests resolve.
+    /// </summary>
+    public string? PrimaryBaseAddress { get; set; }
     /// <summary>Appends a trailing slash to page URLs.</summary>
     public bool IncludeTrailingSlash { get; set; }
     /// <summary>
-    /// Base address prepended to every page URL, outermost - before <see cref="UrlNodeRoot"/>.
-    /// May be a path ("/app") or include scheme and host ("https://www.site.com/app"), which makes
-    /// page URLs always absolute. Inbound URLs are matched by their path, so both absolute and
-    /// relative requests resolve.
+    /// Base address prepended to page URLs, after <see cref="PrimaryBaseAddress"/>, e.g. "/content".
+    /// May also include scheme and host, which then replaces the primary base.
     /// </summary>
     public string? BaseAddressPages { get; set; }
-    /// <summary>Base address prepended to every asset URL, e.g. a CDN origin ("https://cdn.site.com") or a path ("/files"). See <see cref="UrlManagerBase.BaseAddressAssets"/>.</summary>
+    /// <summary>Base address prepended to asset URLs, after <see cref="PrimaryBaseAddress"/>, e.g. a CDN origin ("https://cdn.site.com") or a path ("/files"). See <see cref="UrlManagerBase.BaseAddressAssets"/>.</summary>
     public string? BaseAddressAssets { get; set; }
 
+    /// <summary>How the target of asset URLs (which file property on which node) is rendered: inside the opaque token (Encrypted), as readable query parameters, or as a readable path segment. Readable targets only apply to plain node properties - embedded-content deeplinks always use the token - and require the adjustment to be readable too (see <see cref="AssetUrlFormat"/>), since an adjusted token cannot address a readable target.</summary>
     public PropertyPathUrlFormat PropertyPathFormat { get; set; } = PropertyPathUrlFormat.Encrypted;
 
     /// <summary>How the adjustment part of asset URLs is rendered: inside the opaque token (Encrypted), as readable query parameters, or as a short readable path segment.</summary>
@@ -119,17 +128,17 @@ public class DefaultUrlManager : UrlManagerBase {
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<Guid, string> _hostByRoot = new();
     Guid _fallbackRootId;
-    string _urlNodeRoot = string.Empty; // "" or "/prefix", no trailing slash
 
-    string _basePages = string.Empty;     // "" | "/app" | "https://www.site.com/app", no trailing slash
+    string _basePages = string.Empty;     // effective page base: primary + pages, no trailing slash
     string _basePagesPath = string.Empty; // the path portion, used to match inbound URLs
 
     public DefaultUrlManager(DefaultUrlManagerOptions options) {
         _o = options;
         if (options.AssetUrlRoot != null) AssetUrlRoot = options.AssetUrlRoot;
         AssetUrlSignatureKey = options.AssetUrlSignatureKey;
+        PrimaryBaseAddress = options.PrimaryBaseAddress; // applies to both lanes, before the lane bases
         BaseAddressAssets = options.BaseAddressAssets;
-        (_basePages, _basePagesPath) = NormalizeBaseAddress(options.BaseAddressPages);
+        (_basePages, _basePagesPath) = CombineBaseAddresses(options.PrimaryBaseAddress, options.BaseAddressPages);
     }
     public override void Initialize(IDataStore store) {
         _db = store;
@@ -147,10 +156,6 @@ public class DefaultUrlManager : UrlManagerBase {
             if (!_hostByRoot.ContainsKey(domain.RootId)) _hostByRoot[domain.RootId] = domain.Host.Trim();
         }
         _fallbackRootId = _o.FallbackRootId ?? (_o.Domains.Count > 0 ? _o.Domains[0].RootId : Guid.Empty);
-        if (!string.IsNullOrWhiteSpace(_o.UrlNodeRoot)) {
-            var root = _o.UrlNodeRoot.Trim().TrimEnd('/');
-            _urlNodeRoot = root.StartsWith('/') ? root : "/" + root;
-        }
     }
     bool isFlat => _relationId == Guid.Empty;
 
@@ -169,9 +174,8 @@ public class DefaultUrlManager : UrlManagerBase {
             _ => throw new NotImplementedException(),
         };
         if (url == null) return null;
-        url = _urlNodeRoot + url;
         if (_o.IncludeTrailingSlash && !url.EndsWith('/')) url += "/";
-        url = _basePages + url;
+        url = _basePages + url; // primary base + page base
         if (!absolute || _basePages.Contains("://", StringComparison.Ordinal)) return url; // a base with scheme and host is absolute already
         if (rootId != Guid.Empty && _hostByRoot.TryGetValue(rootId, out var host)) return _o.Scheme + "://" + host + url;
         return url; // no domain to make it absolute against
@@ -182,11 +186,6 @@ public class DefaultUrlManager : UrlManagerBase {
     public override NodeKeyWithCulture[] GetMatches(string completeUrl) {
         var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _basePagesPath);
         if (path == null) return []; // outside the base address
-        if (_urlNodeRoot.Length > 0) {
-            if (!path.StartsWith(_urlNodeRoot, StringComparison.Ordinal)) return [];
-            path = path.Length == _urlNodeRoot.Length ? "/" : path[_urlNodeRoot.Length..];
-            if (!path.StartsWith('/')) return []; // prefix must end on a segment boundary
-        }
         switch (_o.UrlFormat) {
             case NodeUrlFormat.IntIdOnly:
             case NodeUrlFormat.IntIdAndAddress:
@@ -288,21 +287,50 @@ public class DefaultUrlManager : UrlManagerBase {
         // readable formats keep the adjustment out of the token: the base token addresses the
         // original file, and the adjustment travels as query parameters or a short path segment
         var token = asset.Token;
-        string? readableQuery = null;   // "w=100&h=200&f=jpeg"
-        string? readableSegment = null; // "w100h200fjpeg"
+        string? adjustmentQuery = null;   // "w=100&h=200"
+        string? adjustmentSegment = null; // "w100h200"
         if (_o.AssetUrlFormat != AssetUrlFormat.Encrypted && asset.Adjustment != null && asset.BaseToken != null) {
             if (_o.AssetUrlFormat == AssetUrlFormat.QueryParameters || _o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl) {
                 if (FileAdjustmentUrlCodec.TryToQueryString(asset.Adjustment, out var query)) {
                     token = asset.BaseToken;
-                    readableQuery = query;
+                    adjustmentQuery = query;
                 }
             } else {
                 if (FileAdjustmentUrlCodec.TryToShortString(asset.Adjustment, out var segment)) {
                     token = asset.BaseToken;
-                    readableSegment = segment;
+                    adjustmentSegment = segment;
                 }
             }
         }
+        // a readable property target replaces the token entirely: "pn=File&pid=123" or "File-123".
+        // Only for plain node properties, and only when no adjustment is left inside the token
+        // (an adjusted token cannot address a readable target):
+        string? targetQuery = null;   // "pn=File&pid=123[&v=...]"
+        string? targetSegment = null; // "File-123"
+        string? targetText = null;    // canonical "{propertyName}-{id}", what the signature covers
+        if (_o.PropertyPathFormat != PropertyPathUrlFormat.Encrypted
+            && asset.PropertyPath is { } propertyPath && propertyPath.NodePath.Path.Length == 0
+            && (asset.Adjustment == null || adjustmentQuery != null || adjustmentSegment != null)
+            && tryGetPropertyName(propertyPath.PropertyId, out var propertyName)) {
+            var key = propertyPath.NodePath.NodeKey;
+            if (_o.PropertyPathFormat == PropertyPathUrlFormat.FriendlyShortString && _o.AssetUrlStyle == AssetUrlStyle.AssetRoot) {
+                // the readable segment always uses the short internal id, resolved when the path is guid addressed
+                var intId = ResolveInternalId(_db, key);
+                if (intId != 0) targetText = targetSegment = propertyName + "-" + intId;
+                // no int id (the node is not stored yet): keep the token
+            } else {
+                var idText = key.HasInt ? key.Int.ToString() : key.Guid.ToString();
+                targetQuery = "pn=" + propertyName + "&pid=" + idText;
+                targetText = propertyName + "-" + idText;
+            }
+            if (asset.ContentVersionId != null && targetText != null) { // cache buster; ignored on the way in
+                targetQuery = targetQuery == null ? "v=" + asset.ContentVersionId : targetQuery + "&v=" + asset.ContentVersionId;
+            }
+        }
+        // when a target or an adjustment is readable it sits outside the signed token, so the URL
+        // carries its own signature binding the three together
+        var isReadable = targetText != null || adjustmentQuery != null || adjustmentSegment != null;
+        var signature = isReadable ? TrySignReadableAssetUrl(targetText != null ? null : token, targetText, asset.Adjustment) : null;
         if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl && asset.Target != UrlTarget.Node) {
             if (tryGetMeta(asset.Owner, Guid.Empty, out var ownerMeta)) {
                 var ownerUrl = TryGetUrl(ownerMeta, absolute);
@@ -311,42 +339,111 @@ public class DefaultUrlManager : UrlManagerBase {
                         if (!ownerUrl.EndsWith('/')) ownerUrl += "/";
                         ownerUrl += UrlSafeFileName(asset.FileName);
                     }
-                    var pageUrl = ownerUrl + "?" + _o.AssetUrlParamName + "=" + SignTokenIfConfigured(token);
-                    if (readableQuery != null) pageUrl += "&" + readableQuery;
-                    return pageUrl;
+                    var first = targetQuery ?? _o.AssetUrlParamName + "=" + SignTokenIfConfigured(token);
+                    return ownerUrl + "?" + join(join(first, adjustmentQuery), signatureQuery(signature));
                 }
             }
             // the owner has no page URL: fall through to the default placement
         }
-        var url = AssetBaseAddress + AssetUrlRoot + SignTokenIfConfigured(token);
-        if (readableSegment != null) url += "/" + readableSegment;
-        if (!string.IsNullOrEmpty(asset.FileName)) url += "/" + UrlSafeFileName(asset.FileName);
-        if (readableQuery != null) url += "?" + readableQuery;
-        return url;
+        var url = AssetBaseAddress + AssetUrlRoot;
+        if (targetSegment != null) url += targetSegment;
+        else if (targetQuery != null) url += UrlSafeFileName(string.IsNullOrEmpty(asset.FileName) ? "file" : asset.FileName); // the path is cosmetic, the query addresses the target
+        else url += SignTokenIfConfigured(token);
+        if (adjustmentSegment != null) url += "/" + adjustmentSegment;
+        if (targetQuery == null && !string.IsNullOrEmpty(asset.FileName)) url += "/" + UrlSafeFileName(asset.FileName);
+        var fullQuery = join(join(targetQuery, adjustmentQuery), signatureQuery(signature));
+        return fullQuery == null ? url : url + "?" + fullQuery;
+
+        static string? signatureQuery(string? sig) => sig == null ? null : SignatureParamName + "=" + sig;
+        static string? join(string? a, string? b) => a == null ? b : b == null ? a : a + "&" + b;
     }
     public override AssetTokenMatch? TryGetAssetToken(string completeUrl) {
         if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl) {
+            var byTarget = tryMatchReadableTargetFromQuery(completeUrl);
+            if (byTarget != null) return byTarget;
             var raw = UrlUtil.GetQueryParameter(completeUrl, _o.AssetUrlParamName);
             if (raw != null) {
                 var token = ValidateAndStripSignature(raw);
                 if (token == null) return null;
-                return new AssetTokenMatch { Token = token, Adjustment = readableAdjustmentFromQuery(completeUrl) };
+                return tokenMatch(completeUrl, token, readableAdjustmentFromQuery(completeUrl));
             }
             // no asset parameter: the default placement below is the fallback for owners without a page URL
         }
         if (!TryGetAssetRootParts(completeUrl, out var rawToken, out var nextSegment)) return null;
-        var assetToken = ValidateAndStripSignature(rawToken);
-        if (assetToken == null) return null;
-        var adjustment = _o.AssetUrlFormat switch {
-            AssetUrlFormat.QueryParameters => readableAdjustmentFromQuery(completeUrl),
+        FileAdjustmentBase? adjustmentFor(string url) => _o.AssetUrlFormat switch {
+            AssetUrlFormat.QueryParameters => readableAdjustmentFromQuery(url),
             AssetUrlFormat.FriendlyShortString => nextSegment == null ? null : FileAdjustmentUrlCodec.TryParseShortString(nextSegment),
             _ => null, // Encrypted: the token is self contained
         };
-        return new AssetTokenMatch { Token = assetToken, Adjustment = adjustment };
+        if (_o.PropertyPathFormat != PropertyPathUrlFormat.Encrypted) {
+            var byQuery = tryMatchReadableTargetFromQuery(completeUrl);
+            if (byQuery != null) return byQuery;
+            if (_o.PropertyPathFormat == PropertyPathUrlFormat.FriendlyShortString) {
+                var target = tryParseTargetSegment(rawToken);
+                if (target != null) return targetMatch(completeUrl, target, adjustmentFor(completeUrl));
+            }
+        }
+        var assetToken = ValidateAndStripSignature(rawToken);
+        if (assetToken == null) return null;
+        return tokenMatch(completeUrl, assetToken, adjustmentFor(completeUrl));
     }
-    FileAdjustment? readableAdjustmentFromQuery(string completeUrl) {
+    /// <summary>A token addressed match. A readable adjustment sits outside the signed token, so the URL's own signature has to cover it.</summary>
+    AssetTokenMatch? tokenMatch(string completeUrl, string token, FileAdjustmentBase? adjustment) {
+        if (adjustment != null && !ValidateReadableAssetUrl(completeUrl, token, null, adjustment)) return null;
+        return new AssetTokenMatch { Token = token, Adjustment = adjustment };
+    }
+    /// <summary>A readable target match. Nothing here is inside a token, so the URL's own signature covers the whole request.</summary>
+    AssetTokenMatch? targetMatch(string completeUrl, PropertyPath path, FileAdjustmentBase? adjustment) {
+        var targetText = readableTargetText(path);
+        if (targetText == null) return null;
+        if (!ValidateReadableAssetUrl(completeUrl, null, targetText, adjustment)) return null;
+        return new AssetTokenMatch { PropertyPath = path, Adjustment = adjustment };
+    }
+    /// <summary>The canonical "{propertyName}-{id}" text of a target, the form the signature covers regardless of how it was framed in the URL.</summary>
+    string? readableTargetText(PropertyPath path) {
+        if (!tryGetPropertyName(path.PropertyId, out var name)) return null;
+        var key = path.NodePath.NodeKey;
+        return name + "-" + (key.HasInt ? key.Int.ToString() : key.Guid.ToString());
+    }
+    FileAdjustmentBase? readableAdjustmentFromQuery(string completeUrl) {
         if (_o.AssetUrlFormat == AssetUrlFormat.Encrypted) return null;
         return FileAdjustmentUrlCodec.TryParseQuery(completeUrl);
+    }
+    AssetTokenMatch? tryMatchReadableTargetFromQuery(string completeUrl) {
+        if (_o.PropertyPathFormat == PropertyPathUrlFormat.Encrypted) return null;
+        var propertyName = UrlUtil.GetQueryParameter(completeUrl, "pn");
+        var idText = UrlUtil.GetQueryParameter(completeUrl, "pid");
+        if (propertyName == null || idText == null) return null;
+        var propertyPath = tryResolvePropertyPath(propertyName, idText);
+        if (propertyPath == null) return null;
+        return targetMatch(completeUrl, propertyPath, readableAdjustmentFromQuery(completeUrl));
+    }
+    /// <summary>"{propertyName}-{node id}", the readable target segment. Property code names never contain '-', so the first dash is the separator.</summary>
+    PropertyPath? tryParseTargetSegment(string segment) {
+        var dash = segment.IndexOf('-');
+        if (dash <= 0 || dash == segment.Length - 1) return null;
+        return tryResolvePropertyPath(segment[..dash], segment[(dash + 1)..]);
+    }
+    PropertyPath? tryResolvePropertyPath(string propertyName, string idText) {
+        NodeKey key;
+        if (int.TryParse(idText, out var intId) && intId > 0) key = new NodeKey(intId);
+        else if (Guid.TryParse(idText, out var guid)) key = new NodeKey(guid);
+        else return null;
+        try {
+            var typeId = _db.GetNodeType(key);
+            if (!_db.Datamodel.NodeTypes.TryGetValue(typeId, out var type)) return null;
+            var property = type.AllProperties.Values.FirstOrDefault(p => string.Equals(p.CodeName, propertyName, StringComparison.OrdinalIgnoreCase));
+            if (property == null) return null;
+            return new NodePath(key).CreatePropertyPath(property.Id);
+        } catch {
+            return null; // an unknown node is a non-match, not an error
+        }
+    }
+    bool tryGetPropertyName(Guid propertyId, out string propertyName) {
+        propertyName = string.Empty;
+        if (!_db.Datamodel.Properties.TryGetValue(propertyId, out var property) || string.IsNullOrEmpty(property.CodeName)) return false;
+        propertyName = property.CodeName;
+        return true;
     }
 
     // tree walk /////////////////////////////////////////////////////////////////////////////////

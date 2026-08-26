@@ -23,6 +23,7 @@ public enum FileFormat {
     Svg,
     Webp,
     Avif,
+    Image, // adaptive format for images, can be any of the above
     // Video formats
     Mp4,
     Avi,
@@ -89,7 +90,7 @@ public static class FileFormatUtil {
     }
     public static FileType GetFileType(FileFormat format) {
         return format switch {
-            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif => FileType.Image,
+            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif or FileFormat.Image => FileType.Image,
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,

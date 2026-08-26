@@ -80,12 +80,12 @@ public interface IDataStore : IDisposable {
     string InternalizeContentLinks(string content, QueryContext? ctx = null);
 
     bool CanConvert(FileFormat from, FileFormat to);
-    bool CanConvert(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
+    bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
 
     string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);
-    string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null);
+    string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null);
 
     bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null);
     bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null);
@@ -93,12 +93,12 @@ public interface IDataStore : IDisposable {
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
     Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
     Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null);
-    bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
-    bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null);
-    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null);
+    Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
+    bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null);
+    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
     FileConversions GetConversions(QueryContext? ctx = null);
     Task CancelAllConversions(bool permanently, QueryContext? ctx = null);
     Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null);

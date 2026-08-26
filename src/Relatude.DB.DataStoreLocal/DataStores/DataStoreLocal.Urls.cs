@@ -74,7 +74,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return _urls.GetUrl(fileValue.PropertyPath, getFileVersionId(fileValue), absolute, fileValue.Name);
     }
-    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute, QueryContext? ctx = null) {
+    public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");

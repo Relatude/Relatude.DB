@@ -9,7 +9,7 @@ public class UrlKeys {
     public NodeKey NodeKey { get; set; }
     public NodePath? NodePath { get; set; }
     public PropertyPath? PropertyPath { get; set; }
-    public FileAdjustment? Adjustment { get; set; }
+    public FileAdjustmentBase? Adjustment { get; set; }
     /// <summary>The culture the URL matched, Guid.Empty when the URL is culture neutral.</summary>
     public Guid CultureId { get; set; }
     /// <summary>The culture code of CultureId, null when the URL is culture neutral.</summary>

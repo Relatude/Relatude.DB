@@ -34,8 +34,4 @@
     <ProjectReference Include="..\..\src\Relatude.DB.TextIndex\Relatude.DB.TextIndex.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="relatude.db\indexes\" />
-  </ItemGroup>
-
 </Project>

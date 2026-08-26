@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Native;
+﻿using Relatude.DB.FileConversion.ImageEncoders;
+using Relatude.DB.Native;
 using Relatude.DB.Web;
 namespace Relatude.DB.DataStores;
 
@@ -69,6 +70,10 @@ public class SettingsLocal {
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
     public string? PersistedQueueStoreFolderPath { get; set; }
     public DefaultUrlManagerOptions? UrlOptions { get; set; } = new();
+
+    public ImageDefaultFormat ImageDefaultFormat { get; set; } = ImageDefaultFormat.Jpeg;
+    public int ImageDefaultQuality { get; set; } = 85;
+
 }
 
 public enum PersistedTextIndexEngine {

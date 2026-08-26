@@ -42,7 +42,7 @@ public class InternalUrlProvider : IUrlProvider {
         if (contentVersionId != null) url += dot + contentVersionId;
         return url;
     }
-    public string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute) {
+    public string GetUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId, bool absolute) {
         var url = urlTypeChar(UrlTarget.PropertyAdjusted) + B64.EncodeForUrl(property.ToBytes()) + dot + _encoder.GetEncodedString(adjustment);
         if (contentVersionId != null) url += dot + contentVersionId;
         return url;
@@ -72,7 +72,7 @@ public class InternalUrlProvider : IUrlProvider {
         if (!PropertyPath.TryParse(localUrl[1..], out propertyPath)) return false;
         return true;
     }
-    public bool TryParseUrlAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustment adjustment) {
+    public bool TryParseUrlAdjustments(string localUrl, [MaybeNullWhen(false)] out PropertyPath propertyPath, [MaybeNullWhen(false)] out FileAdjustmentBase adjustment) {
         propertyPath = default;
         adjustment = default;
         if (string.IsNullOrWhiteSpace(localUrl) || localUrl.Length <= 2) return false;

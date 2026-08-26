@@ -19,13 +19,16 @@ public enum ReferenceSourceType {
 public enum ReferenceTarget {
     Node = 1,
     NodeAndCulture = 2,
+    ExternalPage = 3,
+    ExternalFile = 4,
+    ExternalEmail = 5,
+    ExternalOther = 6,
 }
 public class ReferenceInternal {
     public ReferenceSourceType SourceType { get; set; }
     public ReferenceTarget Target { get; set; }
-    public PropertyPath From{ get; set; } 
-    public int ToNodeId { get; set; }
-    public int? ToCultureId { get; set; }
+    public byte[] From{ get; set; } 
+    public byte[] To { get; set; }
 }
 
 internal class ReferenceRegister : IIndex {

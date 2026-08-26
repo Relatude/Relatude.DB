@@ -4,13 +4,13 @@ using Relatude.DB.Common;
 namespace Relatude.DB.FileConversion;
 
 public class FileIdWithAdjustment {
-    public FileIdWithAdjustment(Guid fileId, FileAdjustment adj, PropertyPath propertyPath) {
+    public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj, PropertyPath propertyPath) {
         FileId = fileId;
         Adjustment = adj;
         PropertyPath = propertyPath;
     }
     public Guid FileId { get; }
-    public FileAdjustment Adjustment { get; }
+    public FileAdjustmentBase Adjustment { get; }
     public PropertyPath PropertyPath { get; }
     Guid? _key = null;
     public Guid GetKey() => _key ??= FileId.CombineHashGuid(Adjustment.GetKey());
@@ -20,7 +20,7 @@ public enum FileAdjustmentType {
     Video,
     Meta,
 }
-public abstract class FileAdjustment {
+public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
     public bool Temporary { get; set; } = false;
     public abstract FileAdjustmentType GetAdjustmentType();
@@ -47,7 +47,7 @@ public abstract class FileAdjustment {
     }
     protected abstract string GenerateStringKey();
     public abstract byte[] ToBytes();
-    public static FileAdjustment FromBytes(byte[] bytes) {
+    public static FileAdjustmentBase FromBytes(byte[] bytes) {
         var adjustmentType = (FileAdjustmentType)bytes[0];
         return adjustmentType switch {
             FileAdjustmentType.Image => FileAdjustmentImage.FromBytes(bytes),
@@ -57,7 +57,7 @@ public abstract class FileAdjustment {
         };
     }
 }
-public class FileAdjustmentMeta : FileAdjustment {
+public class FileAdjustmentMeta : FileAdjustmentBase {
     public FileAdjustmentMeta() {
         RequestedFormat = FileFormat.FileMetaJson;
         Temporary = true;
@@ -83,7 +83,10 @@ public class FileAdjustmentMeta : FileAdjustment {
         return buf.ToString();
     }
 }
-public class FileAdjustmentImage : FileAdjustment {
+public class FileAdjustmentImage : FileAdjustmentBase {
+    public FileAdjustmentImage() {
+        RequestedFormat = FileFormat.Image; // adaptive: resolved against the original file and the store defaults, see ResolveAdaptiveFormat
+    }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;
     public int? Width { get; set; } // canvas width
     public int? Height { get; set; } // canvas height
@@ -107,6 +110,41 @@ public class FileAdjustmentImage : FileAdjustment {
 
     public double? TimeOffsetMs { get; set; } // only relevant for video files. Specifies the timestamp in milliseconds from which to extract the thumbnail image.
     public double? TimeOffsetPercentage { get; set; } // only relevant for video files. Specifies the timestamp in percentage from which to extract the thumbnail image.
+
+    /// <summary>
+    /// True when nothing is requested beyond the adaptive format: no dimensions, no quality, no
+    /// edits. The store then serves the original file untouched instead of converting.
+    /// </summary>
+    public bool IsPlainRequest() => RequestedFormat == FileFormat.Image && Width == null && Height == null && !hasAdjustmentsBesideDimensions();
+
+    /// <summary>
+    /// Resolves the adaptive <see cref="FileFormat.Image"/> against the original file and the store
+    /// defaults, returning a resolved copy (this instance is never changed - its conversion cache
+    /// key may already be handed out). A gif that keeps its original dimensions and has no other
+    /// adjustments stays a gif, preserving animations and palette; everything else becomes the
+    /// default format, with the default quality when none is given. Returns this instance unchanged
+    /// when the requested format is already concrete.
+    /// </summary>
+    public FileAdjustmentImage ResolveAdaptiveFormat(FileFormat originalFormat, int originalWidth, int originalHeight, FileFormat defaultFormat, int defaultQuality) {
+        if (RequestedFormat != FileFormat.Image) return this;
+        var resolved = FromBytes(ToBytes());
+        if (originalFormat == FileFormat.Gif && !hasAdjustmentsBesideDimensions() && dimensionsSameOrAbsent(originalWidth, originalHeight)) {
+            resolved.RequestedFormat = FileFormat.Gif; // preserve animations and palette
+        } else {
+            resolved.RequestedFormat = defaultFormat;
+            resolved.Quality ??= defaultQuality;
+        }
+        return resolved;
+    }
+    bool hasAdjustmentsBesideDimensions() =>
+        Zoom != null || FocusX != null || FocusY != null || OffsetX != null || OffsetY != null
+        || Rotation != null || Brightness != null || Contrast != null || Saturation != null
+        || HueShift != null || Sharpness != null || InvertLuminance != null || AutoLightDarkMode != null
+        || BackgroundColor != null || AutoBackgroundColor != null || CropMode != null || Quality != null
+        || TimeOffsetMs != null || TimeOffsetPercentage != null;
+    bool dimensionsSameOrAbsent(int originalWidth, int originalHeight) =>
+        (Width == null || (originalWidth > 0 && Width == originalWidth))
+        && (Height == null || (originalHeight > 0 && Height == originalHeight));
 
     protected override string GenerateStringKey() {
         Span<byte> buf = stackalloc byte[112];
@@ -137,6 +175,7 @@ public class FileAdjustmentImage : FileAdjustment {
         return key;
     }
     public override void BasicSanitization() {
+        if (RequestedFormat == FileFormat.Unknown) RequestedFormat = FileFormat.Image; // for images, unknown means adaptive
         base.BasicSanitization();
         if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
         if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
@@ -229,7 +268,7 @@ public class FileAdjustmentImage : FileAdjustment {
         return obj;
     }
 }
-public class FileAdjustmentVideo : FileAdjustment {
+public class FileAdjustmentVideo : FileAdjustmentBase {
     public int? Width { get; set; } // canvas width
     public int? Height { get; set; } // canvas height
     public double TargetBitRateInMbps { get; set; } // in bits per second

@@ -69,9 +69,12 @@ internal sealed class UrlSystem {
             Target = UrlTarget.Property,
             Owner = property.NodePath.NodeKey,
             FileName = fileName,
+            // for managers that render the target readably instead of inside the token:
+            PropertyPath = property,
+            ContentVersionId = contentVersionId,
         }, absolute);
     }
-    public string GetUrl(PropertyPath property, FileAdjustment adjustment, string? contentVersionId, bool absolute, string? fileName) {
+    public string GetUrl(PropertyPath property, FileAdjustmentBase adjustment, string? contentVersionId, bool absolute, string? fileName) {
         var ext = FileFormatUtil.GetExtensionWithDot(adjustment.RequestedFormat);
         if (fileName != null && ext != null) fileName = Path.GetFileNameWithoutExtension(fileName) + ext;
         return _manager.GetAssetUrl(new AssetUrl {
@@ -79,9 +82,11 @@ internal sealed class UrlSystem {
             Target = UrlTarget.PropertyAdjusted,
             Owner = property.NodePath.NodeKey,
             FileName = fileName,
-            // for managers that render the adjustment readably instead of inside the token:
+            // for managers that render the adjustment and target readably instead of inside the token:
             BaseToken = _tokenEncoder.GetUrl(property, contentVersionId, false),
             Adjustment = adjustment,
+            PropertyPath = property,
+            ContentVersionId = contentVersionId,
         }, absolute);
     }
 
@@ -97,9 +102,19 @@ internal sealed class UrlSystem {
             // a manager choking on a malformed URL is a non-match, not an error
         }
         if (assetMatch != null) {
-            if (!tryParseToken(assetMatch.Token, out result)) return false;
+            if (assetMatch.PropertyPath != null) {
+                // the manager rendered the target readably: no token involved
+                result = new UrlKeys {
+                    Target = UrlTarget.Property,
+                    NodeKey = assetMatch.PropertyPath.NodePath.NodeKey,
+                    NodePath = assetMatch.PropertyPath.NodePath,
+                    PropertyPath = assetMatch.PropertyPath,
+                };
+            } else {
+                if (assetMatch.Token == null || !tryParseToken(assetMatch.Token, out result)) return false;
+            }
             if (assetMatch.Adjustment != null && result.Target == UrlTarget.Property) {
-                // the manager rendered the adjustment readably: combine it with the file token
+                // the manager rendered the adjustment readably: combine it with the target
                 result.Target = UrlTarget.PropertyAdjusted;
                 result.Adjustment = assetMatch.Adjustment;
             }

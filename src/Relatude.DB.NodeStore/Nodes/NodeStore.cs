@@ -1369,11 +1369,11 @@ public class NodeStore : IDisposable {
     /// <summary>The URL of a node path, which can also point at a node inside an embedded structure.</summary>
     public string GetUrl(NodePath node, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(node, absolute, ctx);
     /// <summary>The URL of a specific variant of a file, for instance a thumbnail of an image.</summary>
-    public string GetUrl(FileValue fileValue, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
+    public string GetUrl(FileValue fileValue, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, adj, absolute, ctx);
     /// <summary>The URL of a file as it was uploaded.</summary>
     public string GetUrl(FileValue fileValue, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(fileValue.PropertyPath!, absolute, ctx);
     /// <summary>The URL of a file variant, addressed by property path.</summary>
-    public string GetUrl(PropertyPath propertyPath, FileAdjustment adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);
+    public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null) => Datastore.GetUrl(propertyPath, adj, absolute, ctx);
 
     /// <summary>True when giving this node this address produces a complete URL that collides with no other node's URL. Decided by the configured url manager; without one, addresses must be globally unique.</summary>
     public bool WillAddressResultInUniqueUrl(NodeKey node, string address, Guid cultureId = default) => Datastore.WillAddressResultInUniqueUrl(node, cultureId, address);
@@ -1397,9 +1397,9 @@ public class NodeStore : IDisposable {
     /// <summary>Opens the original file stored in this file property.</summary>
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, ctx);
     /// <summary>Opens a variant of the file, waiting up to maxWait ms if it has to be produced first.</summary>
-    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
     /// <summary>Opens a variant of the file and reports whether it is ready or still being produced.</summary>
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustment adj, int maxWait = -1, QueryContext? ctx = null)
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null)
         => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
     /// <summary>Opens the file and hands back its file value as well, so you get name, size and content type in the same call.</summary>
     public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
@@ -1408,12 +1408,12 @@ public class NodeStore : IDisposable {
     /// Progress of the conversion producing a file variant, for progress bars and diagnostics. False when no
     /// conversion is known. Pass queueConversionIfNotRequested to start one that has not been asked for yet.
     /// </summary>
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustment adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
         => Datastore.TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
     /// <summary>True when a file variant is ready to serve. Pass requestIfNot to queue the conversion when it is not.</summary>
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustment adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
     /// <summary>Queues the conversion producing a file variant unless it is already done or queued. Returns at once.</summary>
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustment adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
     /// <summary>The file conversions running or queued right now, for progress reporting and diagnostics.</summary>
     public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetConversions(ctx);
 

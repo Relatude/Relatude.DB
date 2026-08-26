@@ -9,7 +9,7 @@ public class BinaryUrlFileAdjustmentEncoder(Guid secretHashKey) : IUrlFileAdjust
     const int SignatureBytes = 8;
     static CompressionLevel compressionLevel = CompressionLevel.SmallestSize;
     readonly byte[] _hmacKey = secretHashKey.ToByteArray();
-    Cache<string, FileAdjustment> _cache1 = new(1000);
+    Cache<string, FileAdjustmentBase> _cache1 = new(1000);
     Cache<Guid, string> _cache2 = new(1000);
 
     byte[] Sign(byte[] data) {
@@ -33,7 +33,7 @@ public class BinaryUrlFileAdjustmentEncoder(Guid secretHashKey) : IUrlFileAdjust
         return payload;
     }
 
-    public FileAdjustment GetAdjustmentFromEncodedString(string urlString) {
+    public FileAdjustmentBase GetAdjustmentFromEncodedString(string urlString) {
         if (_cache1.TryGet(urlString, out var cachedAdj)) return cachedAdj;
         if (B64.TryDecodeFromUrlParameter(urlString, out var bytes)) {
             bytes = VerifyAndStrip(bytes);
@@ -44,14 +44,14 @@ public class BinaryUrlFileAdjustmentEncoder(Guid secretHashKey) : IUrlFileAdjust
                 brotli.CopyTo(output);
                 bytes = output.ToArray();
             }
-            var adjustment = FileAdjustment.FromBytes(bytes);
+            var adjustment = FileAdjustmentBase.FromBytes(bytes);
             adjustment.BasicSanitization(); // to prevent "crazy" values, causing issues in downstream processing (e.g. negative or extreme dimensions, memory exhaustion, etc.)
             _cache1.Set(urlString, adjustment, 1);
             return adjustment;
         }
         throw new ArgumentException("Invalid encoded string.", nameof(urlString));
     }
-    public string GetEncodedString(FileAdjustment adj) {
+    public string GetEncodedString(FileAdjustmentBase adj) {
         var key = adj.GetKey();
         if (_cache2.TryGet(key, out var cachedString)) return cachedString;
         var bytes = adj.ToBytes();

@@ -3,7 +3,7 @@
 namespace Relatude.DB.Web;
 
 public interface IUrlFileAdjustmentEncoder {
-    FileAdjustment GetAdjustmentFromEncodedString(string urlString);
-    string GetEncodedString(FileAdjustment adj);
+    FileAdjustmentBase GetAdjustmentFromEncodedString(string urlString);
+    string GetEncodedString(FileAdjustmentBase adj);
 }
 
