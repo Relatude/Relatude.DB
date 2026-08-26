@@ -27,6 +27,23 @@ public class UrlPageTree : OneToMany<UrlPage, UrlPage> {
     public class Parent : One { }
     public class Children : Many { }
 }
+// A second node type that hangs under a page through a different relation, so URL building has to
+// pick the parent relation that applies to the node's own type. Only the child side is declared as
+// a property, so the shared UrlPage model above stays usable without this relation.
+[Node]
+public class UrlDoc {
+    [PublicIdProperty]
+    public Guid Id { get; set; }
+    [StringProperty(DisplayName = true)]
+    public string Title { get; set; } = "";
+    [AddressProperty]
+    public string Slug { get; set; } = "";
+    public UrlPageDocs.Page Page { get; set; } = new();
+}
+public class UrlPageDocs : OneToMany<UrlPage, UrlDoc> {
+    public class Page : One { }   // declared as a property on UrlDoc, relates to UrlPage
+    public class Docs : Many { }  // the other end; no property for it, so UrlPage stays independent of this relation
+}
 #endregion
 
 [TestClass]
@@ -37,7 +54,7 @@ public class UrlManagerTests {
         dm.Add<UrlPage>();
         dm.Add<UrlPageTree>();
         IUrlManager? manager = withTreeManager ? new DefaultUrlManager(new DefaultUrlManagerOptions() {
-            ParentRelationName = "UrlPageTree",
+            Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }],
         }) : null;
         var data = new DataStoreLocal(dm, new SettingsLocal(), io ?? new IOProviderMemory(), urlManager: manager);
         data.Open(true, true);
@@ -167,7 +184,7 @@ public class UrlManagerTests {
         var rootOne = Guid.NewGuid();
         var rootTwo = Guid.NewGuid();
         var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() {
-            ParentRelationName = "UrlPageTree",
+            Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }],
             Domains = [
                 new UrlDomain() { Host = "one.example", RootId = rootOne },
                 new UrlDomain() { Host = "two.example", RootId = rootTwo },
@@ -246,6 +263,50 @@ public class UrlManagerTests {
         StringAssert.Contains(db.Get<UrlPage>(pixelInfo).Body, "href=\"#\"");
     }
 
+    // ------------------------------------------------------------------ several parent relations
+
+    [TestMethod]
+    public void SeveralParentRelations_EachNodeTypeUsesTheFirstThatApplies() {
+        var dm = new Datamodel();
+        dm.Add<UrlPage>();
+        dm.Add<UrlPageTree>();
+        dm.Add<UrlDoc>();
+        dm.Add<UrlPageDocs>();
+        var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() {
+            Parents = [
+                new UrlParentRelation() { ParentRelationName = "UrlPageTree" }, // applies to UrlPage
+                new UrlParentRelation() { ParentRelationName = "UrlPageDocs" }, // applies to UrlDoc
+            ],
+        });
+        var data = new DataStoreLocal(dm, new SettingsLocal(), new IOProviderMemory(), urlManager: manager);
+        data.Open(true, true);
+        using var db = new NodeStore(data);
+
+        var section = insert(db, "Docs section", "docs");
+        var page = insert(db, "Guide", "guide", section);
+        var doc = new UrlDoc() { Id = Guid.NewGuid(), Title = "Readme", Slug = "readme" };
+        db.Insert(doc);
+        db.Execute(new Transaction(db).Relation.Relate<UrlPageDocs>(page, doc.Id));
+
+        // the page walks the page tree, the doc walks the doc relation - the chain crosses both:
+        Assert.AreEqual("/docs/guide", db.GetUrl(page));
+        Assert.AreEqual("/docs/guide/readme", db.GetUrl(doc.Id));
+        Assert.IsTrue(db.TryParseUrl("/docs/guide/readme", out var keys));
+        Assert.AreEqual(doc.Id, db.Get<UrlDoc>(keys.NodeKey).Id);
+
+        // a doc without a page is top level, since no configured relation gives it a parent:
+        var orphan = new UrlDoc() { Id = Guid.NewGuid(), Title = "Loose", Slug = "loose" };
+        db.Insert(orphan);
+        Assert.AreEqual("/loose", db.GetUrl(orphan.Id));
+
+        // uniqueness is still judged on the complete URL, across the relation kinds:
+        var sameSlugElsewhere = new UrlDoc() { Id = Guid.NewGuid(), Title = "Readme 2", Slug = "readme" };
+        db.Insert(sameSlugElsewhere);
+        db.Execute(new Transaction(db).Relation.Relate<UrlPageDocs>(section, sameSlugElsewhere.Id));
+        Assert.AreEqual("readme", db.Get<UrlDoc>(sameSlugElsewhere.Id).Slug); // another parent, no suffix
+        Assert.AreEqual("/docs/readme", db.GetUrl(sameSlugElsewhere.Id));
+    }
+
     // ------------------------------------------------------------------ url formats, roots, asset styles
 
     static NodeStore openWithOptions(DefaultUrlManagerOptions options, IIOProvider? io = null) {
@@ -274,7 +335,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlFormat_IntIdAndAddress_IsResolvedByIdAlone_SoOldUrlsSurviveRenames() {
-        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, ParentRelationName = "UrlPageTree" });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }] });
         var section = insert(db, "Docs", "docs");
         var page = insert(db, "Intro", "intro", section);
         Assert.IsTrue(db.Datastore.TryGetNodeMeta(page, out var meta));

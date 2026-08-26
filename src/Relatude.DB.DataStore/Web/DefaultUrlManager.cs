@@ -21,14 +21,20 @@ public enum NodeUrlFormat {
     AddressOrIntId,
     /// <summary>The segment path, or "/{guid}" for nodes without an address.</summary>
     AddressOrGuidId,
+    /// <summary> The segment path, or "/{base64 token}" for nodes without an address. </summary>
+    AddressOrEncodedGuid, // Base64
     /// <summary>"/{internal id}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
     IntIdAndAddress,
     /// <summary>"/{guid}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
     GuidIdAndAddress,
+    /// <summary>"/{base64 token}/{segment path}".</summary>
+    EncodedGuidIdAndAddress,
     /// <summary>"/{internal id}".</summary>
     IntIdOnly,
     /// <summary>"/{guid}".</summary>
     GuidIdOnly,
+    /// <summary>"/{base64 token}".</summary>
+    EncodedGuidIdOnly,
 }
 
 /// <summary>How <see cref="DefaultUrlManager"/> renders the adjustment part of asset URLs (resized images, converted formats).</summary>
@@ -58,13 +64,29 @@ public enum AssetUrlStyle {
     /// <summary>On top of the owning node's page URL: "{pageUrl}/{fileName}?{AssetUrlParamName}={token}". Falls back to the asset root when the owner has no page URL.</summary>
     UnderPageUrl,
 }
-public class DefaultUrlManagerOptions {
-    /// <summary>The relation that connects a node to its parent. When neither this nor <see cref="ParentRelationName"/> is set, the manager runs flat: every node is top level and its URL is "/{address}".</summary>
+/// <summary>
+/// One relation a <see cref="DefaultUrlManager"/> can follow from a node to its parent. Several can
+/// be configured (see <see cref="DefaultUrlManagerOptions.Parents"/>) to build URLs across a tree
+/// held together by more than one relation.
+/// </summary>
+public class UrlParentRelation {
+    /// <summary>The relation to follow. Alternatively set <see cref="ParentRelationName"/>.</summary>
     public Guid ParentRelationId { get; set; }
-    /// <summary>CodeName or full name of the parent relation, resolved against the datamodel when the store initializes.</summary>
+    /// <summary>CodeName or full name of the relation, resolved against the datamodel when the store initializes.</summary>
     public string? ParentRelationName { get; set; }
     /// <summary>True when the parent is on the source side of the relation (a node reaches its parent by following the relation from target to source).</summary>
     public bool ParentIsRelationSource { get; set; } = true;
+}
+
+public class DefaultUrlManagerOptions {
+    /// <summary>
+    /// The relations that connect a node to its parent, in priority order. When a URL is built, the
+    /// first entry whose child side accepts the node's type (the type itself or a base type of it)
+    /// and that actually has a parent for the node is followed; entries after it are only consulted
+    /// when an earlier one has no parent for that node. When the list is empty the manager runs
+    /// flat: every node is top level and its URL is "/{address}".
+    /// </summary>
+    public List<UrlParentRelation> Parents { get; set; } = [];
     /// <summary>Host to root mappings. When empty, every node is routable and the top of the tree is part of the path.</summary>
     public List<UrlDomain> Domains { get; set; } = [];
     /// <summary>Root used for requests with an unknown or missing host (local development, staging). Defaults to the first configured domain's root.</summary>
@@ -122,9 +144,12 @@ public class DefaultUrlManagerOptions {
 /// <see cref="AssetUrlStyle"/> lets asset URLs build on top of the owning node's page URL.
 /// </summary>
 public class DefaultUrlManager : UrlManagerBase {
+    /// <summary>A configured parent relation, resolved against the datamodel: the relation to follow and the node types it can find a parent for.</summary>
+    sealed record parentRelation(Guid RelationId, bool ParentIsSource, HashSet<Guid> ChildTypes);
+
     readonly DefaultUrlManagerOptions _o;
     IDataStore _db = default!;
-    Guid _relationId;
+    readonly List<parentRelation> _parents = [];
     readonly Dictionary<string, Guid> _rootByHost = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<Guid, string> _hostByRoot = new();
     Guid _fallbackRootId;
@@ -142,13 +167,29 @@ public class DefaultUrlManager : UrlManagerBase {
     }
     public override void Initialize(IDataStore store) {
         _db = store;
-        _relationId = _o.ParentRelationId;
-        if (_relationId == Guid.Empty && !string.IsNullOrEmpty(_o.ParentRelationName)) {
-            var relation = store.Datamodel.Relations.Values.FirstOrDefault(r =>
-                string.Equals(r.FullName(), _o.ParentRelationName, StringComparison.Ordinal)
-                || string.Equals(r.CodeName, _o.ParentRelationName, StringComparison.Ordinal));
-            if (relation == null) throw new Exception("TreeUrlManager could not find the relation \"" + _o.ParentRelationName + "\" in the datamodel.");
-            _relationId = relation.Id;
+        _parents.Clear();
+        foreach (var parent in _o.Parents) {
+            var relationId = parent.ParentRelationId;
+            if (relationId == Guid.Empty) {
+                if (string.IsNullOrEmpty(parent.ParentRelationName)) throw new Exception("A url manager parent relation requires either ParentRelationId or ParentRelationName.");
+                var byName = store.Datamodel.Relations.Values.FirstOrDefault(r =>
+                    string.Equals(r.FullName(), parent.ParentRelationName, StringComparison.Ordinal)
+                    || string.Equals(r.CodeName, parent.ParentRelationName, StringComparison.Ordinal));
+                if (byName == null) throw new Exception("DefaultUrlManager could not find the relation \"" + parent.ParentRelationName + "\" in the datamodel.");
+                relationId = byName.Id;
+            }
+            if (!store.Datamodel.Relations.TryGetValue(relationId, out var relation)) {
+                throw new Exception("DefaultUrlManager could not find the relation " + relationId + " in the datamodel.");
+            }
+            // the child side is the end the node itself occupies; a node of a derived type occupies
+            // it too, so the declared types are expanded downwards
+            var declaredChildTypes = parent.ParentIsRelationSource ? relation.TargetTypes : relation.SourceTypes;
+            var childTypes = new HashSet<Guid>();
+            foreach (var typeId in declaredChildTypes) {
+                if (!store.Datamodel.NodeTypes.TryGetValue(typeId, out var type)) continue;
+                foreach (var descendantId in type.ThisAndDescendingTypes.Keys) childTypes.Add(descendantId);
+            }
+            _parents.Add(new parentRelation(relationId, parent.ParentIsRelationSource, childTypes));
         }
         foreach (var domain in _o.Domains) {
             if (string.IsNullOrWhiteSpace(domain.Host) || domain.RootId == Guid.Empty) throw new Exception("TreeUrlManager domains require both Host and RootId.");
@@ -157,7 +198,7 @@ public class DefaultUrlManager : UrlManagerBase {
         }
         _fallbackRootId = _o.FallbackRootId ?? (_o.Domains.Count > 0 ? _o.Domains[0].RootId : Guid.Empty);
     }
-    bool isFlat => _relationId == Guid.Empty;
+    bool isFlat => _parents.Count == 0;
 
     // pages, outbound ///////////////////////////////////////////////////////////////////////////
 
@@ -460,12 +501,20 @@ public class DefaultUrlManager : UrlManagerBase {
         var ctx = cultureId == Guid.Empty ? QueryContext.MasterAdmin : QueryContext.MasterAdmin.Culture(cultureId);
         return _db.TryGetNodeMeta(key, out meta!, ctx);
     }
+    /// <summary>
+    /// The parent of a node: the first configured relation that accepts the node's type and has a
+    /// parent for it. Relations that do not apply to the type, and relations that apply but hold no
+    /// parent for this particular node, are skipped, so a node reachable through none of them is
+    /// treated as a top-level node.
+    /// </summary>
     NodeMeta? getParentMeta(NodeMeta meta) {
-        if (isFlat) return null;
-        // parent lookup: when the parent is the relation source, the node is the target and the walk goes target -> source
-        foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(_relationId, meta.Id, _o.ParentIsRelationSource)) {
-            if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out var parentMeta)) return parentMeta;
-            return null;
+        foreach (var parent in _parents) {
+            if (!parent.ChildTypes.Contains(meta.NodeTypeId)) continue; // not a relation this node type can hang from
+            // when the parent is the relation source, the node is the target and the walk goes target -> source
+            foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
+                if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out var parentMeta)) return parentMeta;
+                break; // the relation has a parent, but it is not readable in this context
+            }
         }
         return null;
     }
