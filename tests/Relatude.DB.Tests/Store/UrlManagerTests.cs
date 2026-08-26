@@ -320,7 +320,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlFormat_AddressOrIntId_GivesNodesWithoutAnAddressAnIdUrl() {
-        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.AddressOrIntId });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntOrAddress });
         var withAddress = insert(db, "Hello", "hello");
         var withoutAddress = insert(db, "No address", "");
         Assert.AreEqual("/hello", db.GetUrl(withAddress));
@@ -335,7 +335,7 @@ public class UrlManagerTests {
 
     [TestMethod]
     public void UrlFormat_IntIdAndAddress_IsResolvedByIdAlone_SoOldUrlsSurviveRenames() {
-        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntIdAndAddress, Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }] });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.IntAndAddress, Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }] });
         var section = insert(db, "Docs", "docs");
         var page = insert(db, "Intro", "intro", section);
         Assert.IsTrue(db.Datastore.TryGetNodeMeta(page, out var meta));
@@ -354,8 +354,62 @@ public class UrlManagerTests {
     }
 
     [TestMethod]
+    public void UrlFormat_EncodedGuidIdOnly_IsACompactBase64Token() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.EncodedGuidOnly });
+        var page = insert(db, "Hello", "hello");
+        var url = db.GetUrl(page);
+        Assert.AreEqual("/" + DefaultUrlManager.EncodeGuid(page), url);
+        Assert.AreEqual(23, url.Length); // "/" plus 22 characters, against 37 for a guid string
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        Assert.IsFalse(db.TryParseUrl("/hello", out _)); // addresses are not part of URL space in this format
+        Assert.IsFalse(db.TryParseUrl("/" + page, out _)); // nor is the plain guid form
+        // the token round trips, and only 22 character Base64 is accepted:
+        Assert.IsTrue(DefaultUrlManager.TryDecodeGuid(DefaultUrlManager.EncodeGuid(page), out var decoded));
+        Assert.AreEqual(page, decoded);
+        Assert.IsFalse(DefaultUrlManager.TryDecodeGuid("hello", out _));
+        Assert.IsFalse(DefaultUrlManager.TryDecodeGuid(page.ToString(), out _));
+    }
+
+    [TestMethod]
+    public void UrlFormat_EncodedGuidIdAndAddress_IsResolvedByTheTokenAlone() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() {
+            UrlFormat = NodeUrlFormat.EncodedGuidAndAddress,
+            Parents = [new UrlParentRelation() { ParentRelationName = "UrlPageTree" }],
+        });
+        var section = insert(db, "Docs", "docs");
+        var page = insert(db, "Intro", "intro", section);
+        var url = db.GetUrl(page);
+        Assert.AreEqual("/" + DefaultUrlManager.EncodeGuid(page) + "/docs/intro", url);
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(page, db.Get<UrlPage>(keys.NodeKey).Id);
+        // the readable tail is cosmetic, so a rename leaves old URLs working:
+        db.UpdateAddress(new NodeKey(section), "documentation");
+        Assert.AreEqual("/" + DefaultUrlManager.EncodeGuid(page) + "/documentation/intro", db.GetUrl(page));
+        Assert.IsTrue(db.TryParseUrl(url, out var stale));
+        Assert.AreEqual(page, db.Get<UrlPage>(stale.NodeKey).Id);
+        // and duplicate addresses need no suffixing:
+        var second = insert(db, "Intro 2", "intro", section);
+        Assert.AreEqual("intro", db.Get<UrlPage>(second).Slug);
+    }
+
+    [TestMethod]
+    public void UrlFormat_AddressOrEncodedGuid_FallsBackToTheTokenWithoutAnAddress() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.EncodedGuidOrAddress });
+        var withAddress = insert(db, "Hello", "hello");
+        var withoutAddress = insert(db, "No address", "");
+        Assert.AreEqual("/hello", db.GetUrl(withAddress));
+        Assert.AreEqual("/" + DefaultUrlManager.EncodeGuid(withoutAddress), db.GetUrl(withoutAddress));
+        // both forms resolve, the address taking precedence:
+        Assert.IsTrue(db.TryParseUrl("/hello", out var byAddress));
+        Assert.AreEqual(withAddress, db.Get<UrlPage>(byAddress.NodeKey).Id);
+        Assert.IsTrue(db.TryParseUrl(db.GetUrl(withoutAddress), out var byToken));
+        Assert.AreEqual(withoutAddress, db.Get<UrlPage>(byToken.NodeKey).Id);
+    }
+
+    [TestMethod]
     public void UrlFormat_GuidIdOnly() {
-        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.GuidIdOnly });
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { UrlFormat = NodeUrlFormat.OnlyGuid });
         var page = insert(db, "Hello", "hello");
         Assert.AreEqual("/" + page, db.GetUrl(page));
         Assert.IsTrue(db.TryParseUrl("/" + page, out var keys));

@@ -15,26 +15,17 @@ public class UrlDomain {
 
 /// <summary>How <see cref="DefaultUrlManager"/> renders the page URL of a node.</summary>
 public enum NodeUrlFormat {
-    /// <summary>The segment path alone. Nodes without an address have no page URL. The default.</summary>
-    Address,
-    /// <summary>The segment path, or "/{internal id}" for nodes without an address.</summary>
-    AddressOrIntId,
-    /// <summary>The segment path, or "/{guid}" for nodes without an address.</summary>
-    AddressOrGuidId,
-    /// <summary> The segment path, or "/{base64 token}" for nodes without an address. </summary>
-    AddressOrEncodedGuid, // Base64
-    /// <summary>"/{internal id}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
-    IntIdAndAddress,
-    /// <summary>"/{guid}/{segment path}". Resolved by the id alone, so the readable part is cosmetic and old URLs survive renames.</summary>
-    GuidIdAndAddress,
-    /// <summary>"/{base64 token}/{segment path}".</summary>
-    EncodedGuidIdAndAddress,
-    /// <summary>"/{internal id}".</summary>
-    IntIdOnly,
-    /// <summary>"/{guid}".</summary>
-    GuidIdOnly,
-    /// <summary>"/{base64 token}".</summary>
-    EncodedGuidIdOnly,
+    EncodedGuidAndAddress, // Default
+
+    IntAndAddress, 
+    OnlyAddress,
+    OnlyGuid,
+    OnlyInt,
+    IntOrAddress,
+    GuidOrAddress,
+    GuidAndAddress,
+    EncodedGuidOrAddress,
+    EncodedGuidOnly,
 }
 
 /// <summary>How <see cref="DefaultUrlManager"/> renders the adjustment part of asset URLs (resized images, converted formats).</summary>
@@ -97,7 +88,7 @@ public class DefaultUrlManagerOptions {
     public int MaxDepth { get; set; } = 32;
 
     /// <summary>How page URLs are rendered: readable paths, ids, or both.</summary>
-    public NodeUrlFormat UrlFormat { get; set; } = NodeUrlFormat.Address;
+    public NodeUrlFormat UrlFormat { get; set; } = NodeUrlFormat.OnlyAddress;
     /// <summary>
     /// Base address prepended to every URL, pages and assets alike, and applied first - before
     /// <see cref="BaseAddressPages"/> and <see cref="BaseAddressAssets"/>. May be a path ("/app")
@@ -205,13 +196,16 @@ public class DefaultUrlManager : UrlManagerBase {
     public override string? TryGetUrl(NodeMeta meta, bool absolute) {
         string? path = tryBuildPath(meta, out var segmentPath, out var rootId) ? segmentPath : null;
         string? url = _o.UrlFormat switch {
-            NodeUrlFormat.Address => path,
-            NodeUrlFormat.AddressOrIntId => path ?? (meta.InternalId != 0 ? "/" + meta.InternalId : null),
-            NodeUrlFormat.AddressOrGuidId => path ?? "/" + meta.Id,
-            NodeUrlFormat.IntIdAndAddress => meta.InternalId == 0 ? null : "/" + meta.InternalId + (path == null || path == "/" ? "" : path),
-            NodeUrlFormat.GuidIdAndAddress => "/" + meta.Id + (path == null || path == "/" ? "" : path),
-            NodeUrlFormat.IntIdOnly => meta.InternalId != 0 ? "/" + meta.InternalId : null,
-            NodeUrlFormat.GuidIdOnly => "/" + meta.Id,
+            NodeUrlFormat.OnlyAddress => path,
+            NodeUrlFormat.IntOrAddress => path ?? (meta.InternalId != 0 ? "/" + meta.InternalId : null),
+            NodeUrlFormat.GuidOrAddress => path ?? "/" + meta.Id,
+            NodeUrlFormat.EncodedGuidOrAddress => path ?? "/" + EncodeGuid(meta.Id),
+            NodeUrlFormat.IntAndAddress => meta.InternalId == 0 ? null : "/" + meta.InternalId + (path == null || path == "/" ? "" : path),
+            NodeUrlFormat.GuidAndAddress => "/" + meta.Id + (path == null || path == "/" ? "" : path),
+            NodeUrlFormat.EncodedGuidAndAddress => "/" + EncodeGuid(meta.Id) + (path == null || path == "/" ? "" : path),
+            NodeUrlFormat.OnlyInt => meta.InternalId != 0 ? "/" + meta.InternalId : null,
+            NodeUrlFormat.OnlyGuid => "/" + meta.Id,
+            NodeUrlFormat.EncodedGuidOnly => "/" + EncodeGuid(meta.Id),
             _ => throw new NotImplementedException(),
         };
         if (url == null) return null;
@@ -228,36 +222,65 @@ public class DefaultUrlManager : UrlManagerBase {
         var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _basePagesPath);
         if (path == null) return []; // outside the base address
         switch (_o.UrlFormat) {
-            case NodeUrlFormat.IntIdOnly:
-            case NodeUrlFormat.IntIdAndAddress:
-                return matchByFirstSegmentId(path, parseGuids: false);
-            case NodeUrlFormat.GuidIdOnly:
-            case NodeUrlFormat.GuidIdAndAddress:
-                return matchByFirstSegmentId(path, parseGuids: true);
-            case NodeUrlFormat.AddressOrIntId: {
+            case NodeUrlFormat.OnlyInt:
+            case NodeUrlFormat.IntAndAddress:
+                return matchByFirstSegmentId(path, idKind.Int);
+            case NodeUrlFormat.OnlyGuid:
+            case NodeUrlFormat.GuidAndAddress:
+                return matchByFirstSegmentId(path, idKind.Guid);
+            case NodeUrlFormat.EncodedGuidOnly:
+            case NodeUrlFormat.EncodedGuidAndAddress:
+                return matchByFirstSegmentId(path, idKind.EncodedGuid);
+            case NodeUrlFormat.IntOrAddress: {
                     var byTree = matchByTree(completeUrl, path);
-                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, parseGuids: false, requireSingleSegment: true);
+                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, idKind.Int, requireSingleSegment: true);
                 }
-            case NodeUrlFormat.AddressOrGuidId: {
+            case NodeUrlFormat.GuidOrAddress: {
                     var byTree = matchByTree(completeUrl, path);
-                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, parseGuids: true, requireSingleSegment: true);
+                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, idKind.Guid, requireSingleSegment: true);
+                }
+            case NodeUrlFormat.EncodedGuidOrAddress: {
+                    var byTree = matchByTree(completeUrl, path);
+                    return byTree.Length > 0 ? byTree : matchByFirstSegmentId(path, idKind.EncodedGuid, requireSingleSegment: true);
                 }
             default:
                 return matchByTree(completeUrl, path);
         }
     }
-    NodeKeyWithCulture[] matchByFirstSegmentId(string path, bool parseGuids, bool requireSingleSegment = false) {
+    enum idKind { Int, Guid, EncodedGuid }
+    NodeKeyWithCulture[] matchByFirstSegmentId(string path, idKind kind, bool requireSingleSegment = false) {
         if (path.Length <= 1) return [];
         var posEnd = path.IndexOf('/', 1);
         if (posEnd == -1) posEnd = path.Length;
         else if (requireSingleSegment) return [];
         var segment = path[1..posEnd];
-        if (parseGuids) {
-            if (Guid.TryParse(segment, out var guid)) return [new NodeKeyWithCulture(new NodeKey(guid), Guid.Empty)];
-        } else {
-            if (int.TryParse(segment, out var id) && id > 0) return [new NodeKeyWithCulture(new NodeKey(id), Guid.Empty)];
+        switch (kind) {
+            case idKind.Guid:
+                if (Guid.TryParse(segment, out var guid)) return [new NodeKeyWithCulture(new NodeKey(guid), Guid.Empty)];
+                break;
+            case idKind.EncodedGuid:
+                if (TryDecodeGuid(segment, out var encodedGuid)) return [new NodeKeyWithCulture(new NodeKey(encodedGuid), Guid.Empty)];
+                break;
+            default:
+                if (int.TryParse(segment, out var id) && id > 0) return [new NodeKeyWithCulture(new NodeKey(id), Guid.Empty)];
+                break;
         }
         return []; // existence and access are checked by the store
+    }
+    /// <summary>A node id as a compact URL safe Base64 token: 22 characters instead of the 36 of a guid string.</summary>
+    public static string EncodeGuid(Guid id) => B64.EncodeForUrl(id.ToByteArray());
+    /// <summary>The reverse of <see cref="EncodeGuid"/>. False when the text is not a Base64 encoded guid.</summary>
+    public static bool TryDecodeGuid(string text, out Guid id) {
+        id = Guid.Empty;
+        if (text.Length != 22) return false; // 16 bytes as unpadded Base64
+        byte[] bytes;
+        try {
+            if (!B64.TryDecodeFromUrlParameter(text, out bytes) || bytes.Length != 16) return false;
+        } catch (FormatException) {
+            return false;
+        }
+        id = new Guid(bytes);
+        return true;
     }
     NodeKeyWithCulture[] matchByTree(string completeUrl, string path) {
         var host = UrlUtil.GetHost(completeUrl);
@@ -284,10 +307,12 @@ public class DefaultUrlManager : UrlManagerBase {
 
     public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) {
         switch (_o.UrlFormat) {
-            case NodeUrlFormat.IntIdOnly:
-            case NodeUrlFormat.GuidIdOnly:
-            case NodeUrlFormat.IntIdAndAddress:
-            case NodeUrlFormat.GuidIdAndAddress:
+            case NodeUrlFormat.OnlyInt:
+            case NodeUrlFormat.OnlyGuid:
+            case NodeUrlFormat.EncodedGuidOnly:
+            case NodeUrlFormat.IntAndAddress:
+            case NodeUrlFormat.GuidAndAddress:
+            case NodeUrlFormat.EncodedGuidAndAddress:
                 return true; // URLs resolve by id, so duplicate addresses never collide
         }
         var owners = _db.GetNodeIdsFromAddress(address);
