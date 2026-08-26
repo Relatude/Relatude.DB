@@ -52,19 +52,42 @@ public abstract class UrlManagerBase : IUrlManager {
     public abstract string? TryGetUrl(NodeMeta meta, bool absolute);
     public abstract bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address);
 
+    /// <summary>The normalized asset base address ("" when none), for derived classes composing asset URLs themselves.</summary>
+    protected string AssetBaseAddress => _assetBase;
+    /// <summary>The path portion of <see cref="BaseAddressAssets"/> ("" when none), what inbound URLs are matched against.</summary>
+    protected string AssetBasePath => _assetBasePath;
+
     public virtual string GetAssetUrl(AssetUrl asset, bool absolute) {
         var url = _assetBase + AssetUrlRoot + SignTokenIfConfigured(asset.Token);
         if (!string.IsNullOrEmpty(asset.FileName)) url += "/" + UrlSafeFileName(asset.FileName);
         return url;
     }
-    public virtual string? TryGetAssetToken(string completeUrl) {
+    public virtual AssetTokenMatch? TryGetAssetToken(string completeUrl) {
+        if (!TryGetAssetRootParts(completeUrl, out var rawToken, out _)) return null;
+        return ValidateAndStripSignature(rawToken);
+    }
+
+    /// <summary>
+    /// Splits a URL under the asset root into the raw token (signature still attached) and the path
+    /// segment following it, when present. False when the URL is not under the asset root.
+    /// </summary>
+    protected bool TryGetAssetRootParts(string completeUrl, out string rawToken, out string? nextSegment) {
+        rawToken = string.Empty;
+        nextSegment = null;
         var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _assetBasePath);
-        if (path == null || !path.StartsWith(AssetUrlRoot, StringComparison.Ordinal)) return null;
+        if (path == null || !path.StartsWith(AssetUrlRoot, StringComparison.Ordinal)) return false;
         var start = AssetUrlRoot.Length;
         var end = start;
-        while (end < path.Length && path[end] != '/') end++; // an optional cosmetic file name may follow the token
-        if (end == start) return null;
-        return ValidateAndStripSignature(path[start..end]);
+        while (end < path.Length && path[end] != '/') end++;
+        if (end == start) return false;
+        rawToken = path[start..end];
+        if (end < path.Length - 1) {
+            var nextStart = end + 1;
+            var nextEnd = nextStart;
+            while (nextEnd < path.Length && path[nextEnd] != '/') nextEnd++;
+            if (nextEnd > nextStart) nextSegment = path[nextStart..nextEnd];
+        }
+        return true;
     }
 
     /// <summary>Normalizes a base address to (full, path): full is what URLs are prefixed with, path is what inbound URLs are matched against. Both empty when no base is given.</summary>

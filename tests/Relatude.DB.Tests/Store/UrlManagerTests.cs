@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Web;
@@ -394,11 +395,126 @@ public class UrlManagerTests {
             FileName = "pic.jpg",
         }, absolute: false);
         Assert.AreEqual("/docs/pic.jpg?asset=p123abc", url);
-        Assert.AreEqual("p123abc", manager.TryGetAssetToken(url));
-        Assert.AreEqual("p123abc", manager.TryGetAssetToken("https://example.com/docs/pic.jpg?asset=p123abc"));
+        Assert.AreEqual("p123abc", manager.TryGetAssetToken(url)?.Token);
+        Assert.AreEqual("p123abc", manager.TryGetAssetToken("https://example.com/docs/pic.jpg?asset=p123abc")?.Token);
         Assert.IsNull(manager.TryGetAssetToken("/docs/pic.jpg")); // no token, a page URL
         // and the default placement still parses (an owner without a page URL falls back to it):
-        Assert.AreEqual("t0ken", manager.TryGetAssetToken("/assets/t0ken/pic.jpg"));
+        Assert.AreEqual("t0ken", manager.TryGetAssetToken("/assets/t0ken/pic.jpg")?.Token);
+    }
+
+    // ------------------------------------------------------------------ readable asset url formats
+
+    static FileAdjustmentImage exampleImageAdjustment() => new() {
+        RequestedFormat = FileFormat.Jpeg,
+        Width = 100,
+        Height = 200,
+        Quality = 80,
+        CropMode = ImageCropMode.Fill,
+        Saturation = -50,
+        Zoom = 1.5,
+        FocusX = 10,
+        InvertLuminance = true,
+        BackgroundColor = "#aabbcc",
+        TimeOffsetMs = 4000,
+    };
+    static void assertEqualAdjustments(FileAdjustment expected, FileAdjustment? actual) {
+        Assert.IsNotNull(actual);
+        CollectionAssert.AreEqual(expected.ToBytes(), actual.ToBytes(), "The adjustment should round trip losslessly. ");
+    }
+
+    [TestMethod]
+    public void AdjustmentCodec_QueryString_RoundTripsLosslessly() {
+        var image = exampleImageAdjustment();
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToQueryString(image, out var query));
+        StringAssert.Contains(query, "w=100");
+        StringAssert.Contains(query, "sat=-50");
+        assertEqualAdjustments(image, FileAdjustmentUrlCodec.TryParseQuery("/x?" + query));
+
+        var video = new FileAdjustmentVideo() { RequestedFormat = FileFormat.Mp4, Width = 240, Height = 200, TargetBitRateInMbps = 2.5, CropNotZoom = true };
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToQueryString(video, out var videoQuery));
+        assertEqualAdjustments(video, FileAdjustmentUrlCodec.TryParseQuery("/x?" + videoQuery));
+
+        var meta = new FileAdjustmentMeta();
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToQueryString(meta, out var metaQuery));
+        assertEqualAdjustments(meta, FileAdjustmentUrlCodec.TryParseQuery("/x?" + metaQuery));
+
+        Assert.IsNull(FileAdjustmentUrlCodec.TryParseQuery("/x?utm_source=mail")); // no adjustment keys present
+    }
+
+    [TestMethod]
+    public void AdjustmentCodec_ShortString_RoundTripsLosslessly() {
+        var image = exampleImageAdjustment();
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToShortString(image, out var shortString));
+        assertEqualAdjustments(image, FileAdjustmentUrlCodec.TryParseShortString(shortString));
+        // the user facing aesthetics: no separators, keys run into values
+        assertEqualAdjustments(
+            new FileAdjustmentImage() { RequestedFormat = FileFormat.Jpeg, Width = 100, Height = 200 },
+            FileAdjustmentUrlCodec.TryParseShortString("w100h200fjpeg"));
+        // format names running into the next key are resolved by backtracking:
+        assertEqualAdjustments(
+            new FileAdjustmentVideo() { RequestedFormat = FileFormat.Mp4, Width = 100 },
+            FileAdjustmentUrlCodec.TryParseShortString("kvfmp4w100"));
+        Assert.IsNull(FileAdjustmentUrlCodec.TryParseShortString("photo.jpg")); // a file name, not an adjustment
+        Assert.IsNull(FileAdjustmentUrlCodec.TryParseShortString("hello"));
+    }
+
+    [TestMethod]
+    public void AssetUrlFormat_QueryParameters_KeepsTheAdjustmentReadable() {
+        var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() { AssetUrlFormat = AssetUrlFormat.QueryParameters });
+        var adjustment = exampleImageAdjustment();
+        var url = manager.GetAssetUrl(new AssetUrl {
+            Token = "aFULLTOKEN",
+            BaseToken = "pBASETOKEN",
+            Target = UrlTarget.PropertyAdjusted,
+            Owner = new NodeKey(1),
+            FileName = "pic.jpg",
+            Adjustment = adjustment,
+        }, absolute: false);
+        StringAssert.StartsWith(url, "/assets/pBASETOKEN/pic.jpg?"); // the token addresses the original file
+        StringAssert.Contains(url, "w=100");
+        var match = manager.TryGetAssetToken(url);
+        Assert.IsNotNull(match);
+        Assert.AreEqual("pBASETOKEN", match.Token);
+        assertEqualAdjustments(adjustment, match.Adjustment);
+    }
+
+    [TestMethod]
+    public void AssetUrlFormat_FriendlyShortString_PutsTheAdjustmentInThePath() {
+        var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() { AssetUrlFormat = AssetUrlFormat.FriendlyShortString });
+        var adjustment = new FileAdjustmentImage() { RequestedFormat = FileFormat.Jpeg, Width = 100, Height = 200 };
+        var url = manager.GetAssetUrl(new AssetUrl {
+            Token = "aFULLTOKEN",
+            BaseToken = "pBASETOKEN",
+            Target = UrlTarget.PropertyAdjusted,
+            Owner = new NodeKey(1),
+            FileName = "pic.jpg",
+            Adjustment = adjustment,
+        }, absolute: false);
+        Assert.AreEqual("/assets/pBASETOKEN/fjpegw100h200/pic.jpg", url);
+        var match = manager.TryGetAssetToken(url);
+        Assert.IsNotNull(match);
+        Assert.AreEqual("pBASETOKEN", match.Token);
+        assertEqualAdjustments(adjustment, match.Adjustment);
+        // a plain file URL in the same format has no adjustment segment:
+        var plain = manager.TryGetAssetToken("/assets/pBASETOKEN/pic.jpg");
+        Assert.IsNotNull(plain);
+        Assert.IsNull(plain.Adjustment);
+    }
+
+    [TestMethod]
+    public void AssetUrlFormat_ReadableAdjustments_ResolveThroughTheStore() {
+        using var db = openWithOptions(new DefaultUrlManagerOptions() { AssetUrlFormat = AssetUrlFormat.QueryParameters });
+        // a real file token, crafted directly - the adjustment rides readably next to it:
+        var propertyPath = new NodePath(Guid.NewGuid()).CreatePropertyPath(Guid.NewGuid());
+        var token = new InternalUrlProvider().GetUrl(propertyPath, null, false);
+        Assert.IsTrue(db.TryParseUrl("/assets/" + token + "?w=100&h=200&f=jpeg", out var keys));
+        Assert.AreEqual(UrlTarget.PropertyAdjusted, keys.Target);
+        Assert.IsNotNull(keys.Adjustment);
+        Assert.AreEqual(100, ((FileAdjustmentImage)keys.Adjustment).Width);
+        Assert.AreEqual(FileFormat.Jpeg, keys.Adjustment.RequestedFormat);
+        // without adjustment parameters the same token is the plain file:
+        Assert.IsTrue(db.TryParseUrl("/assets/" + token, out var plain));
+        Assert.AreEqual(UrlTarget.Property, plain.Target);
     }
 
     // ------------------------------------------------------------------ typed managers

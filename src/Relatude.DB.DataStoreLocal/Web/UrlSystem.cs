@@ -79,6 +79,9 @@ internal sealed class UrlSystem {
             Target = UrlTarget.PropertyAdjusted,
             Owner = property.NodePath.NodeKey,
             FileName = fileName,
+            // for managers that render the adjustment readably instead of inside the token:
+            BaseToken = _tokenEncoder.GetUrl(property, contentVersionId, false),
+            Adjustment = adjustment,
         }, absolute);
     }
 
@@ -87,13 +90,21 @@ internal sealed class UrlSystem {
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext ctx) {
         result = null;
         // asset lane first: asset URLs never reach page resolution
-        string? token = null;
+        AssetTokenMatch? assetMatch = null;
         try {
-            token = _manager.TryGetAssetToken(url);
+            assetMatch = _manager.TryGetAssetToken(url);
         } catch {
             // a manager choking on a malformed URL is a non-match, not an error
         }
-        if (token != null) return tryParseToken(token, out result);
+        if (assetMatch != null) {
+            if (!tryParseToken(assetMatch.Token, out result)) return false;
+            if (assetMatch.Adjustment != null && result.Target == UrlTarget.Property) {
+                // the manager rendered the adjustment readably: combine it with the file token
+                result.Target = UrlTarget.PropertyAdjusted;
+                result.Adjustment = assetMatch.Adjustment;
+            }
+            return true;
+        }
         // page lane: the manager proposes candidates, the store filters them through the context
         NodeKeyWithCulture[] matches;
         try {

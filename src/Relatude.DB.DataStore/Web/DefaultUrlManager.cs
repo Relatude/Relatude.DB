@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 
 namespace Relatude.DB.Web;
 
@@ -30,11 +31,20 @@ public enum NodeUrlFormat {
     GuidIdOnly,
 }
 
-/// <summary>How <see cref="DefaultUrlManager"/> renders the page URL of a node.</summary>
+/// <summary>How <see cref="DefaultUrlManager"/> renders the adjustment part of asset URLs (resized images, converted formats).</summary>
 public enum AssetUrlFormat {
+    /// <summary>The adjustment travels inside the opaque token. The default; supports every adjustment, and with <see cref="UrlManagerBase.AssetUrlSignatureKey"/> the whole variant is tamper proof.</summary>
     Encrypted,
-    QueryParameters, // w=100&h=200&f=jpg etc, for file adjustments.
-    FrientlyShortString, // a short string that encodes the adjustments, e.g. "w100h200fjpg"
+    /// <summary>Readable query parameters, e.g. "?w=100&amp;h=200&amp;f=jpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable by design, so anyone who can see a file can request other variants of it.</summary>
+    QueryParameters,
+    /// <summary>A short readable path segment after the token, e.g. "w100h200fjpeg" (see <see cref="FileAdjustmentUrlCodec"/>). Hand editable by design, like <see cref="QueryParameters"/>. With <see cref="AssetUrlStyle.UnderPageUrl"/> the adjustment is rendered as query parameters instead, since the path belongs to the page.</summary>
+    FriendlyShortString,
+}
+
+public enum PropertyPathUrlFormat {
+    Encrypted,
+    QueryParameters, // pn=propertyValue&pid=otherValue
+    FriendlyShortString, // [propertyName]-[Id] etc
 }
 
 /// <summary>How <see cref="DefaultUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
@@ -76,8 +86,10 @@ public class DefaultUrlManagerOptions {
     public string? BaseAddressPages { get; set; }
     /// <summary>Base address prepended to every asset URL, e.g. a CDN origin ("https://cdn.site.com") or a path ("/files"). See <see cref="UrlManagerBase.BaseAddressAssets"/>.</summary>
     public string? BaseAddressAssets { get; set; }
-    
-    /// <summary>How asset URLs are rendered: encrypted, query parameters, or a short string.</summary>
+
+    public PropertyPathUrlFormat PropertyPathFormat { get; set; } = PropertyPathUrlFormat.Encrypted;
+
+    /// <summary>How the adjustment part of asset URLs is rendered: inside the opaque token (Encrypted), as readable query parameters, or as a short readable path segment.</summary>
     public AssetUrlFormat AssetUrlFormat { get; set; } = AssetUrlFormat.Encrypted;
     /// <summary>Where asset URLs live: under <see cref="UrlManagerBase.AssetUrlRoot"/> or on top of the owner's page URL.</summary>
     public AssetUrlStyle AssetUrlStyle { get; set; } = AssetUrlStyle.AssetRoot;
@@ -273,6 +285,24 @@ public class DefaultUrlManager : UrlManagerBase {
     // assets ////////////////////////////////////////////////////////////////////////////////////
 
     public override string GetAssetUrl(AssetUrl asset, bool absolute) {
+        // readable formats keep the adjustment out of the token: the base token addresses the
+        // original file, and the adjustment travels as query parameters or a short path segment
+        var token = asset.Token;
+        string? readableQuery = null;   // "w=100&h=200&f=jpeg"
+        string? readableSegment = null; // "w100h200fjpeg"
+        if (_o.AssetUrlFormat != AssetUrlFormat.Encrypted && asset.Adjustment != null && asset.BaseToken != null) {
+            if (_o.AssetUrlFormat == AssetUrlFormat.QueryParameters || _o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl) {
+                if (FileAdjustmentUrlCodec.TryToQueryString(asset.Adjustment, out var query)) {
+                    token = asset.BaseToken;
+                    readableQuery = query;
+                }
+            } else {
+                if (FileAdjustmentUrlCodec.TryToShortString(asset.Adjustment, out var segment)) {
+                    token = asset.BaseToken;
+                    readableSegment = segment;
+                }
+            }
+        }
         if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl && asset.Target != UrlTarget.Node) {
             if (tryGetMeta(asset.Owner, Guid.Empty, out var ownerMeta)) {
                 var ownerUrl = TryGetUrl(ownerMeta, absolute);
@@ -281,19 +311,42 @@ public class DefaultUrlManager : UrlManagerBase {
                         if (!ownerUrl.EndsWith('/')) ownerUrl += "/";
                         ownerUrl += UrlSafeFileName(asset.FileName);
                     }
-                    return ownerUrl + "?" + _o.AssetUrlParamName + "=" + SignTokenIfConfigured(asset.Token);
+                    var pageUrl = ownerUrl + "?" + _o.AssetUrlParamName + "=" + SignTokenIfConfigured(token);
+                    if (readableQuery != null) pageUrl += "&" + readableQuery;
+                    return pageUrl;
                 }
             }
             // the owner has no page URL: fall through to the default placement
         }
-        return base.GetAssetUrl(asset, absolute);
+        var url = AssetBaseAddress + AssetUrlRoot + SignTokenIfConfigured(token);
+        if (readableSegment != null) url += "/" + readableSegment;
+        if (!string.IsNullOrEmpty(asset.FileName)) url += "/" + UrlSafeFileName(asset.FileName);
+        if (readableQuery != null) url += "?" + readableQuery;
+        return url;
     }
-    public override string? TryGetAssetToken(string completeUrl) {
+    public override AssetTokenMatch? TryGetAssetToken(string completeUrl) {
         if (_o.AssetUrlStyle == AssetUrlStyle.UnderPageUrl) {
             var raw = UrlUtil.GetQueryParameter(completeUrl, _o.AssetUrlParamName);
-            if (raw != null) return ValidateAndStripSignature(raw);
+            if (raw != null) {
+                var token = ValidateAndStripSignature(raw);
+                if (token == null) return null;
+                return new AssetTokenMatch { Token = token, Adjustment = readableAdjustmentFromQuery(completeUrl) };
+            }
+            // no asset parameter: the default placement below is the fallback for owners without a page URL
         }
-        return base.TryGetAssetToken(completeUrl);
+        if (!TryGetAssetRootParts(completeUrl, out var rawToken, out var nextSegment)) return null;
+        var assetToken = ValidateAndStripSignature(rawToken);
+        if (assetToken == null) return null;
+        var adjustment = _o.AssetUrlFormat switch {
+            AssetUrlFormat.QueryParameters => readableAdjustmentFromQuery(completeUrl),
+            AssetUrlFormat.FriendlyShortString => nextSegment == null ? null : FileAdjustmentUrlCodec.TryParseShortString(nextSegment),
+            _ => null, // Encrypted: the token is self contained
+        };
+        return new AssetTokenMatch { Token = assetToken, Adjustment = adjustment };
+    }
+    FileAdjustment? readableAdjustmentFromQuery(string completeUrl) {
+        if (_o.AssetUrlFormat == AssetUrlFormat.Encrypted) return null;
+        return FileAdjustmentUrlCodec.TryParseQuery(completeUrl);
     }
 
     // tree walk /////////////////////////////////////////////////////////////////////////////////

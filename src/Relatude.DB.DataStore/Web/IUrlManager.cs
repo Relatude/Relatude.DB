@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 
 namespace Relatude.DB.Web;
 
@@ -60,9 +61,11 @@ public interface IUrlManager {
     /// <summary>
     /// Inbound asset detection: extracts the token from a URL that <see cref="GetAssetUrl"/>
     /// produced, or null when the URL is not an asset URL. The store calls this before
-    /// <see cref="GetMatches"/>, so asset URLs never reach page resolution.
+    /// <see cref="GetMatches"/>, so asset URLs never reach page resolution. A manager that renders
+    /// adjustments readably returns the parsed adjustment alongside the token (see
+    /// <see cref="AssetTokenMatch"/>); a plain token converts implicitly.
     /// </summary>
-    string? TryGetAssetToken(string completeUrl);
+    AssetTokenMatch? TryGetAssetToken(string completeUrl);
 
 }
 
@@ -76,4 +79,20 @@ public sealed class AssetUrl {
     public NodeKey Owner { get; init; }
     /// <summary>Cosmetic file name, extension already corrected for adjustments. Null when the target has no file.</summary>
     public string? FileName { get; init; }
+    /// <summary>The token without the adjustment, addressing the original file. Null for targets without an adjustment. Lets a manager render the adjustment readably (see <see cref="AssetUrlFormat"/> and <see cref="FileAdjustmentUrlCodec"/>) while the token still addresses the file.</summary>
+    public string? BaseToken { get; init; }
+    /// <summary>The requested file variant when Target is PropertyAdjusted, otherwise null. What a readable rendering serializes.</summary>
+    public FileAdjustment? Adjustment { get; init; }
+}
+
+/// <summary>
+/// What <see cref="IUrlManager.TryGetAssetToken"/> found in a URL: the token, and - when the
+/// manager rendered the adjustment readably instead of inside the token - the parsed adjustment.
+/// The store combines the two; the token must then address the original file. A plain string
+/// converts implicitly, so managers without readable adjustments just return the token.
+/// </summary>
+public sealed class AssetTokenMatch {
+    public required string Token { get; init; }
+    public FileAdjustment? Adjustment { get; init; }
+    public static implicit operator AssetTokenMatch?(string? token) => token == null ? null : new AssetTokenMatch { Token = token };
 }
