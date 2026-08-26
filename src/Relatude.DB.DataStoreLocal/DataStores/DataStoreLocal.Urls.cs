@@ -191,16 +191,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         nodeData = null;
         return false;
     }
-    public IdKeyWithCultureId[] GetNodeIdsFromAddress(string address) {
+    public NodeKeyWithCulture[] GetNodeIdsFromAddress(string address) {
         _lock.EnterReadLock();
         try {
             validateDatabaseState();
             address = _addresses.NormalizeAddress(address ?? string.Empty, out _) ?? string.Empty;
             var owners = _addresses.GetOwners(address);
             if (owners.Length == 0) return [];
-            var result = new IdKeyWithCultureId[owners.Length];
+            var result = new NodeKeyWithCulture[owners.Length];
             for (var i = 0; i < owners.Length; i++) {
-                result[i] = new IdKeyWithCultureId(new NodeKey(owners[i].id), owners[i].cultureCode ?? Guid.Empty);
+                result[i] = new NodeKeyWithCulture(new NodeKey(owners[i].id), owners[i].cultureCode ?? Guid.Empty);
             }
             return result;
         } finally {

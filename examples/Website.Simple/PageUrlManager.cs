@@ -36,7 +36,7 @@ public class PageUrlManager : UrlManagerBase {
     }
 
     // inbound: descend from the host's root, one Traverse over the Children relation per segment
-    public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
+    public override NodeKeyWithCulture[] GetMatches(string completeUrl) {
         var host = UrlUtil.GetHost(completeUrl);
         var current = host != null && _rootByHost.TryGetValue(host, out var root) ? root : _fallbackRoot;
         foreach (var segment in UrlUtil.GetSegments(completeUrl)) {
@@ -46,7 +46,7 @@ public class PageUrlManager : UrlManagerBase {
             if (child == null) return [];
             current = child.Id;
         }
-        return [new IdKeyWithCultureId(new NodeKey(current), Guid.Empty)]; // single-culture site
+        return [new NodeKeyWithCulture(new NodeKey(current), Guid.Empty)]; // single-culture site
     }
 
     // an address gives a unique URL unless a sibling already uses it

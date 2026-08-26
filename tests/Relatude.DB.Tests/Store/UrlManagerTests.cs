@@ -419,7 +419,7 @@ public class UrlManagerTests {
             }
             return "/" + string.Join('/', segments);
         }
-        public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
+        public override NodeKeyWithCulture[] GetMatches(string completeUrl) {
             var last = UrlUtil.GetLastSegment(completeUrl);
             if (last == null) return [];
             var path = UrlUtil.GetPath(completeUrl);

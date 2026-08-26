@@ -32,7 +32,7 @@ public interface IUrlManager {
     /// The store filters the candidates through the current QueryContext afterwards, so the manager
     /// should return matches regardless of publication or access.
     /// </summary>
-    IdKeyWithCultureId[] GetMatches(string completeUrl);
+    NodeKeyWithCulture[] GetMatches(string completeUrl);
 
     /// <summary>
     /// Outbound page generation. The public URL of a node, or null when the node has no public URL.

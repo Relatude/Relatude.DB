@@ -158,7 +158,7 @@ public class DefaultUrlManager : UrlManagerBase {
 
     // pages, inbound ////////////////////////////////////////////////////////////////////////////
 
-    public override IdKeyWithCultureId[] GetMatches(string completeUrl) {
+    public override NodeKeyWithCulture[] GetMatches(string completeUrl) {
         var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _basePagesPath);
         if (path == null) return []; // outside the base address
         if (_urlNodeRoot.Length > 0) {
@@ -185,30 +185,30 @@ public class DefaultUrlManager : UrlManagerBase {
                 return matchByTree(completeUrl, path);
         }
     }
-    IdKeyWithCultureId[] matchByFirstSegmentId(string path, bool parseGuids, bool requireSingleSegment = false) {
+    NodeKeyWithCulture[] matchByFirstSegmentId(string path, bool parseGuids, bool requireSingleSegment = false) {
         if (path.Length <= 1) return [];
         var posEnd = path.IndexOf('/', 1);
         if (posEnd == -1) posEnd = path.Length;
         else if (requireSingleSegment) return [];
         var segment = path[1..posEnd];
         if (parseGuids) {
-            if (Guid.TryParse(segment, out var guid)) return [new IdKeyWithCultureId(new NodeKey(guid), Guid.Empty)];
+            if (Guid.TryParse(segment, out var guid)) return [new NodeKeyWithCulture(new NodeKey(guid), Guid.Empty)];
         } else {
-            if (int.TryParse(segment, out var id) && id > 0) return [new IdKeyWithCultureId(new NodeKey(id), Guid.Empty)];
+            if (int.TryParse(segment, out var id) && id > 0) return [new NodeKeyWithCulture(new NodeKey(id), Guid.Empty)];
         }
         return []; // existence and access are checked by the store
     }
-    IdKeyWithCultureId[] matchByTree(string completeUrl, string path) {
+    NodeKeyWithCulture[] matchByTree(string completeUrl, string path) {
         var host = UrlUtil.GetHost(completeUrl);
         var rootId = resolveRoot(host);
         if (path.Length <= 1) {
             // the root node itself
             if (rootId == Guid.Empty) return [];
-            return [new IdKeyWithCultureId(new NodeKey(rootId), Guid.Empty)];
+            return [new NodeKeyWithCulture(new NodeKey(rootId), Guid.Empty)];
         }
         var pos = path.LastIndexOf('/');
         var last = path[(pos + 1)..];
-        var matches = new List<IdKeyWithCultureId>();
+        var matches = new List<NodeKeyWithCulture>();
         foreach (var candidate in _db.GetNodeIdsFromAddress(last)) {
             if (!tryGetMeta(candidate.IdKey, candidate.CultureId, out var meta)) continue;
             if (!tryBuildPath(meta, out var candidatePath, out var candidateRoot)) continue;

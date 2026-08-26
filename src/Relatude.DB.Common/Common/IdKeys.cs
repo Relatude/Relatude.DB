@@ -119,13 +119,7 @@ public class NodePath : IKeySerializable<NodePath> {
     public NodePath(NodeKey key) {
         NodeKey = key; Path = [];
     }
-    public NodePath(Guid nodeId, InnerProperty[] path) {
-        NodeKey = new(nodeId); Path = path;
-    }
-    public NodePath(int nodeId, InnerProperty[] path) {
-        NodeKey = new(nodeId); Path = path;
-    }
-    public NodePath(NodeKey nodeId, InnerProperty[] path) {
+    internal NodePath(NodeKey nodeId, InnerProperty[] path) {
         NodeKey = nodeId; Path = path;
     }
     public NodePath(NodeKey nodeId, byte[] subPathBytes) {
@@ -234,25 +228,25 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
     public PropertyPath(NodeKey nodeId, Guid propertyId) {
         NodePath = new(nodeId); PropertyId = propertyId;
     }
-    public PropertyPath(Guid nodeId, InnerProperty[] path, Guid propertyId) {
+    //public PropertyPath(Guid nodeId, InnerProperty[] path, Guid propertyId) {
+    //    NodePath = new(nodeId, path); PropertyId = propertyId;
+    //}
+    //public PropertyPath(int nodeId, InnerProperty[] path, Guid propertyId) {
+    //    NodePath = new(nodeId, path); PropertyId = propertyId;
+    //}
+    internal PropertyPath(NodeKey nodeId, InnerProperty[] path, Guid propertyId) {
         NodePath = new(nodeId, path); PropertyId = propertyId;
     }
-    public PropertyPath(int nodeId, InnerProperty[] path, Guid propertyId) {
-        NodePath = new(nodeId, path); PropertyId = propertyId;
-    }
-    public PropertyPath(NodeKey nodeId, InnerProperty[] path, Guid propertyId) {
-        NodePath = new(nodeId, path); PropertyId = propertyId;
-    }
-    public PropertyPath(NodeKey nodeId, byte[] subPathBytes) {
-        NodePath = new(nodeId, subPathBytes);
-        if (subPathBytes.Length < 2) throw new FormatException("PropertyPath data too short.");
-        if (KeyUtil.Checksum(subPathBytes.AsSpan(0, subPathBytes.Length - 1)) != subPathBytes[^1]) throw new FormatException("PropertyPath checksum mismatch.");
-        var s = subPathBytes.AsSpan(1);
-        var count = s[0];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"PropertyPath path depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < 1 + count * 32 + 17) throw new FormatException("PropertyPath data too short for path entries or PropertyId.");
-        PropertyId = MemoryMarshal.Read<Guid>(s[(1 + count * 32)..]);
-    }
+    //public PropertyPath(NodeKey nodeId, byte[] subPathBytes) {
+    //    NodePath = new(nodeId, subPathBytes);
+    //    if (subPathBytes.Length < 2) throw new FormatException("PropertyPath data too short.");
+    //    if (KeyUtil.Checksum(subPathBytes.AsSpan(0, subPathBytes.Length - 1)) != subPathBytes[^1]) throw new FormatException("PropertyPath checksum mismatch.");
+    //    var s = subPathBytes.AsSpan(1);
+    //    var count = s[0];
+    //    if (count > KeyUtil.MaxPathDepth) throw new FormatException($"PropertyPath path depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
+    //    if (s.Length < 1 + count * 32 + 17) throw new FormatException("PropertyPath data too short for path entries or PropertyId.");
+    //    PropertyId = MemoryMarshal.Read<Guid>(s[(1 + count * 32)..]);
+    //}
     public NodePath CreatePathToInnerNode(Guid innerNodeId) {
         var newPath = new InnerProperty[NodePath.Path.Length + 1];
         NodePath.Path.AsSpan().CopyTo(newPath);
@@ -338,13 +332,38 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
     }
 }
 
-public readonly struct IdKeyWithCultureId : IEquatable<IdKeyWithCultureId> {
-    public IdKeyWithCultureId(NodeKey idKey, Guid cultureId) { IdKey = idKey; CultureId = cultureId; }
+/// <summary>
+/// A struct that combines a NodeKey with a culture identifier (Guid) for use in references that are culture-specific.
+/// </summary>
+public readonly struct NodeKeyWithCulture : IEquatable<NodeKeyWithCulture> {
+    public NodeKeyWithCulture(NodeKey idKey, Guid cultureId) { IdKey = idKey; CultureId = cultureId; }
     public NodeKey IdKey { get; }
     public Guid CultureId { get; }
-    public bool Equals(IdKeyWithCultureId other) => IdKey == other.IdKey && CultureId == other.CultureId;
-    public override bool Equals(object? obj) => obj is IdKeyWithCultureId other && Equals(other);
+    public bool Equals(NodeKeyWithCulture other) => IdKey == other.IdKey && CultureId == other.CultureId;
+    public override bool Equals(object? obj) => obj is NodeKeyWithCulture other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(IdKey, CultureId);
-    public static bool operator ==(IdKeyWithCultureId a, IdKeyWithCultureId b) => a.Equals(b);
-    public static bool operator !=(IdKeyWithCultureId a, IdKeyWithCultureId b) => !a.Equals(b);
+    public static bool operator ==(NodeKeyWithCulture a, NodeKeyWithCulture b) => a.Equals(b);
+    public static bool operator !=(NodeKeyWithCulture a, NodeKeyWithCulture b) => !a.Equals(b);
+}
+
+public readonly struct NodePathWithCulture : IEquatable<NodePathWithCulture> {
+    public NodePathWithCulture(NodePath nodePath, Guid cultureId) { NodePath = nodePath; CultureId = cultureId; }
+    public NodePath NodePath { get; }
+    public Guid CultureId { get; }
+    public bool Equals(NodePathWithCulture other) => NodePath.Equals(other.NodePath) && CultureId == other.CultureId;
+    public override bool Equals(object? obj) => obj is NodePathWithCulture other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(NodePath, CultureId);
+    public static bool operator ==(NodePathWithCulture a, NodePathWithCulture b) => a.Equals(b);
+    public static bool operator !=(NodePathWithCulture a, NodePathWithCulture b) => !a.Equals(b);
+}
+
+public readonly struct PropertyPathWithCulture : IEquatable<PropertyPathWithCulture> {
+    public PropertyPathWithCulture(PropertyPath propertyPath, Guid cultureId) { PropertyPath = propertyPath; CultureId = cultureId; }
+    public PropertyPath PropertyPath { get; }
+    public Guid CultureId { get; }
+    public bool Equals(PropertyPathWithCulture other) => PropertyPath.Equals(other.PropertyPath) && CultureId == other.CultureId;
+    public override bool Equals(object? obj) => obj is PropertyPathWithCulture other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(PropertyPath, CultureId);
+    public static bool operator ==(PropertyPathWithCulture a, PropertyPathWithCulture b) => a.Equals(b);
+    public static bool operator !=(PropertyPathWithCulture a, PropertyPathWithCulture b) => !a.Equals(b);
 }

@@ -71,7 +71,7 @@ public interface IDataStore : IDisposable {
     bool TryGetNodeDataFromAddress(string address, [MaybeNullWhen(false)] out INodeDataExternal nodeData);
 
     /// <summary>Every node holding this address (several nodes may share an address when a url manager allows it).</summary>
-    IdKeyWithCultureId[] GetNodeIdsFromAddress(string address);
+    NodeKeyWithCulture[] GetNodeIdsFromAddress(string address);
     /// <summary>True when giving this node this address produces a complete URL that collides with no other node's URL. Decided by the url manager; without one, addresses must be globally unique.</summary>
     bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address);
     /// <summary>Rewrites the internal rdb: link tokens in an HTML or Markdown value to public URLs.</summary>

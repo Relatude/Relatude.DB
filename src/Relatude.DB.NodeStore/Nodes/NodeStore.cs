@@ -1378,7 +1378,7 @@ public class NodeStore : IDisposable {
     /// <summary>True when giving this node this address produces a complete URL that collides with no other node's URL. Decided by the configured url manager; without one, addresses must be globally unique.</summary>
     public bool WillAddressResultInUniqueUrl(NodeKey node, string address, Guid cultureId = default) => Datastore.WillAddressResultInUniqueUrl(node, cultureId, address);
     /// <summary>Every node holding this address. Several nodes may share an address when the configured url manager allows it.</summary>
-    public IdKeyWithCultureId[] GetNodeIdsFromAddress(string address) => Datastore.GetNodeIdsFromAddress(address);
+    public NodeKeyWithCulture[] GetNodeIdsFromAddress(string address) => Datastore.GetNodeIdsFromAddress(address);
 
     /// <summary>Rewrites the internal rdb: link tokens of a stored HTML or Markdown value into current public URLs. Reads of HTML and Markdown properties do this automatically.</summary>
     public string? ExternalizeContentLinks(string? content, QueryContext? ctx = null) => content == null ? null : Datastore.ExternalizeContentLinks(content, ctx);

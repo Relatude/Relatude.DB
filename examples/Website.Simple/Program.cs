@@ -8,7 +8,6 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
 using Relatude.DB.Transactions;
-using Relatude.DB.Web;
 using System.Text;
 using Website.Simple;
 using Website.Simple.Data;
@@ -90,7 +89,7 @@ app.MapGet("/Insert", async (RelatudeDBContext ctx) => {
     var db = ctx.Database;
 
     var dbNorsk = db.Context.Culture("no-nb").Admin().Create();
-    var dbEngelsk= db.Context.Culture("en-us").Create();
+    var dbEngelsk = db.Context.Culture("en-us").Create();
 
 
 
@@ -281,22 +280,25 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
     var iterations = 0;
     var swQuery = System.Diagnostics.Stopwatch.StartNew();
     var db = ctx.Database;
+    const int pageSize = 10;
     var query = db.Query<Product>();
+    
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
     var facetQuery = query.Include(p => p.Colors!).Facets() // Include so the page of products lists its colors
-                                                            //.AddValueFacet(p => p.Category)
-                                                            //.AddValueFacet(p => p.Brand)
-                                                            //.AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
-                                                            //.AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
-                                                            //.AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
-        .SetFacetOptions(p => p.Price, rangeCount: 3) // sort by value for ranges
-                                                      //.AddValueFacet(p => p.InStock)
-                                                      //.AddValueFacet(p => p.Tags)
-                                                      //.SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
-        .Page(req.Page, 10);
+        //                                                    .AddValueFacet(p => p.Category)
+        //                                                    .AddValueFacet(p => p.Brand)
+        //                                                    .AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
+        //                                                    .AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
+        //                                                    .AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
+        //.SetFacetOptions(p => p.Price, rangeCount: 3) // sort by value for ranges
+        //                                              .AddValueFacet(p => p.InStock)
+        //                                              .AddValueFacet(p => p.Tags)
+        //                                              .SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
+        .Page(req.Page, pageSize);
+    // Queries are immutable: every Set... returns a new query, so the result must be kept.
     foreach (var sel in req.Selections ?? []) {
-        foreach (var v in sel.Values ?? []) facetQuery.SetFacetValue(sel.Property, v);
-        foreach (var r in sel.Ranges ?? []) facetQuery.SetFacetRangeValue(sel.Property, r.From, r.To);
+        foreach (var v in sel.Values ?? []) facetQuery = facetQuery.SetFacetValue(sel.Property, v);
+        foreach (var r in sel.Ranges ?? []) facetQuery = facetQuery.SetFacetRangeValue(sel.Property, r.From, r.To);
     }
     var res = facetQuery.Execute();
     for (var i = 0; i < iterations; i++) {
@@ -307,7 +309,7 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
         total = res.TotalCount,
         sourceCount = res.SourceCount,
         page = req.Page,
-        pageSize = 20,
+        pageSize,
         durationMs = swQuery.Elapsed.TotalMilliseconds,
         items = res.Select(p => new {
             p.Name, p.Description, p.Category, p.Price, p.InStock, p.Tags,

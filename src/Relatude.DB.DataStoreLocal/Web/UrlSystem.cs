@@ -95,7 +95,7 @@ internal sealed class UrlSystem {
         }
         if (token != null) return tryParseToken(token, out result);
         // page lane: the manager proposes candidates, the store filters them through the context
-        IdKeyWithCultureId[] matches;
+        NodeKeyWithCulture[] matches;
         try {
             matches = _manager.GetMatches(url);
         } catch {
