@@ -1,6 +1,6 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 
 namespace Relatude.DB.Common;
 
@@ -19,9 +19,9 @@ public static class KeyUtil {
     public static IKeySerializable FromBytes(byte[] bytes) {
         if (bytes is null || bytes.Length == 0) throw new ArgumentException("Bytes cannot be null or empty.", nameof(bytes));
         return bytes[0] switch {
-            TagIdKeyInt => bytes.Length >= 6 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (int) too short."),
-            TagIdKeyGuid => bytes.Length >= 18 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (guid) too short."),
-            TagIdKeyBoth => bytes.Length >= 22 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (both) too short."),
+            TagIdKeyInt => bytes.Length >= 5 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (int) too short."),
+            TagIdKeyGuid => bytes.Length >= 17 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (guid) too short."),
+            TagIdKeyBoth => bytes.Length >= 21 ? NodeKey.Deserialize(bytes) : throw new FormatException("IdKey (both) too short."),
             TagNodePath => NodePath.Deserialize(bytes),
             TagPropertyPath => PropertyPath.Deserialize(bytes),
             _ => throw new FormatException($"Unknown key type tag: 0x{bytes[0]:X2}")
@@ -29,6 +29,7 @@ public static class KeyUtil {
     }
 
     // Writes an IdKey (tag + data) into dest, returns bytes written (5, 17, or 21)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static int WriteIdKey(Span<byte> dest, NodeKey key) {
         if (key.HasGuid && key.HasInt) { dest[0] = TagIdKeyBoth; MemoryMarshal.Write(dest[1..], key.Guid); MemoryMarshal.Write(dest[17..], key.Int); return 21; }
         if (key.HasGuid) { dest[0] = TagIdKeyGuid; MemoryMarshal.Write(dest[1..], key.Guid); return 17; }
@@ -36,6 +37,7 @@ public static class KeyUtil {
     }
 
     // Reads an IdKey (tag + data) from src, returns bytes consumed (5, 17, or 21)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static int ReadIdKey(ReadOnlySpan<byte> src, out NodeKey key) {
         if (src.Length < 1) throw new FormatException("IdKey data too short.");
         switch (src[0]) {
@@ -45,8 +47,23 @@ public static class KeyUtil {
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static int IdKeySize(NodeKey key) => key.HasGuid && key.HasInt ? 21 : key.HasGuid ? 17 : 5;
-    internal static byte Checksum(ReadOnlySpan<byte> data) { byte c = 0; foreach (var b in data) c += b; return c; }
+
+    // Reads [pathLen:1][InnerProperty*32n] from the start of s, returns the path entries
+    internal static InnerProperty[] ReadPath(ReadOnlySpan<byte> s, string what) {
+        if (s.Length < 1) throw new FormatException($"{what} data too short for path length.");
+        int count = s[0];
+        if (count > MaxPathDepth) throw new FormatException($"{what} path depth {count} exceeds maximum {MaxPathDepth}.");
+        if (s.Length < 1 + count * 32) throw new FormatException($"{what} data too short for path entries.");
+        return MemoryMarshal.Cast<byte, InnerProperty>(s.Slice(1, count * 32)).ToArray();
+    }
+
+    // Writes [pathLen:1][InnerProperty*32n] at the start of dest
+    internal static void WritePath(Span<byte> dest, InnerProperty[] path) {
+        dest[0] = (byte)path.Length;
+        MemoryMarshal.AsBytes(path.AsSpan()).CopyTo(dest[1..]);
+    }
 }
 public interface IKeySerializable {
     byte[] ToBytes();
@@ -66,11 +83,10 @@ public readonly struct NodeKey : IEquatable<NodeKey>, IKeySerializable<NodeKey> 
 
     static NodeKey IKeySerializable<NodeKey>.FromBytes(byte[] bytes) => Deserialize(bytes);
     internal static NodeKey Deserialize(byte[] bytes) {
-        if (bytes.Length < 2) throw new FormatException("IdKey data too short.");
-        if (KeyUtil.Checksum(bytes.AsSpan(0, bytes.Length - 1)) != bytes[^1]) throw new FormatException("IdKey checksum mismatch.");
+        if (bytes is null || bytes.Length == 0) throw new FormatException("IdKey data too short.");
         KeyUtil.ReadIdKey(bytes, out var k); return k;
     }
-    public byte[] ToBytes() { var b = new byte[KeyUtil.IdKeySize(this) + 1]; KeyUtil.WriteIdKey(b, this); b[^1] = KeyUtil.Checksum(b.AsSpan(0, b.Length - 1)); return b; }
+    public byte[] ToBytes() { var b = new byte[KeyUtil.IdKeySize(this)]; KeyUtil.WriteIdKey(b, this); return b; }
     public static NodeKey FromBytes(byte[] bytes) => Deserialize(bytes);
     public override string ToString() => B64.EncodeForUrl(ToBytes());
     public string ToUrlString() => B64.EncodeForUrl(ToBytes());
@@ -85,18 +101,14 @@ public readonly struct NodeKey : IEquatable<NodeKey>, IKeySerializable<NodeKey> 
     public static bool operator !=(NodeKey a, NodeKey b) => !a.Equals(b);
 }
 
+[StructLayout(LayoutKind.Sequential)]
 public readonly struct InnerProperty(Guid parentPropertyId, Guid innerNodeId) : IEquatable<InnerProperty> {
     public Guid ParentPropertyId { get; } = parentPropertyId;
     public Guid InnerNodeId { get; } = innerNodeId;
-    public static InnerProperty FromBytes(byte[] bytes) {
-        var s = bytes.AsSpan();
-        return new InnerProperty(MemoryMarshal.Read<Guid>(s), MemoryMarshal.Read<Guid>(s[16..]));
-    }
+    public static InnerProperty FromBytes(byte[] bytes) => MemoryMarshal.Read<InnerProperty>(bytes);
     internal byte[] ToBytes() {
         var bytes = new byte[32];
-        var s = bytes.AsSpan();
-        MemoryMarshal.Write(s, ParentPropertyId);
-        MemoryMarshal.Write(s[16..], InnerNodeId);
+        MemoryMarshal.Write(bytes, this);
         return bytes;
     }
     public bool Equals(InnerProperty other) => ParentPropertyId == other.ParentPropertyId && InnerNodeId == other.InnerNodeId;
@@ -125,17 +137,7 @@ public class NodePath : IKeySerializable<NodePath> {
     public NodePath(NodeKey nodeId, byte[] subPathBytes) {
         NodeKey = nodeId;
         if (subPathBytes.Length < 2) throw new FormatException("NodePath subpath data too short.");
-        if (KeyUtil.Checksum(subPathBytes.AsSpan(0, subPathBytes.Length - 1)) != subPathBytes[^1]) throw new FormatException("NodePath subpath checksum mismatch.");
-        var s = subPathBytes.AsSpan(1);
-        var count = s[0];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"NodePath subpath depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < 1 + count * 32 + 1) throw new FormatException("NodePath subpath data too short for path entries.");
-        var path = new InnerProperty[count];
-        for (int i = 0; i < count; i++) {
-            var ps = s[(1 + i * 32)..];
-            path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..]));
-        }
-        Path = path;
+        Path = KeyUtil.ReadPath(subPathBytes.AsSpan(1), "NodePath subpath");
     }
     public PropertyPath CreatePropertyPath(Guid propertyId) => new(this, propertyId);
     public NodeKey NodeKey { get; }
@@ -145,59 +147,31 @@ public class NodePath : IKeySerializable<NodePath> {
     public static NodePath FromBytesWithGivenNodeKey(NodeKey key, byte[] bytes) => Deserialize(key, bytes);
     public string ToUrlString() => B64.EncodeForUrl(ToBytes());
     internal static NodePath Deserialize(byte[] bytes) {
-        if (bytes.Length < 4) throw new FormatException("NodePath data too short.");
-        if (KeyUtil.Checksum(bytes.AsSpan(0, bytes.Length - 1)) != bytes[^1]) throw new FormatException("NodePath checksum mismatch.");
+        if (bytes.Length < 2) throw new FormatException("NodePath data too short.");
         var s = bytes.AsSpan(1);
         int ks = KeyUtil.ReadIdKey(s, out var key);
-        if (s.Length < ks + 2) throw new FormatException("NodePath data too short for path length.");
-        var count = s[ks];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"NodePath path depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < ks + 1 + count * 32 + 1) throw new FormatException("NodePath data too short for path entries.");
-        var path = new InnerProperty[count];
-        for (int i = 0; i < count; i++) { var ps = s[(ks + 1 + i * 32)..]; path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..])); }
-        return new NodePath(key, path);
+        return new NodePath(key, KeyUtil.ReadPath(s[ks..], "NodePath"));
     }
-    internal static NodePath Deserialize(NodeKey key,byte[] bytes) {
+    internal static NodePath Deserialize(NodeKey key, byte[] bytes) {
         // same as Deserialize(byte[]) but with the NodeKey given
         if (bytes.Length < 2) throw new FormatException("NodePath subpath data too short.");
-        if (KeyUtil.Checksum(bytes.AsSpan(0, bytes.Length - 1)) != bytes[^1]) throw new FormatException("NodePath subpath checksum mismatch.");
-        var s = bytes.AsSpan(1);
-        var count = s[0];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"NodePath subpath depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < 1 + count * 32 + 1) throw new FormatException("NodePath subpath data too short for path entries.");
-        var path = new InnerProperty[count];
-        for (int i = 0; i < count; i++) {
-            var ps = s[(1 + i * 32)..];
-            path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..]));
-        }
-        return new NodePath(key, path);
+        return new NodePath(key, KeyUtil.ReadPath(bytes.AsSpan(1), "NodePath subpath"));
     }
     public byte[] ToBytes() {
         int ks = KeyUtil.IdKeySize(NodeKey);
-        var bytes = new byte[2 + ks + Path.Length * 32 + 1];
+        var bytes = new byte[2 + ks + Path.Length * 32];
         var s = bytes.AsSpan();
         s[0] = KeyUtil.TagNodePath;
         KeyUtil.WriteIdKey(s[1..], NodeKey);
-        s[1 + ks] = (byte)Path.Length;
-        for (int i = 0; i < Path.Length; i++) {
-            var ps = s[(2 + ks + i * 32)..];
-            MemoryMarshal.Write(ps, Path[i].ParentPropertyId);
-            MemoryMarshal.Write(ps[16..], Path[i].InnerNodeId);
-        }
-        bytes[^1] = KeyUtil.Checksum(s[..^1]);
+        KeyUtil.WritePath(s[(1 + ks)..], Path);
         return bytes;
     }
     public byte[] ToBytesWithoutNodeKey() {
         // same as ToBytes but without the NodeKey, for use in PropertyPath
-        var bytes = new byte[1 + Path.Length * 32 + 1];
+        var bytes = new byte[2 + Path.Length * 32];
         var s = bytes.AsSpan();
         s[0] = KeyUtil.TagNodePath;
-        for (int i = 0; i < Path.Length; i++) {
-            var ps = s[(1 + i * 32)..];
-            MemoryMarshal.Write(ps, Path[i].ParentPropertyId);
-            MemoryMarshal.Write(ps[16..], Path[i].InnerNodeId);
-        }
-        bytes[^1] = KeyUtil.Checksum(s[..^1]);
+        KeyUtil.WritePath(s[1..], Path);
         return bytes;
     }
     public override string ToString() => B64.EncodeForUrl(ToBytes());
@@ -228,25 +202,9 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
     public PropertyPath(NodeKey nodeId, Guid propertyId) {
         NodePath = new(nodeId); PropertyId = propertyId;
     }
-    //public PropertyPath(Guid nodeId, InnerProperty[] path, Guid propertyId) {
-    //    NodePath = new(nodeId, path); PropertyId = propertyId;
-    //}
-    //public PropertyPath(int nodeId, InnerProperty[] path, Guid propertyId) {
-    //    NodePath = new(nodeId, path); PropertyId = propertyId;
-    //}
     internal PropertyPath(NodeKey nodeId, InnerProperty[] path, Guid propertyId) {
         NodePath = new(nodeId, path); PropertyId = propertyId;
     }
-    //public PropertyPath(NodeKey nodeId, byte[] subPathBytes) {
-    //    NodePath = new(nodeId, subPathBytes);
-    //    if (subPathBytes.Length < 2) throw new FormatException("PropertyPath data too short.");
-    //    if (KeyUtil.Checksum(subPathBytes.AsSpan(0, subPathBytes.Length - 1)) != subPathBytes[^1]) throw new FormatException("PropertyPath checksum mismatch.");
-    //    var s = subPathBytes.AsSpan(1);
-    //    var count = s[0];
-    //    if (count > KeyUtil.MaxPathDepth) throw new FormatException($"PropertyPath path depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-    //    if (s.Length < 1 + count * 32 + 17) throw new FormatException("PropertyPath data too short for path entries or PropertyId.");
-    //    PropertyId = MemoryMarshal.Read<Guid>(s[(1 + count * 32)..]);
-    //}
     public NodePath CreatePathToInnerNode(Guid innerNodeId) {
         var newPath = new InnerProperty[NodePath.Path.Length + 1];
         NodePath.Path.AsSpan().CopyTo(newPath);
@@ -264,46 +222,31 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
     public static PropertyPath FromBytes(byte[] bytes) => Deserialize(bytes);
     public static PropertyPath FromBytesWithGivenNodeKey(NodeKey key, byte[] bytes) => Deserialize(key, bytes);
     internal static PropertyPath Deserialize(byte[] bytes) {
-        if (bytes.Length < 4) throw new FormatException("PropertyPath data too short.");
-        if (KeyUtil.Checksum(bytes.AsSpan(0, bytes.Length - 1)) != bytes[^1]) throw new FormatException("PropertyPath checksum mismatch.");
+        if (bytes.Length < 2) throw new FormatException("PropertyPath data too short.");
         var s = bytes.AsSpan(1);
         int ks = KeyUtil.ReadIdKey(s, out var key);
-        if (s.Length < ks + 2) throw new FormatException("PropertyPath data too short for path length.");
-        var count = s[ks];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"PropertyPath path depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < ks + 1 + count * 32 + 17) throw new FormatException("PropertyPath data too short for path entries or PropertyId.");
-        var path = new InnerProperty[count];
-        for (int i = 0; i < count; i++) {
-            var ps = s[(ks + 1 + i * 32)..];
-            path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..]));
-        }
-        return new PropertyPath(key, path, MemoryMarshal.Read<Guid>(s[(ks + 1 + count * 32)..]));
+        var path = KeyUtil.ReadPath(s[ks..], "PropertyPath");
+        int po = ks + 1 + path.Length * 32;
+        if (s.Length < po + 16) throw new FormatException("PropertyPath data too short for PropertyId.");
+        return new PropertyPath(key, path, MemoryMarshal.Read<Guid>(s[po..]));
     }
     internal static PropertyPath Deserialize(NodeKey key, byte[] bytes) {
         // same as Deserialize(byte[]) but with the NodeKey given
         if (bytes.Length < 2) throw new FormatException("PropertyPath subpath data too short.");
-        if (KeyUtil.Checksum(bytes.AsSpan(0, bytes.Length - 1)) != bytes[^1]) throw new FormatException("PropertyPath subpath checksum mismatch.");
         var s = bytes.AsSpan(1);
-        var count = s[0];
-        if (count > KeyUtil.MaxPathDepth) throw new FormatException($"PropertyPath subpath depth {count} exceeds maximum {KeyUtil.MaxPathDepth}.");
-        if (s.Length < 1 + count * 32 + 17) throw new FormatException("PropertyPath subpath data too short for path entries or PropertyId.");
-        var path = new InnerProperty[count];
-        for (int i = 0; i < count; i++) { var ps = s[(1 + i * 32)..]; path[i] = new InnerProperty(MemoryMarshal.Read<Guid>(ps), MemoryMarshal.Read<Guid>(ps[16..])); }
-        return new PropertyPath(key, path, MemoryMarshal.Read<Guid>(s[(1 + count * 32)..]));
+        var path = KeyUtil.ReadPath(s, "PropertyPath subpath");
+        int po = 1 + path.Length * 32;
+        if (s.Length < po + 16) throw new FormatException("PropertyPath subpath data too short for PropertyId.");
+        return new PropertyPath(key, path, MemoryMarshal.Read<Guid>(s[po..]));
     }
     public byte[] ToBytes() {
         int ks = KeyUtil.IdKeySize(NodePath.NodeKey);
-        var bytes = new byte[2 + ks + NodePath.Path.Length * 32 + 17];
+        var bytes = new byte[2 + ks + NodePath.Path.Length * 32 + 16];
         var s = bytes.AsSpan();
         s[0] = KeyUtil.TagPropertyPath;
         KeyUtil.WriteIdKey(s[1..], NodePath.NodeKey);
-        s[1 + ks] = (byte)NodePath.Path.Length;
-        for (int i = 0; i < NodePath.Path.Length; i++) {
-            var ps = s[(2 + ks + i * 32)..];
-            MemoryMarshal.Write(ps, NodePath.Path[i].ParentPropertyId); MemoryMarshal.Write(ps[16..], NodePath.Path[i].InnerNodeId);
-        }
+        KeyUtil.WritePath(s[(1 + ks)..], NodePath.Path);
         MemoryMarshal.Write(s[(2 + ks + NodePath.Path.Length * 32)..], PropertyId);
-        bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
     public override string ToString() => B64.EncodeForUrl(ToBytes());
@@ -317,17 +260,11 @@ public class PropertyPath : IKeySerializable<PropertyPath> {
 
     public byte[] ToBytesWithoutNodeKey() {
         // same as ToBytes but without the NodeKey, for use in PropertyPath
-        var bytes = new byte[1 + NodePath.Path.Length * 32 + 17 + 1];
+        var bytes = new byte[2 + NodePath.Path.Length * 32 + 16];
         var s = bytes.AsSpan();
         s[0] = KeyUtil.TagPropertyPath;
-        s[1] = (byte)NodePath.Path.Length;
-        for (int i = 0; i < NodePath.Path.Length; i++) {
-            var ps = s[(2 + i * 32)..];
-            MemoryMarshal.Write(ps, NodePath.Path[i].ParentPropertyId);
-            MemoryMarshal.Write(ps[16..], NodePath.Path[i].InnerNodeId);
-        }
+        KeyUtil.WritePath(s[1..], NodePath.Path);
         MemoryMarshal.Write(s[(2 + NodePath.Path.Length * 32)..], PropertyId);
-        bytes[^1] = KeyUtil.Checksum(s[..^1]);
         return bytes;
     }
 }

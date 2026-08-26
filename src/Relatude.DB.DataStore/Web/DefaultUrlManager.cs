@@ -30,6 +30,13 @@ public enum NodeUrlFormat {
     GuidIdOnly,
 }
 
+/// <summary>How <see cref="DefaultUrlManager"/> renders the page URL of a node.</summary>
+public enum AssetUrlFormat {
+    Encrypted,
+    QueryParameters, // w=100&h=200&f=jpg etc, for file adjustments.
+    FrientlyShortString, // a short string that encodes the adjustments, e.g. "w100h200fjpg"
+}
+
 /// <summary>How <see cref="DefaultUrlManager"/> places asset URLs (files, adjusted files, deeplinks).</summary>
 public enum AssetUrlStyle {
     /// <summary>Under the reserved asset root: "{AssetUrlRoot}{token}/{fileName}". The default.</summary>
@@ -69,7 +76,9 @@ public class DefaultUrlManagerOptions {
     public string? BaseAddressPages { get; set; }
     /// <summary>Base address prepended to every asset URL, e.g. a CDN origin ("https://cdn.site.com") or a path ("/files"). See <see cref="UrlManagerBase.BaseAddressAssets"/>.</summary>
     public string? BaseAddressAssets { get; set; }
-
+    
+    /// <summary>How asset URLs are rendered: encrypted, query parameters, or a short string.</summary>
+    public AssetUrlFormat AssetUrlFormat { get; set; } = AssetUrlFormat.Encrypted;
     /// <summary>Where asset URLs live: under <see cref="UrlManagerBase.AssetUrlRoot"/> or on top of the owner's page URL.</summary>
     public AssetUrlStyle AssetUrlStyle { get; set; } = AssetUrlStyle.AssetRoot;
     /// <summary>Query parameter carrying the asset token when <see cref="AssetUrlStyle.UnderPageUrl"/> is used.</summary>
