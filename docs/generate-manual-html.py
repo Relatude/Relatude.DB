@@ -8,6 +8,7 @@
 # a few pre-existing anchor ids for headings with <T> generics are pinned so published deep links
 # keep working.
 import io, json, os, re, markdown
+from html import unescape
 
 docs = os.path.dirname(os.path.abspath(__file__))
 md_path = os.path.join(docs, 'manual.md')
@@ -51,16 +52,18 @@ for new_id, old_id in legacy_ids.items():
 
 # the sidebar navigation: a nested [{level, text, id, children}] tree over h1-h3, baked into the
 # shell as "var NAV = [...]". Rebuilt here so it never drifts from the headings.
-def strip_tags(html):
-    text = re.sub(r'<a class="anchor".*?</a>', '', html, flags=re.S)
+def heading_text(inner_html):
+    text = re.sub(r'<a class="anchor".*?</a>', '', inner_html, flags=re.S)
     text = re.sub(r'<[^>]+>', '', text)
-    return re.sub(r'\s+', ' ', text).strip()
+    # the shell assigns these with textContent, so entities have to be resolved here
+    # ("Data Modelling &amp; Querying" would otherwise show up as "&amp;" in the menu)
+    return re.sub(r'\s+', ' ', unescape(text)).strip()
 
 nav = []
 stack = []  # (level, node)
 for tag, id_, inner in re.findall(r'<(h[1-3]) id="([^"]+)">(.*?)</\1>', body, flags=re.S):
     level = int(tag[1])
-    node = {'level': level, 'text': strip_tags(inner), 'id': id_, 'children': []}
+    node = {'level': level, 'text': heading_text(inner), 'id': id_, 'children': []}
     while stack and stack[-1][0] >= level:
         stack.pop()
     (stack[-1][1]['children'] if stack else nav).append(node)
