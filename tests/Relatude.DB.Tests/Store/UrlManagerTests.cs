@@ -583,6 +583,13 @@ public class UrlManagerTests {
         BackgroundColor = "#aabbcc",
         TimeOffsetMs = 4000,
     };
+    /// <summary>A refused asset URL: recognized as one, but not resolvable - never a page.</summary>
+    static void assertRejected(AssetTokenMatch? match) {
+        Assert.IsNotNull(match, "A tampered asset URL should be refused, not reported as 'not an asset URL'. ");
+        Assert.IsTrue(match.IsRejected);
+        Assert.IsNull(match.Token);
+        Assert.IsNull(match.PropertyPath);
+    }
     static void assertEqualAdjustments(FileAdjustmentBase expected, FileAdjustmentBase? actual) {
         Assert.IsNotNull(actual);
         CollectionAssert.AreEqual(expected.ToBytes(), actual.ToBytes(), "The adjustment should round trip losslessly. ");
@@ -847,15 +854,64 @@ public class UrlManagerTests {
         Assert.AreEqual("pBASETOKEN", match.Token);
         Assert.AreEqual(100, ((FileAdjustmentImage)match.Adjustment!).Width);
 
-        // editing the adjustment, or dropping the signature, stops the URL from resolving:
-        Assert.IsNull(manager.TryGetAssetToken(url.Replace("w=100", "w=5000")));
-        Assert.IsNull(manager.TryGetAssetToken(url.Replace("h=200", "h=201")));
-        Assert.IsNull(manager.TryGetAssetToken(url[..url.IndexOf("&sig=")]));
+        // editing the adjustment, or dropping the signature, refuses the URL - and refusing is not
+        // the same as "not an asset URL", so the store never falls back to page resolution:
+        assertRejected(manager.TryGetAssetToken(url.Replace("w=100", "w=5000")));
+        assertRejected(manager.TryGetAssetToken(url.Replace("h=200", "h=201")));
+        assertRejected(manager.TryGetAssetToken(url[..url.IndexOf("&sig=")]));
 
         // the signature covers the canonical request only, so cosmetic edits still resolve:
         Assert.IsNotNull(manager.TryGetAssetToken(url.Replace("pic.jpg", "other-name.jpg")));
         Assert.IsNotNull(manager.TryGetAssetToken("https://www.example.com" + url)); // relative or absolute
         Assert.IsNotNull(manager.TryGetAssetToken(url + "&utm_source=mail"));
+    }
+
+    [TestMethod]
+    public void UnderPageUrl_ABadSignature_DoesNotFallBackToThePage() {
+        var manager = new DefaultUrlManager(new DefaultUrlManagerOptions() {
+            AssetUrlStyle = AssetUrlStyle.UnderPageUrl,
+            AssetUrlFormat = AssetUrlFormat.QueryParameters,
+            AssetUrlSignatureKey = Guid.NewGuid(),
+        });
+        var dm = new Datamodel();
+        dm.Add<UrlPage>();
+        dm.Add<UrlPageTree>();
+        var data = new DataStoreLocal(dm, new SettingsLocal(), new IOProviderMemory(), urlManager: manager);
+        data.Open(true, true);
+        using var db = new NodeStore(data);
+        var pageId = insert(db, "Docs", "docs");
+        Assert.IsTrue(db.Datastore.TryGetNodeMeta(pageId, out var meta));
+
+        // an asset URL built on top of the page URL, with no file name, so the path is the page path
+        var bodyPropId = db.Datastore.Datamodel.NodeTypesByFullName[typeof(UrlPage).FullName!]
+            .AllProperties.Values.First(p => p.CodeName == nameof(UrlPage.Body)).Id;
+        var propertyPath = new NodePath(pageId).CreatePropertyPath(bodyPropId);
+        var adjustment = new FileAdjustmentImage() { Width = 100 };
+        var encoder = new InternalUrlProvider();
+        var url = manager.GetAssetUrl(new AssetUrl {
+            Token = encoder.GetUrl(propertyPath, adjustment, null, false),
+            BaseToken = encoder.GetUrl(propertyPath, null, false),
+            Target = UrlTarget.PropertyAdjusted,
+            Owner = new NodeKey(meta.InternalId),
+            PropertyPath = propertyPath,
+            Adjustment = adjustment,
+        }, absolute: false);
+        StringAssert.StartsWith(url, "/docs?");
+        StringAssert.Contains(url, "sig=");
+        Assert.IsTrue(db.TryParseUrl(url, out var keys));
+        Assert.AreEqual(UrlTarget.PropertyAdjusted, keys.Target);
+        Assert.AreEqual(bodyPropId, keys.PropertyPath!.PropertyId);
+
+        // a tampered signature must be as unrecognized as any other URL - NOT the page it sits on:
+        var tampered = url[..^1] + (url[^1] == 'A' ? 'B' : 'A');
+        Assert.IsFalse(db.TryParseUrl(tampered, out _), "A bad signature should not fall back to the page. ");
+        Assert.IsFalse(db.TryParseUrl(url[..url.IndexOf("&sig=")], out _), "A missing signature should not fall back to the page. ");
+        Assert.IsFalse(db.TryParseUrl(url.Replace("w=100", "w=5000"), out _));
+
+        // the page itself still resolves, of course:
+        Assert.IsTrue(db.TryParseUrl("/docs", out var pageKeys));
+        Assert.AreEqual(UrlTarget.Node, pageKeys.Target);
+        Assert.AreEqual(pageId, db.Get<UrlPage>(pageKeys.NodeKey).Id);
     }
 
     [TestMethod]

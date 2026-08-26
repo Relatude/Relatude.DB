@@ -1,11 +1,13 @@
 # Regenerates the body of manual.html from manual.md, keeping the page shell (theme, sidebar,
 # search, scripts) untouched. Requires: pip install markdown pygments
 #
-# The shell builds its own navigation from the headings at runtime, so the in-page table of
-# contents is stripped. Headings get the same permalink markup and single-dash anchor ids as the
-# original rendering, and a few pre-existing anchor ids for headings with <T> generics are pinned
-# so published deep links keep working.
-import io, os, re, markdown
+# The sidebar is driven by a baked "var NAV = [...]" array in the shell's script, which this
+# script rebuilds from the rendered headings - so a new or renumbered chapter shows up in the
+# navigation. The in-page table of contents is stripped from the HTML (the sidebar replaces it).
+# Headings get the same permalink markup and single-dash anchor ids as the original rendering, and
+# a few pre-existing anchor ids for headings with <T> generics are pinned so published deep links
+# keep working.
+import io, json, os, re, markdown
 
 docs = os.path.dirname(os.path.abspath(__file__))
 md_path = os.path.join(docs, 'manual.md')
@@ -47,9 +49,32 @@ legacy_ids = {
 for new_id, old_id in legacy_ids.items():
     body = body.replace('id="%s"' % new_id, 'id="%s"' % old_id).replace('href="#%s"' % new_id, 'href="#%s"' % old_id)
 
+# the sidebar navigation: a nested [{level, text, id, children}] tree over h1-h3, baked into the
+# shell as "var NAV = [...]". Rebuilt here so it never drifts from the headings.
+def strip_tags(html):
+    text = re.sub(r'<a class="anchor".*?</a>', '', html, flags=re.S)
+    text = re.sub(r'<[^>]+>', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+nav = []
+stack = []  # (level, node)
+for tag, id_, inner in re.findall(r'<(h[1-3]) id="([^"]+)">(.*?)</\1>', body, flags=re.S):
+    level = int(tag[1])
+    node = {'level': level, 'text': strip_tags(inner), 'id': id_, 'children': []}
+    while stack and stack[-1][0] >= level:
+        stack.pop()
+    (stack[-1][1]['children'] if stack else nav).append(node)
+    stack.append((level, node))
+
 h = io.open(html_path, encoding='utf-8', newline='').read()
 start = h.index('<main id="main">') + len('<main id="main">')
 end = h.index('</main>')
 new = h[:start] + '\n' + body + '\n' + h[end:]
+
+nav_start = new.index('var NAV = ')
+nav_end = new.index('\n', nav_start)
+new = new[:nav_start] + 'var NAV = ' + json.dumps(nav, ensure_ascii=False) + ';' + new[nav_end:]
+
 io.open(html_path, 'w', encoding='utf-8', newline='').write(new)
-print('rendered %d chars of body, manual.html is now %d chars' % (len(body), len(new)))
+print('rendered %d chars of body, %d nav entries, manual.html is now %d chars'
+      % (len(body), len(nav), len(new)))

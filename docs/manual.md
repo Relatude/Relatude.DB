@@ -40,25 +40,26 @@ concept builds on the last.
 15. [Transactions](#15-transactions)
 16. [Older versions of a node](#16-older-versions-of-a-node) · [16.1 reverting the database](#161-reverting-the-database-to-an-earlier-point)
 17. [Uploading files](#17-uploading-files)
+18. [URLs and the URL manager](#18-urls-and-the-url-manager) · [18.1 asset URLs](#181-asset-urls-files-variants-and-deeplinks) · [18.2 links inside HTML](#182-links-inside-html-and-markdown)
 
 **Part III — Querying**
 
-18. [Query anatomy](#18-query-anatomy)
-19. [Filtering with Where](#19-filtering-with-where)
-20. [Text and semantic search](#20-text-and-semantic-search)
-21. [Geo queries](#21-geo-queries)
-22. [Relation filters](#22-relation-filters)
-23. [Eager loading: Include and Preload](#23-eager-loading-include-and-preload)
-24. [Graph traversal and shortest path](#24-graph-traversal-and-shortest-path)
-25. [Sorting, paging and result sets](#25-sorting-paging-and-result-sets)
-26. [Aggregates](#26-aggregates)
-27. [Faceted search](#27-faceted-search)
-28. [Cultures, visibility and scoped stores](#28-cultures-visibility-and-scoped-stores)
-29. [Pitfalls and gotchas](#29-pitfalls-and-gotchas)
+19. [Query anatomy](#19-query-anatomy)
+20. [Filtering with Where](#20-filtering-with-where)
+21. [Text and semantic search](#21-text-and-semantic-search)
+22. [Geo queries](#22-geo-queries)
+23. [Relation filters](#23-relation-filters)
+24. [Eager loading: Include and Preload](#24-eager-loading-include-and-preload)
+25. [Graph traversal and shortest path](#25-graph-traversal-and-shortest-path)
+26. [Sorting, paging and result sets](#26-sorting-paging-and-result-sets)
+27. [Aggregates](#27-aggregates)
+28. [Faceted search](#28-faceted-search)
+29. [Cultures, visibility and scoped stores](#29-cultures-visibility-and-scoped-stores)
+30. [Pitfalls and gotchas](#30-pitfalls-and-gotchas)
 
 **Part IV — Tooling**
 
-30. [The command line tool](#30-the-command-line-tool)
+31. [The command line tool](#31-the-command-line-tool)
 
 ---
 ---
@@ -503,7 +504,7 @@ per role.**
 | Attribute | Meaning |
 |---|---|
 | `[DisplayNameProperty]` | The human-readable name. Surfaces in the admin UI, search highlighting and `Meta.DisplayName`. |
-| `[AddressProperty]` | The URL slug / address. Used for routing and `Meta.Address`. |
+| `[AddressProperty]` | The URL slug — one segment of the address, not the whole path. Surfaces as `Meta.Address` and feeds the URL manager ([§18](#18-urls-and-the-url-manager)). |
 | `[PublicIdProperty]` | The external id used in URLs and APIs. Defaults to `Id` (Guid). |
 | `[InternalIdProperty]` | The internal int id. Defaults to `__Id`. |
 | `[CreatedUtcProperty]` | Stamped with the creation time. |
@@ -515,7 +516,7 @@ per role.**
 public string Title { get; set; } = string.Empty;
 
 [AddressProperty]
-[StringProperty(Indexed = true, UniqueValues = true)]
+[StringProperty(Indexed = true, UniqueValues = true)]   // UniqueValues only when URLs are flat, see §18
 public string Address { get; set; } = string.Empty;
 
 [CreatedUtcProperty] public DateTime CreatedUtc { get; set; }
@@ -594,7 +595,7 @@ bool   near   = oslo.IsWithin(bergen, 500_000); // true — within 500 km
 ```
 
 `IsWithin(center, meters)` is the important one: **the query compiler recognises it inside a query
-lambda and accelerates it with the spatial index.** See [§21 Geo queries](#21-geo-queries).
+lambda and accelerates it with the spatial index.** See [§22 Geo queries](#22-geo-queries).
 
 ### How it is stored (and what that implies)
 
@@ -633,7 +634,7 @@ public FileValue Photo { get; set; } = FileValue.Empty;
 public FileValue Brochure { get; set; } = FileValue.Empty;
 ```
 
-Uploading and serving bytes is covered in [§17](#17-uploading-files).
+Uploading and serving bytes is covered in [§17](#17-uploading-files), and the URLs they are served on in [§18](#18-urls-and-the-url-manager).
 
 ---
 
@@ -907,7 +908,7 @@ Part III applies to it.
 
 > Unlike `Reference<T>`, **`foreach` over a `Many` side does load lazily** when nothing was
 > preloaded. It is still worth using `.Include(...)` when you are iterating many parents — see
-> [§23](#23-eager-loading-include-and-preload).
+> [§24](#24-eager-loading-include-and-preload).
 
 ### 9.1 Relation lists are ordered
 
@@ -1984,7 +1985,7 @@ Six things to know before reaching for it:
   a revert deletes the versions with it — and a log rewrite (backup with truncate, auto truncate)
   is blocked while a revert window is active, since it would compact away the rollback target.
 - **The CLI wraps the general form** for use from the outside, without writing any code — see
-  [section 30](#30-the-command-line-tool).
+  [section 31](#31-the-command-line-tool).
 
 ---
 
@@ -2060,6 +2061,11 @@ if (db.Datastore.TryGetConversionInfo(path, adjustment, true, out var progress))
 `RequestedFormat = FileFormat.Mp4`, and so on. `FileAdjustmentMeta` asks for the conversion status
 and extracted metadata as JSON instead of a converted file.
 
+Naming `RequestedFormat` is optional for images: it defaults to the adaptive `FileFormat.Image`,
+which resolves per file against the store defaults — the original untouched when nothing is
+adjusted, a GIF left as a GIF at its own size, everything else the configured default format and
+quality. See [§18.1](#181-asset-urls-files-variants-and-deeplinks).
+
 Three things follow from conversion being asynchronous. **A URL you just built is usually not
 servable yet** — the conversion is queued, and `IsFileReady` is how you find out. **A variant that
 is not ready does not fail**: the store serves a generated status placeholder in the requested
@@ -2123,84 +2129,346 @@ final look rather than to the original. And both options are part of the convers
 and the dark variant of one file are two conversions at two URLs — which is what lets you hand both
 to a `<picture>` element and let `prefers-color-scheme` choose.
 
-### The middleware that serves it
+### Serving it
 
-Serving the URL is a middleware you write; nothing maps a file endpoint for you. It is about thirty
-lines around `TryParseUrlForContent` and `FileHandler.HandleFileAsync`. This is
-`examples/Website.Simple/MiddelWare.cs` in full:
+The URL a variant is served on, and the middleware that answers it, are the subject of the next
+chapter — see [§18](#18-urls-and-the-url-manager), and [§18.1](#181-asset-urls-files-variants-and-deeplinks)
+for the shapes an asset URL can take.
+
+---
+
+## 18. URLs and the URL manager
+
+A URL is never stored. The database keeps a short **address segment** on each node — the slug from
+`[AddressProperty]` — and a *URL manager* assembles complete URLs from those segments plus live
+data: the node's place in a tree, its culture, the requesting host. Because nothing is stored,
+renaming a section is one write, and the thousands of URLs below it change on the next read.
+
+Every store has a manager. Configure nothing and you get `DefaultUrlManager` in its flat shape,
+where a node's URL is simply `/{address}` and addresses have to be unique — the classic behaviour.
+Give it a parent relation and the same manager builds `/{ancestor addresses}/{address}` instead.
 
 ```csharp
-using Relatude.DB.NodeServer;
-using Relatude.DB.Web;
+// the URL of a node, and the URL of a file variant
+string pageUrl = db.GetUrl(article);
+string fileUrl = db.GetUrl(article.Photo, new FileAdjustmentImage { Width = 400 });
 
-namespace Website.Simple;
+// the reverse: what does this URL point at?
+if (db.TryParseUrl(url, out UrlKeys keys)) { … }        // node, file, variant or deeplink
+if (db.Datastore.TryParseUrlForContent(url, out var c)) { … }   // …resolved all the way to content
 
-public class RelatudeDBMiddleware {
-    private readonly RequestDelegate _next;
+// may this node have this address? (editor-side validation)
+bool ok = db.WillAddressResultInUniqueUrl(new NodeKey(article.Id), "contact-us");
+```
 
-    public RelatudeDBMiddleware(RequestDelegate next) {
-        _next = next;
-    }
+### Configuring it
+
+Three places, in increasing order of control. Options in `relatude.db.json` under the container's
+`LocalSettings.UrlOptions`:
+
+```json
+"LocalSettings": {
+  "UrlOptions": {
+    "UrlFormat": "OnlyAddress",
+    "Parents": [ { "ParentRelationName": "PageTree" } ],
+    "PrimaryBaseAddress": null,
+    "AssetUrlSignatureKey": "00000000-0000-0000-0000-000000000000"
+  }
+}
+```
+
+…the same options in code, when you build the store yourself:
+
+```csharp
+var manager = new DefaultUrlManager(new DefaultUrlManagerOptions {
+    Parents = [new UrlParentRelation { ParentRelationName = "PageTree" }],
+    UrlFormat = NodeUrlFormat.OnlyAddress,
+});
+var store = new DataStoreLocal(datamodel, settings, io, urlManager: manager);
+```
+
+…or a factory per container in `AddRelatudeDB`, which is also where a hand-written manager goes:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.CreateUrlManager = settings => new DefaultUrlManager(new DefaultUrlManagerOptions {
+        Parents = [new UrlParentRelation { ParentRelationName = "PageTree" }],
+        Domains = [
+            new UrlDomain { Host = "www.domain1.no", RootId = siteOneRootId },
+            new UrlDomain { Host = "www.domain2.no", RootId = siteTwoRootId },
+        ],
+        FallbackRootId = siteOneRootId,   // localhost and other unknown hosts
+    });
+});
+```
+
+### Where the path comes from
+
+| Option | Meaning |
+| --- | --- |
+| `Parents` | The relations that lead from a node to its parent, in priority order. Each is a `UrlParentRelation` with `ParentRelationId` **or** `ParentRelationName` (CodeName or full name), plus `ParentIsRelationSource` (default `true`: the parent sits on the source side). Empty means flat — every node is top level. |
+| `Domains` | `UrlDomain { Host, RootId }` pairs. Each host serves the subtree of its root node, and the root itself answers at `/`. Nothing about the domain is stored on any node, so the same content runs locally unchanged. |
+| `FallbackRootId` | The root used when the host is unknown — localhost, staging, tests. Defaults to the first configured domain's root. |
+| `Scheme` | Scheme for absolute URLs. Default `https`. |
+| `MaxDepth` | Cycle guard on the parent walk. Default 32. |
+
+With several `Parents` entries, the first one whose child side accepts the node's type — the type
+itself or a type it inherits — and that actually has a parent for the node is followed. That is what
+lets one tree be held together by more than one relation: pages hang under pages through one
+relation, documents hang under pages through another, and a single URL crosses both.
+
+```
+Shop (root)                    →  /
+├─ tv                          →  /tv
+│  └─ sony-x90                 →  /tv/sony-x90
+│     └─ info                   →  /tv/sony-x90/info
+└─ mobile
+   └─ pixel
+      └─ info                   →  /mobile/pixel/info
+```
+
+Both leaves carry the plain address `info`. That is the point of segments: an address only has to be
+unique among nodes that would otherwise produce the same complete URL.
+
+### Address uniqueness
+
+`WillAddressResultInUniqueUrl(node, address)` answers whether an address is free *as a URL* — ask it
+from an editor before saving. The store asks the same question at commit time and, when the answer
+is no, appends `-2`, `-3` … until it is yes, writing the adjusted value back onto the node. So a
+collision is never an error; it is a silently adjusted slug, exactly as before.
+
+> **Do not put `UniqueValues = true` on an address property** unless you are running flat. That is an
+> index constraint demanding global uniqueness, which is precisely what tree URLs relax — two `info`
+> pages under different parents are legitimate, and the constraint would reject the second one.
+
+### Page URL formats
+
+`UrlFormat` decides how a page URL is rendered. The examples below are all the same node: address
+`info`, ancestors `tv/sony-x90`, internal id `1042`, public id `9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9`.
+
+| `NodeUrlFormat` | Example URL | Resolved by |
+| --- | --- | --- |
+| `OnlyAddress` | `/tv/sony-x90/info` | the path |
+| `IntOrAddress` | `/tv/sony-x90/info`, or `/1042` without an address | path, else id |
+| `GuidOrAddress` | `/tv/sony-x90/info`, or `/9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9` | path, else id |
+| `EncodedGuidOrAddress` | `/tv/sony-x90/info`, or `/PSobnF9OcWCCk6S1xtfo-Q` | path, else id |
+| `IntAndAddress` | `/1042/tv/sony-x90/info` | the id alone |
+| `GuidAndAddress` | `/9c1b2a3d-…-a4b5c6d7e8f9/tv/sony-x90/info` | the id alone |
+| `EncodedGuidAndAddress` | `/PSobnF9OcWCCk6S1xtfo-Q/tv/sony-x90/info` | the id alone |
+| `OnlyInt` | `/1042` | the id |
+| `OnlyGuid` | `/9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9` | the id |
+| `EncodedGuidOnly` | `/PSobnF9OcWCCk6S1xtfo-Q` | the id |
+
+The encoded forms are the public Guid as URL-safe Base64: 22 characters instead of 36, and no
+dashes. `DefaultUrlManager.EncodeGuid` / `TryDecodeGuid` do the conversion if you need it yourself.
+
+Two properties of the `…AndAddress` formats are worth the extra characters. They are resolved by the
+id alone, so the readable tail is decoration: **old URLs keep working after a rename**, and
+duplicate addresses never need suffixing. The `…OrAddress` formats do the opposite — they prefer the
+readable path and fall back to an id only for nodes that have no address at all.
+
+### Prefixes
+
+| Option | Applies to | Example |
+| --- | --- | --- |
+| `PrimaryBaseAddress` | every URL, pages and assets, outermost | `/app` → `/app/tv/sony-x90` |
+| `BaseAddressPages` | page URLs, after the primary base | `/content` → `/app/content/tv/sony-x90` |
+| `BaseAddressAssets` | asset URLs, after the primary base | `/files` → `/app/files/assets/…` |
+| `IncludeTrailingSlash` | page URLs | `/tv/sony-x90/` |
+
+A base may be a path (`/app`) or carry scheme and host (`https://www.site.com`), which makes those
+URLs absolute. A lane base that carries its own scheme and host is a complete origin and *replaces*
+the primary base rather than being appended to it — that is how a CDN origin for assets coexists with
+a path prefix for pages. Inbound matching always goes by path, so both the absolute and the relative
+form of a URL resolve.
+
+### 18.1 Asset URLs: files, variants and deeplinks
+
+An asset URL addresses a file property, a converted variant of it, or a deeplink into embedded
+content. It carries an opaque **token** the store encodes and parses; the manager only decides where
+that token sits in URL space. Defaults first, then the options that change them:
+
+```
+/assets/{token}/sentrum.jpg                     a file
+/assets/{token}/sentrum.webp                    a converted variant
+https://cdn.example.com/assets/{token}/…        BaseAddressAssets = "https://cdn.example.com"
+```
+
+The trailing file name is cosmetic — it is there so a browser download gets a sensible name.
+
+| Option | Meaning |
+| --- | --- |
+| `AssetUrlStyle` | `AssetRoot` (default) puts assets under their own root. `UnderPageUrl` builds them on the owning node's page URL instead: `/tv/sony-x90/sentrum.jpg?asset={token}`. Falls back to the asset root for nodes with no page URL. |
+| `AssetUrlRoot` | That root. Default `/assets/`. |
+| `AssetUrlParamName` | The query parameter carrying the token in `UnderPageUrl` style. Default `asset`. |
+| `PropertyPathFormat` | How the *target* — which file property on which node — is rendered. |
+| `AssetUrlFormat` | How the *adjustment* — size, crop, format, quality — is rendered. |
+| `AssetUrlSignatureKey` | When set, asset URLs are HMAC signed and edited ones stop resolving. |
+
+`PropertyPathFormat` and `AssetUrlFormat` trade opacity for readability. `Encrypted`, the default,
+keeps everything inside the token; the readable modes lift it out into the URL:
+
+```
+Encrypted            /assets/aEQL7Rt7YbRadQ4Qhkmg…/sentrum.webp
+AssetUrlFormat = QueryParameters
+                     /assets/pXy9…/sentrum.webp?w=1200&h=630&f=webp&q=80
+AssetUrlFormat = FriendlyShortString
+                     /assets/pXy9…/w1200h630fwebpq80/sentrum.webp
+PropertyPathFormat = QueryParameters
+                     /assets/sentrum.webp?pn=Photo&pid=1042&w=1200&h=630
+PropertyPathFormat = FriendlyShortString
+                     /assets/Photo-1042/w1200h630/sentrum.webp
+```
+
+`pn` is the property's CodeName, `pid` the node id, and a readable target segment is
+`{propertyName}-{internal id}`. Readable targets apply to plain node properties only — deeplinks into
+embedded content always use the token — and require the adjustment to be readable too, since an
+adjusted token cannot address a readable target. A `v` parameter may appear alongside: it is a cache
+buster derived from the file content and is ignored on the way in.
+
+Readable URLs are hand-editable by design, which is also their risk: anyone who can see one file can
+ask for other variants of it, or address another file entirely. `AssetUrlSignatureKey` closes that.
+With a key set, every asset URL carries a `sig` parameter over the token, the target and the
+adjustment together, and an edited URL is refused — not silently turned into something else:
+
+```
+/assets/Photo-1042/w1200h630/sentrum.webp?sig=k7QmXn4…
+```
+
+Use a stable secret (the container id is a natural choice): change the key and previously handed-out
+URLs stop resolving. Signing and readability are the trade-off — with a key set, a developer can no
+longer tweak `w=1200` in the browser, which was half the appeal of the readable modes.
+
+> A refused asset URL is as unrecognised as a URL that never existed. In particular, a tampered asset
+> URL built on top of a page URL does **not** fall back to serving that page.
+
+#### Image variants adapt by default
+
+`FileAdjustmentImage.RequestedFormat` defaults to `FileFormat.Image`, an adaptive format resolved per
+file when the request is served:
+
+- No adjustments at all → the original file is served untouched, no conversion.
+- A GIF asked for at its own dimensions with no other edits → stays a GIF, so animation and palette
+  survive.
+- Everything else → `SettingsLocal.ImageDefaultFormat` (`Jpeg`, `WebP` or `Png`; default `Jpeg`) at
+  `SettingsLocal.ImageDefaultQuality` (default 85) unless the request names its own quality.
+
+So `?w=1200` alone is a complete request, and a site-wide switch to WebP is one setting rather than a
+sweep through every `GetUrl` call. Naming a format explicitly always wins.
+
+### 18.2 Links inside HTML and Markdown
+
+A link in a rich-text field must survive the rename of the page it points at. Properties marked
+`StringValueType.HTML` or `Markdown` — `[HtmlProperty]` is the short form — therefore store links in
+an internal, id-based form and never as public URLs:
+
+```html
+<!-- what is stored -->
+<p>Read about the <a href="rdb:nARQvAABE">Sony X90</a>.</p>
+
+<!-- what every read returns -->
+<p>Read about the <a href="/tv/sony-x90/info">Sony X90</a>.</p>
+```
+
+The conversion is automatic in both directions: public URLs in a value you save are rewritten to
+`rdb:` tokens at commit time, and tokens are rewritten to current public URLs on every read. External
+links, anchors, `mailto:` and unresolvable URLs pass through untouched, the rewrite is idempotent, and
+a token whose target has been deleted comes back as `href="#"`.
+
+That is why renaming a section is genuinely one write: the stored HTML is not touched, and the next
+read of it simply emits the new paths. `db.ExternalizeContentLinks` and `db.InternalizeContentLinks`
+expose the same conversion for content you handle yourself, and a migration utility can internalise
+existing content in place.
+
+### Writing your own manager
+
+When the built-in shapes do not fit, implement `IUrlManager` — three methods for pages, and derive
+from `UrlManagerBase` to inherit the whole asset side, signing included:
+
+```csharp
+public class PageUrlManager : UrlManagerBase {
+    public override void Initialize(IDataStore store) { … }
+
+    // outbound: the URL of a node, or null when it has none
+    public override string? TryGetUrl(NodeMeta meta, bool absolute) { … }
+
+    // inbound: every node this URL could mean, best first — the store then filters
+    // the candidates by publication, access and culture
+    public override NodeKeyWithCulture[] GetMatches(string completeUrl) { … }
+
+    // may this node have this address?
+    public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) { … }
+}
+```
+
+Two things the store keeps for itself, so a manager stays small. **Security is not the manager's
+job**: `GetMatches` returns candidates regardless of publication or access, and the store filters them
+through the `QueryContext` afterwards — which is what makes one URL serve a draft to an editor and
+nothing at all to an anonymous visitor. And **tokens are the store's business**: files, variants and
+deeplinks arrive already encoded, and a manager only chooses where to put them.
+`examples/Website.Simple/PageUrlManager.cs` is a complete one written against the typed model, using
+`Traverse` to walk down and `Parent.TryGet` to walk up.
+
+### The middleware that serves it
+
+Serving URLs is a middleware you write; nothing maps an endpoint for you. It is about thirty lines
+around `TryParseUrlForContent` and `FileHandler.HandleFileAsync`:
+
+```csharp
+public class RelatudeDBMiddleware(RequestDelegate next) {
     public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
         if (RelatudeDBRuntime.IsReady) {
-            var url = http.Request.Path.Value + http.Request.QueryString;
+            // scheme and host included, so domain routing can see them
+            var url = http.Request.Scheme + "://" + http.Request.Host
+                    + http.Request.Path.Value + http.Request.QueryString;
             if (ctx.Database.TryParseUrlForContent(url, out var content)) {
-                var result = await handleRequest(http, content);
-                if (result != null) {
-                    await result.ExecuteAsync(http);
-                    return;
-                }
+                var result = content.Id.Target switch {
+                    UrlTarget.Property or UrlTarget.PropertyAdjusted
+                        => await FileHandler.HandleFileAsync(http, content.Stream, content.FileName,
+                               content.Attachment, content.ContentType, content.Cacheable),
+                    UrlTarget.Node or UrlTarget.EmbeddedNode => RenderPage(http, content),
+                    _ => null,
+                };
+                if (result != null) { await result.ExecuteAsync(http); return; }
             }
         }
-        await _next.Invoke(http);
-    }
-    async Task<IResult?> handleRequest(HttpContext http, UrlContent content) {
-        return content.Id.Target switch {
-            UrlTarget.Property or UrlTarget.PropertyAdjusted => await handleFile(http, content),
-            UrlTarget.Node or UrlTarget.EmbeddedNode => await handlePage(http, content),
-            _ => null,
-        };
-    }
-    async Task<IResult?> handleFile(HttpContext http, UrlContent c) {
-        return await FileHandler.HandleFileAsync(http, c.Stream, c.FileName, c.Attachment, c.ContentType, c.Cacheable);
-    }
-    async Task<IResult?> handlePage(HttpContext http, UrlContent c) {
-        return Results.Json(c);
+        await next.Invoke(http);
     }
 }
 ```
 
-Registered in `Program.cs` after the static-file middleware, because the default URL root for nodes
-and files is `/` and this therefore sees every request:
+Registered after the static-file middleware, because a URL manager can own `/` and this therefore
+sees every request:
 
 ```csharp
 app.UseDefaultFiles();
 app.UseStaticFiles();
-
 app.UseMiddleware<RelatudeDBMiddleware>();
-
 app.StartRelatudeDB();
-app.MapRelatudeDBAdmin();
 ```
 
 Four things in there are load-bearing:
 
 - **The `RelatudeDBRuntime.IsReady` gate.** The store opens asynchronously, and without the gate
   requests arriving during startup throw instead of falling through.
-- **`Path.Value + QueryString`, not `Path`.** The addressing payload lives in the query parameter,
-  so parsing the path alone silently matches nothing.
-- **Every non-match calls `_next`.** `TryParseUrlForContent` returns `false` rather than throwing
-  for URLs that are not the store's, which is what makes the fall-through clean.
-- **`handlePage` is yours to write.** `UrlTarget.Node` and `EmbeddedNode` hand you
-  `UrlContent.NodeData`; returning `Results.Json(c)` is the example being lazy, not a
-  recommendation. Return your own view, or `null` to fall through to MVC/Razor routing.
+- **Scheme and host, not just the path.** Domain routing needs the host, and asset tokens may live in
+  the query string — `Path.Value` alone silently matches less than it should.
+- **Every non-match calls `next`.** `TryParseUrlForContent` returns `false` rather than throwing for
+  URLs that are not the store's, which is what makes the fall-through clean, and it is also how a
+  refused (tampered) asset URL ends up as a plain 404.
+- **Rendering a page is yours to write.** `UrlTarget.Node` and `EmbeddedNode` hand you
+  `UrlContent.NodeData`, and `UrlKeys.CultureId` / `CultureCode` tell you which culture the URL
+  matched. Return your own view, or `null` to fall through to MVC/Razor routing.
+
+`examples/Website.Simple` has the whole thing running: a two-domain page tree, a rename demo that
+shows stored `rdb:` tokens surviving it, and endpoints that print every node's computed URL.
 
 ---
 ---
 
 # Part III — Querying
 
-## 18. Query anatomy
+## 19. Query anatomy
 
 Every query is built with the `IQueryOfNodes<TNode, TInclude>` builder and finished with
 `Execute()`.
@@ -2279,7 +2547,7 @@ if (query.TryGet(out var ev)) { … }    // succeeds only when exactly one row m
 
 ---
 
-## 19. Filtering with Where
+## 20. Filtering with Where
 
 ```csharp
 // Expression form — the everyday tool
@@ -2320,7 +2588,7 @@ db.Query<IEvent>()
 
 ---
 
-## 20. Text and semantic search
+## 21. Text and semantic search
 
 Relatude.DB has BM25 keyword search and vector/semantic search built in, and blends them with a
 single `semanticRatio` knob: `0.0` is pure keyword, `1.0` is pure vector, anything between is a
@@ -2391,7 +2659,7 @@ A property participates in search only if it opted in:
 
 ---
 
-## 21. Geo queries
+## 22. Geo queries
 
 Spatial filtering is a normal `Where` clause. The query compiler recognises
 `GeoCoordinate.IsWithin(center, meters)` and accelerates it with the coordinate index.
@@ -2468,7 +2736,7 @@ IEnumerable<IVenue> FindNearest(NodeStore db, GeoCoordinate center, int wanted =
 
 ---
 
-## 22. Relation filters
+## 23. Relation filters
 
 Filter nodes by *what they are related to*, without loading either side:
 
@@ -2514,7 +2782,7 @@ var sellingOut = venue.Events
 
 ---
 
-## 23. Eager loading: Include and Preload
+## 24. Eager loading: Include and Preload
 
 Both fetch related data in the same round trip. The difference is *what kind of property* they
 target.
@@ -2596,7 +2864,7 @@ var idList = ids.Execute().ToArray();
 
 ---
 
-## 24. Graph traversal and shortest path
+## 25. Graph traversal and shortest path
 
 This is where the graph model earns its keep. Both operations work over **relations** — not
 references, not embedded data.
@@ -2652,7 +2920,7 @@ The result carries the node ids and the materialised nodes in order, from → to
 
 ---
 
-## 25. Sorting, paging and result sets
+## 26. Sorting, paging and result sets
 
 ```csharp
 .OrderBy(Expression<Func<TNode, object>> expression, bool descending = false)
@@ -2704,7 +2972,7 @@ Console.WriteLine($"Showing {page.Count} of {page.TotalCount} " +
 
 ---
 
-## 26. Aggregates
+## 27. Aggregates
 
 ```csharp
 int count = db.Query<IEvent>().Where(e => e.Status == EventStatus.Published).Count();
@@ -2720,7 +2988,7 @@ than `Execute().Count()`.
 
 ---
 
-## 27. Faceted search
+## 28. Faceted search
 
 Facets bucket a result set across indexed properties, and are what you build a filter sidebar
 from. Call `.Facets()` to switch the builder into facet mode, then declare which facets you want.
@@ -2791,7 +3059,7 @@ bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the propert
 
 ---
 
-## 28. Cultures, visibility and scoped stores
+## 29. Cultures, visibility and scoped stores
 
 Two equivalent styles. Per query:
 
@@ -2823,7 +3091,7 @@ only — **never hand it to a request handler**.
 
 ---
 
-## 29. Pitfalls and gotchas
+## 30. Pitfalls and gotchas
 
 A checklist of the things that actually bite people.
 
@@ -2893,7 +3161,7 @@ A checklist of the things that actually bite people.
 
 # Part IV — Tooling
 
-## 30. The command line tool
+## 31. The command line tool
 
 `Relatude.DB.Console` is a command line tool that works on a database and a datamodel **from the
 outside**: nothing of your application has to run, it only has to be readable. It exists for the
@@ -3037,7 +3305,7 @@ files belong in code, where the compiler checks what is being related to what.
 - **Ids derived from names are a trap the tool will point out.** `validate` counts the node types and
   members whose ids come from their names, and `codegen` writes the model out with those ids made
   explicit — which is how you pin them before a rename (see pitfall 16 in
-  [section 29](#29-pitfalls-and-gotchas)).
+  [section 30](#30-pitfalls-and-gotchas)).
 
 ---
 

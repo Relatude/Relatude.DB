@@ -83,8 +83,10 @@ public abstract class UrlManagerBase : IUrlManager {
         return url;
     }
     public virtual AssetTokenMatch? TryGetAssetToken(string completeUrl) {
-        if (!TryGetAssetRootParts(completeUrl, out var rawToken, out _)) return null;
-        return ValidateAndStripSignature(rawToken);
+        if (!TryGetAssetRootParts(completeUrl, out var rawToken, out _)) return null; // not an asset URL
+        var token = ValidateAndStripSignature(rawToken);
+        // under the asset root, a token that fails its signature is refused rather than passed on to page resolution
+        return token == null ? AssetTokenMatch.Rejected : token;
     }
 
     /// <summary>

@@ -1,0 +1,115 @@
+Data Modelling &amp; Querying with Relatude.DB  ->  #data-modelling-querying-with-relatudedb
+Part I — Data modelling  ->  #part-i-data-modelling
+  1. The mental model  ->  #1-the-mental-model
+    Interfaces are the model  ->  #interfaces-are-the-model
+  2. Your first node type  ->  #2-your-first-node-type
+    Why interfaces are the better default  ->  #why-interfaces-are-the-better-default
+    Multiple inheritance with interfaces  ->  #multiple-inheritance-with-interfaces
+    Querying across the hierarchy  ->  #querying-across-the-hierarchy
+    Two constraints to design around  ->  #two-constraints-to-design-around
+    When you do want a class  ->  #when-you-do-want-a-class
+    Optional: stable type ids  ->  #optional-stable-type-ids
+  3. Scalar properties and their attributes  ->  #3-scalar-properties-and-their-attributes
+    The attribute catalogue  ->  #the-attribute-catalogue
+    Strings  ->  #strings
+    Numbers  ->  #numbers
+    Enums  ->  #enums
+    Validation happens on write  ->  #validation-happens-on-write
+  4. Marker properties  ->  #4-marker-properties
+    What lives in NodeMeta  ->  #what-lives-in-nodemeta
+  5. Geo coordinates  ->  #5-geo-coordinates
+    Constructing and reading  ->  #constructing-and-reading
+    The empty value  ->  #the-empty-value
+    Distance and radius tests  ->  #distance-and-radius-tests
+    How it is stored (and what that implies)  ->  #how-it-is-stored-and-what-that-implies
+    JSON shape  ->  #json-shape
+  6. Files  ->  #6-files
+  7. Embedded data  ->  #7-embedded-data
+    Embedded&lt;T&gt; — a collection keyed by the embedded object's own Guid Id  ->  #embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id
+    EmbeddedMap&lt;TKey, TValue&gt; — a collection keyed by a property of the value  ->  #embeddedmap-a-collection-keyed-by-a-property-of-the-value
+    Working with an embedded map  ->  #working-with-an-embedded-map
+  8. References — lightweight pointers  ->  #8-references-lightweight-pointers
+    Reading and writing a Reference&lt;T&gt;  ->  #reading-and-writing-a-reference
+    Reading and writing a References&lt;T&gt;  ->  #reading-and-writing-a-references
+  9. Relations — the graph edges  ->  #9-relations-the-graph-edges
+    The five shapes  ->  #the-five-shapes
+    Using them on node types  ->  #using-them-on-node-types
+    The "one" side API  ->  #the-one-side-api
+    The "many" side API  ->  #the-many-side-api
+    9.1 Relation lists are ordered  ->  #91-relation-lists-are-ordered
+    Relation options  ->  #relation-options
+  10. Choosing between relation, reference and embedded  ->  #10-choosing-between-relation-reference-and-embedded
+  11. The complete example model  ->  #11-the-complete-example-model
+    11.1 The same model with facet interfaces  ->  #111-the-same-model-with-facet-interfaces
+  12. Registering the model &amp; the admin UI  ->  #12-registering-the-model-the-admin-ui
+    Server-hosted (the usual case)  ->  #server-hosted-the-usual-case
+    relatude.db.json  ->  #relatudedbjson
+    Overriding settings from configuration  ->  #overriding-settings-from-configuration
+    Options and events in Program.cs  ->  #options-and-events-in-programcs
+    Two ways to register a datamodel  ->  #two-ways-to-register-a-datamodel
+    The admin UI  ->  #the-admin-ui
+    Programmatic / embedded  ->  #programmatic-embedded
+    What the model builder validates  ->  #what-the-model-builder-validates
+    Do not redefine the native types  ->  #do-not-redefine-the-native-types
+Part II — Writing data  ->  #part-ii-writing-data
+  13. Create, insert, update, delete  ->  #13-create-insert-update-delete
+    Read  ->  #read
+    Update, upsert, delete  ->  #update-upsert-delete
+  14. Relating nodes  ->  #14-relating-nodes
+  15. Transactions  ->  #15-transactions
+    Transaction plugins  ->  #transaction-plugins
+  16. Older versions of a node  ->  #16-older-versions-of-a-node
+    16.1 Reverting the database to an earlier point  ->  #161-reverting-the-database-to-an-earlier-point
+  17. Uploading files  ->  #17-uploading-files
+    Very large files  ->  #very-large-files
+    Serving and converting  ->  #serving-and-converting
+    Light and dark mode  ->  #light-and-dark-mode
+    Serving it  ->  #serving-it
+  18. URLs and the URL manager  ->  #18-urls-and-the-url-manager
+    Configuring it  ->  #configuring-it
+    Where the path comes from  ->  #where-the-path-comes-from
+    Address uniqueness  ->  #address-uniqueness
+    Page URL formats  ->  #page-url-formats
+    Prefixes  ->  #prefixes
+    18.1 Asset URLs: files, variants and deeplinks  ->  #181-asset-urls-files-variants-and-deeplinks
+    18.2 Links inside HTML and Markdown  ->  #182-links-inside-html-and-markdown
+    Writing your own manager  ->  #writing-your-own-manager
+    The middleware that serves it  ->  #the-middleware-that-serves-it
+Part III — Querying  ->  #part-iii-querying
+  19. Query anatomy  ->  #19-query-anatomy
+    Queries are immutable  ->  #queries-are-immutable
+    Entry points  ->  #entry-points
+    Executing  ->  #executing
+  20. Filtering with Where  ->  #20-filtering-with-where
+  21. Text and semantic search  ->  #21-text-and-semantic-search
+    WhereSearch — search as a filter  ->  #wheresearch-search-as-a-filter
+    Search — search as ranking  ->  #search-search-as-ranking
+    What actually gets searched  ->  #what-actually-gets-searched
+  22. Geo queries  ->  #22-geo-queries
+    Sorting by distance  ->  #sorting-by-distance
+    A widening search  ->  #a-widening-search
+    Things to remember about geo filters  ->  #things-to-remember-about-geo-filters
+  23. Relation filters  ->  #23-relation-filters
+  24. Eager loading: Include and Preload  ->  #24-eager-loading-include-and-preload
+    Going deeper: ThenInclude / ThenPreload  ->  #going-deeper-theninclude-thenpreload
+    Filtering what gets included  ->  #filtering-what-gets-included
+    When you only need ids  ->  #when-you-only-need-ids
+  25. Graph traversal and shortest path  ->  #25-graph-traversal-and-shortest-path
+    Traverse  ->  #traverse
+    ShortestPath  ->  #shortestpath
+  26. Sorting, paging and result sets  ->  #26-sorting-paging-and-result-sets
+    Paging  ->  #paging
+    ResultSet&lt;T&gt;  ->  #resultset
+  27. Aggregates  ->  #27-aggregates
+  28. Faceted search  ->  #28-faceted-search
+    Applying the user's selection  ->  #applying-the-users-selection
+    Facet declaration methods  ->  #facet-declaration-methods
+  29. Cultures, visibility and scoped stores  ->  #29-cultures-visibility-and-scoped-stores
+  30. Pitfalls and gotchas  ->  #30-pitfalls-and-gotchas
+Part IV — Tooling  ->  #part-iv-tooling
+  31. The command line tool  ->  #31-the-command-line-tool
+    Two things every command needs to know  ->  #two-things-every-command-needs-to-know
+    The commands  ->  #the-commands
+    What it does not do  ->  #what-it-does-not-do
+    Things worth knowing  ->  #things-worth-knowing
+  Where to look when this manual runs out  ->  #where-to-look-when-this-manual-runs-out

@@ -429,8 +429,10 @@ public class DefaultUrlManager : UrlManagerBase {
             if (byTarget != null) return byTarget;
             var raw = UrlUtil.GetQueryParameter(completeUrl, _o.AssetUrlParamName);
             if (raw != null) {
+                // the asset parameter marks this as an asset URL, so a bad signature refuses the
+                // request instead of leaving the page underneath to answer it
                 var token = ValidateAndStripSignature(raw);
-                if (token == null) return null;
+                if (token == null) return AssetTokenMatch.Rejected;
                 return tokenMatch(completeUrl, token, readableAdjustmentFromQuery(completeUrl));
             }
             // no asset parameter: the default placement below is the fallback for owners without a page URL
@@ -450,19 +452,20 @@ public class DefaultUrlManager : UrlManagerBase {
             }
         }
         var assetToken = ValidateAndStripSignature(rawToken);
-        if (assetToken == null) return null;
+        // under the asset root nothing else can answer, so a bad signature is a refusal
+        if (assetToken == null) return AssetTokenMatch.Rejected;
         return tokenMatch(completeUrl, assetToken, adjustmentFor(completeUrl));
     }
     /// <summary>A token addressed match. A readable adjustment sits outside the signed token, so the URL's own signature has to cover it.</summary>
-    AssetTokenMatch? tokenMatch(string completeUrl, string token, FileAdjustmentBase? adjustment) {
-        if (adjustment != null && !ValidateReadableAssetUrl(completeUrl, token, null, adjustment)) return null;
+    AssetTokenMatch tokenMatch(string completeUrl, string token, FileAdjustmentBase? adjustment) {
+        if (adjustment != null && !ValidateReadableAssetUrl(completeUrl, token, null, adjustment)) return AssetTokenMatch.Rejected;
         return new AssetTokenMatch { Token = token, Adjustment = adjustment };
     }
     /// <summary>A readable target match. Nothing here is inside a token, so the URL's own signature covers the whole request.</summary>
-    AssetTokenMatch? targetMatch(string completeUrl, PropertyPath path, FileAdjustmentBase? adjustment) {
+    AssetTokenMatch targetMatch(string completeUrl, PropertyPath path, FileAdjustmentBase? adjustment) {
         var targetText = readableTargetText(path);
-        if (targetText == null) return null;
-        if (!ValidateReadableAssetUrl(completeUrl, null, targetText, adjustment)) return null;
+        if (targetText == null) return AssetTokenMatch.Rejected; // addressed a property that cannot be named
+        if (!ValidateReadableAssetUrl(completeUrl, null, targetText, adjustment)) return AssetTokenMatch.Rejected;
         return new AssetTokenMatch { PropertyPath = path, Adjustment = adjustment };
     }
     /// <summary>The canonical "{propertyName}-{id}" text of a target, the form the signature covers regardless of how it was framed in the URL.</summary>

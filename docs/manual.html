@@ -924,7 +924,7 @@ per role.</strong></p>
 </tr>
 <tr>
 <td><code>[AddressProperty]</code></td>
-<td>The URL slug / address. Used for routing and <code>Meta.Address</code>.</td>
+<td>The URL slug — one segment of the address, not the whole path. Surfaces as <code>Meta.Address</code> and feeds the URL manager (<a href="#18-urls-and-the-url-manager">§18</a>).</td>
 </tr>
 <tr>
 <td><code>[PublicIdProperty]</code></td>
@@ -949,7 +949,7 @@ per role.</strong></p>
 <span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 
 <span class="na">[AddressProperty]</span>
-<span class="na">[StringProperty(Indexed = true, UniqueValues = true)]</span>
+<span class="na">[StringProperty(Indexed = true, UniqueValues = true)]</span><span class="w">   </span><span class="c1">// UniqueValues only when URLs are flat, see §18</span>
 <span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Address</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 
 <span class="na">[CreatedUtcProperty]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">DateTime</span><span class="w"> </span><span class="n">CreatedUtc</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -1054,7 +1054,7 @@ venue whose location has not been entered yet should never show up in a "within 
 </code></pre></div>
 
 <p><code>IsWithin(center, meters)</code> is the important one: <strong>the query compiler recognises it inside a query
-lambda and accelerates it with the spatial index.</strong> See <a href="#21-geo-queries">§21 Geo queries</a>.</p>
+lambda and accelerates it with the spatial index.</strong> See <a href="#22-geo-queries">§22 Geo queries</a>.</p>
 <h3 id="how-it-is-stored-and-what-that-implies">How it is stored (and what that implies)<a class="anchor" href="#how-it-is-stored-and-what-that-implies" aria-label="Link to this section">#</a></h3>
 <p>Coordinates snap to a ~1 cm grid (31 bits per axis) on construction and are stored as a 62-bit
 Morton / Z-order code. Three consequences worth knowing:</p>
@@ -1085,7 +1085,7 @@ live in storage.</p>
 <span class="k">public</span><span class="w"> </span><span class="n">FileValue</span><span class="w"> </span><span class="n">Brochure</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileValue</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 </code></pre></div>
 
-<p>Uploading and serving bytes is covered in <a href="#17-uploading-files">§17</a>.</p>
+<p>Uploading and serving bytes is covered in <a href="#17-uploading-files">§17</a>, and the URLs they are served on in <a href="#18-urls-and-the-url-manager">§18</a>.</p>
 <hr />
 <h2 id="7-embedded-data">7. Embedded data<a class="anchor" href="#7-embedded-data" aria-label="Link to this section">#</a></h2>
 <p>Embedded objects are <strong>owned sub-trees</strong>. They are stored inline in the parent node, they have no
@@ -1368,7 +1368,7 @@ Part III applies to it.</p>
 <blockquote>
 <p>Unlike <code>Reference&lt;T&gt;</code>, <strong><code>foreach</code> over a <code>Many</code> side does load lazily</strong> when nothing was
 preloaded. It is still worth using <code>.Include(...)</code> when you are iterating many parents — see
-<a href="#23-eager-loading-include-and-preload">§23</a>.</p>
+<a href="#24-eager-loading-include-and-preload">§24</a>.</p>
 </blockquote>
 <h3 id="91-relation-lists-are-ordered">9.1 Relation lists are ordered<a class="anchor" href="#91-relation-lists-are-ordered" aria-label="Link to this section">#</a></h3>
 <p>A <code>Many</code> side is a <strong>list, not a set</strong>. Each node keeps its related items in a fixed order, and that
@@ -2477,7 +2477,7 @@ which is durable per transaction and is always reset and rebuilt on rollback. Th
   a revert deletes the versions with it — and a log rewrite (backup with truncate, auto truncate)
   is blocked while a revert window is active, since it would compact away the rollback target.</li>
 <li><strong>The CLI wraps the general form</strong> for use from the outside, without writing any code — see
-  <a href="#30-the-command-line-tool">section 30</a>.</li>
+  <a href="#31-the-command-line-tool">section 31</a>.</li>
 </ul>
 <hr />
 <h2 id="17-uploading-files">17. Uploading files<a class="anchor" href="#17-uploading-files" aria-label="Link to this section">#</a></h2>
@@ -2542,6 +2542,10 @@ chunks, finalize:</p>
 <p><code>FileAdjustmentVideo</code> is the equivalent for video, with <code>TargetBitRateInMbps</code>,
 <code>RequestedFormat = FileFormat.Mp4</code>, and so on. <code>FileAdjustmentMeta</code> asks for the conversion status
 and extracted metadata as JSON instead of a converted file.</p>
+<p>Naming <code>RequestedFormat</code> is optional for images: it defaults to the adaptive <code>FileFormat.Image</code>,
+which resolves per file against the store defaults — the original untouched when nothing is
+adjusted, a GIF left as a GIF at its own size, everything else the configured default format and
+quality. See <a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>.</p>
 <p>Three things follow from conversion being asynchronous. <strong>A URL you just built is usually not
 servable yet</strong> — the conversion is queued, and <code>IsFileReady</code> is how you find out. <strong>A variant that
 is not ready does not fail</strong>: the store serves a generated status placeholder in the requested
@@ -2612,76 +2616,411 @@ before <code>Brightness</code>, <code>Contrast</code>, <code>Saturation</code>, 
 final look rather than to the original. And both options are part of the conversion key, so the light
 and the dark variant of one file are two conversions at two URLs — which is what lets you hand both
 to a <code>&lt;picture&gt;</code> element and let <code>prefers-color-scheme</code> choose.</p>
+<h3 id="serving-it">Serving it<a class="anchor" href="#serving-it" aria-label="Link to this section">#</a></h3>
+<p>The URL a variant is served on, and the middleware that answers it, are the subject of the next
+chapter — see <a href="#18-urls-and-the-url-manager">§18</a>, and <a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>
+for the shapes an asset URL can take.</p>
+<hr />
+<h2 id="18-urls-and-the-url-manager">18. URLs and the URL manager<a class="anchor" href="#18-urls-and-the-url-manager" aria-label="Link to this section">#</a></h2>
+<p>A URL is never stored. The database keeps a short <strong>address segment</strong> on each node — the slug from
+<code>[AddressProperty]</code> — and a <em>URL manager</em> assembles complete URLs from those segments plus live
+data: the node's place in a tree, its culture, the requesting host. Because nothing is stored,
+renaming a section is one write, and the thousands of URLs below it change on the next read.</p>
+<p>Every store has a manager. Configure nothing and you get <code>DefaultUrlManager</code> in its flat shape,
+where a node's URL is simply <code>/{address}</code> and addresses have to be unique — the classic behaviour.
+Give it a parent relation and the same manager builds <code>/{ancestor addresses}/{address}</code> instead.</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// the URL of a node, and the URL of a file variant</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">pageUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">article</span><span class="p">);</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">fileUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">article</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">400</span><span class="w"> </span><span class="p">});</span>
+
+<span class="c1">// the reverse: what does this URL point at?</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrl</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">UrlKeys</span><span class="w"> </span><span class="n">keys</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">        </span><span class="c1">// node, file, variant or deeplink</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">c</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">   </span><span class="c1">// …resolved all the way to content</span>
+
+<span class="c1">// may this node have this address? (editor-side validation)</span>
+<span class="kt">bool</span><span class="w"> </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">WillAddressResultInUniqueUrl</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">NodeKey</span><span class="p">(</span><span class="n">article</span><span class="p">.</span><span class="n">Id</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;contact-us&quot;</span><span class="p">);</span>
+</code></pre></div>
+
+<h3 id="configuring-it">Configuring it<a class="anchor" href="#configuring-it" aria-label="Link to this section">#</a></h3>
+<p>Three places, in increasing order of control. Options in <code>relatude.db.json</code> under the container's
+<code>LocalSettings.UrlOptions</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&quot;LocalSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;UrlOptions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;UrlFormat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;OnlyAddress&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;Parents&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;ParentRelationName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PageTree&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;PrimaryBaseAddress&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;AssetUrlSignatureKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;00000000-0000-0000-0000-000000000000&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>…the same options in code, when you build the store yourself:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">manager</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultUrlManager</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">DefaultUrlManagerOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">Parents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="k">new</span><span class="w"> </span><span class="n">UrlParentRelation</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">ParentRelationName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;PageTree&quot;</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">    </span><span class="n">UrlFormat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NodeUrlFormat</span><span class="p">.</span><span class="n">OnlyAddress</span><span class="p">,</span>
+<span class="p">});</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">store</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataStoreLocal</span><span class="p">(</span><span class="n">datamodel</span><span class="p">,</span><span class="w"> </span><span class="n">settings</span><span class="p">,</span><span class="w"> </span><span class="n">io</span><span class="p">,</span><span class="w"> </span><span class="n">urlManager</span><span class="p">:</span><span class="w"> </span><span class="n">manager</span><span class="p">);</span>
+</code></pre></div>
+
+<p>…or a factory per container in <code>AddRelatudeDB</code>, which is also where a hand-written manager goes:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">(</span><span class="n">options</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">CreateUrlManager</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">settings</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultUrlManager</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">DefaultUrlManagerOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">Parents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="k">new</span><span class="w"> </span><span class="n">UrlParentRelation</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">ParentRelationName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;PageTree&quot;</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">        </span><span class="n">Domains</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">UrlDomain</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;www.domain1.no&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">RootId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">siteOneRootId</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">UrlDomain</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;www.domain2.no&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">RootId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">siteTwoRootId</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">],</span>
+<span class="w">        </span><span class="n">FallbackRootId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">siteOneRootId</span><span class="p">,</span><span class="w">   </span><span class="c1">// localhost and other unknown hosts</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<h3 id="where-the-path-comes-from">Where the path comes from<a class="anchor" href="#where-the-path-comes-from" aria-label="Link to this section">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Parents</code></td>
+<td>The relations that lead from a node to its parent, in priority order. Each is a <code>UrlParentRelation</code> with <code>ParentRelationId</code> <strong>or</strong> <code>ParentRelationName</code> (CodeName or full name), plus <code>ParentIsRelationSource</code> (default <code>true</code>: the parent sits on the source side). Empty means flat — every node is top level.</td>
+</tr>
+<tr>
+<td><code>Domains</code></td>
+<td><code>UrlDomain { Host, RootId }</code> pairs. Each host serves the subtree of its root node, and the root itself answers at <code>/</code>. Nothing about the domain is stored on any node, so the same content runs locally unchanged.</td>
+</tr>
+<tr>
+<td><code>FallbackRootId</code></td>
+<td>The root used when the host is unknown — localhost, staging, tests. Defaults to the first configured domain's root.</td>
+</tr>
+<tr>
+<td><code>Scheme</code></td>
+<td>Scheme for absolute URLs. Default <code>https</code>.</td>
+</tr>
+<tr>
+<td><code>MaxDepth</code></td>
+<td>Cycle guard on the parent walk. Default 32.</td>
+</tr>
+</tbody>
+</table>
+<p>With several <code>Parents</code> entries, the first one whose child side accepts the node's type — the type
+itself or a type it inherits — and that actually has a parent for the node is followed. That is what
+lets one tree be held together by more than one relation: pages hang under pages through one
+relation, documents hang under pages through another, and a single URL crosses both.</p>
+<div class="codehilite"><pre><span></span><code>Shop (root)                    →  /
+├─ tv                          →  /tv
+│  └─ sony-x90                 →  /tv/sony-x90
+│     └─ info                   →  /tv/sony-x90/info
+└─ mobile
+   └─ pixel
+      └─ info                   →  /mobile/pixel/info
+</code></pre></div>
+
+<p>Both leaves carry the plain address <code>info</code>. That is the point of segments: an address only has to be
+unique among nodes that would otherwise produce the same complete URL.</p>
+<h3 id="address-uniqueness">Address uniqueness<a class="anchor" href="#address-uniqueness" aria-label="Link to this section">#</a></h3>
+<p><code>WillAddressResultInUniqueUrl(node, address)</code> answers whether an address is free <em>as a URL</em> — ask it
+from an editor before saving. The store asks the same question at commit time and, when the answer
+is no, appends <code>-2</code>, <code>-3</code> … until it is yes, writing the adjusted value back onto the node. So a
+collision is never an error; it is a silently adjusted slug, exactly as before.</p>
+<blockquote>
+<p><strong>Do not put <code>UniqueValues = true</code> on an address property</strong> unless you are running flat. That is an
+index constraint demanding global uniqueness, which is precisely what tree URLs relax — two <code>info</code>
+pages under different parents are legitimate, and the constraint would reject the second one.</p>
+</blockquote>
+<h3 id="page-url-formats">Page URL formats<a class="anchor" href="#page-url-formats" aria-label="Link to this section">#</a></h3>
+<p><code>UrlFormat</code> decides how a page URL is rendered. The examples below are all the same node: address
+<code>info</code>, ancestors <code>tv/sony-x90</code>, internal id <code>1042</code>, public id <code>9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9</code>.</p>
+<table>
+<thead>
+<tr>
+<th><code>NodeUrlFormat</code></th>
+<th>Example URL</th>
+<th>Resolved by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OnlyAddress</code></td>
+<td><code>/tv/sony-x90/info</code></td>
+<td>the path</td>
+</tr>
+<tr>
+<td><code>IntOrAddress</code></td>
+<td><code>/tv/sony-x90/info</code>, or <code>/1042</code> without an address</td>
+<td>path, else id</td>
+</tr>
+<tr>
+<td><code>GuidOrAddress</code></td>
+<td><code>/tv/sony-x90/info</code>, or <code>/9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9</code></td>
+<td>path, else id</td>
+</tr>
+<tr>
+<td><code>EncodedGuidOrAddress</code></td>
+<td><code>/tv/sony-x90/info</code>, or <code>/PSobnF9OcWCCk6S1xtfo-Q</code></td>
+<td>path, else id</td>
+</tr>
+<tr>
+<td><code>IntAndAddress</code></td>
+<td><code>/1042/tv/sony-x90/info</code></td>
+<td>the id alone</td>
+</tr>
+<tr>
+<td><code>GuidAndAddress</code></td>
+<td><code>/9c1b2a3d-…-a4b5c6d7e8f9/tv/sony-x90/info</code></td>
+<td>the id alone</td>
+</tr>
+<tr>
+<td><code>EncodedGuidAndAddress</code></td>
+<td><code>/PSobnF9OcWCCk6S1xtfo-Q/tv/sony-x90/info</code></td>
+<td>the id alone</td>
+</tr>
+<tr>
+<td><code>OnlyInt</code></td>
+<td><code>/1042</code></td>
+<td>the id</td>
+</tr>
+<tr>
+<td><code>OnlyGuid</code></td>
+<td><code>/9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9</code></td>
+<td>the id</td>
+</tr>
+<tr>
+<td><code>EncodedGuidOnly</code></td>
+<td><code>/PSobnF9OcWCCk6S1xtfo-Q</code></td>
+<td>the id</td>
+</tr>
+</tbody>
+</table>
+<p>The encoded forms are the public Guid as URL-safe Base64: 22 characters instead of 36, and no
+dashes. <code>DefaultUrlManager.EncodeGuid</code> / <code>TryDecodeGuid</code> do the conversion if you need it yourself.</p>
+<p>Two properties of the <code>…AndAddress</code> formats are worth the extra characters. They are resolved by the
+id alone, so the readable tail is decoration: <strong>old URLs keep working after a rename</strong>, and
+duplicate addresses never need suffixing. The <code>…OrAddress</code> formats do the opposite — they prefer the
+readable path and fall back to an id only for nodes that have no address at all.</p>
+<h3 id="prefixes">Prefixes<a class="anchor" href="#prefixes" aria-label="Link to this section">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Applies to</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PrimaryBaseAddress</code></td>
+<td>every URL, pages and assets, outermost</td>
+<td><code>/app</code> → <code>/app/tv/sony-x90</code></td>
+</tr>
+<tr>
+<td><code>BaseAddressPages</code></td>
+<td>page URLs, after the primary base</td>
+<td><code>/content</code> → <code>/app/content/tv/sony-x90</code></td>
+</tr>
+<tr>
+<td><code>BaseAddressAssets</code></td>
+<td>asset URLs, after the primary base</td>
+<td><code>/files</code> → <code>/app/files/assets/…</code></td>
+</tr>
+<tr>
+<td><code>IncludeTrailingSlash</code></td>
+<td>page URLs</td>
+<td><code>/tv/sony-x90/</code></td>
+</tr>
+</tbody>
+</table>
+<p>A base may be a path (<code>/app</code>) or carry scheme and host (<code>https://www.site.com</code>), which makes those
+URLs absolute. A lane base that carries its own scheme and host is a complete origin and <em>replaces</em>
+the primary base rather than being appended to it — that is how a CDN origin for assets coexists with
+a path prefix for pages. Inbound matching always goes by path, so both the absolute and the relative
+form of a URL resolve.</p>
+<h3 id="181-asset-urls-files-variants-and-deeplinks">18.1 Asset URLs: files, variants and deeplinks<a class="anchor" href="#181-asset-urls-files-variants-and-deeplinks" aria-label="Link to this section">#</a></h3>
+<p>An asset URL addresses a file property, a converted variant of it, or a deeplink into embedded
+content. It carries an opaque <strong>token</strong> the store encodes and parses; the manager only decides where
+that token sits in URL space. Defaults first, then the options that change them:</p>
+<div class="codehilite"><pre><span></span><code><span class="o">/</span><span class="n">assets</span><span class="o">/</span><span class="p">{</span><span class="n">token</span><span class="p">}</span><span class="o">/</span><span class="n">sentrum</span><span class="o">.</span><span class="n">jpg</span><span class="w">                     </span><span class="n">a</span><span class="w"> </span><span class="n">file</span>
+<span class="o">/</span><span class="n">assets</span><span class="o">/</span><span class="p">{</span><span class="n">token</span><span class="p">}</span><span class="o">/</span><span class="n">sentrum</span><span class="o">.</span><span class="n">webp</span><span class="w">                    </span><span class="n">a</span><span class="w"> </span><span class="n">converted</span><span class="w"> </span><span class="n">variant</span>
+<span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">cdn</span><span class="o">.</span><span class="n">example</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">assets</span><span class="o">/</span><span class="p">{</span><span class="n">token</span><span class="p">}</span><span class="o">/</span><span class="err">…</span><span class="w">        </span><span class="n">BaseAddressAssets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://cdn.example.com&quot;</span>
+</code></pre></div>
+
+<p>The trailing file name is cosmetic — it is there so a browser download gets a sensible name.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AssetUrlStyle</code></td>
+<td><code>AssetRoot</code> (default) puts assets under their own root. <code>UnderPageUrl</code> builds them on the owning node's page URL instead: <code>/tv/sony-x90/sentrum.jpg?asset={token}</code>. Falls back to the asset root for nodes with no page URL.</td>
+</tr>
+<tr>
+<td><code>AssetUrlRoot</code></td>
+<td>That root. Default <code>/assets/</code>.</td>
+</tr>
+<tr>
+<td><code>AssetUrlParamName</code></td>
+<td>The query parameter carrying the token in <code>UnderPageUrl</code> style. Default <code>asset</code>.</td>
+</tr>
+<tr>
+<td><code>PropertyPathFormat</code></td>
+<td>How the <em>target</em> — which file property on which node — is rendered.</td>
+</tr>
+<tr>
+<td><code>AssetUrlFormat</code></td>
+<td>How the <em>adjustment</em> — size, crop, format, quality — is rendered.</td>
+</tr>
+<tr>
+<td><code>AssetUrlSignatureKey</code></td>
+<td>When set, asset URLs are HMAC signed and edited ones stop resolving.</td>
+</tr>
+</tbody>
+</table>
+<p><code>PropertyPathFormat</code> and <code>AssetUrlFormat</code> trade opacity for readability. <code>Encrypted</code>, the default,
+keeps everything inside the token; the readable modes lift it out into the URL:</p>
+<div class="codehilite"><pre><span></span><code>Encrypted            /assets/aEQL7Rt7YbRadQ4Qhkmg…/sentrum.webp
+AssetUrlFormat = QueryParameters
+                     /assets/pXy9…/sentrum.webp?w=1200&amp;h=630&amp;f=webp&amp;q=80
+AssetUrlFormat = FriendlyShortString
+                     /assets/pXy9…/w1200h630fwebpq80/sentrum.webp
+PropertyPathFormat = QueryParameters
+                     /assets/sentrum.webp?pn=Photo&amp;pid=1042&amp;w=1200&amp;h=630
+PropertyPathFormat = FriendlyShortString
+                     /assets/Photo-1042/w1200h630/sentrum.webp
+</code></pre></div>
+
+<p><code>pn</code> is the property's CodeName, <code>pid</code> the node id, and a readable target segment is
+<code>{propertyName}-{internal id}</code>. Readable targets apply to plain node properties only — deeplinks into
+embedded content always use the token — and require the adjustment to be readable too, since an
+adjusted token cannot address a readable target. A <code>v</code> parameter may appear alongside: it is a cache
+buster derived from the file content and is ignored on the way in.</p>
+<p>Readable URLs are hand-editable by design, which is also their risk: anyone who can see one file can
+ask for other variants of it, or address another file entirely. <code>AssetUrlSignatureKey</code> closes that.
+With a key set, every asset URL carries a <code>sig</code> parameter over the token, the target and the
+adjustment together, and an edited URL is refused — not silently turned into something else:</p>
+<div class="codehilite"><pre><span></span><code>/assets/Photo-1042/w1200h630/sentrum.webp?sig=k7QmXn4…
+</code></pre></div>
+
+<p>Use a stable secret (the container id is a natural choice): change the key and previously handed-out
+URLs stop resolving. Signing and readability are the trade-off — with a key set, a developer can no
+longer tweak <code>w=1200</code> in the browser, which was half the appeal of the readable modes.</p>
+<blockquote>
+<p>A refused asset URL is as unrecognised as a URL that never existed. In particular, a tampered asset
+URL built on top of a page URL does <strong>not</strong> fall back to serving that page.</p>
+</blockquote>
+<h4 id="image-variants-adapt-by-default">Image variants adapt by default<a class="anchor" href="#image-variants-adapt-by-default" aria-label="Link to this section">#</a></h4>
+<p><code>FileAdjustmentImage.RequestedFormat</code> defaults to <code>FileFormat.Image</code>, an adaptive format resolved per
+file when the request is served:</p>
+<ul>
+<li>No adjustments at all → the original file is served untouched, no conversion.</li>
+<li>A GIF asked for at its own dimensions with no other edits → stays a GIF, so animation and palette
+  survive.</li>
+<li>Everything else → <code>SettingsLocal.ImageDefaultFormat</code> (<code>Jpeg</code>, <code>WebP</code> or <code>Png</code>; default <code>Jpeg</code>) at
+  <code>SettingsLocal.ImageDefaultQuality</code> (default 85) unless the request names its own quality.</li>
+</ul>
+<p>So <code>?w=1200</code> alone is a complete request, and a site-wide switch to WebP is one setting rather than a
+sweep through every <code>GetUrl</code> call. Naming a format explicitly always wins.</p>
+<h3 id="182-links-inside-html-and-markdown">18.2 Links inside HTML and Markdown<a class="anchor" href="#182-links-inside-html-and-markdown" aria-label="Link to this section">#</a></h3>
+<p>A link in a rich-text field must survive the rename of the page it points at. Properties marked
+<code>StringValueType.HTML</code> or <code>Markdown</code> — <code>[HtmlProperty]</code> is the short form — therefore store links in
+an internal, id-based form and never as public URLs:</p>
+<div class="codehilite"><pre><span></span><code><span class="cm">&lt;!-- what is stored --&gt;</span>
+<span class="p">&lt;</span><span class="nt">p</span><span class="p">&gt;</span>Read about the <span class="p">&lt;</span><span class="nt">a</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;rdb:nARQvAABE&quot;</span><span class="p">&gt;</span>Sony X90<span class="p">&lt;/</span><span class="nt">a</span><span class="p">&gt;</span>.<span class="p">&lt;/</span><span class="nt">p</span><span class="p">&gt;</span>
+
+<span class="cm">&lt;!-- what every read returns --&gt;</span>
+<span class="p">&lt;</span><span class="nt">p</span><span class="p">&gt;</span>Read about the <span class="p">&lt;</span><span class="nt">a</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/tv/sony-x90/info&quot;</span><span class="p">&gt;</span>Sony X90<span class="p">&lt;/</span><span class="nt">a</span><span class="p">&gt;</span>.<span class="p">&lt;/</span><span class="nt">p</span><span class="p">&gt;</span>
+</code></pre></div>
+
+<p>The conversion is automatic in both directions: public URLs in a value you save are rewritten to
+<code>rdb:</code> tokens at commit time, and tokens are rewritten to current public URLs on every read. External
+links, anchors, <code>mailto:</code> and unresolvable URLs pass through untouched, the rewrite is idempotent, and
+a token whose target has been deleted comes back as <code>href="#"</code>.</p>
+<p>That is why renaming a section is genuinely one write: the stored HTML is not touched, and the next
+read of it simply emits the new paths. <code>db.ExternalizeContentLinks</code> and <code>db.InternalizeContentLinks</code>
+expose the same conversion for content you handle yourself, and a migration utility can internalise
+existing content in place.</p>
+<h3 id="writing-your-own-manager">Writing your own manager<a class="anchor" href="#writing-your-own-manager" aria-label="Link to this section">#</a></h3>
+<p>When the built-in shapes do not fit, implement <code>IUrlManager</code> — three methods for pages, and derive
+from <code>UrlManagerBase</code> to inherit the whole asset side, signing included:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">PageUrlManager</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">UrlManagerBase</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">override</span><span class="w"> </span><span class="k">void</span><span class="w"> </span><span class="nf">Initialize</span><span class="p">(</span><span class="n">IDataStore</span><span class="w"> </span><span class="n">store</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// outbound: the URL of a node, or null when it has none</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">override</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">TryGetUrl</span><span class="p">(</span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">meta</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">absolute</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// inbound: every node this URL could mean, best first — the store then filters</span>
+<span class="w">    </span><span class="c1">// the candidates by publication, access and culture</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">override</span><span class="w"> </span><span class="n">NodeKeyWithCulture</span><span class="p">[]</span><span class="w"> </span><span class="nf">GetMatches</span><span class="p">(</span><span class="kt">string</span><span class="w"> </span><span class="n">completeUrl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// may this node have this address?</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">override</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="nf">WillAddressResultInUniqueUrl</span><span class="p">(</span><span class="n">NodeKey</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">cultureId</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">address</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Two things the store keeps for itself, so a manager stays small. <strong>Security is not the manager's
+job</strong>: <code>GetMatches</code> returns candidates regardless of publication or access, and the store filters them
+through the <code>QueryContext</code> afterwards — which is what makes one URL serve a draft to an editor and
+nothing at all to an anonymous visitor. And <strong>tokens are the store's business</strong>: files, variants and
+deeplinks arrive already encoded, and a manager only chooses where to put them.
+<code>examples/Website.Simple/PageUrlManager.cs</code> is a complete one written against the typed model, using
+<code>Traverse</code> to walk down and <code>Parent.TryGet</code> to walk up.</p>
 <h3 id="the-middleware-that-serves-it">The middleware that serves it<a class="anchor" href="#the-middleware-that-serves-it" aria-label="Link to this section">#</a></h3>
-<p>Serving the URL is a middleware you write; nothing maps a file endpoint for you. It is about thirty
-lines around <code>TryParseUrlForContent</code> and <code>FileHandler.HandleFileAsync</code>. This is
-<code>examples/Website.Simple/MiddelWare.cs</code> in full:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Web</span><span class="p">;</span>
-
-<span class="k">namespace</span><span class="w"> </span><span class="nn">Website.Simple</span><span class="p">;</span>
-
-<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">RelatudeDBMiddleware</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="k">private</span><span class="w"> </span><span class="k">readonly</span><span class="w"> </span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">_next</span><span class="p">;</span>
-
-<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="nf">RelatudeDBMiddleware</span><span class="p">(</span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">next</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="n">_next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">next</span><span class="p">;</span>
-<span class="w">    </span><span class="p">}</span>
+<p>Serving URLs is a middleware you write; nothing maps an endpoint for you. It is about thirty lines
+around <code>TryParseUrlForContent</code> and <code>FileHandler.HandleFileAsync</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nf">RelatudeDBMiddleware</span><span class="p">(</span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">next</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">Invoke</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">IsReady</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Path</span><span class="p">.</span><span class="n">Value</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">QueryString</span><span class="p">;</span>
+<span class="w">            </span><span class="c1">// scheme and host included, so domain routing can see them</span>
+<span class="w">            </span><span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Scheme</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;://&quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Host</span>
+<span class="w">                    </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Path</span><span class="p">.</span><span class="n">Value</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">QueryString</span><span class="p">;</span>
 <span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
-<span class="w">                </span><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handleRequest</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">);</span>
-<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">                    </span><span class="k">await</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">ExecuteAsync</span><span class="p">(</span><span class="n">http</span><span class="p">);</span>
-<span class="w">                    </span><span class="k">return</span><span class="p">;</span>
-<span class="w">                </span><span class="p">}</span>
+<span class="w">                </span><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Id</span><span class="p">.</span><span class="n">Target</span><span class="w"> </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Property</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">PropertyAdjusted</span>
+<span class="w">                        </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">FileHandler</span><span class="p">.</span><span class="n">HandleFileAsync</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Stream</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">FileName</span><span class="p">,</span>
+<span class="w">                               </span><span class="n">content</span><span class="p">.</span><span class="n">Attachment</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">ContentType</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Cacheable</span><span class="p">),</span>
+<span class="w">                    </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Node</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">EmbeddedNode</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RenderPage</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">),</span>
+<span class="w">                    </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
+<span class="w">                </span><span class="p">};</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">ExecuteAsync</span><span class="p">(</span><span class="n">http</span><span class="p">);</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">            </span><span class="p">}</span>
 <span class="w">        </span><span class="p">}</span>
-<span class="w">        </span><span class="k">await</span><span class="w"> </span><span class="n">_next</span><span class="p">.</span><span class="n">Invoke</span><span class="p">(</span><span class="n">http</span><span class="p">);</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handleRequest</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">content</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Id</span><span class="p">.</span><span class="n">Target</span><span class="w"> </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Property</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">PropertyAdjusted</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handleFile</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">),</span>
-<span class="w">            </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Node</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">EmbeddedNode</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">handlePage</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">),</span>
-<span class="w">            </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
-<span class="w">        </span><span class="p">};</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handleFile</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">FileHandler</span><span class="p">.</span><span class="n">HandleFileAsync</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Stream</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">FileName</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Attachment</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">ContentType</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Cacheable</span><span class="p">);</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">    </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">IResult</span><span class="o">?&gt;</span><span class="w"> </span><span class="n">handlePage</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">UrlContent</span><span class="w"> </span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Results</span><span class="p">.</span><span class="n">Json</span><span class="p">(</span><span class="n">c</span><span class="p">);</span>
+<span class="w">        </span><span class="k">await</span><span class="w"> </span><span class="n">next</span><span class="p">.</span><span class="n">Invoke</span><span class="p">(</span><span class="n">http</span><span class="p">);</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 
-<p>Registered in <code>Program.cs</code> after the static-file middleware, because the default URL root for nodes
-and files is <code>/</code> and this therefore sees every request:</p>
+<p>Registered after the static-file middleware, because a URL manager can own <code>/</code> and this therefore
+sees every request:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">app</span><span class="p">.</span><span class="n">UseDefaultFiles</span><span class="p">();</span>
 <span class="n">app</span><span class="p">.</span><span class="n">UseStaticFiles</span><span class="p">();</span>
-
 <span class="n">app</span><span class="p">.</span><span class="n">UseMiddleware</span><span class="o">&lt;</span><span class="n">RelatudeDBMiddleware</span><span class="o">&gt;</span><span class="p">();</span>
-
 <span class="n">app</span><span class="p">.</span><span class="n">StartRelatudeDB</span><span class="p">();</span>
-<span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBAdmin</span><span class="p">();</span>
 </code></pre></div>
 
 <p>Four things in there are load-bearing:</p>
 <ul>
 <li><strong>The <code>RelatudeDBRuntime.IsReady</code> gate.</strong> The store opens asynchronously, and without the gate
   requests arriving during startup throw instead of falling through.</li>
-<li><strong><code>Path.Value + QueryString</code>, not <code>Path</code>.</strong> The addressing payload lives in the query parameter,
-  so parsing the path alone silently matches nothing.</li>
-<li><strong>Every non-match calls <code>_next</code>.</strong> <code>TryParseUrlForContent</code> returns <code>false</code> rather than throwing
-  for URLs that are not the store's, which is what makes the fall-through clean.</li>
-<li><strong><code>handlePage</code> is yours to write.</strong> <code>UrlTarget.Node</code> and <code>EmbeddedNode</code> hand you
-  <code>UrlContent.NodeData</code>; returning <code>Results.Json(c)</code> is the example being lazy, not a
-  recommendation. Return your own view, or <code>null</code> to fall through to MVC/Razor routing.</li>
+<li><strong>Scheme and host, not just the path.</strong> Domain routing needs the host, and asset tokens may live in
+  the query string — <code>Path.Value</code> alone silently matches less than it should.</li>
+<li><strong>Every non-match calls <code>next</code>.</strong> <code>TryParseUrlForContent</code> returns <code>false</code> rather than throwing for
+  URLs that are not the store's, which is what makes the fall-through clean, and it is also how a
+  refused (tampered) asset URL ends up as a plain 404.</li>
+<li><strong>Rendering a page is yours to write.</strong> <code>UrlTarget.Node</code> and <code>EmbeddedNode</code> hand you
+  <code>UrlContent.NodeData</code>, and <code>UrlKeys.CultureId</code> / <code>CultureCode</code> tell you which culture the URL
+  matched. Return your own view, or <code>null</code> to fall through to MVC/Razor routing.</li>
 </ul>
+<p><code>examples/Website.Simple</code> has the whole thing running: a two-domain page tree, a rename demo that
+shows stored <code>rdb:</code> tokens surviving it, and endpoints that print every node's computed URL.</p>
 <hr />
 <h1 id="part-iii-querying">Part III — Querying<a class="anchor" href="#part-iii-querying" aria-label="Link to this section">#</a></h1>
-<h2 id="18-query-anatomy">18. Query anatomy<a class="anchor" href="#18-query-anatomy" aria-label="Link to this section">#</a></h2>
+<h2 id="19-query-anatomy">19. Query anatomy<a class="anchor" href="#19-query-anatomy" aria-label="Link to this section">#</a></h2>
 <p>Every query is built with the <code>IQueryOfNodes&lt;TNode, TInclude&gt;</code> builder and finished with
 <code>Execute()</code>.</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">()</span><span class="w">                            </span><span class="c1">// 1. entry point</span>
@@ -2743,7 +3082,7 @@ to narrow that.</p>
 
 <p><code>TryGet</code> is the safe "I expect at most one" probe.</p>
 <hr />
-<h2 id="19-filtering-with-where">19. Filtering with Where<a class="anchor" href="#19-filtering-with-where" aria-label="Link to this section">#</a></h2>
+<h2 id="20-filtering-with-where">20. Filtering with Where<a class="anchor" href="#20-filtering-with-where" aria-label="Link to this section">#</a></h2>
 <div class="codehilite"><pre><span></span><code><span class="c1">// Expression form — the everyday tool</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">e</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Price</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mf">500m</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">EventStatus</span><span class="p">.</span><span class="n">Published</span><span class="p">);</span>
 
@@ -2780,7 +3119,7 @@ to narrow that.</p>
 filter still returns the right answer, but it scans.</p>
 </blockquote>
 <hr />
-<h2 id="20-text-and-semantic-search">20. Text and semantic search<a class="anchor" href="#20-text-and-semantic-search" aria-label="Link to this section">#</a></h2>
+<h2 id="21-text-and-semantic-search">21. Text and semantic search<a class="anchor" href="#21-text-and-semantic-search" aria-label="Link to this section">#</a></h2>
 <p>Relatude.DB has BM25 keyword search and vector/semantic search built in, and blends them with a
 single <code>semanticRatio</code> knob: <code>0.0</code> is pure keyword, <code>1.0</code> is pure vector, anything between is a
 hybrid.</p>
@@ -2839,7 +3178,7 @@ IVS and HNSW — are measured across corpus sizes and cache budgets in the
 and memory footprint.</p>
 </blockquote>
 <hr />
-<h2 id="21-geo-queries">21. Geo queries<a class="anchor" href="#21-geo-queries" aria-label="Link to this section">#</a></h2>
+<h2 id="22-geo-queries">22. Geo queries<a class="anchor" href="#22-geo-queries" aria-label="Link to this section">#</a></h2>
 <p>Spatial filtering is a normal <code>Where</code> clause. The query compiler recognises
 <code>GeoCoordinate.IsWithin(center, meters)</code> and accelerates it with the coordinate index.</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">oslo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">GeoCoordinate</span><span class="p">(</span><span class="mf">59.9139</span><span class="p">,</span><span class="w"> </span><span class="mf">10.7522</span><span class="p">);</span>
@@ -2904,7 +3243,7 @@ materialised page in memory:</p>
 <li>Distances are great-circle metres over a mean Earth radius of 6 371 km.</li>
 </ul>
 <hr />
-<h2 id="22-relation-filters">22. Relation filters<a class="anchor" href="#22-relation-filters" aria-label="Link to this section">#</a></h2>
+<h2 id="23-relation-filters">23. Relation filters<a class="anchor" href="#23-relation-filters" aria-label="Link to this section">#</a></h2>
 <p>Filter nodes by <em>what they are related to</em>, without loading either side:</p>
 <div class="codehilite"><pre><span></span><code><span class="c1">// Events at a specific venue</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">WhereRelates</span><span class="p">(</span><span class="n">e</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Venue</span><span class="p">,</span><span class="w"> </span><span class="n">venueId</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
@@ -2942,7 +3281,7 @@ materialised page in memory:</p>
 </code></pre></div>
 
 <hr />
-<h2 id="23-eager-loading-include-and-preload">23. Eager loading: Include and Preload<a class="anchor" href="#23-eager-loading-include-and-preload" aria-label="Link to this section">#</a></h2>
+<h2 id="24-eager-loading-include-and-preload">24. Eager loading: Include and Preload<a class="anchor" href="#24-eager-loading-include-and-preload" aria-label="Link to this section">#</a></h2>
 <p>Both fetch related data in the same round trip. The difference is <em>what kind of property</em> they
 target.</p>
 <table>
@@ -3022,7 +3361,7 @@ event lists are filtered.</p>
 </code></pre></div>
 
 <hr />
-<h2 id="24-graph-traversal-and-shortest-path">24. Graph traversal and shortest path<a class="anchor" href="#24-graph-traversal-and-shortest-path" aria-label="Link to this section">#</a></h2>
+<h2 id="25-graph-traversal-and-shortest-path">25. Graph traversal and shortest path<a class="anchor" href="#25-graph-traversal-and-shortest-path" aria-label="Link to this section">#</a></h2>
 <p>This is where the graph model earns its keep. Both operations work over <strong>relations</strong> — not
 references, not embedded data.</p>
 <h3 id="traverse">Traverse<a class="anchor" href="#traverse" aria-label="Link to this section">#</a></h3>
@@ -3065,7 +3404,7 @@ level 0; the result contains every node whose <em>minimum</em> distance from any
 
 <p>The result carries the node ids and the materialised nodes in order, from → to inclusive.</p>
 <hr />
-<h2 id="25-sorting-paging-and-result-sets">25. Sorting, paging and result sets<a class="anchor" href="#25-sorting-paging-and-result-sets" aria-label="Link to this section">#</a></h2>
+<h2 id="26-sorting-paging-and-result-sets">26. Sorting, paging and result sets<a class="anchor" href="#26-sorting-paging-and-result-sets" aria-label="Link to this section">#</a></h2>
 <div class="codehilite"><pre><span></span><code><span class="p">.</span><span class="n">OrderBy</span><span class="p">(</span><span class="n">Expression</span><span class="o">&lt;</span><span class="n">Func</span><span class="o">&lt;</span><span class="n">TNode</span><span class="p">,</span><span class="w"> </span><span class="kt">object</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">expression</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="k">descending</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">false</span><span class="p">)</span>
 <span class="p">.</span><span class="n">OrderByDescending</span><span class="p">(</span><span class="n">Expression</span><span class="o">&lt;</span><span class="n">Func</span><span class="o">&lt;</span><span class="n">TNode</span><span class="p">,</span><span class="w"> </span><span class="kt">object</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">expression</span><span class="p">)</span>
 </code></pre></div>
@@ -3125,7 +3464,7 @@ and returns the total count without you running a second query. <strong>Use <cod
 </tbody>
 </table>
 <hr />
-<h2 id="26-aggregates">26. Aggregates<a class="anchor" href="#26-aggregates" aria-label="Link to this section">#</a></h2>
+<h2 id="27-aggregates">27. Aggregates<a class="anchor" href="#27-aggregates" aria-label="Link to this section">#</a></h2>
 <div class="codehilite"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="n">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">e</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">EventStatus</span><span class="p">.</span><span class="n">Published</span><span class="p">).</span><span class="n">Count</span><span class="p">();</span>
 <span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">CountAsync</span><span class="p">();</span>
 
@@ -3137,7 +3476,7 @@ and returns the total count without you running a second query. <strong>Use <cod
 <p><code>Count()</code> on the builder is answered from the index and never materialises nodes — much cheaper
 than <code>Execute().Count()</code>.</p>
 <hr />
-<h2 id="27-faceted-search">27. Faceted search<a class="anchor" href="#27-faceted-search" aria-label="Link to this section">#</a></h2>
+<h2 id="28-faceted-search">28. Faceted search<a class="anchor" href="#28-faceted-search" aria-label="Link to this section">#</a></h2>
 <p>Facets bucket a result set across indexed properties, and are what you build a filter sidebar
 from. Call <code>.Facets()</code> to switch the builder into facet mode, then declare which facets you want.</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">()</span>
@@ -3231,7 +3570,7 @@ subtypes.</p>
 faceting. Relation properties need <code>[RelationProperty(Facet = true)]</code> to opt in. Numeric range
 bucketing is tuned by <code>FacetRangePowerBase</code> and <code>FacetRangeCount</code> on the property attribute.</p>
 <hr />
-<h2 id="28-cultures-visibility-and-scoped-stores">28. Cultures, visibility and scoped stores<a class="anchor" href="#28-cultures-visibility-and-scoped-stores" aria-label="Link to this section">#</a></h2>
+<h2 id="29-cultures-visibility-and-scoped-stores">29. Cultures, visibility and scoped stores<a class="anchor" href="#29-cultures-visibility-and-scoped-stores" aria-label="Link to this section">#</a></h2>
 <p>Two equivalent styles. Per query:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">()</span>
 <span class="w">  </span><span class="p">.</span><span class="n">WhereCulture</span><span class="p">(</span><span class="s">&quot;nb-NO&quot;</span><span class="p">)</span>
@@ -3256,7 +3595,7 @@ bucketing is tuned by <code>FacetRangePowerBase</code> and <code>FacetRangeCount
 <p><code>db.Context.Admin()</code> returns a store that bypasses ACL filtering. Use it in trusted server code
 only — <strong>never hand it to a request handler</strong>.</p>
 <hr />
-<h2 id="29-pitfalls-and-gotchas">29. Pitfalls and gotchas<a class="anchor" href="#29-pitfalls-and-gotchas" aria-label="Link to this section">#</a></h2>
+<h2 id="30-pitfalls-and-gotchas">30. Pitfalls and gotchas<a class="anchor" href="#30-pitfalls-and-gotchas" aria-label="Link to this section">#</a></h2>
 <p>A checklist of the things that actually bite people.</p>
 <p><strong>Modelling</strong></p>
 <ol>
@@ -3321,7 +3660,7 @@ only — <strong>never hand it to a request handler</strong>.</p>
 </ol>
 <hr />
 <h1 id="part-iv-tooling">Part IV — Tooling<a class="anchor" href="#part-iv-tooling" aria-label="Link to this section">#</a></h1>
-<h2 id="30-the-command-line-tool">30. The command line tool<a class="anchor" href="#30-the-command-line-tool" aria-label="Link to this section">#</a></h2>
+<h2 id="31-the-command-line-tool">31. The command line tool<a class="anchor" href="#31-the-command-line-tool" aria-label="Link to this section">#</a></h2>
 <p><code>Relatude.DB.Console</code> is a command line tool that works on a database and a datamodel <strong>from the
 outside</strong>: nothing of your application has to run, it only has to be readable. It exists for the
 things that otherwise need a running app and the admin UI — looking at the model, running a query,
@@ -3470,7 +3809,7 @@ files belong in code, where the compiler checks what is being related to what.</
 <li><strong>Ids derived from names are a trap the tool will point out.</strong> <code>validate</code> counts the node types and
   members whose ids come from their names, and <code>codegen</code> writes the model out with those ids made
   explicit — which is how you pin them before a rename (see pitfall 16 in
-  <a href="#29-pitfalls-and-gotchas">section 29</a>).</li>
+  <a href="#30-pitfalls-and-gotchas">section 30</a>).</li>
 </ul>
 <hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
@@ -3554,7 +3893,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Introduction", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": []}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Uploading files", "id": "16-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "17. Query anatomy", "id": "17-query-anatomy", "children": [{"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "18. Filtering with Where", "id": "18-filtering-with-where", "children": []}, {"level": 2, "text": "19. Text and semantic search", "id": "19-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "20. Geo queries", "id": "20-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "21. Relation filters", "id": "21-relation-filters", "children": []}, {"level": 2, "text": "22. Eager loading: Include and Preload", "id": "22-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "23. Graph traversal and shortest path", "id": "23-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "24. Sorting, paging and result sets", "id": "24-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "25. Aggregates", "id": "25-aggregates", "children": []}, {"level": 2, "text": "26. Faceted search", "id": "26-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "27. Cultures, visibility and scoped stores", "id": "27-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "28. Pitfalls and gotchas", "id": "28-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "29. The command line tool", "id": "29-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling &amp; Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded&lt;T&gt; — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap&lt;TKey, TValue&gt; — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference&lt;T&gt;", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References&lt;T&gt;", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model &amp; the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": []}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet&lt;T&gt;", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

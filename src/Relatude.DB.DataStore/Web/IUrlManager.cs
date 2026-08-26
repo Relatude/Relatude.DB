@@ -102,5 +102,18 @@ public sealed class AssetTokenMatch {
     public PropertyPath? PropertyPath { get; init; }
     /// <summary>An adjustment rendered readably by the manager, parsed back. Null when the token is self contained.</summary>
     public FileAdjustmentBase? Adjustment { get; init; }
+    /// <summary>
+    /// True when the URL was recognized as an asset URL but refused - a missing, invalid or tampered
+    /// signature. The store then stops instead of falling back to page resolution, so the request is
+    /// as unrecognized as any other. See <see cref="Rejected"/>.
+    /// </summary>
+    public bool IsRejected { get; init; }
+    /// <summary>
+    /// Return this from <see cref="IUrlManager.TryGetAssetToken"/> for a URL that is an asset URL but
+    /// must not resolve. Returning null instead means "not an asset URL at all", and the store then
+    /// tries the URL as a page - which, for a tampered asset URL placed under a page URL, would
+    /// serve the page rather than nothing.
+    /// </summary>
+    public static AssetTokenMatch Rejected { get; } = new() { IsRejected = true };
     public static implicit operator AssetTokenMatch?(string? token) => token == null ? null : new AssetTokenMatch { Token = token };
 }

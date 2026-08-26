@@ -102,6 +102,9 @@ internal sealed class UrlSystem {
             // a manager choking on a malformed URL is a non-match, not an error
         }
         if (assetMatch != null) {
+            // an asset URL the manager refused (bad or missing signature) is a dead end: falling back
+            // to page resolution here would serve the page an asset URL was built on top of
+            if (assetMatch.IsRejected) return false;
             if (assetMatch.PropertyPath != null) {
                 // the manager rendered the target readably: no token involved
                 result = new UrlKeys {
