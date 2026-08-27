@@ -347,7 +347,7 @@ public partial class RelatudeDBServer {
                 Log("Server is shutting down, skipped opening \"" + container.Settings.Name + "\".");
                 return;
             }
-            container.Open();
+            openWaitingForAnotherProcessIfNeeded(container);
             Log("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
             container.StartUpException = err;
@@ -357,6 +357,38 @@ public partial class RelatudeDBServer {
             if (throwException) throw;
         } finally {
             Interlocked.Decrement(ref _remaingToAutoOpenCount);
+        }
+    }
+    /// <summary>
+    /// Opens a database, and while the only thing wrong is that another process still holds its files,
+    /// waits and opens again.
+    /// <para>The individual file opens already wait (see <c>FileOpenRetry</c>), so reaching this means
+    /// a whole open attempt failed on a lock. That happens on any host that starts the new process
+    /// before the old one has finished stopping - Azure App Service does it by default (overlapped
+    /// recycle), and a container deploy or an IIS worker swap can do the same. Without this the
+    /// database would record a start-up exception and stay closed until someone opened it by hand,
+    /// even though the lock cleared seconds later.</para>
+    /// </summary>
+    void openWaitingForAnotherProcessIfNeeded(NodeStoreContainer container) {
+        var budget = Options?.AutoOpenRetryTimeout ?? ServerOptions.DefaultAutoOpenRetryTimeout;
+        var sw = Stopwatch.StartNew();
+        var attempts = 0;
+        while (true) {
+            attempts++;
+            try {
+                container.Open();
+                if (attempts > 1) {
+                    Log("Database \"" + container.Settings.Name + "\" opened on attempt " + attempts
+                        + " after waiting " + sw.Elapsed.TotalSeconds.To1000N() + " s for another process to release it.");
+                }
+                return;
+            } catch (Exception err) when (FileOpenRetry.IsSharingViolation(err) && !IsShuttingDown && sw.Elapsed < budget) {
+                // 1 s, 2 s, then 5 s: the handover clears in seconds, and a slow poll keeps the log readable
+                var wait = TimeSpan.FromSeconds(Math.Min(5, attempts));
+                Log("Database \"" + container.Settings.Name + "\" is still held by another process, retrying in "
+                    + wait.TotalSeconds.To1000N() + " s. " + err.Message);
+                Thread.Sleep(wait);
+            }
         }
     }
 
@@ -569,4 +601,16 @@ public class ServerOptions {
     /// <see cref="RestartOptions.None"/> to take restarting out of the UI altogether.
     /// </summary>
     public RestartOptions AllowedRestarts { get; set; } = RestartOptions.All;
+
+    /// <summary>
+    /// How long a database that auto-opens keeps waiting when the open fails because another process
+    /// is still holding its files, before giving up and recording a start-up exception.
+    /// <para>This is the outer safety net for a host that starts the new process before the old one has
+    /// finished stopping - Azure App Service does exactly that unless
+    /// <c>WEBSITE_DISABLE_OVERLAPPED_RECYCLE=1</c> is set. The individual file opens already wait on
+    /// their own, so this only matters when a whole attempt failed. Set it to
+    /// <see cref="TimeSpan.Zero"/> for a single attempt, as before this existed.</para>
+    /// </summary>
+    public TimeSpan AutoOpenRetryTimeout { get; set; } = DefaultAutoOpenRetryTimeout;
+    public static TimeSpan DefaultAutoOpenRetryTimeout => TimeSpan.FromSeconds(120);
 }

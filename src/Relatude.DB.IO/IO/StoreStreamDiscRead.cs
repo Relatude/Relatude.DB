@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.IO;
+﻿using Relatude.DB.Common;
+namespace Relatude.DB.IO;
 
 public class StoreStreamDiscRead : IReadStream {
     protected FileStream _stream;
@@ -22,26 +23,19 @@ public class StoreStreamDiscRead : IReadStream {
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
-    const int numberOfRetries = 100;
+    // Generous on purpose: this is the path that reads the state file and replays the log, and it has
+    // to outlast a backup agent holding the file, not just a process handover.
+    static readonly TimeSpan _openTimeout = TimeSpan.FromMinutes(16);
     static FileStream getStream(string filePath) {
-        Exception? lastException = null;
-        for (int i = 1; i <= numberOfRetries; ++i) {
-            try {
+        return FileOpenRetry.Open(filePath, () => {
                 // SequentialScan hints the OS cache manager to read ahead and evict already-read pages,
                 // which speeds up the forward-only bulk reads this stream is used for (state file, log replay,
                 // index files). It never affects correctness if the position is moved; it would only reduce
                 // read-ahead value for backward/random seeks - which do not occur on this path: random-access
                 // node reads use the append stream's Get(), and the seekable AsStream() path unwraps to a plain
                 // FileStream (see ReadStreamWrapper.Wrap).
-                return new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-            } catch (FileNotFoundException) {
-                throw; // No need to retry if the file is not found
-            } catch (IOException) {
-                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 100 retries: 1s + 1s + 10s * 98 = 16 minutes, leaving time for azure lock on files during restarts and backups
-                Thread.Sleep(delayOnRetry);
-            }
-        }
-        throw new Exception($"Failed to open file {filePath} after {numberOfRetries} attempts. " + lastException?.Message);
+                return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+        }, _openTimeout);
     }
 
     public long Position { get => _stream.Position; set => _stream.Position = value; }

@@ -1,4 +1,5 @@
-﻿namespace Relatude.DB.IO;
+﻿using Relatude.DB.Common;
+namespace Relatude.DB.IO;
 /// <summary>
 /// Thread-safe append stream writing to disc storage
 /// </summary>
@@ -30,21 +31,15 @@ public class StoreStreamDiscWrite : IAppendStream {
         _bytesRead = 0;
         _bytesWritten = 0;
     }
-    const int numberOfRetries = 10;
+    // This is the handle that makes the database single-writer: FileShare.None on the log file. It is
+    // also the first thing a restart contends with, so it waits for the previous process to let go.
+    static readonly TimeSpan _openTimeout = TimeSpan.FromSeconds(90);
     FileStream getStream(string filePath) {
-        Exception? lastException = null;
-        for (int i = 1; i <= numberOfRetries; ++i) {
-            try {
-                var s = new FileStream(filePath, FileMode.OpenOrCreate, _readOnly ? FileAccess.Read : FileAccess.ReadWrite, FileShare.None, 4096 * 10, FileOptions.RandomAccess);
-                s.Position = s.Length;
-                return s;
-            } catch (Exception e) {
-                lastException = e;
-                var delayOnRetry = i < 3 ? 1000 : 10000; // in total after 10 retries: 1s + 1s + 10s + 10s + 10s + 10s + 10s + 10s + 10s + 10s = 81s
-                Thread.Sleep(delayOnRetry);
-            }
-        }
-        throw new Exception($"Failed to open file {filePath} after {numberOfRetries} attempts. " + lastException?.Message);
+        return FileOpenRetry.Open(filePath, () => {
+            var s = new FileStream(filePath, FileMode.OpenOrCreate, _readOnly ? FileAccess.Read : FileAccess.ReadWrite, FileShare.None, 4096 * 10, FileOptions.RandomAccess);
+            s.Position = s.Length;
+            return s;
+        }, _openTimeout);
     }
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void Append(byte[] data) {

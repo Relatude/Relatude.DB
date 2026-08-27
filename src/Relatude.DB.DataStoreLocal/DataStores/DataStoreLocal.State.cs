@@ -105,6 +105,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             Engines.BindToWalFile(walFileId, msg => LogInfo(msg));
         } catch (Exception err) {
             var errMsg = "Failed loading memory index states. " + err.Message;
+            // A file another process is still holding is not a broken index. Letting it become a
+            // StateFileReadException would delete every state and index file and replay the whole log
+            // for nothing - and silently, since the rebuild succeeds. Let it out instead, so the
+            // caller can wait and open again. See FileOpenRetry.
+            if (FileOpenRetry.IsSharingViolation(err)) throw;
             if (err.CausedByOutOfMemory()) {
                 // do not try to continue if out of memory, as it will delete state file 
                 // throwing this will abort loading process ( as the open method will rethrow it, and not try again after deleting state file )
@@ -169,6 +174,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
+                // as above: a held file must not be reported as an unusable state file
+                if (FileOpenRetry.IsSharingViolation(err)) throw;
                 var errMsg = "Failed loading index states. " + err.Message; // try to continue with loading from log file
                 throw new StateFileReadException(errMsg, err);
             }
@@ -283,7 +290,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         // Divergence check: an index claiming a timestamp newer than anything the log contains holds
         // transactions the durable log lost (e.g. a crash dropped a queued WAL batch after the indexes
-        // had committed). Replay cannot repair that — the phantom entries would survive — and the
+        // had committed). Replay cannot repair that ï¿½ the phantom entries would survive ï¿½ and the
         // commit below would overwrite the too-new timestamp and mask the only evidence, so the check
         // must run here, on the first startup after the damage. _wal.LastTimestamp is at this point
         // max(state file, replayed transactions) = the newest timestamp the durable log covers.

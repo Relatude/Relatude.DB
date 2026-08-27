@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.AI.HNSW;
 
@@ -80,6 +81,11 @@ internal sealed class FixedStrideFile : IDisposable {
     }
 
     static FileStream open(string path, FileMode mode, long preallocationBytes) {
+        // Retried because FileShare.Read makes this the single writer: on a host that recycles with the
+        // processes overlapping, the previous one may still hold it for a moment. See FileOpenRetry.
+        return FileOpenRetry.Open(path, () => openOnce(path, mode, preallocationBytes));
+    }
+    static FileStream openOnce(string path, FileMode mode, long preallocationBytes) {
         // BufferSize 0 turns off FileStream's own buffering: every read and write below goes through
         // RandomAccess on the handle, and the stream is kept only for its Flush(true) fsync.
         return new FileStream(path, new FileStreamOptions {

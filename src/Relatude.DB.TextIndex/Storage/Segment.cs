@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.DataStores.Indexes.TextIndexing;
 
@@ -57,7 +58,8 @@ internal sealed class Segment : IDisposable {
         TermCount = termCount;
     }
     public static Segment Open(string path, long expectedId) {
-        var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // a segment being written by the previous process during a host handover is held briefly
+        var handle = FileOpenRetry.Open(path, () => File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read));
         try {
             var length = RandomAccess.GetLength(handle);
             if (length < 20 + SegmentWriter.FooterLength) throw new InvalidDataException("Segment file too short. ");

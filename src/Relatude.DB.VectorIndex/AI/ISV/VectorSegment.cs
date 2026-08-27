@@ -1,6 +1,7 @@
 using Microsoft.Win32.SafeHandles;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.AI.ISV;
 
@@ -64,7 +65,9 @@ internal sealed class VectorSegment : IDisposable {
     }
 
     public static VectorSegment Open(string path, long expectedId, int expectedDimensions, long expectedCentroidGeneration) {
-        var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
+        // a segment being written by the previous process during a host handover is held briefly
+        var handle = FileOpenRetry.Open(path, () => File.OpenHandle(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read, FileOptions.RandomAccess));
         try {
             var len = RandomAccess.GetLength(handle);
             if (len < HeaderBytes + FooterBytes) throw invalid("file too short");

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
@@ -145,8 +146,11 @@ internal sealed class Pager : IPageSource, IDisposable
         }
 
         bool isNew = !File.Exists(path) || new FileInfo(path).Length < 2 * PageSize;
-        var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read,
-            FileOptions.RandomAccess);
+        // FileShare.Read makes this the single writer of the page file, so it is the handle a restart
+        // contends with while the previous process is still stopping. Wait it out rather than failing
+        // the whole database open - see FileOpenRetry.
+        var handle = FileOpenRetry.Open(path, () => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite,
+            FileShare.Read, FileOptions.RandomAccess));
         _handle = handle;
         _flushStream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 1);
 

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.AI.ISV;
 
@@ -220,7 +221,9 @@ internal sealed class CentroidSet {
     public static CentroidSet? TryRead(string path, long expectedGeneration, int expectedDims) {
         try {
             if (!File.Exists(path)) return null;
-            var bytes = File.ReadAllBytes(path);
+            // wait out a lock rather than reporting "no centroids": the caller answers that by
+            // retraining from scratch, which is far more expensive than waiting a moment
+            var bytes = FileOpenRetry.Open(path, () => File.ReadAllBytes(path));
             if (bytes.Length < headerBytes + 16) return null;
             if (BinaryPrimitives.ReadInt64LittleEndian(bytes) != Magic) return null;
             if (BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(8)) != Version) return null;
