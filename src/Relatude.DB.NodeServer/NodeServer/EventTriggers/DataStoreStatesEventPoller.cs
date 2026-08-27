@@ -6,7 +6,7 @@ public class DataStoreStatesEventPoller : IEventPoller {
     public string EventName => "DataStoreStates";
     public EventDataFactory[]? Poll(RelatudeDBServer server, string?[] filters, bool onlyOnChange, out int msNextCollect) {
         msNextCollect = 1000;
-        var current = server.Containers.ToDictionary(c => c.Key, c => c.Value.Store != null ? c.Value.Store.State : DataStoreState.Closed);
+        var current = server.GetContainers().ToDictionary(c => c.Settings.Id, c => c.Store != null ? c.Store.State : DataStoreState.Closed);
         if (onlyOnChange) {
             var noChange = current.OrderBy(kv => kv.Key).SequenceEqual(_last.OrderBy(kv => kv.Key));
             if (noChange) return null; // no change, no event

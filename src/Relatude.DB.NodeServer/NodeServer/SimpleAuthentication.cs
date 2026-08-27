@@ -171,6 +171,15 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         return next();
     }
     public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
+        if (server.IsShuttingDown) {
+            // requests that arrive after the host began stopping (typically on a connection that was
+            // already open) must not start new work on databases that are about to close
+            ctx.Response.StatusCode = 503; // Service Unavailable
+            ctx.Response.Headers.RetryAfter = "10";
+            ctx.Response.Headers.Connection = "close";
+            await ctx.Response.WriteAsync("The server is shutting down.");
+            return;
+        }
         if (!server.AnyRemaingToAutoOpenIncludingFailed) {
             await next();
             return;

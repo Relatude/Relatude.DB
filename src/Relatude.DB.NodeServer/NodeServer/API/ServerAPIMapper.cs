@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -189,12 +189,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("open"), (Guid storeId) => container(storeId).Open());
         app.MapPost(path("close"), (Guid storeId) => {
             container(storeId).CloseIfOpen();
-            if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
+            if (!server.GetContainers().Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
         });
         app.MapPost(path("cancel-opening"), (Guid storeId) => {
             try {
                 container(storeId).CloseIfOpen();
-                if (!server.Containers.Values.Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
+                if (!server.GetContainers().Any(c => c.IsOpenOrOpening())) server.ResetIOProviders();
             } catch { }
         });
         app.MapPost(path("close-all-open-streams"), (Guid storeId, Guid ioId) => server.GetIO(ioId).CloseAllOpenStreams());
@@ -460,7 +460,7 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     }
     void mapServer(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-store-containers"), () => {
-            return server.Containers.Values.Select(c => new {
+            return server.GetContainers().Select(c => new {
                 c.Settings.Id,
                 c.Settings.Name,
                 c.Settings.Description,
@@ -487,13 +487,13 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var id = Guid.NewGuid();
             var containerSettings = new NodeStoreContainerSettings() { Id = id, Name = "New Store" };
             var container = new NodeStoreContainer(containerSettings, server);
-            server.Containers.Add(id, container);
+            lock (server.Containers) server.Containers.Add(id, container);
             server.UpdateWAFServerSettingsFile();
             return containerSettings;
         });
         app.MapPost(path("remove-store"), (Guid storeId) => {
             container(storeId).Dispose();
-            server.Containers.Remove(storeId);
+            lock (server.Containers) server.Containers.Remove(storeId);
             server.UpdateWAFServerSettingsFile();
         });
         app.MapPost(path("get-server-log"), () => server.GetStartUpLog().Select(e => { return new { Timestamp = e.Item1, Description = e.Item2 }; }).ToArray());

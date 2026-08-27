@@ -95,6 +95,15 @@ public partial class RelatudeDBServer {
     public RelatudeDBServerSettings Settings => _serverSettings;
     internal ServerEventHub EventHub { get; }
     public Dictionary<Guid, NodeStoreContainer> Containers = [];
+    /// <summary>
+    /// A snapshot of the current containers. The dictionary itself is mutated while the server runs
+    /// (the admin UI adds and removes databases), so anything that iterates it - shutdown above all,
+    /// which must not skip a database because the collection changed - has to copy first.
+    /// Writers hold the same lock: <c>lock (Containers)</c>.
+    /// </summary>
+    public NodeStoreContainer[] GetContainers() {
+        lock (Containers) return Containers.Values.ToArray();
+    }
     NodeStoreContainer[] _containersToAutoOpen = [];
     NodeStoreContainer? _defaultContainer = null;
     public bool DefaultStoreIsOpenOrOpening() => _defaultContainer != null && _defaultContainer.IsOpenOrOpening();
@@ -153,11 +162,11 @@ public partial class RelatudeDBServer {
                 RaiseEventContainerSettingsInit(containerSettings);
                 if(containerSettings .LocalSettings != null) RaiseEventStoreSettingsInit(containerSettings.LocalSettings, containerSettings);
                 var container = new NodeStoreContainer(containerSettings, this);
-                Containers.Add(containerSettings.Id, container);
+                lock (Containers) Containers.Add(containerSettings.Id, container);
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
             }
         }
-        _containersToAutoOpen = Containers.Values.Where(c => c.Settings.AutoOpen).ToArray();
+        _containersToAutoOpen = GetContainers().Where(c => c.Settings.AutoOpen).ToArray();
         Log("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
         _remaingToAutoOpenCount = _containersToAutoOpen.Length;
         foreach (var container in _containersToAutoOpen) {
@@ -170,18 +179,107 @@ public partial class RelatudeDBServer {
             }
         }
         _authentication = new(this);
-        // Dispose the stores on host shutdown so pending work is flushed and the index engines
-        // commit before the process exits. Crash-safety does not depend on this — the WAL replay
-        // rebuilds anything lost — but a clean stop avoids the replay cost on the next start.
-        app.Lifetime.ApplicationStopping.Register(Shutdown);
+        // Stopping the databases is a two step affair, because the host stops in two steps:
+        // ApplicationStopping fires *before* the web server drains the requests that are still
+        // running, and ApplicationStopped fires after the last one has completed. So the first
+        // callback only quiesces (no new database is opened, and the open ones are flushed so the
+        // final close has less left to write) and the second one disposes. Disposing any earlier
+        // pulls the databases out from under requests that are still using them.
+        // Crash-safety does not depend on any of this — the WAL replay rebuilds anything lost —
+        // but a clean stop avoids the replay cost on the next start.
+        app.Lifetime.ApplicationStopping.Register(BeginShutdown);
+        app.Lifetime.ApplicationStopped.Register(Shutdown);
+        // Last resort for a host that leaves without running its lifetime callbacks at all
+        // (Environment.Exit, an unhandled exception on the main thread). Shutdown only ever runs
+        // once, so this is a no-op in a normal stop.
+        AppDomain.CurrentDomain.ProcessExit += onProcessExit;
     }
-    /// <summary>Disposes every database container (flushing pending writes and committing the
-    /// index engines). Called automatically on host shutdown.</summary>
-    public void Shutdown() {
-        Log("Server shutting down, disposing databases.");
-        foreach (var container in Containers.Values) {
-            try { container.Dispose(); } catch (Exception err) { Log("Error disposing \"" + container.Settings.Name + "\": " + err.Message); }
+    void onProcessExit(object? sender, EventArgs e) {
+        try { Shutdown(); } catch { }
+    }
+    // 0 = running, 1 = stopping (quiesced, the databases are still open), 2 = stopped (disposed)
+    int _shutdownPhase = 0;
+    /// <summary>True once the host has begun stopping. No new database is opened from this point on.</summary>
+    public bool IsShuttingDown => Volatile.Read(ref _shutdownPhase) > 0;
+    /// <summary>True once every database has been disposed by <see cref="Shutdown"/>.</summary>
+    public bool IsShutDown => Volatile.Read(ref _shutdownPhase) > 1;
+    /// <summary>
+    /// First phase of a graceful stop, registered on <c>IHostApplicationLifetime.ApplicationStopping</c>:
+    /// no new database is opened from here on, and every open one is flushed so that the disposal in
+    /// <see cref="Shutdown"/> has as little as possible left to write. The databases stay open and
+    /// fully usable, because the requests still draining in the web server are using them.
+    /// Safe to call more than once; only the first call does anything.
+    /// </summary>
+    public void BeginShutdown() {
+        if (Interlocked.CompareExchange(ref _shutdownPhase, 1, 0) != 0) return; // already stopping or stopped
+        logShutdown("Server stopping, flushing databases.");
+        foreach (var container in GetContainers()) {
+            if (!container.IsOpen()) continue;
+            var sw = Stopwatch.StartNew();
+            try {
+                container.Store!.Datastore.Maintenance(MaintenanceAction.FlushDisk);
+                logShutdown("Flushed \"" + container.Settings.Name + "\" in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
+            } catch (Exception err) {
+                logShutdown("Error flushing \"" + container.Settings.Name + "\": " + err.Message);
+            }
         }
+    }
+    /// <summary>
+    /// Disposes every database container, flushing pending writes and committing the index engines.
+    /// Registered on <c>IHostApplicationLifetime.ApplicationStopped</c>, which fires once the last
+    /// request has drained; a host that is never started (the CLI) calls this directly instead.
+    /// The containers are closed in parallel so one slow database cannot eat the whole shutdown
+    /// budget (<see cref="ServerOptions.ShutdownTimeout"/>) of the others. Safe to call more than
+    /// once; only the first call does anything.
+    /// </summary>
+    public void Shutdown() {
+        BeginShutdown(); // a no-op when ApplicationStopping already ran
+        if (Interlocked.CompareExchange(ref _shutdownPhase, 2, 1) != 1) return; // another thread is disposing, or it is already done
+        var sw = Stopwatch.StartNew();
+        var timeout = Options?.ShutdownTimeout ?? ServerOptions.DefaultShutdownTimeout;
+        logShutdown("Server shutting down, disposing databases.");
+        waitForAutoOpenToComplete(timeout);
+        var containers = GetContainers();
+        var remaining = timeout - sw.Elapsed;
+        if (remaining < TimeSpan.FromSeconds(1)) remaining = TimeSpan.FromSeconds(1);
+        var closing = containers.Select(c => Task.Run(() => closeContainerOnShutdown(c, remaining))).ToArray();
+        if (Task.WaitAll(closing, remaining)) {
+            logShutdown("All databases closed in " + sw.Elapsed.TotalSeconds.To1000N() + " s.");
+        } else {
+            logShutdown("Timed out after " + sw.Elapsed.TotalSeconds.To1000N() + " s waiting for "
+                + closing.Count(t => !t.IsCompleted) + " database(s) to close, leaving them to the log replay on the next start. "
+                + "Raise ServerOptions.ShutdownTimeout (and HostOptions.ShutdownTimeout with it) if this repeats.");
+        }
+    }
+    void closeContainerOnShutdown(NodeStoreContainer container, TimeSpan waitForOpening) {
+        var sw = Stopwatch.StartNew();
+        try {
+            if (!container.CloseForShutdown(waitForOpening)) return; // nothing was open
+            logShutdown("Closed \"" + container.Settings.Name + "\" in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
+        } catch (Exception err) {
+            logShutdown("Error disposing \"" + container.Settings.Name + "\": " + err.Message);
+        }
+    }
+    /// <summary>
+    /// Gives an auto-open that is still running a chance to land before the databases are disposed:
+    /// a store that never reached the Open state cannot be flushed, and disposing it mid-replay pulls
+    /// the WAL and the indexes out from under the opening thread. <see cref="BeginShutdown"/> has
+    /// already told the pending opens to skip, so this normally returns at once.
+    /// </summary>
+    void waitForAutoOpenToComplete(TimeSpan timeout) {
+        if (!AnyRemaingToAutoOpenIncludingFailed) return;
+        var sw = Stopwatch.StartNew();
+        var budget = timeout / 2; // the other half is for the closing itself
+        while (AnyRemaingToAutoOpenIncludingFailed && sw.Elapsed < budget) Thread.Sleep(20);
+        if (AnyRemaingToAutoOpenIncludingFailed) {
+            logShutdown("Still opening " + Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0)
+                + " database(s) after " + sw.Elapsed.TotalSeconds.To1000N() + " s, closing anyway.");
+        }
+    }
+    // the in-memory server log cannot be read once the process is gone, so shutdown also traces
+    void logShutdown(string msg) {
+        Log(msg);
+        Trace(msg);
     }
     int _remaingToAutoOpenCount = 0;
     public bool AnyRemaingToAutoOpenIncludingFailed => Interlocked.CompareExchange(ref _remaingToAutoOpenCount, 0, 0) > 0;
@@ -193,6 +291,12 @@ public partial class RelatudeDBServer {
             container.StartUpException = null;
             container.StartUpExceptionDateTimeUTC = null;
             Thread.Sleep(300); // give some time for the server to finish starting up
+            if (IsShuttingDown) {
+                // a start immediately followed by a stop: opening now would leave a database open
+                // behind the shutdown that has already disposed the others
+                Log("Server is shutting down, skipped opening \"" + container.Settings.Name + "\".");
+                return;
+            }
             container.Open();
             Log("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
         } catch (Exception err) {
@@ -207,7 +311,7 @@ public partial class RelatudeDBServer {
     }
 
     public void UpdateWAFServerSettingsFile() {
-        _serverSettings.ContainerSettings = Containers.Values.Select(c => c.Settings).ToArray();
+        _serverSettings.ContainerSettings = GetContainers().Select(c => c.Settings).ToArray();
         var settingsToWrite = _settingsOverlay == null ? _serverSettings : _settingsOverlay.RemoveOverridesBeforeSave(_serverSettings);
         _settingsLoader!.WriteAsync(settingsToWrite).Wait();
         if (Containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = Containers[_serverSettings.DefaultStoreId];
@@ -395,5 +499,16 @@ public class ServerOptions {
     /// </summary>
     public Func<NodeStoreContainerSettingsBase, IUrlManager?>? CreateUrlManager { get; set; }
 
-
+    /// <summary>
+    /// How long the server waits, in total, for the databases to close when the host stops. Half of
+    /// it is the most it will wait for a database that is still opening; the rest is for the closing
+    /// itself, which runs in parallel across the databases. When it runs out the remaining databases
+    /// are left to the log replay on the next start - no data is lost, the next start is just slower.
+    /// <para>This is not the only budget involved: the host has its own (<c>HostOptions.ShutdownTimeout</c>,
+    /// 30 seconds by default) and the container runtime has its own on top of that (Docker sends
+    /// SIGKILL 10 seconds after SIGTERM unless <c>--stop-timeout</c> says otherwise). Raising this one
+    /// alone achieves nothing - raise them together. Defaults to 25 seconds, just inside the host default.</para>
+    /// </summary>
+    public TimeSpan ShutdownTimeout { get; set; } = DefaultShutdownTimeout;
+    public static TimeSpan DefaultShutdownTimeout => TimeSpan.FromSeconds(25);
 }

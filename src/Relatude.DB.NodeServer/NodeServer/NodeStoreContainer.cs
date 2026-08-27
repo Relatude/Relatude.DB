@@ -22,6 +22,12 @@ namespace Relatude.DB.NodeServer;
 public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBServer server) : IDisposable {
 
     internal object _lock = new object();
+    /// <summary>
+    /// Serializes opening against closing. It is deliberately not <see cref="_lock"/>: an open holds
+    /// this for the whole log replay, and <see cref="GetLogger"/> - which the admin UI polls to watch
+    /// exactly that replay - must not block behind it.
+    /// </summary>
+    readonly object _openCloseLock = new();
     internal IStoreLogger? _logger;
     public NodeStore? Store { get; private set; }
 
@@ -42,10 +48,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public bool IsOpenOrOpening() => Store != null && (Store.State == DataStoreState.Open || Store.State == DataStoreState.Opening);
     public NodeStoreContainerSettings Settings => settings;
     public void ApplyNewSettings(NodeStoreContainerSettings newSettings, bool reopenIfOpen) {
-        var isOpen = IsOpenOrOpening();
-        Dispose();
-        settings = newSettings;
-        if (isOpen && reopenIfOpen) Open();
+        lock (_openCloseLock) {
+            var isOpen = IsOpenOrOpening();
+            disposeCore();
+            settings = newSettings;
+            if (isOpen && reopenIfOpen && !server.IsShuttingDown) openCore();
+        }
     }
 
     int _initializationCounter = 0;
@@ -173,11 +181,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         return ioLog;
     }
     public void Initialize() {
+        lock (_openCloseLock) initializeCore();
+    }
+    void initializeCore() {
         AIEngine? ai = null;
         try {
             if (_logger != null) _logger.Dispose();
             if (IsOpenOrOpening()) return;
-            Dispose();
+            disposeCore();
             var local = settings.LocalSettings;
             if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
@@ -280,15 +291,23 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void Open() {
+        lock (_openCloseLock) {
+            // an open that lands after the shutdown has disposed the other databases would leave this
+            // one open, and unflushed, for the rest of the process
+            if (server.IsShuttingDown) throw new InvalidOperationException("The server is shutting down, \"" + settings.Name + "\" was not opened. ");
+            openCore();
+        }
+    }
+    void openCore() {
         try {
             var sw = Stopwatch.StartNew();
-            if (Store == null) Initialize();
+            if (Store == null) initializeCore();
             Store!.Datastore.LogInfo($"NodeStore initialized in {sw.ElapsedMilliseconds.To1000N()}ms, opening... ");
             if (Store == null) throw new Exception("Datastore is not initialized. ");
             try {
                 Store.Datastore.Open(false, false);
             } catch {
-                Dispose();
+                disposeCore();
                 throw;
             }
             Store!.Datastore.LogInfo($"NodeStore ready in a total of {sw.ElapsedMilliseconds.To1000N()}ms.");
@@ -299,9 +318,36 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     public void CloseIfOpen() {
-        if (Store != null) {
-            Dispose();
-            server.RaiseEventStoreClose(this, Store!);
+        lock (_openCloseLock) {
+            var store = Store; // captured: disposing nulls it, and the event needs the store
+            if (store == null) return;
+            disposeCore();
+            server.RaiseEventStoreClose(this, store);
+        }
+    }
+    /// <summary>
+    /// Closes the container as part of a host shutdown, and reports whether there was anything to
+    /// close. Waits up to <paramref name="waitForOpening"/> for an <see cref="Open"/> that is still
+    /// running: the data store only flushes on dispose if it reached the Open state, and disposing it
+    /// during the log replay pulls the WAL and the indexes out from under the opening thread. When the
+    /// wait runs out it disposes anyway - a half-opened store has nothing to flush, and the log replay
+    /// on the next start covers whatever the opening thread was in the middle of.
+    /// </summary>
+    public bool CloseForShutdown(TimeSpan waitForOpening) {
+        var ms = (int)Math.Clamp(waitForOpening.TotalMilliseconds, 0, int.MaxValue);
+        if (!Monitor.TryEnter(_openCloseLock, ms)) {
+            server.Log("\"" + settings.Name + "\" is still opening after " + (ms / 1000d).To1000N() + " s, closing it anyway.");
+            disposeCore(); // best effort, racing the opening thread
+            return true;
+        }
+        try {
+            var store = Store;
+            if (store == null) return false;
+            disposeCore();
+            server.RaiseEventStoreClose(this, store);
+            return true;
+        } finally {
+            Monitor.Exit(_openCloseLock);
         }
     }
     Datamodel loadDatamodel() {
@@ -324,6 +370,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         DatamodelSourceLoader.Load(dm, source, server.RootDataFolderPath, id => server.TryGetIO(id, out var io) ? io : null);
     }
     public void Dispose() {
+        lock (_openCloseLock) disposeCore();
+    }
+    void disposeCore() {
         if (Store != null) {
             Store.Dispose();
             Store = null;
