@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,7 +34,7 @@ public class ServerShutdownTests {
 
     [TestMethod]
     public async Task BeginShutdown_LeavesTheDatabasesOpen() {
-        var host = start();
+        var host = TestServerHost.Start(_root);
         try {
             var container = host.Server.GetContainers().Single();
             Assert.IsTrue(container.IsOpen());
@@ -51,7 +51,7 @@ public class ServerShutdownTests {
 
     [TestMethod]
     public async Task Shutdown_DisposesEveryDatabase() {
-        var host = start(databases: 3);
+        var host = TestServerHost.Start(_root, databases: 3);
         try {
             var containers = host.Server.GetContainers();
             Assert.AreEqual(3, containers.Length);
@@ -73,7 +73,7 @@ public class ServerShutdownTests {
 
     [TestMethod]
     public async Task Shutdown_RunsOnlyOnce() {
-        var host = start();
+        var host = TestServerHost.Start(_root);
         try {
             host.Server.Shutdown();
             host.Server.Shutdown();
@@ -86,7 +86,7 @@ public class ServerShutdownTests {
 
     [TestMethod]
     public async Task Open_AfterShutdown_IsRefused() {
-        var host = start();
+        var host = TestServerHost.Start(_root);
         try {
             var container = host.Server.GetContainers().Single();
             host.Server.Shutdown();
@@ -101,7 +101,7 @@ public class ServerShutdownTests {
 
     [TestMethod]
     public async Task StoppingTheHost_ClosesTheDatabases() {
-        var host = start(databases: 2);
+        var host = TestServerHost.Start(_root, databases: 2);
         try {
             await host.App.StartAsync();
             Assert.IsFalse(host.Server.IsShuttingDown);
@@ -112,87 +112,5 @@ public class ServerShutdownTests {
         } finally {
             await host.DisposeAsync();
         }
-    }
-
-    sealed class Host(WebApplication app, RelatudeDBServer server, List<NodeStore> closed) {
-        public WebApplication App => app;
-        public RelatudeDBServer Server => server;
-        public List<NodeStore> Closed => closed;
-        public async Task DisposeAsync() {
-            try { server.Shutdown(); } catch { }
-            await app.DisposeAsync();
-        }
-    }
-
-    /// <summary>
-    /// A real server on memory IO providers, opened synchronously, on a host that is built but not
-    /// started - the same shape the CLI uses, so a test can drive the shutdown directly.
-    /// </summary>
-    Host start(int databases = 1) {
-        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions {
-            ContentRootPath = _root,
-            ApplicationName = "relatude.tests",
-            EnvironmentName = "Test",
-        });
-        builder.Services.AddSingleton<IServer, NoServer>();
-        var app = builder.Build();
-        var closed = new List<NodeStore>();
-        var options = new ServerOptions {
-            SettingsLoader = new FixedSettings(memorySettings(databases)),
-            ConfigurationSectionName = null, // no appsettings overlay in the tests
-            DefaultDataFolderPath = _root,
-            DefaultTempFolderPath = Path.Combine(_root, "temp"),
-            OnStoreClose = store => { lock (closed) closed.Add(store); },
-        };
-        var server = new RelatudeDBServer(string.Empty);
-        server.StartAsync(app, options).Wait();
-        return new Host(app, server, closed);
-    }
-
-    static RelatudeDBServerSettings memorySettings(int databases) {
-        var template = RelatudeDBServerSettings.CreateDefault().ContainerSettings![0];
-        var containers = new List<NodeStoreContainerSettings>();
-        for (var i = 0; i < databases; i++) {
-            var io = new IOSettings { Id = Guid.NewGuid(), Name = "Memory " + i, IOType = IOTypes.Memory };
-            containers.Add(new NodeStoreContainerSettings {
-                Id = Guid.NewGuid(),
-                Name = "Database " + i,
-                AutoOpen = true,
-                WaitUntilOpen = true, // open before StartAsync returns, so the tests need no polling
-                IOSettings = [io],
-                IoDatabase = io.Id,
-                IoBackup = io.Id,
-                IoLog = io.Id,
-                FileStoreSettings = [],
-                DatamodelSources = template.DatamodelSources,
-                LocalSettings = new SettingsLocal {
-                    PersistedValueIndexEngine = PersistedValueIndexEngine.Memory,
-                    PersistedTextIndexEngine = PersistedTextIndexEngine.Memory,
-                    AutoBackUp = false,
-                    AutoTruncate = false,
-                    AutoSaveIndexStates = false,
-                    AutoDequeTasks = false,
-                },
-            });
-        }
-        return new RelatudeDBServerSettings {
-            Id = Guid.NewGuid(),
-            Name = "Relatude.DB Test Server",
-            ContainerSettings = containers.ToArray(),
-            DefaultStoreId = containers[0].Id,
-        };
-    }
-
-    sealed class FixedSettings(RelatudeDBServerSettings settings) : ISettingsLoader {
-        public Task<RelatudeDBServerSettings> ReadAsync() => Task.FromResult(settings);
-        public Task WriteAsync(RelatudeDBServerSettings s) => Task.CompletedTask; // never touch disk
-    }
-
-    sealed class NoServer : IServer {
-        public IFeatureCollection Features { get; } = new FeatureCollection();
-        public Task StartAsync<TContext>(IHttpApplication<TContext> application, CancellationToken cancellationToken) where TContext : notnull
-            => Task.CompletedTask;
-        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public void Dispose() { }
     }
 }

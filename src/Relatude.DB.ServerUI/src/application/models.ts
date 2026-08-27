@@ -254,6 +254,25 @@ export interface ServerLogEntry {
     timestamp: Date;
     description: string;
 }
+export interface RestartInfo {
+    canSoftRestart: boolean;
+    canStopHost: boolean;
+    hostDescription: string;
+    /** null when the host could not be identified, and nothing may be watching the process */
+    hostRestartsAutomatically: boolean | null;
+    stopHostWarning: string | null;
+    /** new for every process: a change proves a new process started */
+    instanceId: string;
+    /** a change proves a soft restart landed */
+    restartCount: number;
+    isRestarting: boolean;
+    isShuttingDown: boolean;
+    upTimeInMs: number;
+}
+export interface RestartResult {
+    started: boolean;
+    message: string;
+}
 export interface LogEntry<T> {
     timestamp: Date;
     values: T;

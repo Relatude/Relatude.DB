@@ -180,8 +180,18 @@ public class SimpleAuthentication(RelatudeDBServer server) {
             await ctx.Response.WriteAsync("The server is shutting down.");
             return;
         }
+        var isAdminRequest = RequestIsUnderUrl(ctx, server.ApiUrlRoot);
+        if (server.IsRestarting && !isAdminRequest) {
+            // a soft restart is between closing the old databases and opening the new ones, so there is
+            // nothing for an application request to reach. The admin API is let through, because the UI
+            // that started the restart is watching it from there.
+            ctx.Response.StatusCode = 503; // Service Unavailable
+            ctx.Response.Headers.RetryAfter = "5";
+            await ctx.Response.WriteAsync("The server is restarting.");
+            return;
+        }
         if (!server.AnyRemaingToAutoOpenIncludingFailed) {
-            await next();
+            await runCounted(next, isAdminRequest);
             return;
         }
         if (RequestIsUnderUrl(ctx, ServerAPIMapper.GlobalPublicStatusUrl)) {
@@ -202,6 +212,24 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         var html = ServerAPIMapper.GetResource("ClientStart.start.html");
         html = html.Replace("GLOBALSTATUSURL", ServerAPIMapper.GlobalPublicStatusUrl);
         await ctx.Response.WriteAsync(html);
+    }
+    /// <summary>
+    /// Runs the rest of the pipeline, counting the request while it is in there so that a soft restart
+    /// can wait for it before disposing the databases it is using. Admin requests are not counted: the
+    /// restart is started and watched from the admin API, and the event stream the admin UI holds open
+    /// never completes, so counting those would leave the count permanently above zero.
+    /// </summary>
+    async Task runCounted(Func<Task> next, bool isAdminRequest) {
+        if (isAdminRequest) {
+            await next();
+            return;
+        }
+        server.EnterRequest();
+        try {
+            await next();
+        } finally {
+            server.ExitRequest();
+        }
     }
 
     bool requireAuthentication(HttpContext context) {

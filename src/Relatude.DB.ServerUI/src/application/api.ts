@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize, UnreferencedFilesProgress, MissingFilesProgress } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize, UnreferencedFilesProgress, MissingFilesProgress, RestartInfo, RestartResult } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -199,6 +199,11 @@ class ServerAPI {
         return result;
     }
     clearServerLog = () => this.server.execute(this.controller, 'clear-server-log');
+    // noRetry: this one is polled while the server is on its way down, so a failure is expected and
+    // must not raise the retry dialog
+    getRestartInfo = () => this.server.queryJson<RestartInfo>(this.controller, 'get-restart-info', undefined, undefined, true);
+    softRestart = () => this.server.queryJson<RestartResult>(this.controller, 'soft-restart', undefined, undefined, true);
+    stopHost = () => this.server.queryJson<RestartResult>(this.controller, 'stop-host', undefined, undefined, true);
 }
 const fixFileListMetaDates = (file: Promise<FileMeta[]>) => file.then(files => files.map(fixFileMetaDates));
 const fixFileMetaDates = (file: FileMeta) => {

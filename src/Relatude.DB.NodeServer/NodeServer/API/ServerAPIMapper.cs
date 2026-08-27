@@ -498,6 +498,22 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
         app.MapPost(path("get-server-log"), () => server.GetStartUpLog().Select(e => { return new { Timestamp = e.Item1, Description = e.Item2 }; }).ToArray());
         app.MapPost(path("clear-server-log"), server.ClearStartUpLog);
+        app.MapPost(path("get-restart-info"), () => server.GetRestartCapabilities());
+        app.MapPost(path("soft-restart"), () => {
+            if (!server.GetRestartCapabilities().CanSoftRestart) throw new Exception("Soft restart is not allowed on this server. ");
+            if (server.IsRestarting) return new { Started = false, Message = "A restart is already running." };
+            // closing and rebuilding every database takes far longer than a request should, so this only
+            // starts it: the admin UI watches RestartCount to see it land
+            _ = Task.Run(async () => {
+                try { await server.SoftRestartAsync(); } catch { } // SoftRestartAsync has already logged it
+            });
+            return new { Started = true, Message = "Soft restart started." };
+        });
+        app.MapPost(path("stop-host"), () => {
+            if (!server.GetRestartCapabilities().CanStopHost) throw new Exception("Stopping the host is not allowed on this server. ");
+            var started = server.StopHost();
+            return new { Started = started, Message = started ? "The host is stopping." : "This host cannot be stopped from here." };
+        });
     }
     void mapData(WebApplication app, Func<string, string> path) {
         app.MapPost(path("queue-re-index-all"), (Guid storeId) => {

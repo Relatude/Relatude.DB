@@ -80,6 +80,11 @@ public partial class RelatudeDBServer {
 
     public ServerOptions? Options { get; private set; }
 
+    // Captured on the way through StartAsync so that a soft restart can redo the settings load, and
+    // a stop can signal the host, without holding on to the WebApplication itself.
+    IHostApplicationLifetime? _lifetime;
+    IConfiguration? _configuration;
+
     SimpleAuthentication? _authentication;
     public SimpleAuthentication Authentication {
         get {
@@ -121,6 +126,8 @@ public partial class RelatudeDBServer {
     }
     public async Task StartAsync(WebApplication app, ServerOptions options) {
         Options = options;
+        _lifetime = app.Lifetime;
+        _configuration = app.Configuration;
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -146,38 +153,10 @@ public partial class RelatudeDBServer {
             try { TempIO.DeleteFileIfItExists(file.KeyOf()); } catch { }
         }
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
-        Stopwatch sw = Stopwatch.StartNew();
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
-        _serverSettings = await _settingsLoader.ReadAsync();
-        Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
-        if (options.ConfigurationSectionName != null) {
-            _settingsOverlay = SettingsOverlay.Create(app.Configuration, options.ConfigurationSectionName,
-                Log, msg => { Log(msg); Console.Error.WriteLine("relatude.db: " + msg); });
-            if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
-        }
-        if (_serverSettings.DBAdminUIUrlPath != null) setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
-        RaiseEventServerSettingsInit(_serverSettings);
-        if (_serverSettings.ContainerSettings != null) {
-            foreach (var containerSettings in _serverSettings.ContainerSettings) {
-                RaiseEventContainerSettingsInit(containerSettings);
-                if(containerSettings .LocalSettings != null) RaiseEventStoreSettingsInit(containerSettings.LocalSettings, containerSettings);
-                var container = new NodeStoreContainer(containerSettings, this);
-                lock (Containers) Containers.Add(containerSettings.Id, container);
-                if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
-            }
-        }
-        _containersToAutoOpen = GetContainers().Where(c => c.Settings.AutoOpen).ToArray();
-        Log("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
-        _remaingToAutoOpenCount = _containersToAutoOpen.Length;
-        foreach (var container in _containersToAutoOpen) {
-            if (container.Settings.WaitUntilOpen) {
-                Log("Opening \"" + container.Settings.Name + "\".");
-                autoOpenContainer(container, true);
-            } else {
-                Log("Initiating asynchronous opening of \"" + container.Settings.Name + "\".");
-                ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => autoOpenContainer(container, false), container, true);
-            }
-        }
+        await loadSettingsAndCreateContainersAsync(firstStart: true);
+        prepareAutoOpen();
+        runAutoOpen();
         _authentication = new(this);
         // Stopping the databases is a two step affair, because the host stops in two steps:
         // ApplicationStopping fires *before* the web server drains the requests that are still
@@ -196,6 +175,69 @@ public partial class RelatudeDBServer {
     }
     void onProcessExit(object? sender, EventArgs e) {
         try { Shutdown(); } catch { }
+    }
+    /// <summary>
+    /// Reads the settings file, applies the <c>IConfiguration</c> overlay on top of it and builds a
+    /// container for every database it describes. Split out of <see cref="StartAsync"/> so that
+    /// <see cref="SoftRestartAsync"/> can redo exactly this much and no more: everything around it -
+    /// the temp folder, the middleware, the lifetime hooks - is bound to the host and belongs to the
+    /// process, not to a reload.
+    /// </summary>
+    async Task loadSettingsAndCreateContainersAsync(bool firstStart) {
+        var sw = Stopwatch.StartNew();
+        _serverSettings = await _settingsLoader!.ReadAsync();
+        Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
+        if (Options?.ConfigurationSectionName != null && _configuration != null) {
+            _settingsOverlay = SettingsOverlay.Create(_configuration, Options.ConfigurationSectionName,
+                Log, msg => { Log(msg); Console.Error.WriteLine("relatude.db: " + msg); });
+            if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
+        }
+        if (_serverSettings.DBAdminUIUrlPath != null) {
+            if (firstStart) {
+                setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
+            } else if (!isCurrentApiUrlRoot(_serverSettings.DBAdminUIUrlPath)) {
+                // the admin routes were mapped once, at startup, against the path as it was then
+                Log("The admin UI URL path has changed to \"" + _serverSettings.DBAdminUIUrlPath + "\", but the routes are"
+                    + " already mapped on \"" + ApiUrlRoot + "\". The new path only takes effect after a full process restart.");
+            }
+        }
+        RaiseEventServerSettingsInit(_serverSettings);
+        if (_serverSettings.ContainerSettings != null) {
+            foreach (var containerSettings in _serverSettings.ContainerSettings) {
+                RaiseEventContainerSettingsInit(containerSettings);
+                if (containerSettings.LocalSettings != null) RaiseEventStoreSettingsInit(containerSettings.LocalSettings, containerSettings);
+                var container = new NodeStoreContainer(containerSettings, this);
+                lock (Containers) Containers.Add(containerSettings.Id, container);
+                if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
+            }
+        }
+    }
+    bool isCurrentApiUrlRoot(string urlPath) {
+        if (string.IsNullOrWhiteSpace(urlPath)) return true; // an empty path leaves the root untouched
+        if (urlPath.EndsWith('/')) urlPath = urlPath[0..^1];
+        if (!urlPath.StartsWith('/') && urlPath.Length > 0) urlPath = '/' + urlPath;
+        return string.Equals(urlPath, ApiUrlRoot, StringComparison.OrdinalIgnoreCase);
+    }
+    /// <summary>
+    /// Works out which databases open by themselves and publishes the count. Separate from
+    /// <see cref="runAutoOpen"/> because a soft restart has to raise the count - which is what puts
+    /// the "opening" page in front of the application - before it lets requests back in.
+    /// </summary>
+    void prepareAutoOpen() {
+        _containersToAutoOpen = GetContainers().Where(c => c.Settings.AutoOpen).ToArray();
+        Log("AutoOpen is enabled for " + _containersToAutoOpen.Length + " database(s).");
+        _remaingToAutoOpenCount = _containersToAutoOpen.Length;
+    }
+    void runAutoOpen() {
+        foreach (var container in _containersToAutoOpen) {
+            if (container.Settings.WaitUntilOpen) {
+                Log("Opening \"" + container.Settings.Name + "\".");
+                autoOpenContainer(container, true);
+            } else {
+                Log("Initiating asynchronous opening of \"" + container.Settings.Name + "\".");
+                ThreadPool.QueueUserWorkItem((NodeStoreContainer container) => autoOpenContainer(container, false), container, true);
+            }
+        }
     }
     // 0 = running, 1 = stopping (quiesced, the databases are still open), 2 = stopped (disposed)
     int _shutdownPhase = 0;
@@ -239,17 +281,25 @@ public partial class RelatudeDBServer {
         var timeout = Options?.ShutdownTimeout ?? ServerOptions.DefaultShutdownTimeout;
         logShutdown("Server shutting down, disposing databases.");
         waitForAutoOpenToComplete(timeout);
-        var containers = GetContainers();
-        var remaining = timeout - sw.Elapsed;
-        if (remaining < TimeSpan.FromSeconds(1)) remaining = TimeSpan.FromSeconds(1);
-        var closing = containers.Select(c => Task.Run(() => closeContainerOnShutdown(c, remaining))).ToArray();
-        if (Task.WaitAll(closing, remaining)) {
+        var stillClosing = closeAllContainers(timeout - sw.Elapsed);
+        if (stillClosing == 0) {
             logShutdown("All databases closed in " + sw.Elapsed.TotalSeconds.To1000N() + " s.");
         } else {
             logShutdown("Timed out after " + sw.Elapsed.TotalSeconds.To1000N() + " s waiting for "
-                + closing.Count(t => !t.IsCompleted) + " database(s) to close, leaving them to the log replay on the next start. "
+                + stillClosing + " database(s) to close, leaving them to the log replay on the next start. "
                 + "Raise ServerOptions.ShutdownTimeout (and HostOptions.ShutdownTimeout with it) if this repeats.");
         }
+    }
+    /// <summary>
+    /// Closes every container in parallel, so that one slow database cannot eat the whole budget of
+    /// the others, and returns how many were still closing when the budget ran out. Shared by the
+    /// host shutdown and by <see cref="SoftRestartAsync"/>, which needs exactly the same care.
+    /// </summary>
+    int closeAllContainers(TimeSpan timeout) {
+        if (timeout < TimeSpan.FromSeconds(1)) timeout = TimeSpan.FromSeconds(1);
+        var closing = GetContainers().Select(c => Task.Run(() => closeContainerOnShutdown(c, timeout))).ToArray();
+        if (Task.WaitAll(closing, timeout)) return 0;
+        return closing.Count(t => !t.IsCompleted);
     }
     void closeContainerOnShutdown(NodeStoreContainer container, TimeSpan waitForOpening) {
         var sw = Stopwatch.StartNew();
@@ -511,4 +561,12 @@ public class ServerOptions {
     /// </summary>
     public TimeSpan ShutdownTimeout { get; set; } = DefaultShutdownTimeout;
     public static TimeSpan DefaultShutdownTimeout => TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// Which restarts the admin UI may trigger. Both kinds are behind the admin authentication, so both
+    /// are allowed by default. Set it to <see cref="RestartOptions.Soft"/> to hide the button that stops
+    /// the process - worth doing on a host where nothing would start it again - or to
+    /// <see cref="RestartOptions.None"/> to take restarting out of the UI altogether.
+    /// </summary>
+    public RestartOptions AllowedRestarts { get; set; } = RestartOptions.All;
 }
