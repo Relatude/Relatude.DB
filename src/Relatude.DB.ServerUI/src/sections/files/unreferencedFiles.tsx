@@ -41,7 +41,7 @@ export const UnreferencedFiles = (p: { storeId: string, disabled?: boolean }) =>
     return <>
         <Group>
             <Button variant="light" disabled={p.disabled} onClick={() => run(true)}>Count unreferenced files</Button>
-            <Button variant="light" color="red" disabled={p.disabled} onClick={() => run(false)}>Delete unreferenced files</Button>
+            {/* <Button variant="light" color="red" disabled={p.disabled} onClick={() => run(false)}>Delete unreferenced files</Button> */}
         </Group>
         <Modal opened={opened} onClose={close} title={countOnly ? "Count unreferenced files" : "Delete unreferenced files"} closeOnClickOutside={false}>
             {running ? <>

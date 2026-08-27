@@ -216,9 +216,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, countOnly ? "Counting unreferenced files" : "Deleting unreferenced files");
         try {
             var lastPct = -1;
+            var lastDescription = string.Empty;
             void report(string description, int pct) {
-                if (pct == lastPct) return;
+                // the same percentage with a new description still counts: the closing message
+                // arrives when the last batch has already reported 100
+                if (pct == lastPct && description == lastDescription) return;
                 lastPct = pct;
+                lastDescription = description;
                 UpdateActivity(activityId, description, pct);
                 onProgress?.Invoke(description, pct);
             }
@@ -279,6 +283,159 @@ public sealed partial class DataStoreLocal : IDataStore {
                 if (!fileValue.IsEmpty) into.Add(fileValue);
             } else if (entry.Value is IInnerNodeDataMap innerNodes) {
                 foreach (var inner in innerNodes) collectFileValues(inner, into);
+            }
+        }
+    }
+
+    readonly record struct FileValueRef(Guid NodeId, Guid NodeTypeId, string PropertyPath, FileValue Value);
+    /// <summary>
+    /// The ids of every node type whose nodes may carry a file value: types with a file property of
+    /// their own, and types that embed such a type, transitively. Inherited properties count, so a
+    /// descendant of a file carrying type is included as well. The inner types of an embedded
+    /// property are expanded with their descendants, which can only widen the set - a scan built on
+    /// it may check a few nodes that turn out to hold no files, but never misses one that does.
+    /// </summary>
+    internal HashSet<Guid> GetNodeTypeIdsThatMayContainFiles() {
+        var mayContainFiles = new HashSet<Guid>();
+        var embeddedTypesByType = new Dictionary<Guid, HashSet<Guid>>();
+        foreach (var nodeType in Datamodel.NodeTypes.Values) {
+            var embedded = new HashSet<Guid>();
+            foreach (var property in nodeType.AllProperties.Values) {
+                if (property.PropertyType == PropertyType.File) {
+                    mayContainFiles.Add(nodeType.Id);
+                } else if (property is EmbeddedPropertyModel embeddedProperty) {
+                    foreach (var innerTypeId in embeddedProperty.InnerNodeTypes) {
+                        embedded.Add(innerTypeId);
+                        if (Datamodel.NodeTypes.TryGetValue(innerTypeId, out var innerType))
+                            foreach (var descendantId in innerType.ThisAndDescendingTypes.Keys) embedded.Add(descendantId);
+                    }
+                }
+            }
+            embeddedTypesByType[nodeType.Id] = embedded;
+        }
+        // a type also carries files when any type it can embed does: repeated until nothing new is
+        // found, so chains of embedded types are followed without recursing into a type cycle
+        for (var changed = true; changed;) {
+            changed = false;
+            foreach (var kv in embeddedTypesByType) {
+                if (mayContainFiles.Contains(kv.Key)) continue;
+                if (!kv.Value.Any(mayContainFiles.Contains)) continue;
+                mayContainFiles.Add(kv.Key);
+                changed = true;
+            }
+        }
+        return mayContainFiles;
+    }
+    /// <summary>
+    /// Checks every file value in the database against the file store it points at and reports the
+    /// ones whose file is not there. Only nodes of types that may carry a file value are loaded (see
+    /// <see cref="GetNodeTypeIdsThatMayContainFiles"/>), in batches, and every value is checked with
+    /// the file store ContainsFile, which also fails a file whose stored size no longer matches.
+    /// The listed detail is capped at <see cref="MissingFilesResult.MaxListed"/> entries; the counts
+    /// always cover everything checked. <paramref name="onProgress"/> is called with a phase
+    /// description and a 0-100 percentage.
+    /// </summary>
+    public async Task<MissingFilesResult> FindMissingFilesAsync(Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
+        validateDatabaseState();
+        var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, "Checking for missing files");
+        try {
+            var lastPct = -1;
+            var lastDescription = string.Empty;
+            void report(string description, int pct) {
+                // the same percentage with a new description still counts: the closing message
+                // arrives when the last batch has already reported 100
+                if (pct == lastPct && description == lastDescription) return;
+                lastPct = pct;
+                lastDescription = description;
+                UpdateActivity(activityId, description, pct);
+                onProgress?.Invoke(description, pct);
+            }
+            report("Identifying types with file properties", 0);
+            var result = new MissingFilesResult();
+            var typeIds = GetNodeTypeIdsThatMayContainFiles();
+            if (typeIds.Count == 0) {
+                report("No file properties in the datamodel", 100);
+                return result;
+            }
+            var ids = new HashSet<int>();
+            foreach (var typeId in typeIds) {
+                cancellationToken.ThrowIfCancellationRequested();
+                // descendants are not included: they carry the inherited file property themselves,
+                // so they are in typeIds already and are enumerated on their own turn
+                foreach (var id in _definition.GetAllIdsForTypeNoAccessControl(typeId, false).Enumerate()) ids.Add(id);
+            }
+            var nodeIds = ids.ToArray();
+            if (nodeIds.Length == 0) {
+                report("No nodes with file properties", 100);
+                return result;
+            }
+            var description = "Checking files of " + nodeIds.Length + (nodeIds.Length == 1 ? " node" : " nodes");
+            var missing = new List<MissingFileInfo>();
+            var fileValues = new List<FileValueRef>();
+            const int batchSize = 500;
+            for (var offset = 0; offset < nodeIds.Length; offset += batchSize) {
+                cancellationToken.ThrowIfCancellationRequested();
+                fileValues.Clear();
+                var end = Math.Min(offset + batchSize, nodeIds.Length);
+                _lock.EnterReadLock();
+                try {
+                    for (var i = offset; i < end; i++) {
+                        if (_nodes.TryGet(nodeIds[i], out var node, out _)) collectFileValueRefs(node, node.Id, node.NodeType, string.Empty, fileValues);
+                    }
+                } finally {
+                    _lock.ExitReadLock();
+                }
+                foreach (var fileValue in fileValues) {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    result.FilesChecked++;
+                    string? reason = null;
+                    try {
+                        var fileStore = getFileStore(fileValue.Value.StorageId);
+                        if (!await fileStore.ContainsFileAsync(fileValue.Value)) reason = "Not found in the file store, or its size does not match";
+                    } catch (Exception err) {
+                        reason = err.Message; // an unreachable or unknown file store is a missing file too
+                    }
+                    if (reason == null) continue;
+                    result.MissingCount++;
+                    result.MissingBytes += fileValue.Value.Size;
+                    if (missing.Count < MissingFilesResult.MaxListed) {
+                        missing.Add(new MissingFileInfo {
+                            NodeId = fileValue.NodeId,
+                            NodeType = Datamodel.NodeTypes.TryGetValue(fileValue.NodeTypeId, out var t) ? t.FullName : fileValue.NodeTypeId.ToString(),
+                            Property = fileValue.PropertyPath,
+                            FileName = fileValue.Value.Name,
+                            Size = fileValue.Value.Size,
+                            FileId = fileValue.Value.FileId,
+                            StorageId = fileValue.Value.StorageId,
+                            Reason = reason,
+                        });
+                    } else {
+                        result.ListTruncated = true;
+                    }
+                }
+                result.NodesScanned = end;
+                report(description, (int)(end * 100L / nodeIds.Length));
+            }
+            result.Missing = [.. missing];
+            report("Check completed", 100);
+            return result;
+        } finally {
+            DeRegisterActivity(activityId);
+        }
+    }
+    void collectFileValueRefs(INodeData node, Guid rootNodeId, Guid rootNodeTypeId, string prefix, List<FileValueRef> into) {
+        if (node is NodeDataRevisions revisions) { // revision containers hold no values of their own
+            foreach (var revision in revisions.Revisions) collectFileValueRefs(revision, rootNodeId, rootNodeTypeId, prefix, into);
+            return;
+        }
+        foreach (var entry in node.Values) {
+            if (entry.Value is not FileValue && entry.Value is not IInnerNodeDataMap) continue;
+            var name = Datamodel.Properties.TryGetValue(entry.PropertyId, out var property) ? property.CodeName : entry.PropertyId.ToString();
+            var path = prefix.Length == 0 ? name : prefix + "." + name;
+            if (entry.Value is FileValue fileValue) {
+                if (!fileValue.IsEmpty) into.Add(new FileValueRef(rootNodeId, rootNodeTypeId, path, fileValue));
+            } else if (entry.Value is IInnerNodeDataMap innerNodes) {
+                foreach (var inner in innerNodes) collectFileValueRefs(inner, rootNodeId, rootNodeTypeId, path, into);
             }
         }
     }

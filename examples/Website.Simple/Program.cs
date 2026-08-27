@@ -15,7 +15,7 @@ using Website.Simple.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter(1));
+    options.FileConverters.Add(new SkiaImageConverter());
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.OnDatamodelInit = (dm, container) => {
         dm.Add<DemoArticle>();
@@ -30,8 +30,8 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpenBackground = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 100000, 1000); // populates the facet search example (see wwwroot/search.html)
-        Website.Simple.Data.PageSeeder.SeedIfEmpty(db); // populates the dynamic URL example (see the /pages* endpoints)
+        //Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 10000, 1000); // populates the facet search example (see wwwroot/search.html)
+        //Website.Simple.Data.PageSeeder.SeedIfEmpty(db); // populates the dynamic URL example (see the /pages* endpoints)
     };
 });
 

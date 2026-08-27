@@ -1,6 +1,6 @@
 import { Datamodel } from "../relatude.db/datamodel";
 import { DatamodelModel } from "../relatude.db/datamodelModels";
-import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize, UnreferencedFilesProgress } from "./models";
+import { StoreStates, FileMeta, LogEntry, NodeStoreContainer, SimpleStoreContainer, DataStoreInfo, QueryLogEntry, TransactionLogEntry, ActionLogEntry, Transaction, ServerLogEntry, DataStoreStatus, SystemLogEntry, TaskLogEntry, MetricsLogEntry, TaskBatchLogEntry, LogInfo, PropertyHitEntry, SystemTraceEntry, LogIntervalTypes, AnalysisEntry, FolderMeta, FolderSize, UnreferencedFilesProgress, MissingFilesProgress } from "./models";
 import { EventSubscription } from "./serverEventHub";
 
 type retryCallback = (errorMessage: any) => Promise<boolean>;
@@ -162,6 +162,9 @@ class MaintenanceAPI {
         this.server.userDownload(this.controller, 'download-file', { storeId, ioId, fileName });
     }
     deleteFile = (storeId: string, ioId: string, fileName: string) => this.server.execute(this.controller, 'delete-file', { storeId, ioId, fileName });
+    findMissingFilesStart = async (storeId: string) => (await this.server.queryJson<{ jobId: string }>(this.controller, 'find-missing-files-start', { storeId })).jobId;
+    findMissingFilesProgress = (storeId: string, jobId: string) => this.server.queryJson<MissingFilesProgress>(this.controller, 'find-missing-files-progress', { storeId, jobId });
+    findMissingFilesCancel = (storeId: string, jobId: string) => this.server.execute(this.controller, 'find-missing-files-cancel', { storeId, jobId });
     deleteUnreferencedFilesStart = async (storeId: string, countOnly: boolean) => (await this.server.queryJson<{ jobId: string }>(this.controller, 'delete-unreferenced-files-start', { storeId, countOnly: countOnly ? "true" : "false" })).jobId;
     deleteUnreferencedFilesProgress = (storeId: string, jobId: string) => this.server.queryJson<UnreferencedFilesProgress>(this.controller, 'delete-unreferenced-files-progress', { storeId, jobId });
     deleteUnreferencedFilesCancel = (storeId: string, jobId: string) => this.server.execute(this.controller, 'delete-unreferenced-files-cancel', { storeId, jobId });

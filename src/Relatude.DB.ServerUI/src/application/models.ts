@@ -31,6 +31,28 @@ export interface FolderSize {
     fileCount: number
     folderCount: number
 }
+export interface MissingFile {
+    nodeId: string
+    nodeType: string
+    property: string
+    fileName: string
+    size: number
+    fileId: string
+    storageId: string
+    reason: string
+}
+export interface MissingFilesProgress {
+    state: "running" | "done" | "cancelled" | "failed"
+    description: string
+    percent: number
+    error?: string
+    nodesScanned: number
+    filesChecked: number
+    missingCount: number
+    missingBytes: number
+    listTruncated: boolean
+    missing: MissingFile[]
+}
 export interface UnreferencedFilesProgress {
     state: "running" | "done" | "cancelled" | "failed"
     description: string
