@@ -523,7 +523,10 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             ThreadPool.QueueUserWorkItem(_ => { transaction.Execute(); });
             return allIds.Count;
         });
-        app.MapPost(path("query"), (Guid storeId, QueryModel query) => server.GetStore(storeId).EvaluateForJsonAsync(query.Query, [.. query.Parameters.Select(ParameterModel.Convert)]));
+        // a context in the request body reads as that user, culture and visibility; without one the
+        // query reads with the context of the store, as everywhere else
+        app.MapPost(path("query"), (Guid storeId, QueryModel query) => server.GetStore(storeId)
+            .EvaluateForJsonAsync(query.Query, [.. query.Parameters.Select(ParameterModel.Convert)], QueryContextModel.Convert(query.Context)));
         app.MapPost(path("execute"), (Guid storeId, ActionModel[] actions, bool flushToDisk) => server.GetStore(storeId).ExecuteAsync(actions, flushToDisk));
         app.MapPost(path("shift-all-dates"), async (Guid storeId, int seconds) => {
             var store = container(storeId).Store;

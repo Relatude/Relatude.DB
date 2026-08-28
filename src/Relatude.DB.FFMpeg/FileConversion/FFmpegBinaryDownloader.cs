@@ -1,3 +1,4 @@
+﻿using Relatude.DB.Common;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -11,7 +12,8 @@ namespace Relatude.DB.FileConversion;
 /// </summary>
 internal static class FFmpegBinaryDownloader {
     const string _latestVersionUrl = "https://ffbinaries.com/api/v1/version/latest";
-    const int _maxDownloadRetries = 3;
+    // was 3 attempts at 2 s then 4 s; the shared cadence covers the same ground inside this budget
+    static readonly TimeSpan _downloadRetryTimeout = TimeSpan.FromSeconds(30);
     static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
 
     /// <summary>
@@ -61,14 +63,10 @@ internal static class FFmpegBinaryDownloader {
     static async Task downloadAndExtractAsync(string url, string binDir, string name, Action<string, long, long>? progress) {
         var zipTmp = Path.Combine(binDir, Guid.NewGuid().ToString("N") + ".zip.tmp");
         try {
-            for (var attempt = 1; ; attempt++) {
-                try {
-                    await downloadFileAsync(url, zipTmp, (downloaded, total) => progress?.Invoke(name, downloaded, total));
-                    break;
-                } catch (Exception ex) when (ex is HttpRequestException or IOException && attempt < _maxDownloadRetries) {
-                    await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
-                }
-            }
+            // the shared cadence, so this download waits on the same rhythm as everything else
+            await Retry.RunAsync(() => downloadFileAsync(url, zipTmp, (downloaded, total) => progress?.Invoke(name, downloaded, total)),
+                isTransient: ex => ex is HttpRequestException or IOException,
+                timeout: _downloadRetryTimeout);
             extractZip(zipTmp, binDir);
         } finally {
             try { if (File.Exists(zipTmp)) File.Delete(zipTmp); } catch { }

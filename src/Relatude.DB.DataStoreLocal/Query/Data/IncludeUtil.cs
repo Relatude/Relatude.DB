@@ -15,6 +15,7 @@ internal static class IncludeUtil {
         public required QueryContext Ctx;
         public required Metrics Metrics;
         Dictionary<IncludeBranch, IncludeFilterEvaluator?>? _evaluators;
+        Dictionary<Guid, IdSet>? _visibleByType;
         public IncludeFilterEvaluator? GetEvaluator(IncludeBranch branch) {
             if (branch.Filter == null) return null;
             _evaluators ??= [];
@@ -23,6 +24,21 @@ internal static class IncludeUtil {
                 _evaluators.Add(branch, evaluator);
             }
             return evaluator;
+        }
+        /// <summary>
+        /// True when the context may see this node. Preloaded nodes do not come from a type set, so
+        /// unlike the rest of the query pipeline they are not filtered by read access, deleted flag,
+        /// release/expire window or culture unless it is done here. The set is looked up by the node's
+        /// own type (the declared related type of the property is not always the real one), and is
+        /// itself cached per type and context by the meta index.
+        /// </summary>
+        public bool IsVisible(int nodeId, Guid nodeTypeId) {
+            _visibleByType ??= [];
+            if (!_visibleByType.TryGetValue(nodeTypeId, out var visible)) {
+                visible = Db._definition.GetAllIdsForType(nodeTypeId, Ctx);
+                _visibleByType.Add(nodeTypeId, visible);
+            }
+            return visible.Has(nodeId);
         }
     }
     public static INodeDataExternal[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
@@ -83,9 +99,10 @@ internal static class IncludeUtil {
                 if (guid != Guid.Empty && _db.Exists(guid)) {
                     // has value, is set, and exists in the database:
                     if (!_db._guids.TryGetId(guid, out var id)) return;
+                    var typeId = _db._definition.GetTypeOfNode(id);
+                    if (!walk.IsVisible(id, typeId)) return; // not readable in this context: same result as an unset reference
                     if (filter != null && !filter.Keep(id)) return; // filtered out: same result as an unset reference
                     idsToGet.Add(id);
-                    var typeId = _db._definition.GetTypeOfNode(id);
                     var idNodePlaceholder = new NodeDataOnlyTypeAndId(id, typeId);
                     var to = new NodeDataWithRelations(idNodePlaceholder);
                     from.Relations.AddReference(propId, to);
@@ -99,9 +116,11 @@ internal static class IncludeUtil {
                     if (top.HasValue && tos.Count >= top.Value) break;
                     if (guid == Guid.Empty || !_db.Exists(guid)) continue; // unset or stale entry (target deleted): skip, not truncate
                     if (!_db._guids.TryGetId(guid, out var id)) continue;
+                    var typeId = _db._definition.GetTypeOfNode(id);
+                    if (!walk.IsVisible(id, typeId)) continue; // not readable in this context, before filter and top
                     if (filter != null && !filter.Keep(id)) continue; // filter before top
                     idsToGet.Add(id);
-                    tos.Add(new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id))));
+                    tos.Add(new(new NodeDataOnlyTypeAndId(id, typeId)));
                 }
                 _totalNodeCount += tos.Count;
                 from.Relations.AddReferences(propId, tos.ToArray());
@@ -110,34 +129,19 @@ internal static class IncludeUtil {
         } else if (propDef is RelationPropertyModel relProp) {
             var relation = _def.Relations[relProp.RelationId];
             var idsRel = relation.GetRelated(from.__Id, relProp.FromTargetToSource);
-            NodeDataWithRelations[] tos;
-            if (filter == null) {
-                _totalNodeCount += idsRel.Count;
-                var ids = idsRel.Enumerate();
-                int count; // faster count, avoiding Count() on the enumerable
-                if (top.HasValue && idsRel.Count > top) {
-                    ids = ids.Take(top.Value);
-                    count = top.Value;
-                } else {
-                    count = idsRel.Count;
-                }
-                tos = new NodeDataWithRelations[count];
-                var i = 0;
-                foreach (var id in ids) {
-                    idsToGet.Add(id);
-                    tos[i++] = new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id)));
-                }
-            } else { // filter before top:
-                List<NodeDataWithRelations> kept = new();
-                foreach (var id in idsRel.Enumerate()) {
-                    if (top.HasValue && kept.Count >= top.Value) break;
-                    if (!filter.Keep(id)) continue;
-                    idsToGet.Add(id);
-                    kept.Add(new(new NodeDataOnlyTypeAndId(id, _db._definition.GetTypeOfNode(id))));
-                }
-                _totalNodeCount += kept.Count;
-                tos = kept.ToArray();
+            // context visibility and the branch filter are both applied before top, so a related node
+            // the reader may not see does not use up one of the requested slots:
+            List<NodeDataWithRelations> kept = new(top.HasValue && idsRel.Count > top.Value ? top.Value : idsRel.Count);
+            foreach (var id in idsRel.Enumerate()) {
+                if (top.HasValue && kept.Count >= top.Value) break;
+                var typeId = _db._definition.GetTypeOfNode(id);
+                if (!walk.IsVisible(id, typeId)) continue;
+                if (filter != null && !filter.Keep(id)) continue;
+                idsToGet.Add(id);
+                kept.Add(new(new NodeDataOnlyTypeAndId(id, typeId)));
             }
+            _totalNodeCount += kept.Count;
+            var tos = kept.ToArray();
             if (relProp.IsMany) {
                 from.Relations.AddManyRelation(propId, tos);
             } else {

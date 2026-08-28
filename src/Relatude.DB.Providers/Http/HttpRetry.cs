@@ -3,6 +3,12 @@ namespace Relatude.DB.Http;
 /// Shared retry policy for the plain-HTTP providers in this plugin.
 /// Retries transient failures (429, 408, 5xx and connection errors) with exponential backoff,
 /// honoring a Retry-After header when the server sends one.
+/// <para>This is the one retry in the database that does not use <c>Relatude.DB.Common.Retry</c>, and
+/// the difference is deliberate. That helper waits on a failed operation - an exception - whereas most
+/// retries here are triggered by a perfectly successful response carrying a 429 or a 5xx, and the last
+/// such response has to be returned rather than thrown. The cadence has to differ too: a rate-limited
+/// API dictates the wait through Retry-After, and needs jitter so that many clients backing off at
+/// once do not return in lockstep - neither of which applies to waiting for a local file lock.</para>
 /// </summary>
 internal static class HttpRetry {
     const int _maxAttempts = 5;

@@ -117,7 +117,7 @@ public class IOProviderDisk : IIOProvider {
     public FileMeta[] GetFiles() {
         lock (_lock) {
             if (!Directory.Exists(BaseFolder)) return [];
-            // root files plus the well known system folders (data/state/bkup/log); other folders
+            // root files plus the well known system folders (data/state/backup/log); other folders
             // (the indexes folder, the multi file store folder) own their content and are not listed
             var files = new List<FileMeta>(new DirectoryInfo(BaseFolder).GetFiles().Select(FileMeta.FromFileInfo));
             foreach (var folder in FileKeyUtility.SystemFolderNames) {

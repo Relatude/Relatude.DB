@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Query.Data;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Query.Data;
 using System.Reflection;
 using Relatude.DB.Nodes;
 using System.Collections;
@@ -8,10 +9,15 @@ internal sealed class QueryStringEvaluater {
     readonly string _query;
     readonly NodeStore _store;
     readonly IEnumerable<Parameter> _parameters;
-    internal QueryStringEvaluater(NodeStore store, string query, IEnumerable<Parameter> parameters) {
+    // The context this query was started with, if any. Null means read with the store default.
+    // It has to be carried all the way to the store: it is what the access control, culture and
+    // visibility filtering is evaluated against.
+    readonly QueryContext? _ctx;
+    internal QueryStringEvaluater(NodeStore store, string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         _store = store;
         _query = query;
         _parameters = parameters;
+        _ctx = ctx;
     }
     internal async Task<object?> EvaluateForJsonAsync() {
         var data = await toDataAsync();
@@ -200,7 +206,7 @@ internal sealed class QueryStringEvaluater {
         }
         return ctor.Invoke(args);
     }
-    Task<object?> toDataAsync() => _store.Datastore.QueryAsync(_query, _parameters);
-    object? toData() => _store.Datastore.Query(_query, _parameters);
+    Task<object?> toDataAsync() => _store.Datastore.QueryAsync(_query, _parameters, _ctx);
+    object? toData() => _store.Datastore.Query(_query, _parameters, _ctx);
 }
 

@@ -10,7 +10,10 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _transactionActionActivity = new(); // for evaluating how busy the db is, to delay background tasks if needed
-    static int[] _optimisticRetryIntervalOnLockMs = [5, 10, 20, 40, 80, 160, 320, 640, 1000, 1000, 1000, 1000, 1000, 1000]; // in sum: max 5.5 seconds of waiting time
+    // The cadence lives in Retry, with every other retry in the database. This one uses the contention
+    // schedule rather than the standard one: it is waiting on a write lock held by another transaction
+    // on this machine, which is usually gone in a millisecond or two, not on another process letting go
+    // of a file.
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null) {
         return Task.FromResult(Execute(transaction, flushToDisk, ctx));
     }
@@ -27,15 +30,14 @@ public sealed partial class DataStoreLocal : IDataStore {
                     var error = new NodeLockedException("Node locked, no retry attempts. ", err);
                     LogError(error.Message, error);
                     throw error;
-                }else if (++attempt > _optimisticRetryIntervalOnLockMs.Length) {
-                    var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + _optimisticRetryIntervalOnLockMs.Length + " attempts.", err);
+                } else if (++attempt > Retry.ContentionAttempts) {
+                    var error = new NodeLockedException("Node locked, no more retry attempts. Gave up after " + Retry.ContentionAttempts + " attempts.", err);
                     LogError(error.Message, error);
                     throw error;
                 }
                 transaction.Timestamp = 0; // reset timestamp so that a new one will be generated for the retry
-                var sleep = _optimisticRetryIntervalOnLockMs[attempt - 1];
-                LogWarning("Node locked, retry " + attempt + " of " + _optimisticRetryIntervalOnLockMs.Length + ". " + err.Message);
-                Thread.Sleep(sleep);
+                LogWarning("Node locked, retry " + attempt + " of " + Retry.ContentionAttempts + ". " + err.Message);
+                Thread.Sleep(Retry.DelayAfterContention(attempt));
             }
         }
     }

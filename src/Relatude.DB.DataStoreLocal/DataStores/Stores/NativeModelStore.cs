@@ -252,7 +252,8 @@ public class NativeModelStore(DataStoreLocal store) {
     public void addUser(INodeData node) {
         Native.SystemUserType userType = Native.SystemUserType.Anonymous;
         if (node.TryGetValue(NodeConstants.NativeUserPropertyUserType, out var objUserType)) {
-            userType = (Native.SystemUserType)objUserType;
+            // enum properties are stored as int, and a boxed int cannot be unboxed straight to the enum:
+            userType = (Native.SystemUserType)(int)objUserType;
         }
         var user = new NativeSystemUser {
             Id = node.__Id,

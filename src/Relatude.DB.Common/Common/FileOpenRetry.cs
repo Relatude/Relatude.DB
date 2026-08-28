@@ -73,7 +73,8 @@ public static class FileOpenRetry {
     /// <summary>
     /// Runs <paramref name="open"/>, and while it fails because another process holds the file, waits
     /// and runs it again until <paramref name="timeout"/> is spent. Any other failure is rethrown
-    /// untouched, on the first attempt.
+    /// untouched, on the attempt it happened. The waiting rhythm is <see cref="Retry"/>'s, shared with
+    /// every other retry in the database.
     /// <para><paramref name="log"/> - or <see cref="DefaultLog"/> when it is null - is called at most
     /// twice: once when the wait begins, once when it ends. A wait that is never logged is
     /// indistinguishable from a hang.</para>
@@ -82,36 +83,17 @@ public static class FileOpenRetry {
     public static T Open<T>(string path, Func<T> open, TimeSpan? timeout = null, Action<string>? log = null) {
         log ??= DefaultLog;
         var budget = timeout ?? DefaultTimeout;
-        var sw = Stopwatch.StartNew();
         var name = Path.GetFileName(path);
-        var attempts = 0;
-        while (true) {
-            attempts++;
-            try {
-                var result = open();
-                if (attempts > 1) {
-                    log?.Invoke("\"" + name + "\" was released by the other process after "
-                        + sw.Elapsed.TotalSeconds.ToString("0.0") + " s, opened on attempt " + attempts + ".");
-                }
-                return result;
-            } catch (Exception err) when (IsSharingViolation(err)) {
-                var remaining = budget - sw.Elapsed;
-                if (remaining <= TimeSpan.Zero) {
-                    throw new FileLockedException("\"" + path + "\" is held by another process and was still held after "
-                        + sw.Elapsed.TotalSeconds.ToString("0.0") + " s over " + attempts + " attempt(s). "
-                        + "On a host that recycles with the processes overlapping, such as Azure App Service, the previous "
-                        + "process may not have finished stopping. " + err.Message, err);
-                }
-                if (attempts == 1) {
-                    log?.Invoke("\"" + name + "\" is held by another process, waiting up to "
-                        + budget.TotalSeconds.ToString("0") + " s for it to be released. " + err.Message);
-                }
-                // back off quickly at first: a host handover usually clears in well under a second
-                var delay = TimeSpan.FromMilliseconds(Math.Min(2000, 100 * Math.Pow(2, Math.Min(attempts - 1, 5))));
-                if (delay > remaining) delay = remaining;
-                Thread.Sleep(delay);
-            }
-        }
+        return Retry.Run(open, IsSharingViolation, budget,
+            onWaitStarted: (_, err) => log?.Invoke("\"" + name + "\" is held by another process, waiting up to "
+                + budget.TotalSeconds.ToString("0") + " s for it to be released. " + err.Message),
+            onWaitEnded: (attempts, elapsed) => log?.Invoke("\"" + name + "\" was released by the other process after "
+                + elapsed.TotalSeconds.ToString("0.0") + " s, opened on attempt " + attempts + "."),
+            onExhausted: (err, attempts, elapsed) => new FileLockedException(
+                "\"" + path + "\" is held by another process and was still held after "
+                + elapsed.TotalSeconds.ToString("0.0") + " s over " + attempts + " attempt(s). "
+                + "On a host that recycles with the processes overlapping, such as Azure App Service, the previous "
+                + "process may not have finished stopping. " + err.Message, err));
     }
 
     /// <summary>Same as <see cref="Open{T}"/>, for an open that returns nothing.</summary>

@@ -18,11 +18,11 @@ public sealed class QueryOfShortestPath<T, TInclude> : IQueryExecutable<GraphPat
         return new GraphPathResult<T>(p.Found, [.. p.NodeIds], nodes, p.DurationMs);
     }
     public async Task<GraphPathResult<T>> ExecuteAsync() {
-        var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray());
+        var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray(), _query._q._ctx);
         return buildResult(data);
     }
     public GraphPathResult<T> Execute() {
-        var data = _query.Store.Datastore.Query(ToString(), _query._q._parameters.ToArray());
+        var data = _query.Store.Datastore.Query(ToString(), _query._q._parameters.ToArray(), _query._q._ctx);
         return buildResult(data);
     }
     public object? EvaluateForJson() => _query._q.Prepare().EvaluateForJsonAsync().Result;

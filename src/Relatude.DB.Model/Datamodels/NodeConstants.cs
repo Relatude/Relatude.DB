@@ -40,10 +40,27 @@ public static class NodeConstants {
     public static readonly Guid RelationGroupsToGroups = new(RelationGroupsToGroupsString);
     public static readonly Guid RelationCollectionsToCultures = new(RelationCollectionsToCulturesString);
 
-    const string NativeUserPropertyUserTypeString = "61bfa8ff-e8af-47d4-86e3-0b3f82510896";
-    public static readonly Guid NativeUserPropertyUserType = new(NativeUserPropertyUserTypeString);
+    // Property ids of the engine's own model (Relatude.DB.Native.Models). They are pinned with an
+    // explicit Id on every property there, so renaming a property does not change its id and orphan
+    // the stored values. The values are the ids the properties already had when they were generated
+    // from the type and member name, so pinning them changes no existing data.
+    public const string NativeUserPropertyUserTypeString = "4f64452a-7dbc-f83f-ade1-c265a040b423";
+    public const string NativeUserPropertyMembershipsString = "d476891e-f1d0-f541-283c-4abf258da8bd";
 
-    const string NativeCulturePropertyCultureCodeString = "f97c08b8-b851-fe8a-97cd-9b1dbec99f36";
+    public const string NativeUserGroupPropertyGroupNameString = "49fd9384-5f68-6aca-9472-92640550e9e2";
+    public const string NativeUserGroupPropertyUserMembersString = "c845e4b4-7e1d-1991-c922-25f00eb5a5a2";
+    public const string NativeUserGroupPropertyGroupMembershipsString = "6cf54ce8-ed2c-c7db-15c6-406c5a8810e3";
+    public const string NativeUserGroupPropertyGroupMembersString = "d5d61b7f-9d28-c98e-4128-d476a5e0fa25";
+
+    public const string NativeCollectionPropertyNameString = "decb9830-0b7f-c9cb-69a6-fe2b24f7a647";
+    public const string NativeCollectionPropertyCulturesString = "9f38e583-0c9e-6e95-a42f-ca2f0ca1fbc7";
+
+    public const string NativeCulturePropertyCultureCodeString = "f97c08b8-b851-fe8a-97cd-9b1dbec99f36";
+    public const string NativeCulturePropertyNativeNameString = "bd210a8a-c007-1ff8-a807-050617ac98da";
+    public const string NativeCulturePropertyEnglishNameString = "d9ddd7ab-5d21-f46e-2dea-dcd6d5abac97";
+    public const string NativeCulturePropertyCollectionsString = "0f7523f9-ceac-32d1-8469-3ee204c91c05";
+
+    public static readonly Guid NativeUserPropertyUserType = new(NativeUserPropertyUserTypeString);
     public static readonly Guid NativeCulturePropertyCultureCode = new(NativeCulturePropertyCultureCodeString);
 
 

@@ -108,7 +108,9 @@ public class QueryContext {
             && CultureId == other.CultureId
             && IncludeDeleted == other.IncludeDeleted
             && IncludeCultureFallback == other.IncludeCultureFallback
+            && OnlyWithCulture == other.OnlyWithCulture
             && IncludeUnpublished == other.IncludeUnpublished
+            && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden
             && ExcludeDecendants == other.ExcludeDecendants
             && equalCollectionIds(CollectionIds, other.CollectionIds)
@@ -142,7 +144,9 @@ public class QueryContext {
         hash = (hash * 397) ^ (CultureId?.GetHashCode() ?? 0);
         hash = (hash * 397) ^ IncludeDeleted.GetHashCode();
         hash = (hash * 397) ^ IncludeCultureFallback.GetHashCode();
+        hash = (hash * 397) ^ OnlyWithCulture.GetHashCode();
         hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
+        hash = (hash * 397) ^ EditView.GetHashCode();
         hash = (hash * 397) ^ IncludeHidden.GetHashCode();
         hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
         if (CollectionIds != null) {
@@ -169,6 +173,7 @@ public class QueryContext {
             CultureId = this.CultureId,
             IncludeDeleted = this.IncludeDeleted,
             IncludeCultureFallback = this.IncludeCultureFallback,
+            OnlyWithCulture = this.OnlyWithCulture,
             IncludeUnpublished = this.IncludeUnpublished,
             EditView = this.EditView,
             IncludeHidden = this.IncludeHidden,
@@ -312,10 +317,12 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         ) {
         CultureId = cultureId;
         CollectionIds = collectionIds;
+        MembershipIds = membershipIds;
         IncludeDeleted = includeDeleted;
         IncludeCultureFallback = includeCultureFallback;
         OnlyWithCulture = onlyWithCulture;
         IncludeUnpublished = includeUnpublished;
+        EditView = editView;
         IncludeHidden = includeHidden;
         ExcludeDecendants = excludeDecendants;
         UserType = userType;

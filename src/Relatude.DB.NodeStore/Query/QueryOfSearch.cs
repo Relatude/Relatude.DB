@@ -36,11 +36,11 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
         return new ResultSetSearch<T>(values, count, totalCount, pageIndex, pageSize, s.DurationMs, s.InnerSearchTimeMs);
     }
     public async Task<ResultSetSearch<T>> ExecuteAsync() {
-        var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray());
+        var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray(), _query._q._ctx);
         return buildResult(data);
     }
     public ResultSetSearch<T> Execute() {
-        var data = _query.Store.Datastore.Query(ToString(), _query._q._parameters.ToArray());
+        var data = _query.Store.Datastore.Query(ToString(), _query._q._parameters.ToArray(), _query._q._ctx);
         return buildResult(data);
     }
     public object? EvaluateForJson() => _query._q.Prepare().EvaluateForJsonAsync().Result;

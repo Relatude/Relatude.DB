@@ -371,25 +371,15 @@ public partial class RelatudeDBServer {
     /// </summary>
     void openWaitingForAnotherProcessIfNeeded(NodeStoreContainer container) {
         var budget = Options?.AutoOpenRetryTimeout ?? ServerOptions.DefaultAutoOpenRetryTimeout;
-        var sw = Stopwatch.StartNew();
-        var attempts = 0;
-        while (true) {
-            attempts++;
-            try {
-                container.Open();
-                if (attempts > 1) {
-                    Log("Database \"" + container.Settings.Name + "\" opened on attempt " + attempts
-                        + " after waiting " + sw.Elapsed.TotalSeconds.To1000N() + " s for another process to release it.");
-                }
-                return;
-            } catch (Exception err) when (FileOpenRetry.IsSharingViolation(err) && !IsShuttingDown && sw.Elapsed < budget) {
-                // 1 s, 2 s, then 5 s: the handover clears in seconds, and a slow poll keeps the log readable
-                var wait = TimeSpan.FromSeconds(Math.Min(5, attempts));
-                Log("Database \"" + container.Settings.Name + "\" is still held by another process, retrying in "
-                    + wait.TotalSeconds.To1000N() + " s. " + err.Message);
-                Thread.Sleep(wait);
-            }
-        }
+        var name = container.Settings.Name;
+        Retry.Run(container.Open,
+            // a shutdown that starts mid-wait ends it: the database must not be reopened behind it
+            isTransient: err => FileOpenRetry.IsSharingViolation(err) && !IsShuttingDown,
+            timeout: budget,
+            onWaitStarted: (_, err) => Log("Database \"" + name + "\" is held by another process, waiting up to "
+                + budget.TotalSeconds.To1000N() + " s before giving up. " + err.Message),
+            onWaitEnded: (attempts, elapsed) => Log("Database \"" + name + "\" opened on attempt " + attempts
+                + " after waiting " + elapsed.TotalSeconds.To1000N() + " s for another process to release it."));
     }
 
     public void UpdateWAFServerSettingsFile() {

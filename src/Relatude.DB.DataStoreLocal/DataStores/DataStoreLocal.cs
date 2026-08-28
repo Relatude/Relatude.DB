@@ -166,7 +166,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw;
         }
     }
-    // Before the folder layout (data/state/bkup/log) every file lived in the storage root. On
+    // Before the folder layout (data/state/backup/log) every file lived in the storage root. On
     // startup the old files are moved into their folders: the database log files, backups, the
     // state snapshot, index states, mapper dlls, queue files and the logger files. The moved state
     // snapshot is then used at open, so the upgrade keeps the fast startup. (The ai cache and the

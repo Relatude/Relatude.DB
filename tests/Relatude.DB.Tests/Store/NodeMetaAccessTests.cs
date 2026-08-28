@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
@@ -29,8 +30,9 @@ public class SecuredPage {
 /// NodeTypesByIds.isMetaRelevantForContext (Relatude.DB.DataStoreLocal), and every query that starts from
 /// "all nodes of a type" passes through it.
 /// <para>
-/// These tests cover what works today. The parts that do not are in
-/// <see cref="NodeMetaAccessKnownIssuesTests"/> below, one failing test per defect.
+/// Reading as a user resolves that user's effective group memberships (nested groups included) and
+/// matches them against the required group. The cached id sets are keyed by the membership set, not
+/// by the user, so all users in the same groups share one set.
 /// </para>
 /// </summary>
 [TestClass]
@@ -369,17 +371,11 @@ public class NodeMetaAccessTests {
             "a publish access of its own cannot be represented by the minimal form");
         Assert.IsNull(IInnerNodeMeta.MinimizeIfPossible(IInnerNodeMeta.Empty), "an all default meta is dropped entirely");
     }
-}
 
-/// <summary>
-/// The parts of meta based access control that do not work yet. Each test states the behaviour the
-/// feature needs and fails today; the cause is named in the test.
-/// </summary>
-[TestClass]
-public class NodeMetaAccessKnownIssuesTests {
+    // ------------------------------------------------------------------ users and groups
 
     static (NodeStore db, Guid plainUser, Guid editorUser, Guid adminUser, Guid editors, Guid staff) openWithUsers() {
-        var db = NodeMetaAccessTests.Open();
+        var db = Open();
         var editors = db.CreateAndInsert<ISystemUserGroup>(g => g.GroupName = "editors").Id;
         var staff = db.CreateAndInsert<ISystemUserGroup>(g => g.GroupName = "staff").Id;
         db.AddRelation<ISystemUserGroup>(staff, g => g.GroupMembers, editors); // editors is a member group of staff
@@ -392,89 +388,107 @@ public class NodeMetaAccessKnownIssuesTests {
 
     [TestMethod]
     public void UserType_IsReadFromTheUserNode() {
-        // NativeModelStore.addUser looks the user type up by NodeConstants.NativeUserPropertyUserType
-        // (61bfa8ff-...), but the property id generated for ISystemUser.UserType is 4f64452a-... , so the
-        // lookup never hits and every user is registered as SystemUserType.Anonymous. (ISystemCulture.
-        // CultureCode works only because its constant happens to be the generated id.) The value also
-        // arrives boxed as an int, so the (SystemUserType) cast in addUser needs an int cast as well.
+        // The user type decides membership of the two built in groups. NativeModelStore.addUser reads it
+        // off the user node by NodeConstants.NativeUserPropertyUserType, so that constant and the id of
+        // ISystemUser.UserType have to stay in step - which is why the native model pins its property ids
+        // explicitly. Enum values are stored as int, so addUser has to unbox to int before the cast.
         var (db, plainUser, _, adminUser, _, _) = openWithUsers();
         using (db) {
-            NodeMetaAccessTests.Page(db, "membersOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupMember);
-            NodeMetaAccessTests.Page(db, "adminsOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
+            Page(db, "membersOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupMember);
+            Page(db, "adminsOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
 
-            Assert.AreEqual("membersOnly", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.User(plainUser)),
+            Assert.AreEqual("membersOnly", Titles(db, QueryContext.Anonymous.User(plainUser)),
                 "any signed in user is a member of the built in Member group");
-            Assert.AreEqual("adminsOnly,membersOnly", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.User(adminUser)),
+            Assert.AreEqual("adminsOnly,membersOnly", Titles(db, QueryContext.Anonymous.User(adminUser)),
                 "a user node of type Admin is a member of every group");
         }
     }
 
     [TestMethod]
     public void GroupMembership_GrantsAccessToTheGroupsNodes() {
-        // QueryContextKey's constructor takes membershipIds but never assigns the MembershipIds field
-        // (Relatude.DB.Model/Datamodels/QueryContext.cs), so it is always null and no user can match a
-        // group specific read access. The same omission makes two contexts that differ only by user
-        // compare equal, so the second user is served the first user's cached id set.
+        // The effective memberships of the user are carried in the QueryContextKey, which holds no user
+        // id: two users in the same groups share one cached id set. Leaving the memberships out of the
+        // key collapses every user into the anonymous entry, so this test also guards the cache key.
         var (db, plainUser, editorUser, _, editors, _) = openWithUsers();
         using (db) {
-            NodeMetaAccessTests.Page(db, "editorsOnly", nameof(IInnerNodeMeta.ReadAccess), editors);
-            Assert.AreEqual("editorsOnly", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.User(editorUser)),
+            Page(db, "editorsOnly", nameof(IInnerNodeMeta.ReadAccess), editors);
+            Assert.AreEqual("editorsOnly", Titles(db, QueryContext.Anonymous.User(editorUser)),
                 "a member of the editors group may read a node restricted to that group");
-            Assert.AreEqual("", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.User(plainUser)),
+            Assert.AreEqual("", Titles(db, QueryContext.Anonymous.User(plainUser)),
                 "a user outside the group may not");
         }
     }
 
     [TestMethod]
     public void GroupMembership_IsInheritedThroughGroupsOfGroups() {
-        // NativeModelStore.GetEffectiveMembershipsOfUser already expands nested groups; it is the dropped
-        // MembershipIds field (see above) that keeps the result from ever being used.
+        // NativeModelStore.GetEffectiveMembershipsOfUser expands groups of groups, and that expansion is
+        // what goes into the context key.
         var (db, _, editorUser, _, _, staff) = openWithUsers();
         using (db) {
-            NodeMetaAccessTests.Page(db, "staffOnly", nameof(IInnerNodeMeta.ReadAccess), staff);
-            Assert.AreEqual("staffOnly", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.User(editorUser)),
+            Page(db, "staffOnly", nameof(IInnerNodeMeta.ReadAccess), staff);
+            Assert.AreEqual("staffOnly", Titles(db, QueryContext.Anonymous.User(editorUser)),
                 "editors is a member group of staff, so an editor is effectively staff");
         }
     }
 
     [TestMethod]
     public void EditViewAccess_AppliesInEditViewMode() {
-        // QueryContextKey's constructor also never assigns EditView, so ctx.EditViewMode() never reaches
-        // the filter and the edit view access check in isMetaRelevantForContext is dead code.
-        using var db = NodeMetaAccessTests.Open();
-        NodeMetaAccessTests.Page(db, "notEditable", nameof(IInnerNodeMeta.EditViewAccess), NodeConstants.UserGroupAdmins);
-        Assert.AreEqual("notEditable", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous),
+        // Edit view access is a second, independent gate for editing UIs: it applies only when the
+        // context asks for edit view mode, which the context key has to carry for the check to run.
+        using var db = Open();
+        Page(db, "notEditable", nameof(IInnerNodeMeta.EditViewAccess), NodeConstants.UserGroupAdmins);
+        Assert.AreEqual("notEditable", Titles(db, QueryContext.Anonymous),
             "edit view access does not affect normal reading");
-        Assert.AreEqual("", NodeMetaAccessTests.Titles(db, QueryContext.Anonymous.EditViewMode()),
+        Assert.AreEqual("", Titles(db, QueryContext.Anonymous.EditViewMode()),
             "but in edit view mode the node is only listed for those who may open it in the editor");
     }
 
     [TestMethod]
     public void PerQueryContext_IsUsedByTheQuery() {
-        // QueryStringBuilder.Prepare() builds the QueryStringEvaluater without _ctx, and the evaluater
-        // calls Datastore.Query(query, parameters) without the ctx argument the interface offers. So the
-        // context handed to Query<T>(ctx) is silently ignored and the store default is used - which reads
-        // as a successful permission check to any caller that passes a restricted context per query.
-        using var db = NodeMetaAccessTests.Open();
-        NodeMetaAccessTests.Page(db, "adminsOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
+        // A context given to a single query has to reach the store, or the query silently reads with the
+        // store default - which looks like a passed permission check to the caller. The context travels
+        // QueryStringBuilder -> QueryStringEvaluater -> IDataStore.Query, and each execution path has to
+        // pass it on: Execute, Count, facets, search and shortest path all call the store directly.
+        using var db = Open();
+        Page(db, "adminsOnly", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
         db.SetQueryContext(QueryContext.MasterAdmin); // store default sees everything
         Assert.AreEqual(0, db.Query<SecuredPage>(QueryContext.Anonymous).Count(),
-            "the context passed to the query must override the store default");
+            "Count must use the context passed to the query, not the store default");
+        Assert.AreEqual(0, db.Query<SecuredPage>(QueryContext.Anonymous).Execute().Count(),
+            "and so must Execute");
+        Assert.AreEqual(0, db.Query<SecuredPage>(QueryContext.Anonymous).Search("kanari").Execute().Count(),
+            "and search");
+        Assert.AreEqual(1, db.Query<SecuredPage>(QueryContext.MasterAdmin).Count(),
+            "a context that may see the node still gets it, so this is the context filtering and not an empty result");
     }
 
     [TestMethod]
     public void Include_DoesNotLeakRestrictedNodes() {
-        // Traverse, WhereRelates and lazy relation properties are all filtered by the context, but the
-        // nodes preloaded by Include are not: the restricted child is handed to an anonymous reader.
-        using var db = NodeMetaAccessTests.Open();
-        var openId = db.CreateAndInsert<SecuredPage>(p => p.Title = "open").Id;
-        var secretId = NodeMetaAccessTests.Page(db, "secret", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
+        // Preloaded nodes do not come from a type set, so the include walk has to apply the context
+        // itself. It used to do so only as a side effect of an index expressible branch filter, which
+        // left an unfiltered or row filtered include leaking the node.
+        using var db = Open();
+        var openId = db.CreateAndInsert<SecuredPage>(p => { p.Title = "open"; p.Body = "kanari open"; }).Id;
+        var secretId = Page(db, "secret", nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupAdmins);
+        var visibleId = Page(db, "visible");
         db.AddRelation<SecuredPage>(openId, p => p.Children, secretId);
+        db.AddRelation<SecuredPage>(openId, p => p.Children, visibleId);
 
         db.SetQueryContext(QueryContext.Anonymous);
-        var included = db.Query<SecuredPage>().Where(p => p.Id == openId).Include(p => p.Children).Execute()
-            .SelectMany(p => p.Children.Select(c => c.Title)).ToList();
-        CollectionAssert.AreEqual(new List<string>(), included,
-            "Include must apply the same read access filter as Traverse does");
+        CollectionAssert.AreEqual(new List<string> { "visible" }, includedChildren(db, openId, null),
+            "an include without a filter must not hand out the restricted child");
+        CollectionAssert.AreEqual(new List<string>(), includedChildren(db, openId, c => c.Title == "secret"),
+            "nor one whose filter is evaluated with the indexes");
+        CollectionAssert.AreEqual(new List<string> { "visible" }, includedChildren(db, openId, c => c.Body != ""),
+            "nor one whose filter is evaluated row by row");
+
+        db.SetQueryContext(QueryContext.MasterAdmin);
+        CollectionAssert.AreEqual(new List<string> { "secret", "visible" }, includedChildren(db, openId, null),
+            "a reader who may see it still gets it preloaded");
+    }
+    static List<string> includedChildren(NodeStore db, Guid parentId, Expression<Func<SecuredPage, bool>>? filter) {
+        var q = db.Query<SecuredPage>().Where(p => p.Id == parentId);
+        q = filter == null ? q.Include(p => p.Children) : q.Include(p => p.Children, filter);
+        return q.Execute().SelectMany(p => p.Children.Select(c => c.Title)).OrderBy(t => t).ToList();
     }
 }

@@ -68,7 +68,7 @@ internal sealed class QueryStringBuilder {
         }
         _sb.Append(')');
     }
-    internal QueryStringEvaluater Prepare() => new QueryStringEvaluater(Store, getQueryString(), _parameters);
+    internal QueryStringEvaluater Prepare() => new QueryStringEvaluater(Store, getQueryString(), _parameters, _ctx);
     internal void Page(int pageIndex, int pageSize) => add("Page", pageIndex, pageSize);
     internal void Take(int count) => add("Take", count);
     internal void Skip(int offset) => add("Skip", offset);
@@ -160,16 +160,16 @@ internal sealed class QueryStringBuilder {
         }
         return ctor.Invoke(args);
     }
-    Task<object?> toDataAsync() => Store.Datastore.QueryAsync(getQueryString(), _parameters);
-    object? toData() => Store.Datastore.Query(getQueryString(), _parameters);
+    Task<object?> toDataAsync() => Store.Datastore.QueryAsync(getQueryString(), _parameters, _ctx);
+    object? toData() => Store.Datastore.Query(getQueryString(), _parameters, _ctx);
     // Count evaluates a snapshot instead of appending to the builder: the query object stays
     // usable afterwards (count first, then execute the same query is a common pattern)
     internal async Task<int> CountAsync() {
-        var result = await Store.Datastore.QueryAsync(getQueryString() + ".Count()", _parameters);
+        var result = await Store.Datastore.QueryAsync(getQueryString() + ".Count()", _parameters, _ctx);
         return (int)result!;
     }
     internal int Count() {
-        var result = Store.Datastore.Query(getQueryString() + ".Count()", _parameters);
+        var result = Store.Datastore.Query(getQueryString() + ".Count()", _parameters, _ctx);
         return (int)result!;
     }
     internal QueryStringBuilder Sum() {

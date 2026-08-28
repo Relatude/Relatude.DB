@@ -1598,7 +1598,7 @@ own users.
 | `BlobContainerName` | null | `AzureBlobStorage` only, required. |
 | `LockBlob` | `false` | Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap. |
 
-Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `bkup/`, `log/` and
+Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `backup/`, `log/` and
 an index folder with one subfolder per engine — so several roles can share one backend without
 colliding.
 

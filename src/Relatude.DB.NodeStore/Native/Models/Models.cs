@@ -14,33 +14,47 @@ namespace Relatude.DB.Native.Models;
 //    string Value { get; set; }
 //}
 
+// Every property below pins its id explicitly. Without it the id is derived from the node type id and
+// the member name, so renaming a property would silently give it a new id and orphan the values already
+// stored - and the engine looks some of these ids up by constant (NativeModelStore).
 [Node(Id = NodeConstants.BaseUserIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemUser {
     Guid Id { get; set; }
+    [IntegerProperty(Id = NodeConstants.NativeUserPropertyUserTypeString)]
     SystemUserType UserType { get; set; }
+    [RelationProperty(Id = NodeConstants.NativeUserPropertyMembershipsString)]
     UsersToGroups.Groups Memberships { get; }
 }
 [Node(Id = NodeConstants.BaseUserGroupIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemUserGroup {
     Guid Id { get; set; }
+    [StringProperty(Id = NodeConstants.NativeUserGroupPropertyGroupNameString)]
     string GroupName { get; set; }
+    [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyUserMembersString)]
     UsersToGroups.Users UserMembers { get; }
+    [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyGroupMembershipsString)]
     GroupsToGroups.Memberships GroupMemberships { get; }
+    [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyGroupMembersString)]
     GroupsToGroups.Members GroupMembers { get; }
 }
 [Node(Id = NodeConstants.BaseCollectionIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemCollection {
     Guid Id { get; set; }
+    [StringProperty(Id = NodeConstants.NativeCollectionPropertyNameString)]
     string? Name { get; set; }
+    [RelationProperty(Id = NodeConstants.NativeCollectionPropertyCulturesString)]
     CollectionsToCultures.Cultures Cultures { get; }
 }
 [Node(Id = NodeConstants.BaseCultureIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
 public interface ISystemCulture {
     Guid Id { get; set; }
-    [StringProperty(UniqueValues = true)]
+    [StringProperty(Id = NodeConstants.NativeCulturePropertyCultureCodeString, UniqueValues = true)]
     string CultureCode { get; set; }
+    [StringProperty(Id = NodeConstants.NativeCulturePropertyNativeNameString)]
     string NativeName { get; set; }
+    [StringProperty(Id = NodeConstants.NativeCulturePropertyEnglishNameString)]
     string EnglishName { get; set; }
+    [RelationProperty(Id = NodeConstants.NativeCulturePropertyCollectionsString)]
     CollectionsToCultures.Collections Collections { get; }
 }
 [Relation(Id = NodeConstants.RelationUsersToGroupsString)]

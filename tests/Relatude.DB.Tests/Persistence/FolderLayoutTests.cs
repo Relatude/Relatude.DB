@@ -8,7 +8,7 @@ using NodeStore = Relatude.DB.Nodes.NodeStore; // disambiguate from the internal
 namespace Relatude.Persistence;
 
 /// <summary>
-/// The folder layout below the storage root (data/state/bkup/log) and the one time startup
+/// The folder layout below the storage root (data/state/backup/log) and the one time startup
 /// migration that moves pre-layout database log files from the root into the data folder.
 /// Only the log files are moved: state, index and mapper files are rebuilt at their new
 /// locations, and old backups stay where they were taken. File keys are string arrays; the
@@ -26,9 +26,9 @@ public class FolderLayoutTests {
         Assert.AreEqual("state/mapper.5.dll", FileKeyUtility.MapperDll_GetFileKey(5).AsKeyString());
         Assert.AreEqual("state/queue.bin", FileKeyUtility.Queue_GetFileKey("bin").AsKeyString());
         var dt = new DateTime(2026, 8, 23, 10, 30, 0, DateTimeKind.Utc);
-        Assert.AreEqual("bkup/db.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, false).AsKeyString());
-        Assert.AreEqual("bkup/db.bkup.keep.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, true).AsKeyString());
-        Assert.AreEqual("bkup/files.2026-08-23-10-30-00.bkup", FileKeyUtility.FileStore_GetFileKeyForBackup(dt, false).AsKeyString());
+        Assert.AreEqual("backup/db.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, false).AsKeyString());
+        Assert.AreEqual("backup/db.bkup.keep.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, true).AsKeyString());
+        Assert.AreEqual("backup/files.2026-08-23-10-30-00.bkup", FileKeyUtility.FileStore_GetFileKeyForBackup(dt, false).AsKeyString());
         Assert.AreEqual("log/critical.error.txt", FileKeyUtility.CriticalErrorLogFileKey.AsKeyString());
         Assert.AreEqual("indexes/ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
         Assert.AreEqual("indexes/native.ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Native)!.AsKeyString());
@@ -55,10 +55,10 @@ public class FolderLayoutTests {
             var io = new IOProviderDisk(dir);
             using (var s = io.OpenAppend(["root.bin"])) s.Append([1]);
             using (var s = io.OpenAppend(["data", "db.00000001.bin"])) s.Append([1, 2]);
-            using (var s = io.OpenAppend(["bkup", "db.2026-01-01-00-00-00.bkup"])) s.Append([1, 2, 3]);
+            using (var s = io.OpenAppend(["backup", "db.2026-01-01-00-00-00.bkup"])) s.Append([1, 2, 3]);
             using (var s = io.OpenAppend(["other", "hidden.bin"])) s.Append([1, 2, 3, 4]); // not a system folder
             var keys = io.GetFiles().Select(f => f.Key).Order().ToArray();
-            CollectionAssert.AreEqual(new[] { "bkup/db.2026-01-01-00-00-00.bkup", "data/db.00000001.bin", "root.bin" }, keys);
+            CollectionAssert.AreEqual(new[] { "backup/db.2026-01-01-00-00-00.bkup", "data/db.00000001.bin", "root.bin" }, keys);
             Assert.IsTrue(io.Exists(["other", "hidden.bin"]), "the file is reachable by key, just not listed");
         } finally {
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
@@ -144,9 +144,9 @@ public class FolderLayoutTests {
         Assert.IsTrue(io.Exists(FileKeyUtility.StateFileKey), "the migrated state snapshot must be used, not rebuilt");
         Assert.AreEqual(1, FileKeyUtility.MapperDll_GetAllFileKeys(io).Length, "the mapper dll must be back in the state folder");
         Assert.IsTrue(FileKeyUtility.Index_GetAll(io).Length > 0, "the index states must be back in the state folder");
-        Assert.IsTrue(io.Exists(["bkup", "db.2026-01-01-00-00-00.bkup"]));
-        Assert.IsTrue(io.Exists(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
-        Assert.IsTrue(io.Exists(["bkup", "files.2026-01-03-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["backup", "db.2026-01-01-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["backup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
+        Assert.IsTrue(io.Exists(["backup", "files.2026-01-03-00-00-00.bkup"]));
         Assert.IsTrue(io.Exists(["log", "log.mylog.day.2026-01-01.bin"]));
         Assert.IsTrue(io.Exists(["log", "critical.error.txt"]));
         // the queue file is moved to state/ too, but the queue store deletes an empty queue file
@@ -154,8 +154,8 @@ public class FolderLayoutTests {
         var leftAtRoot = io.GetFiles().Select(f => f.Key).Where(k => !k.Contains('/')).ToArray();
         Assert.AreEqual(0, leftAtRoot.Length, "no legacy files left in the storage root: " + string.Join(", ", leftAtRoot));
         // the migrated keep-forever backup is recognized by the retention rules
-        Assert.IsTrue(FileKeyUtility.WAL_KeepForever(["bkup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
-        CollectionAssert.AreEquivalent(new[] { "bkup/db.2026-01-01-00-00-00.bkup", "bkup/db.bkup.keep.2026-01-02-00-00-00.bkup" },
+        Assert.IsTrue(FileKeyUtility.WAL_KeepForever(["backup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
+        CollectionAssert.AreEquivalent(new[] { "backup/db.2026-01-01-00-00-00.bkup", "backup/db.bkup.keep.2026-01-02-00-00-00.bkup" },
             FileKeyUtility.WAL_GetAllBackUpFileKeys(io).Select(k => k.AsKeyString()).ToArray());
     }
 
@@ -184,10 +184,10 @@ public class FolderLayoutTests {
         var io = new IOProviderMemory();
         var count = insertArticlesAndSimulateLegacyLayout(io, out _, out _);
         io.WriteAllBytes(["db.2026-01-01-00-00-00.bkup"], [1, 2]);
-        io.WriteAllBytes(["bkup", "db.2026-01-01-00-00-00.bkup"], [1, 2, 3, 4]); // same name, different size
+        io.WriteAllBytes(["backup", "db.2026-01-01-00-00-00.bkup"], [1, 2, 3, 4]); // same name, different size
         openAndAssertIntact(io, count);
         Assert.IsTrue(io.Exists(["db.2026-01-01-00-00-00.bkup"]), "the conflicting legacy backup must be left in place");
-        Assert.AreEqual(4, io.GetFileSizeOrZeroIfUnknown(["bkup", "db.2026-01-01-00-00-00.bkup"]));
+        Assert.AreEqual(4, io.GetFileSizeOrZeroIfUnknown(["backup", "db.2026-01-01-00-00-00.bkup"]));
     }
 
     [TestMethod]

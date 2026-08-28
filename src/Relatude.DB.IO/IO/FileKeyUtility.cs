@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.IO;
 /// <summary>
@@ -15,10 +15,10 @@ namespace Relatude.DB.IO;
 /// The prefix can be used to separate different database instances in the same storage location.
 ///
 /// Files are grouped in a set of well known folders below the storage root:
-///     data/  = the database log files (primary and secondary)
-///     state/ = everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue
-///     bkup/  = backup files
-///     log/   = the system logger files and the critical error log
+///     data/   = the database log files (primary and secondary)
+///     state/  = everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue
+///     backup/ = backup files
+///     log/    = the system logger files and the critical error log
 /// The folder names are plain (no prefix); the instance prefix stays on the file name inside them,
 /// so several instances can still share one storage location. The prefixed indexes folder and the
 /// multi file store folder are unchanged.
