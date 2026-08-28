@@ -457,8 +457,11 @@ and <code>src/Relatude.DB.Common/</code>. When something here disagrees with you
 namespace and it builds the datamodel from your interfaces and classes.</p>
 <h3 id="interfaces-are-the-model">Interfaces are the model<a class="anchor" href="#interfaces-are-the-model" aria-label="Link to this section">#</a></h3>
 <p>A node type can be an <strong>interface, a class, a record or a struct</strong> — the engine supports all four.
-But interfaces are the recommended default, and the rest of this manual models almost everything
-with interfaces alone.</p>
+No attribute is needed to opt in: every type in a namespace you point the engine at becomes a node
+type unless it is marked <code>[Exclude]</code>. <code>[Node]</code> only <em>tunes</em> one (see
+<a href="#optional-stable-type-ids">stable type ids</a> below), which is why almost no type in this manual
+carries it. Interfaces are the recommended default, and the rest of this manual models almost
+everything with interfaces alone.</p>
 <p>The headline: <strong>you do not need a class at all.</strong> An interface on its own is a complete node type.
 <code>store.Create&lt;IVenue&gt;()</code> hands you a generated proxy that implements it, tracks your changes and
 lazily loads relations. No concrete class is ever written, and none is needed.</p>
@@ -470,7 +473,7 @@ in the datamodel — shared, queryable facets that cut across your hierarchy. Cl
 <hr />
 <h2 id="2-your-first-node-type">2. Your first node type<a class="anchor" href="#2-your-first-node-type" aria-label="Link to this section">#</a></h2>
 <p>The three namespaces you will import in every model file:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Common</span><span class="p">;</span><span class="w">       </span><span class="c1">// FileValue, GeoCoordinate, IdKey</span>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Common</span><span class="p">;</span><span class="w">       </span><span class="c1">// FileValue, GeoCoordinate, NodeKey</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span><span class="w">   </span><span class="c1">// NodeMeta, RevisionType</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Nodes</span><span class="p">;</span><span class="w">        </span><span class="c1">// attributes, relation bases, Reference, References, EmbeddedMap</span>
 </code></pre></div>
@@ -1116,8 +1119,14 @@ order, translations on a label.</p>
 <span class="p">}</span>
 </code></pre></div>
 
-<p><code>KeyType</code> defaults to <code>NodeProperty</code> when you supply <code>KeyProperty</code>. Use <code>NodeGuidId</code> to key by the
-embedded value's <code>Guid Id</code> instead — which is exactly what <code>Embedded&lt;T&gt;</code> is shorthand for.</p>
+<p>Naming a <code>KeyProperty</code> is enough — it takes precedence over <code>KeyType</code>, so the second line above is
+documentation rather than necessity. <code>KeyType</code> is what you set when there is <em>no</em> key property:
+<code>NodeGuidId</code> keys by the embedded value's <code>Guid Id</code> (which is exactly what <code>Embedded&lt;T&gt;</code> is
+shorthand for) and <code>NodeIntegerId</code> by its int id. With no attribute at all the key type is inferred
+from <code>TKey</code>: <code>Guid</code> → <code>NodeGuidId</code>, <code>int</code> → <code>NodeIntegerId</code>, anything else is an error telling you
+to name a <code>KeyProperty</code>.</p>
+<p>The key property has to live on the closest common base of the allowed inner types, and its CLR
+type must equal <code>TKey</code> — both are checked at model-build time.</p>
 <h3 id="working-with-an-embedded-map">Working with an embedded map<a class="anchor" href="#working-with-an-embedded-map" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">venue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Create</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span>
 
@@ -1129,16 +1138,21 @@ embedded value's <code>Guid Id</code> instead — which is exactly what <code>Em
 <span class="c1">// only *after* the parent is persisted can you read by key:</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">stored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">mon</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">[</span><span class="s">&quot;mon&quot;</span><span class="p">];</span>
-<span class="kt">int</span><span class="w"> </span><span class="n">days</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">.</span><span class="n">Count</span><span class="p">();</span>
+<span class="kt">int</span><span class="w"> </span><span class="n">days</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">.</span><span class="n">Count</span><span class="p">;</span><span class="w">                  </span><span class="c1">// a property, not a method</span>
+<span class="kt">bool</span><span class="w"> </span><span class="n">open</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">.</span><span class="n">Contains</span><span class="p">(</span><span class="s">&quot;mon&quot;</span><span class="p">);</span><span class="w">        </span><span class="c1">// by key, not by value</span>
 
 <span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">h</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">                 </span><span class="c1">// EmbeddedMap&lt;TKey,TValue&gt; is IEnumerable&lt;TValue&gt;</span>
 <span class="w">    </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">$&quot;{h.DayCode}: {h.Opens}–{h.Closes}&quot;</span><span class="p">);</span>
 <span class="p">}</span>
+
+<span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="p">(</span><span class="n">day</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="p">)</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">stored</span><span class="p">.</span><span class="n">Hours</span><span class="p">.</span><span class="n">KeysAndValues</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">   </span><span class="c1">// when you want the keys too</span>
 </code></pre></div>
 
 <blockquote>
-<p><strong>Gotcha.</strong> Before the parent is inserted, only <code>Add</code> is safe. Reading by key on an unpersisted
-parent will not find anything.</p>
+<p><strong>Gotcha.</strong> Before the parent is inserted, only <code>Add</code>, <code>Clear</code>, <code>Count</code> and enumeration are safe.
+Anything keyed — the indexer, <code>Contains</code>, <code>KeysAndValues()</code> — throws
+<code>InvalidOperationException</code> until the parent has been persisted, because the keys are evaluated by
+the store.</p>
 </blockquote>
 <hr />
 <h2 id="8-references-lightweight-pointers">8. References — lightweight pointers<a class="anchor" href="#8-references-lightweight-pointers" aria-label="Link to this section">#</a></h2>
@@ -1377,7 +1391,7 @@ sequences — a programme running order, a menu, an image gallery, a set of rela
 of inventing a <code>SortIndex</code> property and sorting on it in every query.</p>
 <p>Four consequences to design around:</p>
 <ul>
-<li><strong><code>Relate</code> appends to the bottom.</strong> The most recently related item is last.</li>
+<li><strong><code>AddRelation</code> appends to the bottom.</strong> The most recently related item is last.</li>
 <li><strong>Enumeration follows the stored order.</strong> <code>foreach</code>, <code>Get()</code> and preloaded includes all yield it,
   so a curated sequence survives a round trip untouched.</li>
 <li><strong>Duplicates are rejected.</strong> Relating a pair that is already related <strong>throws</strong>, as does
@@ -1408,7 +1422,7 @@ calls chain.</p>
 
 <p>Chained inside a transaction — relate and position in one commit:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CreateTransaction</span><span class="p">();</span>
-<span class="n">t</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">)</span>
+<span class="n">t</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">)</span>
 <span class="w"> </span><span class="p">.</span><span class="n">MoveRelationToTop</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">)</span>
 <span class="w"> </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
@@ -1422,7 +1436,7 @@ calls chain.</p>
 <li><strong><code>SetRelationOrder</code> reorders; it does not add or remove.</strong> The ids you supply must be <em>exactly</em>
   the currently related ids.</li>
 <li><strong>Never reorder by un-relating and re-relating.</strong> Beyond being two writes instead of one, a
-  re-<code>Relate</code> lands at the bottom, and re-relating an already-related pair throws.</li>
+  re-<code>AddRelation</code> lands at the bottom, and re-relating an already-related pair throws.</li>
 </ul>
 <h4 id="overload-shapes">Overload shapes<a class="anchor" href="#overload-shapes" aria-label="Link to this section">#</a></h4>
 <p>Each family takes a single item or an <code>IEnumerable</code> of items, in three addressing styles:</p>
@@ -1929,10 +1943,12 @@ live in different places without repeating connection details.</p>
 <p><code>LocalSettings</code> is the per-store engine configuration — <code>PersistedValueIndexEngine</code> /
 <code>PersistedTextIndexEngine</code>, the disk-flush policy, cache sizes, auto-backup retention,
 <code>EnableTextIndexByDefault</code>, <code>DefaultCultureCode</code>, and so on. Every field has a working default;
-leave it out until you need it.</p>
+leave it out until you need it. <a href="#121-every-setting-in-relatudedbjson">§12.1</a> documents every key in
+the file, object by object, with its default.</p>
 <p><code>AISettings</code> configures the container's own AI provider (embeddings and completions) and its
-semantic index. <code>TypeName</code> picks the provider, all served dependency-free from the
-<code>Relatude.DB.Plugins.Providers</code> package: <code>AzureAIProvider</code> (Azure OpenAI, the default) with
+semantic index. <code>TypeName</code> picks the provider; all of them are dependency-free implementations that
+ship inside <code>Relatude.DB.Server</code> itself (assembly <code>Relatude.DB.Providers</code>), so there is nothing extra
+to install: <code>AzureAIProvider</code> (Azure OpenAI, the default) with
 <code>ServiceUrl</code> as the resource endpoint and deployment names in <code>CompletionModel</code>/<code>EmbeddingModel</code>;
 <code>OpenAIProvider</code> for OpenAI or any OpenAI-compatible endpoint (<code>ServiceUrl</code> defaults to
 <code>https://api.openai.com/v1</code> — point it at Mistral, Groq, Ollama or similar); and
@@ -1943,6 +1959,810 @@ semantic index. <code>TypeName</code> picks the provider, all served dependency-
 graph itself always stays in memory — the budget dials whether the full-precision vectors are
 mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded
 for per-hop disk reads.</p>
+<h3 id="121-every-setting-in-relatudedbjson">12.1 Every setting in relatude.db.json<a class="anchor" href="#121-every-setting-in-relatudedbjson" aria-label="Link to this section">#</a></h3>
+<p>The file is one JSON object, deserialised into <code>RelatudeDBServerSettings</code> with case-insensitive
+property names, enums written as names (<code>"LocalDisk"</code>, <code>"Native"</code>) and <code>//</code> comments allowed on read.
+Every field has a working default; omit what you are not changing. The tables below list all of them,
+grouped by the object they sit on, with the default the engine uses when the key is absent.</p>
+<p>Two conventions run through the whole file. <strong>Objects are wired together by <code>Id</code></strong>: a container names
+its storage backends and file stores by their Guid rather than repeating connection details, which is
+what lets the log, the index files and the file bytes live in three different places. And <strong>relative
+paths resolve against the root data folder</strong> (<code>ServerOptions.DefaultDataFolderPath</code> against the
+content root — the content root itself unless you change it), never against the current directory.</p>
+<h4 id="server-level">Server level<a class="anchor" href="#server-level" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code>{
+  &quot;Id&quot;: &quot;3f9c...&quot;,
+  &quot;Name&quot;: &quot;Relatude.DB Server&quot;,
+  &quot;MasterUserName&quot;: &quot;admin&quot;,
+  &quot;MasterPassword&quot;: &quot;…&quot;,
+  &quot;TokenEncryptionSecret&quot;: &quot;…&quot;,
+  &quot;DefaultStoreId&quot;: &quot;8f6b…&quot;,
+  &quot;ContainerSettings&quot;: [ /* one entry per database */ ]
+}
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Id</code></td>
+<td>new Guid on first write</td>
+<td>Identifies this server. Only meaningful when several servers share settings; changing it re-identifies the server rather than reconfiguring it.</td>
+</tr>
+<tr>
+<td><code>Name</code>, <code>Description</code></td>
+<td><code>"Relatude.DB Server"</code>, null</td>
+<td>Labels, shown in the admin UI.</td>
+</tr>
+<tr>
+<td><code>DefaultStoreId</code></td>
+<td>the single container</td>
+<td>Which container <code>RelatudeDBContext.Database</code> (and therefore <code>ctx.Database</code>) resolves to. Set it as soon as you have more than one.</td>
+</tr>
+<tr>
+<td><code>ContainerSettings</code></td>
+<td>one demo container</td>
+<td>The databases. One server hosts N of them; each is independent — its own datamodel, storage, indexes and files.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Authentication.</strong> These govern the admin UI only; they have nothing to do with your application's
+own users.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MasterUserName</code></td>
+<td>null</td>
+<td>The single admin user name. <strong>Store it lowercase</strong> — the login lowercases the input before comparing. Null means no one can log in ("No master user configured on the server.").</td>
+</tr>
+<tr>
+<td><code>MasterPassword</code></td>
+<td>null</td>
+<td>Compared verbatim, stored in plain text. Supply it through the <code>RelatudeDB</code> configuration section, not this file.</td>
+</tr>
+<tr>
+<td><code>TokenEncryptionSecret</code></td>
+<td>null</td>
+<td>Key the session cookie is encrypted with. Without it the server generates a random key per process, so every restart invalidates every session. Set it to a long random string, unique per installation.</td>
+</tr>
+<tr>
+<td><code>NoLoginRequiredForLocalhost</code></td>
+<td><code>true</code></td>
+<td>A request from localhost reaches the admin UI with no login at all. This is why it just works in development.</td>
+</tr>
+<tr>
+<td><code>AllowMasterLoginOutsideLocalhost</code></td>
+<td><code>false</code></td>
+<td>Until this is <code>true</code>, both the login endpoint and any existing session cookie are refused from a remote address. Turn it on deliberately, over HTTPS, after setting credentials.</td>
+</tr>
+<tr>
+<td><code>TokenCookieName</code></td>
+<td><code>"RelatudeDBToken"</code></td>
+<td>Name of the session cookie. Change it when two apps share a host name.</td>
+</tr>
+<tr>
+<td><code>TokenCookieMaxAgeInSec</code></td>
+<td><code>864000</code> (10 days)</td>
+<td>Lifetime of a "remember me" cookie, and the age at which any token is rejected.</td>
+</tr>
+<tr>
+<td><code>TokenCookieSecure</code></td>
+<td><code>true</code></td>
+<td><code>Secure</code> flag on the cookie.</td>
+</tr>
+<tr>
+<td><code>TokenCookieSameSite</code></td>
+<td><code>true</code></td>
+<td><code>true</code> → <code>SameSite=Strict</code>, <code>false</code> → <code>None</code>.</td>
+</tr>
+<tr>
+<td><code>TokenLockedToIP</code></td>
+<td><code>false</code></td>
+<td>Bind the token to the IP that created it. Safer, but it logs people out whenever their address changes.</td>
+</tr>
+<tr>
+<td><code>DBAdminUIUrlPath</code></td>
+<td>null → <code>/relatude.db</code></td>
+<td>Overrides the path passed to <code>UseRelatudeDB()</code>. The routes are mapped once at startup, so changing it later only takes effect after a full process restart — the startup log says so when that happens.</td>
+</tr>
+<tr>
+<td><code>DBSettingsFilePath</code></td>
+<td>null</td>
+<td>Present in the settings object but not read by the current build; the settings file path comes from <code>ServerOptions</code>.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="container-level">Container level<a class="anchor" href="#container-level" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code>{
+  &quot;Id&quot;: &quot;8f6b…&quot;,
+  &quot;Name&quot;: &quot;MyDatabase&quot;,
+  &quot;AutoOpen&quot;: true,
+  &quot;WaitUntilOpen&quot;: false,
+  &quot;IOSettings&quot;: [ … ],
+  &quot;IoDatabase&quot;: &quot;1a2b…&quot;,
+  &quot;FileStoreSettings&quot;: [ … ],
+  &quot;DatamodelSources&quot;: [ … ],
+  &quot;AISettings&quot;: null,
+  &quot;LocalSettings&quot;: { … }
+}
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Id</code></td>
+<td>–</td>
+<td>The container's identity. <code>DefaultStoreId</code> points at it, and it survives renames.</td>
+</tr>
+<tr>
+<td><code>Name</code>, <code>Description</code></td>
+<td>null</td>
+<td>Labels. <code>Name</code> is what the CLI's <code>--store</code> matches and what the admin UI shows.</td>
+</tr>
+<tr>
+<td><code>AutoOpen</code></td>
+<td><code>false</code></td>
+<td>Open this database when the host starts. Without it the database exists but stays closed until something opens it — usually the admin UI.</td>
+</tr>
+<tr>
+<td><code>WaitUntilOpen</code></td>
+<td><code>false</code></td>
+<td>Block startup until the open completes. Off by default, so the app starts immediately and requests arriving during the open get the 503 progress page instead. Turn it on when a failed open should fail the boot.</td>
+</tr>
+<tr>
+<td><code>IOSettings</code></td>
+<td>one local-disk entry</td>
+<td>The storage backends this container may use. See below.</td>
+</tr>
+<tr>
+<td><code>IoDatabase</code></td>
+<td>that entry</td>
+<td>Where the append-only transaction log lives — <strong>the source of truth</strong>. Required (or <code>IoLog</code>).</td>
+</tr>
+<tr>
+<td><code>IoDatabaseSecondary</code></td>
+<td>null</td>
+<td>A second log, on other storage. With <code>LocalSettings.SecondaryBackupLog</code> it keeps the history a log rewrite would otherwise compact away — which is what <code>FindOlderVersions</code> (<a href="#16-older-versions-of-a-node">§16</a>) reads.</td>
+</tr>
+<tr>
+<td><code>IoIndexes</code></td>
+<td>falls back to <code>IoDatabase</code></td>
+<td>Where the persisted index engines write. Point it at fast local disk when the log lives on blob storage.</td>
+</tr>
+<tr>
+<td><code>IoBackup</code></td>
+<td>same entry</td>
+<td>Where backups are written.</td>
+</tr>
+<tr>
+<td><code>IoLog</code></td>
+<td>falls back to <code>IoDatabase</code></td>
+<td>Where the system/activity log is written.</td>
+</tr>
+<tr>
+<td><code>FileStoreSettings</code></td>
+<td><code>[]</code></td>
+<td>The file stores holding <code>FileValue</code> bytes. See below.</td>
+</tr>
+<tr>
+<td><code>AISettings</code></td>
+<td>null</td>
+<td>The container's AI provider and semantic index. Required for semantic/vector search. See below.</td>
+</tr>
+<tr>
+<td><code>DatamodelSources</code></td>
+<td>the bundled demo model</td>
+<td>Where the model comes from — the previous section.</td>
+</tr>
+<tr>
+<td><code>LocalSettings</code></td>
+<td>all defaults</td>
+<td>The engine knobs. See below.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="iosettings-a-storage-backend"><code>IOSettings</code> — a storage backend<a class="anchor" href="#iosettings-a-storage-backend" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code>{ &quot;Id&quot;: &quot;1a2b…&quot;, &quot;Name&quot;: &quot;Local disk&quot;, &quot;IOType&quot;: &quot;LocalDisk&quot;, &quot;Path&quot;: &quot;relatude.db&quot; }
+{ &quot;Id&quot;: &quot;9d8c…&quot;, &quot;Name&quot;: &quot;Azure&quot;,      &quot;IOType&quot;: &quot;AzureBlobStorage&quot;,
+  &quot;BlobConnectionString&quot;: &quot;…&quot;, &quot;BlobContainerName&quot;: &quot;mydb&quot;, &quot;LockBlob&quot;: true }
+{ &quot;Id&quot;: &quot;0000…&quot;, &quot;Name&quot;: &quot;In memory&quot;,  &quot;IOType&quot;: &quot;Memory&quot; }
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Id</code></td>
+<td>–</td>
+<td>What the <code>Io…</code> fields and <code>FileStoreSettings.IoProviderId</code> refer to.</td>
+</tr>
+<tr>
+<td><code>Name</code></td>
+<td>null</td>
+<td>Label.</td>
+</tr>
+<tr>
+<td><code>IOType</code></td>
+<td><code>Memory</code></td>
+<td><code>Memory</code> (nothing survives a restart — tests and demos), <code>LocalDisk</code>, or <code>AzureBlobStorage</code>.</td>
+</tr>
+<tr>
+<td><code>Path</code></td>
+<td><code>"~"</code></td>
+<td><code>LocalDisk</code> only. A leading <code>~</code> or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. <code>relatude.db</code> is the conventional value.</td>
+</tr>
+<tr>
+<td><code>BlobConnectionString</code></td>
+<td>null</td>
+<td><code>AzureBlobStorage</code> only, required.</td>
+</tr>
+<tr>
+<td><code>BlobContainerName</code></td>
+<td>null</td>
+<td><code>AzureBlobStorage</code> only, required.</td>
+</tr>
+<tr>
+<td><code>LockBlob</code></td>
+<td><code>false</code></td>
+<td>Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap.</td>
+</tr>
+</tbody>
+</table>
+<p>Within a <code>LocalDisk</code> folder the engine keeps its own layout — <code>data/</code>, <code>state/</code>, <code>bkup/</code>, <code>log/</code> and
+an index folder with one subfolder per engine — so several roles can share one backend without
+colliding.</p>
+<h4 id="filestoresettings-where-file-bytes-live"><code>FileStoreSettings</code> — where file bytes live<a class="anchor" href="#filestoresettings-where-file-bytes-live" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code>{ &quot;Id&quot;: &quot;c4d5…&quot;, &quot;IoProviderId&quot;: &quot;1a2b…&quot;, &quot;StoreType&quot;: &quot;MultiFile&quot;, &quot;MultiFileFolderDepth&quot;: 2 }
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Id</code></td>
+<td>–</td>
+<td>The id you paste into <code>[FileProperty(FileStorageProviderId = "…")]</code>, and what <code>LocalSettings.DefaultFileStore</code> names.</td>
+</tr>
+<tr>
+<td><code>IoProviderId</code></td>
+<td>–</td>
+<td>Which <code>IOSettings</code> entry holds the bytes. Must exist, or the open throws.</td>
+</tr>
+<tr>
+<td><code>StoreType</code></td>
+<td><code>SingleFile</code></td>
+<td><code>SingleFile</code> packs everything into one append-only container file — fewer file handles, and cheap on blob storage. <code>MultiFile</code> writes one file per upload, which is what you want when something outside the engine also reads the files.</td>
+</tr>
+<tr>
+<td><code>MultiFileFolderDepth</code></td>
+<td>2</td>
+<td><code>MultiFile</code> only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large.</td>
+</tr>
+</tbody>
+</table>
+<p>Leave the array empty and the store creates an implicit default store on <code>IoDatabase</code>, shaped by
+<code>LocalSettings.DefaultFileStoreEngine</code>.</p>
+<h4 id="aisettings-embeddings-completions-and-the-vector-index"><code>AISettings</code> — embeddings, completions and the vector index<a class="anchor" href="#aisettings-embeddings-completions-and-the-vector-index" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code>&quot;AISettings&quot;: {
+  &quot;TypeName&quot;: &quot;AzureAIProvider&quot;,
+  &quot;ServiceUrl&quot;: &quot;https://my-resource.openai.azure.com&quot;,
+  &quot;ApiKey&quot;: &quot;…&quot;,
+  &quot;EmbeddingModel&quot;: &quot;text-embedding-3-small&quot;,
+  &quot;CompletionModel&quot;: &quot;gpt-4o-mini&quot;,
+  &quot;IndexType&quot;: &quot;HNSW&quot;,
+  &quot;IndexCacheSizeInMb&quot;: 512
+}
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TypeName</code></td>
+<td><code>AzureAIProvider</code></td>
+<td><code>AzureAIProvider</code> (Azure OpenAI), <code>OpenAIProvider</code> / <code>OpenAI</code>, <code>AnthropicAIProvider</code> / <code>Anthropic</code>, <code>DummyAIProvider</code> (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own <code>IAIProvider</code>. All the built-ins ship inside <code>Relatude.DB.Server</code>.</td>
+</tr>
+<tr>
+<td><code>Name</code></td>
+<td>null</td>
+<td>Label.</td>
+</tr>
+<tr>
+<td><code>ServiceUrl</code></td>
+<td>provider default</td>
+<td>Azure: the resource endpoint. OpenAI: defaults to <code>https://api.openai.com/v1</code>, so point it at Mistral, Groq, Ollama or any other OpenAI-compatible endpoint.</td>
+</tr>
+<tr>
+<td><code>ApiKey</code></td>
+<td>null</td>
+<td>Belongs in the <code>RelatudeDB</code> configuration section, not in this file.</td>
+</tr>
+<tr>
+<td><code>ApiVersion</code></td>
+<td>provider default</td>
+<td>Overrides the <code>api-version</code> query parameter, for Azure OpenAI.</td>
+</tr>
+<tr>
+<td><code>EmbeddingModel</code></td>
+<td>provider default</td>
+<td>Model (Azure: deployment) name used for embeddings.</td>
+</tr>
+<tr>
+<td><code>EmbeddingServiceUrl</code>, <code>EmbeddingApiKey</code></td>
+<td>fall back to <code>ServiceUrl</code> / <code>ApiKey</code></td>
+<td>A separate embeddings endpoint. <strong>Required for Anthropic</strong>, which has no embeddings API — point them at an OpenAI-compatible endpoint.</td>
+</tr>
+<tr>
+<td><code>CompletionModel</code></td>
+<td>provider default</td>
+<td>Model used for completions.</td>
+</tr>
+<tr>
+<td><code>CompletionModelsByKey</code></td>
+<td>null</td>
+<td>Named alternatives, addressed by <code>GetCompletionAsync(prompt, modelKey)</code> — a cheap model and a strong one side by side.</td>
+</tr>
+<tr>
+<td><code>MaxOutputTokens</code></td>
+<td>provider default (Anthropic: 4096)</td>
+<td>Sent when set. Anthropic requires the parameter, so it is defaulted there.</td>
+</tr>
+<tr>
+<td><code>ModelDimensions</code></td>
+<td>model default</td>
+<td>The embedding length. It has to match the vectors already in the index: a wrong length is coerced to a placeholder rather than throwing, which shows up as uniformly poor similarity rather than as an error.</td>
+</tr>
+<tr>
+<td><code>DefaultSemanticRatio</code></td>
+<td>engine default</td>
+<td>The <code>semanticRatio</code> used when a query does not name one. <code>0</code> pure BM25, <code>1</code> pure vector.</td>
+</tr>
+<tr>
+<td><code>DefaultMinimumSimilarity</code></td>
+<td>engine default</td>
+<td>Similarity floor below which a vector hit is dropped.</td>
+</tr>
+<tr>
+<td><code>MaxCharsInBatch</code></td>
+<td>50 000</td>
+<td>Batching limits for the embeddings API: characters per request,</td>
+</tr>
+<tr>
+<td><code>MaxCountInBatch</code></td>
+<td>500</td>
+<td>paragraphs per request, and</td>
+</tr>
+<tr>
+<td><code>MaxCharsOfEach</code></td>
+<td>20 000</td>
+<td>the point at which a single paragraph is truncated.</td>
+</tr>
+<tr>
+<td><code>CacheType</code></td>
+<td><code>Native</code></td>
+<td>Where computed embeddings are cached so a reindex does not pay for them twice: <code>Native</code> (a local KV file), <code>Sqlite</code>, <code>Memory</code>, or <code>None</code>.</td>
+</tr>
+<tr>
+<td><code>IndexType</code></td>
+<td><code>Memory</code></td>
+<td>The vector index engine: <code>Memory</code> (everything resident, rebuilt on open), <code>IVS</code> or <code>HNSW</code> (both disk-backed). Measured against each other in the <a href="vector-matrix.html">vector index benchmarks</a>.</td>
+</tr>
+<tr>
+<td><code>IndexCacheSizeInMb</code></td>
+<td>engine default</td>
+<td>Memory budget for the disk engines. For <code>HNSW</code> the graph itself is always resident and the budget dials whether the full-precision vectors are mirrored beside it; a budget smaller than the graph is exceeded with a log warning rather than traded for per-hop disk reads.</td>
+</tr>
+<tr>
+<td><code>FilePath</code></td>
+<td>the index folder</td>
+<td>Folder for the provider's own files (the embedding cache). Relative paths resolve against the root data folder.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="localsettings-the-engine"><code>LocalSettings</code> — the engine<a class="anchor" href="#localsettings-the-engine" aria-label="Link to this section">#</a></h4>
+<p>Every key here has a working default. The groups below are ordered by how often you actually touch
+them.</p>
+<p><strong>Indexing.</strong> What gets indexed at all, and by which engine.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EnableTextIndexByDefault</code></td>
+<td><code>false</code></td>
+<td>Include every node type in the BM25 index unless it opts out. Off means only types with <code>[Node(TextIndex = BoolValue.True)]</code> and properties with <code>IndexedByWords = true</code> are searchable. Turning it on is the usual first change to this file.</td>
+</tr>
+<tr>
+<td><code>EnableSemanticIndexByDefault</code></td>
+<td><code>false</code></td>
+<td>The same for the vector index. Costs an embedding call per node, so opt in per property unless you mean it.</td>
+</tr>
+<tr>
+<td><code>EnableInstantTextIndexingByDefault</code></td>
+<td><code>false</code></td>
+<td>Index text inside the transaction instead of queueing it. A node is searchable the instant the write returns, at the cost of write latency.</td>
+</tr>
+<tr>
+<td><code>PersistedTextIndexEngine</code></td>
+<td><code>Native</code></td>
+<td><code>Native</code> (the built-in disk index), <code>Lucene</code> (needs <code>Relatude.DB.Plugins.Lucene</code>), <code>Sqlite</code> (needs <code>Relatude.DB.Plugins.Sqlite</code>), or <code>Memory</code>.</td>
+</tr>
+<tr>
+<td><code>PersistedValueIndexEngine</code></td>
+<td><code>Native</code></td>
+<td>Engine for the value indexes (<code>Indexed = true</code>): <code>Native</code>, <code>Sqlite</code> or <code>Memory</code>.</td>
+</tr>
+<tr>
+<td><code>UsePersistedTextIndexesByDefault</code></td>
+<td><code>true</code></td>
+<td>Whether a text index that does not state a storage type is persisted or memory-only.</td>
+</tr>
+<tr>
+<td><code>UsePersistedValueIndexesByDefault</code></td>
+<td><code>true</code></td>
+<td>The same for value indexes. Memory-only indexes are rebuilt from the log on every open — fine for small databases, slow for large ones.</td>
+</tr>
+<tr>
+<td><code>PersistedValueIndexFolderPath</code></td>
+<td>beside the index IO provider</td>
+<td>Where the persisted index engines write. Each engine claims its own subfolder, so they can share one path.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Culture, access and files.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DefaultCultureCode</code></td>
+<td>null</td>
+<td>Culture assumed when a node or query names none. Null means culture is not in play.</td>
+</tr>
+<tr>
+<td><code>DefaultReadAccess</code></td>
+<td><code>Everyone</code></td>
+<td>ACL group applied to a node whose <code>ReadAccess</code> is unset and whose type does not name one: <code>Everyone</code>, <code>Member</code> or <code>Admins</code>.</td>
+</tr>
+<tr>
+<td><code>DefaultWriteAccess</code></td>
+<td><code>Everyone</code></td>
+<td>Present in the settings object; not read by the current build — write access comes from the type and the node's metadata.</td>
+</tr>
+<tr>
+<td><code>DefaultFileStore</code></td>
+<td>null</td>
+<td>Which <code>FileStoreSettings</code> entry <code>FileValue</code> properties use when they do not name one. Must match an entry, or the open throws.</td>
+</tr>
+<tr>
+<td><code>DefaultFileStoreEngine</code></td>
+<td><code>MultiFile</code></td>
+<td>The engine used for the implicit default store when <code>FileStoreSettings</code> is empty.</td>
+</tr>
+<tr>
+<td><code>ImageDefaultFormat</code></td>
+<td><code>Jpeg</code></td>
+<td>Format an adaptive image variant resolves to (<code>FileFormat.Image</code>, the default <code>RequestedFormat</code>): <code>Jpeg</code>, <code>WebP</code> or <code>Png</code>. A site-wide switch to WebP is this one key — see <a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>.</td>
+</tr>
+<tr>
+<td><code>ImageDefaultQuality</code></td>
+<td>85</td>
+<td>Quality used when the request does not name one.</td>
+</tr>
+<tr>
+<td><code>UrlOptions</code></td>
+<td>flat <code>DefaultUrlManager</code></td>
+<td>The URL manager's configuration — <a href="#18-urls-and-the-url-manager">§18</a>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Durability.</strong> How eagerly writes reach the disk. The defaults trade a sub-second window for
+throughput; nothing here risks <em>corruption</em>, only the last fraction of a second of writes.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FlushDiskOnEveryTransactionByDefault</code></td>
+<td><code>false</code></td>
+<td>Make every write behave as if <code>flushToDisk: true</code> had been passed. Full durability per transaction, at roughly two fsyncs per commit.</td>
+</tr>
+<tr>
+<td><code>AutoFlushDiskInBackground</code></td>
+<td><code>true</code></td>
+<td>Flush on a timer instead.</td>
+</tr>
+<tr>
+<td><code>AutoFlushDiskIntervalInSeconds</code></td>
+<td>1</td>
+<td>The timer. This is the size of the window a crash can lose.</td>
+</tr>
+<tr>
+<td><code>DelayAutoDiskFlushIfBusy</code></td>
+<td><code>true</code></td>
+<td>Skip a scheduled flush while the store is busy, so a burst of writes is not interrupted by fsyncs.</td>
+</tr>
+<tr>
+<td><code>MaxDelayAutoDiskFlushIfBusyInSeconds</code></td>
+<td>15</td>
+<td>The cap on that postponement — a sustained load cannot defer the flush forever.</td>
+</tr>
+<tr>
+<td><code>ForceDiskFlushAfterActionCountLimit</code></td>
+<td>10 000</td>
+<td>Flush regardless once this many actions are unflushed, which bounds the memory the pending writes hold.</td>
+</tr>
+<tr>
+<td><code>DeepFlushDisk</code></td>
+<td><code>false</code></td>
+<td>Ask the OS to flush its own write cache too, not just the file handle. Slower, and only meaningful where that cache is not battery-backed.</td>
+</tr>
+<tr>
+<td><code>BusyThresholdActivitiesLast10Sec</code></td>
+<td>100</td>
+<td>What counts as "busy" for the delay above: writes in the last 10 seconds,</td>
+</tr>
+<tr>
+<td><code>BusyThresholdQueriesLast10Sec</code></td>
+<td>1 000</td>
+<td>and queries in the last 10 seconds.</td>
+</tr>
+<tr>
+<td><code>ThrowOnBadLogFile</code></td>
+<td><code>false</code></td>
+<td>Fail the open when the transaction log ends mid-record (the normal aftermath of a crash) instead of replaying up to the last good record. Turn it on in tests, never in production.</td>
+</tr>
+<tr>
+<td><code>ThrowOnBadStateFile</code></td>
+<td><code>false</code></td>
+<td>The same for a corrupt state snapshot, which is otherwise discarded and rebuilt from the log.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>State snapshots.</strong> How fast the next start is. A snapshot lets the engine skip replaying the log
+from the beginning; without one, opening is a full replay.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AutoSaveIndexStates</code></td>
+<td><code>true</code></td>
+<td>Write index state snapshots in the background.</td>
+</tr>
+<tr>
+<td><code>AutoSaveIndexStatesIntervalInMinutes</code></td>
+<td>120</td>
+<td>How often, at most.</td>
+</tr>
+<tr>
+<td><code>AutoSaveIndexStatesActionCountLowerLimit</code></td>
+<td>50 000</td>
+<td>Do not bother below this many actions since the last snapshot — snapshotting would cost more than the replay it saves.</td>
+</tr>
+<tr>
+<td><code>AutoSaveIndexStatesActionCountUpperLimit</code></td>
+<td>200 000</td>
+<td>Above this many, snapshot regardless of the interval.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Backups.</strong> Off by default; the admin UI has a one-click backup either way.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AutoBackUp</code></td>
+<td><code>false</code></td>
+<td>Take backups on a schedule.</td>
+</tr>
+<tr>
+<td><code>NoHourlyBackUps</code></td>
+<td>10</td>
+<td>How many of each generation to keep. Older members of a generation are pruned as newer ones arrive, so the set thins out with age instead of being a flat cap.</td>
+</tr>
+<tr>
+<td><code>NoDailyBackUps</code></td>
+<td>10</td>
+<td></td>
+</tr>
+<tr>
+<td><code>NoWeeklyBackUps</code></td>
+<td>4</td>
+<td></td>
+</tr>
+<tr>
+<td><code>NoMontlyBackUps</code></td>
+<td>12</td>
+<td>Spelled without the <code>h</code> in the settings object — the key really is <code>NoMontlyBackUps</code>.</td>
+</tr>
+<tr>
+<td><code>NoYearlyBackUps</code></td>
+<td>10</td>
+<td></td>
+</tr>
+<tr>
+<td><code>TruncateBackups</code></td>
+<td><code>false</code></td>
+<td>Compact the log to current state when backing up. Much smaller backups, but they carry no version history — see <a href="#16-older-versions-of-a-node">§16</a>.</td>
+</tr>
+<tr>
+<td><code>SecondaryBackupLog</code></td>
+<td><code>false</code></td>
+<td>Also append every transaction to <code>IoDatabaseSecondary</code>. The secondary log survives rewrites, so this is what keeps deep history available to <code>FindOlderVersions</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Log truncation.</strong> The transaction log grows forever unless something compacts it.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AutoTruncate</code></td>
+<td><code>false</code></td>
+<td>Rewrite the log to current state on a schedule. Reclaims space; discards version history.</td>
+</tr>
+<tr>
+<td><code>AutoTruncateIntervalInMinutes</code></td>
+<td>240</td>
+<td>How often, at most.</td>
+</tr>
+<tr>
+<td><code>AutoTruncateActionCountLowerLimit</code></td>
+<td>100 000</td>
+<td>Do not bother below this many actions.</td>
+</tr>
+<tr>
+<td><code>AutoTruncateDeleteOldFileOnSuccess</code></td>
+<td><code>false</code></td>
+<td>Delete the pre-rewrite log once the rewrite has succeeded. Off means it stays until you delete it yourself.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Caches.</strong> Sized in gigabytes, and both are upper bounds rather than reservations.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NodeCacheSizeGb</code></td>
+<td>1</td>
+<td>Budget for cached node data. The single biggest lever on read latency for a database larger than memory.</td>
+</tr>
+<tr>
+<td><code>SetCacheSizeGb</code></td>
+<td>1</td>
+<td>Budget for cached result sets — the id sets behind <code>Where</code>, facet counts and relation lookups. This is what makes a repeated faceted query sub-millisecond.</td>
+</tr>
+<tr>
+<td><code>AutoPurgeCache</code></td>
+<td><code>true</code></td>
+<td>Trim the caches in the background rather than only under pressure.</td>
+</tr>
+<tr>
+<td><code>AutoPurgeCacheIntervalInMinutes</code></td>
+<td>5</td>
+<td>How often.</td>
+</tr>
+<tr>
+<td><code>AutoPurgeCacheLowerSizeLimitInMb</code></td>
+<td>1</td>
+<td>Leave the caches alone below this size.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Background tasks and diagnostics.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AutoDequeTasks</code></td>
+<td><code>true</code></td>
+<td>Run the task queue — text indexing, embeddings, file conversion. With it off the work is still queued, but nothing processes it. The CLI turns it off for its own runs.</td>
+</tr>
+<tr>
+<td><code>PersistedQueueStoreEngine</code></td>
+<td><code>Native</code></td>
+<td>Where the task queue is persisted: <code>Native</code>, <code>Sqlite</code> or <code>Memory</code>. <code>Memory</code> loses queued work on restart.</td>
+</tr>
+<tr>
+<td><code>PersistedQueueStoreFolderPath</code></td>
+<td>beside the index folder</td>
+<td>Where the persisted queue writes.</td>
+</tr>
+<tr>
+<td><code>WriteSystemLogConsole</code></td>
+<td><code>true</code></td>
+<td>Echo the engine's system log to the console.</td>
+</tr>
+<tr>
+<td><code>DoNotCacheMapperFile</code></td>
+<td><code>false</code></td>
+<td>Present in the settings object; not read by the current build.</td>
+</tr>
+</tbody>
+</table>
 <h3 id="overriding-settings-from-configuration">Overriding settings from configuration<a class="anchor" href="#overriding-settings-from-configuration" aria-label="Link to this section">#</a></h3>
 <p>Any setting in <code>relatude.db.json</code> can be overridden from standard ASP.NET configuration. At startup
 the server reads the <code>RelatudeDB</code> section — from <code>appsettings.json</code>,
@@ -2074,16 +2894,18 @@ every request gets a 503 progress page.</p>
 the two are additive rather than alternatives.</p>
 <p><strong>From <code>relatude.db.json</code></strong>, when the model must change without a rebuild, or differs between
 deployments of the same binary:</p>
-<div class="codehilite"><pre><span></span><code>&quot;DatamodelSources&quot;: [
-  {
-    &quot;Id&quot;: &quot;...&quot;,
-    &quot;Name&quot;: &quot;VenueApp&quot;,
-    &quot;Type&quot;: &quot;AssemblyNameReference&quot;,   // or TypeNameReference | JsonFile
-    &quot;Namespace&quot;: &quot;VenueApp.Models&quot;,    // matched exactly, not by prefix
-    &quot;Reference&quot;: &quot;VenueApp&quot;,           // assembly name; null means the entry assembly
-    &quot;AutoDeduceRelations&quot;: false
-  }
-]
+<div class="codehilite"><pre><span></span><code><span class="s">&quot;DatamodelSources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="s">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8a3f...&quot;</span><span class="p">,</span><span class="w">                   </span><span class="c1">// required, and unique across the sources</span>
+<span class="w">    </span><span class="s">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;AssemblyNameReference&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// see the table below</span>
+<span class="w">    </span><span class="s">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp.Models&quot;</span><span class="p">,</span><span class="w">    </span><span class="c1">// matched exactly, not by prefix</span>
+<span class="w">    </span><span class="s">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// assembly name; null means the entry assembly</span>
+<span class="w">    </span><span class="s">&quot;Filepath&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                  </span><span class="c1">// file or folder, for the file-based types</span>
+<span class="w">    </span><span class="s">&quot;FileIO&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                    </span><span class="c1">// legacy: read a JsonFile through an IO provider instead</span>
+<span class="w">    </span><span class="s">&quot;AutoDeduceRelations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">]</span>
 </code></pre></div>
 
 <table>
@@ -2096,22 +2918,29 @@ deployments of the same binary:</p>
 <tbody>
 <tr>
 <td><code>AssemblyNameReference</code></td>
-<td>loads the assembly (or the entry assembly) and adds every type in <code>Namespace</code></td>
+<td>loads the assembly named by <code>Reference</code> (or the entry assembly when it is null) and adds every type in <code>Namespace</code>. <code>Namespace</code> is required.</td>
 </tr>
 <tr>
 <td><code>TypeNameReference</code></td>
-<td>adds the type named by <code>Reference</code>, plus everything it references</td>
+<td>adds the single type named by <code>Reference</code>, plus everything it references. Assembly-qualify it (<code>"MyApp.Models.Person, MyApp"</code>) unless it is in the entry assembly.</td>
 </tr>
 <tr>
 <td><code>JsonFile</code></td>
-<td>reads a serialised <code>Datamodel</code> from <code>Reference</code> through the IO provider in <code>FileIO</code></td>
+<td>reads serialised <code>Datamodel</code> JSON. <code>Filepath</code> may name a file or a folder (searched recursively); with neither <code>Filepath</code> nor <code>Reference</code> it reads <code>Models/Json</code>. Each node type still needs a backing CLR class at runtime for the mapper to compile against.</td>
 </tr>
 <tr>
-<td><code>AssemblyFileReference</code>, <code>TypeNameFileReference</code>, <code>CSharpCodeFile</code></td>
-<td>declared, but throw <code>NotImplementedException</code> in the current build</td>
+<td><code>CSharpCodeFile</code></td>
+<td>compiles <code>.cs</code> files in memory and adds the types. Same path resolution, defaulting to <code>Models/CSharp</code>; with no <code>Namespace</code> every non-nested, non-enum top-level type in the compilation is added.</td>
+</tr>
+<tr>
+<td><code>Code</code></td>
+<td><strong>reserved.</strong> It is the id stamped on types added from <code>OnDatamodelInit</code>, and configuring it as a source throws.</td>
 </tr>
 </tbody>
 </table>
+<p>Relative <code>Filepath</code> values resolve against the root data folder. Every source must carry a unique
+<code>Id</code> — it is what tags each type with its provenance, which is how the admin UI knows which source a
+type came from and which sources it may edit.</p>
 <p><strong>From <code>Program.cs</code></strong>, which is the common case when the model ships with the app — refactor-safe,
 and it fails at compile time rather than at boot:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">container</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
@@ -2142,13 +2971,21 @@ your way around it early.</p>
 <div class="codehilite"><pre><span></span><code><span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">(</span><span class="s">&quot;/admin/db&quot;</span><span class="p">);</span>
 </code></pre></div>
 
-<p>It has its own authentication, and <strong>nothing creates an admin user for you</strong>. <code>MasterUserName</code> and
-<code>MasterPassword</code> are null until you set them — in <code>relatude.db.json</code>, or better, in the <code>RelatudeDB</code>
-configuration section (user secrets, environment variables) — and until then logging in throws "No
-master user configured on the server." Three details cost people time: the stored user name must be <strong>lowercase</strong> (the check
+<p>It has its own authentication, and <strong>nothing creates an admin user for you</strong> — but locally you do
+not need one. <code>NoLoginRequiredForLocalhost</code> defaults to <code>true</code>, so a request from localhost reaches
+the admin UI without logging in at all; that is why it just works in development.</p>
+<p>Away from localhost it is the opposite: <code>AllowMasterLoginOutsideLocalhost</code> defaults to <strong><code>false</code></strong>,
+which refuses both the login and any existing session cookie from a remote address. Turn it on
+deliberately, over HTTPS, and only after setting credentials. Set <code>MasterUserName</code> and
+<code>MasterPassword</code> in <code>relatude.db.json</code>, or better, in the <code>RelatudeDB</code> configuration section (user
+secrets, environment variables); until they are set, logging in throws "No master user configured on
+the server."</p>
+<p>Three more details cost people time: the stored user name must be <strong>lowercase</strong> (the check
 lowercases the input before comparing), the password is compared verbatim and stored in plain text,
 and without <code>TokenEncryptionSecret</code> the server uses a random per-process key, so every restart
-invalidates every session cookie.</p>
+invalidates every session cookie. Failed logins are rate-limited per IP and every attempt is
+answered after a randomised 300–400 ms delay, so a wrong password and an unknown user name are
+indistinguishable by timing.</p>
 <p>What you do in it:</p>
 <table>
 <thead>
@@ -2327,28 +3164,87 @@ before returning.</p>
 cascading inserts — useful when you have already inserted the related nodes yourself.</p>
 <hr />
 <h2 id="14-relating-nodes">14. Relating nodes<a class="anchor" href="#14-relating-nodes" aria-label="Link to this section">#</a></h2>
+<p>There is no <code>Relate</code> / <code>UnRelate</code>. The verbs are <code>AddRelation</code>, <code>SetRelation</code>, <code>RemoveRelation</code>,
+<code>ClearRelation</code>, <code>ClearRelations</code> and <code>ClearAndSetRelation</code>, all of them on both <code>NodeStore</code> (where
+they return <code>TransactionResult</code> and take <code>flushToDisk: bool = false</code>) and <code>Transaction</code> (where they
+return the <code>Transaction</code> so calls chain).</p>
 <div class="codehilite"><pre><span></span><code><span class="c1">// By expression — readable and type-checked. Preferred.</span>
-<span class="n">db</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
 
 <span class="c1">// By ids</span>
-<span class="n">db</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venueId</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">eventId</span><span class="p">);</span>
-<span class="n">db</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venueId</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="p">[]</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">eventId1</span><span class="p">,</span><span class="w"> </span><span class="n">eventId2</span><span class="w"> </span><span class="p">});</span>
+<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venueId</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">eventId</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venueId</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="p">[]</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">eventId1</span><span class="p">,</span><span class="w"> </span><span class="n">eventId2</span><span class="w"> </span><span class="p">});</span>
 
 <span class="c1">// Symmetric relations only need to be stated once</span>
-<span class="n">db</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IAttendee</span><span class="o">&gt;</span><span class="p">(</span><span class="n">alice</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">Friends</span><span class="p">,</span><span class="w"> </span><span class="n">bob</span><span class="p">);</span><span class="w">   </span><span class="c1">// bob.Friends now contains alice</span>
+<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IAttendee</span><span class="o">&gt;</span><span class="p">(</span><span class="n">alice</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">Friends</span><span class="p">,</span><span class="w"> </span><span class="n">bob</span><span class="p">);</span><span class="w">   </span><span class="c1">// bob.Friends now contains alice</span>
 
 <span class="c1">// Remove</span>
-<span class="n">db</span><span class="p">.</span><span class="n">UnRelate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">RemoveRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
 
 <span class="c1">// Probe</span>
 <span class="kt">bool</span><span class="w"> </span><span class="n">related</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">RelationExists</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venueId</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">eventId</span><span class="p">);</span>
 </code></pre></div>
 
 <p>Because relations are bidirectional, it does not matter which side you relate from —
-<code>db.Relate&lt;IEvent&gt;(ev, e =&gt; e.Venue, venue)</code> has exactly the same effect as the first line above.</p>
-<p>Two behaviours to keep in mind: <strong><code>Relate</code> appends to the bottom</strong> of the target's list, and
-<strong>relating a pair that is already related throws</strong> (as does unrelating a pair that is not). To change
-an item's position, use the <code>MoveRelation…</code> family from <a href="#91-relation-lists-are-ordered">§9.1</a> rather
+<code>db.AddRelation&lt;IEvent&gt;(ev, e =&gt; e.Venue, venue)</code> has exactly the same effect as the first line
+above.</p>
+<h3 id="which-verb">Which verb<a class="anchor" href="#which-verb" aria-label="Link to this section">#</a></h3>
+<p>The six differ only in what they do when the relation is already there, or when the cardinality
+leaves no room:</p>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>Already related</th>
+<th>"One" side already occupied</th>
+<th>Not related</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AddRelation</code></td>
+<td><strong>throws</strong></td>
+<td><strong>throws</strong></td>
+<td>adds, at the bottom</td>
+</tr>
+<tr>
+<td><code>SetRelation</code></td>
+<td>no-op</td>
+<td>removes what is in the way, then adds</td>
+<td>adds</td>
+</tr>
+<tr>
+<td><code>RemoveRelation</code></td>
+<td>removes</td>
+<td>–</td>
+<td><strong>throws</strong></td>
+</tr>
+<tr>
+<td><code>ClearRelation</code></td>
+<td>removes</td>
+<td>–</td>
+<td>no-op</td>
+</tr>
+<tr>
+<td><code>ClearRelations(from, expr)</code></td>
+<td>removes every relation on that side</td>
+<td>–</td>
+<td>no-op</td>
+</tr>
+<tr>
+<td><code>ClearAndSetRelation</code></td>
+<td>clears the side, then sets exactly the given ids</td>
+<td>–</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<p>So <code>AddRelation</code> is the strict one, <code>SetRelation</code> is the idempotent one — and on a <code>One</code> /
+<code>OneFrom</code> / <code>OneTo</code> side <code>SetRelation</code> is what reads as an assignment, because it evicts the
+previous target for you. <code>ClearRelation</code> is <code>RemoveRelation</code> without the throw.</p>
+<p>Two more behaviours to keep in mind: <strong><code>AddRelation</code> appends to the bottom</strong> of the target's list,
+and adding a pair that already exists throws (as does removing a pair that does not). To change an
+item's position, use the <code>MoveRelation…</code> family from <a href="#91-relation-lists-are-ordered">§9.1</a> rather
 than un-relating and re-relating:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">MoveRelationToTop</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">headliner</span><span class="p">);</span>
 <span class="n">db</span><span class="p">.</span><span class="n">MoveRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">,</span><span class="w"> </span><span class="n">offset</span><span class="p">:</span><span class="w"> </span><span class="o">+</span><span class="mi">2</span><span class="p">);</span>
@@ -2363,8 +3259,8 @@ than un-relating and re-relating:</p>
 
 <span class="n">t</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">venue</span><span class="p">);</span>
 <span class="n">t</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">ev</span><span class="p">);</span>
-<span class="n">t</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
-<span class="n">t</span><span class="p">.</span><span class="n">Relate</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">(</span><span class="n">ev</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Host</span><span class="p">,</span><span class="w"> </span><span class="n">organizer</span><span class="p">);</span>
+<span class="n">t</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Events</span><span class="p">,</span><span class="w"> </span><span class="n">ev</span><span class="p">);</span>
+<span class="n">t</span><span class="p">.</span><span class="n">SetRelation</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">(</span><span class="n">ev</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">Host</span><span class="p">,</span><span class="w"> </span><span class="n">organizer</span><span class="p">);</span>
 <span class="n">t</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">organizer</span><span class="p">);</span>
 
 <span class="n">TransactionResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
@@ -2532,16 +3428,52 @@ chunks, finalize:</p>
 <span class="w">    </span><span class="n">Quality</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">80</span>
 <span class="p">};</span>
 
-<span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">);</span>
 
-<span class="kt">bool</span><span class="w"> </span><span class="n">ready</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">IsFileReady</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="n">requestIfNot</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
+<span class="kt">bool</span><span class="w"> </span><span class="n">ready</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">IsFileReady</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="n">requestIfNot</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
 
-<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">TryGetConversionInfo</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">progress</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryGetConversionInfo</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">adjustment</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">progress</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
-<p><code>FileAdjustmentVideo</code> is the equivalent for video, with <code>TargetBitRateInMbps</code>,
-<code>RequestedFormat = FileFormat.Mp4</code>, and so on. <code>FileAdjustmentMeta</code> asks for the conversion status
-and extracted metadata as JSON instead of a converted file.</p>
+<p>Every option on <code>FileAdjustmentImage</code> is nullable, and only the ones you set take part in the
+conversion key — so two requests that differ in nothing produce one conversion:</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Canvas</td>
+<td><code>Width</code>, <code>Height</code>, <code>CropMode</code> (<code>Fill</code>, <code>Fit</code>, <code>Stretch</code>, <code>Auto</code>), <code>BackgroundColor</code> (<code>"#RRGGBB"</code> / <code>"#RRGGBBAA"</code>, used by the modes that letterbox), <code>AutoBackgroundColor</code> (pick it from the image's edges)</td>
+</tr>
+<tr>
+<td>Framing</td>
+<td><code>Zoom</code> (percent; 100 is 1:1), <code>FocusX</code> / <code>FocusY</code>, <code>OffsetX</code> / <code>OffsetY</code>, <code>Rotation</code> (degrees)</td>
+</tr>
+<tr>
+<td>Tone</td>
+<td><code>Brightness</code>, <code>Contrast</code>, <code>Saturation</code> (−100…100), <code>HueShift</code> (−180…180), <code>Sharpness</code> (0…100)</td>
+</tr>
+<tr>
+<td>Light/dark</td>
+<td><code>InvertLuminance</code>, <code>AutoLightDarkMode</code> — below</td>
+</tr>
+<tr>
+<td>Output</td>
+<td><code>RequestedFormat</code>, <code>Quality</code> (0…100, lossy formats only)</td>
+</tr>
+<tr>
+<td>Video source</td>
+<td><code>TimeOffsetMs</code> or <code>TimeOffsetPercentage</code> — which frame of a video to grab the still from</td>
+</tr>
+</tbody>
+</table>
+<p><code>FileAdjustmentVideo</code> is the equivalent for video: <code>Width</code>, <code>Height</code>, <code>TargetBitRateInMbps</code>,
+<code>CropNotZoom</code>, <code>RequestedFormat = FileFormat.Mp4</code>. <code>FileAdjustmentMeta</code> asks for the conversion
+status and extracted metadata as JSON instead of a converted file.</p>
 <p>Naming <code>RequestedFormat</code> is optional for images: it defaults to the adaptive <code>FileFormat.Image</code>,
 which resolves per file against the store defaults — the original untouched when nothing is
 adjusted, a GIF left as a GIF at its own size, everything else the configured default format and
@@ -2564,7 +3496,7 @@ blue:</p>
 <span class="w">    </span><span class="n">RequestedFormat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileFormat</span><span class="p">.</span><span class="n">Png</span>
 <span class="p">};</span>
 
-<span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Diagram</span><span class="p">.</span><span class="n">PropertyPath</span><span class="o">!</span><span class="p">,</span><span class="w"> </span><span class="n">darkVariant</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">venue</span><span class="p">.</span><span class="n">Diagram</span><span class="p">.</span><span class="n">PropertyPath</span><span class="o">!</span><span class="p">,</span><span class="w"> </span><span class="n">darkVariant</span><span class="p">);</span>
 </code></pre></div>
 
 <p><img alt="A bar chart on a white background beside the same chart after InvertLuminance, now on black" src="invert-luminance.png" /></p>
@@ -2634,8 +3566,8 @@ Give it a parent relation and the same manager builds <code>/{ancestor addresses
 <span class="kt">string</span><span class="w"> </span><span class="n">fileUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">article</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">400</span><span class="w"> </span><span class="p">});</span>
 
 <span class="c1">// the reverse: what does this URL point at?</span>
-<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrl</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">UrlKeys</span><span class="w"> </span><span class="n">keys</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">        </span><span class="c1">// node, file, variant or deeplink</span>
-<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">c</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">   </span><span class="c1">// …resolved all the way to content</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrl</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">UrlKeys</span><span class="w"> </span><span class="n">keys</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">         </span><span class="c1">// node, file, variant or deeplink</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// …resolved all the way to content</span>
 
 <span class="c1">// may this node have this address? (editor-side validation)</span>
 <span class="kt">bool</span><span class="w"> </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">WillAddressResultInUniqueUrl</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">NodeKey</span><span class="p">(</span><span class="n">article</span><span class="p">.</span><span class="n">Id</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;contact-us&quot;</span><span class="p">);</span>
@@ -3058,13 +3990,19 @@ search builders too: <code>fq = fq.SetFacetValue(...)</code>.</p>
 <span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
 <span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Guid</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
 <span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
-<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">IdKey</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">NodeKey</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
 <span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">IEnumerable</span><span class="o">&lt;</span><span class="n">Guid</span><span class="o">&gt;</span><span class="w"> </span><span class="n">ids</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
 <span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Expression</span><span class="o">&lt;</span><span class="n">Func</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">expression</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Query</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">T</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span><span class="w">          </span><span class="c1">// rooted at one node</span>
+
+<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="kt">object</span><span class="p">,</span><span class="w"> </span><span class="kt">object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">QueryType</span><span class="p">(</span><span class="n">Guid</span><span class="w"> </span><span class="n">nodeTypeId</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="kt">object</span><span class="p">,</span><span class="w"> </span><span class="kt">object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">QueryType</span><span class="p">(</span><span class="kt">string</span><span class="w"> </span><span class="n">typeName</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
+<span class="n">IQueryOfNodes</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">QueryRelated</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Guid</span><span class="w"> </span><span class="n">propertyId</span><span class="p">,</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">nodeId</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="o">?</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">);</span>
 </code></pre></div>
 
 <p><code>Query&lt;T&gt;()</code> with no predicate matches every instance of <code>T</code> <strong>and its subtypes</strong>. Use <code>WhereTypes</code>
-to narrow that.</p>
+to narrow that. The <code>QueryType</code> pair is the untyped door in, for tooling that only has a type name
+or id.</p>
 <h3 id="executing">Executing<a class="anchor" href="#executing" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="n">ResultSet</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="w"> </span><span class="n">rs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">query</span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 <span class="n">ResultSet</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="w"> </span><span class="n">rs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">query</span><span class="p">.</span><span class="n">ExecuteAsync</span><span class="p">();</span>
@@ -3432,7 +4370,8 @@ and returns the total count without you running a second query. <strong>Use <cod
 <span class="w">             </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 
 <span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">$&quot;Showing {page.Count} of {page.TotalCount} &quot;</span><span class="w"> </span><span class="o">+</span>
-<span class="w">                  </span><span class="s">$&quot;(page {page.PageIndexUsed}, size {page.PageSizeUsed}) in {page.DurationMs:0.0}ms&quot;</span><span class="p">);</span>
+<span class="w">                  </span><span class="s">$&quot;(page {page.PageIndex + 1} of {page.PageCount}, size {page.PageSize}) &quot;</span><span class="w"> </span><span class="o">+</span>
+<span class="w">                  </span><span class="s">$&quot;in {page.DurationMs:0.0}ms&quot;</span><span class="p">);</span>
 </code></pre></div>
 
 <h3 id="resultset"><code>ResultSet&lt;T&gt;</code><a class="anchor" href="#resultset" aria-label="Link to this section">#</a></h3>
@@ -3454,12 +4393,28 @@ and returns the total count without you running a second query. <strong>Use <cod
 <td>total matching rows across the whole query</td>
 </tr>
 <tr>
-<td><code>PageIndexUsed</code>, <code>PageSizeUsed</code></td>
-<td>echo of the paging that was applied</td>
+<td><code>PageIndex</code>, <code>PageSize</code>, <code>PageCount</code></td>
+<td>echo of the paging that was applied, and how many pages there are</td>
 </tr>
 <tr>
-<td><code>DurationMs</code></td>
-<td>server-side execution time</td>
+<td><code>IsAll</code></td>
+<td>true when this result is the whole match set, not a page of it</td>
+</tr>
+<tr>
+<td><code>IsLastPage</code></td>
+<td>true when there is nothing after this page</td>
+</tr>
+<tr>
+<td><code>Capped</code></td>
+<td>true when the engine stopped short of counting everything</td>
+</tr>
+<tr>
+<td><code>DurationMs</code>, <code>InnerDurationMs</code></td>
+<td>total server-side time, and the inner (index) part of it</td>
+</tr>
+<tr>
+<td><code>Values</code>, <code>ToArray()</code>, <code>ToList()</code></td>
+<td>the rows</td>
 </tr>
 </tbody>
 </table>
@@ -3474,7 +4429,8 @@ and returns the total count without you running a second query. <strong>Use <cod
 </code></pre></div>
 
 <p><code>Count()</code> on the builder is answered from the index and never materialises nodes — much cheaper
-than <code>Execute().Count()</code>.</p>
+than <code>Execute().Count()</code>. It returns <code>int</code>; <code>db.Count()</code> and <code>db.Count&lt;T&gt;()</code>, the whole-store
+counters, return <code>long</code>.</p>
 <hr />
 <h2 id="28-faceted-search">28. Faceted search<a class="anchor" href="#28-faceted-search" aria-label="Link to this section">#</a></h2>
 <p>Facets bucket a result set across indexed properties, and are what you build a filter sidebar
@@ -3578,9 +4534,12 @@ bucketing is tuned by <code>FacetRangePowerBase</code> and <code>FacetRangeCount
 <span class="w">  </span><span class="p">.</span><span class="n">WhereHidden</span><span class="p">(</span><span class="k">false</span><span class="p">)</span>
 <span class="w">  </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 
-<span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">(</span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="s">&quot;nb-NO&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">(</span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Default</span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="s">&quot;nb-NO&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
+<p><code>QueryContext</code> is built by chaining off one of its static starting points — <code>Default</code>, <code>Anonymous</code>,
+<code>MasterAdmin</code> — not off the type itself: <code>Culture</code>, <code>User</code>, <code>Admin</code> and friends are instance methods
+that return a new context.</p>
 <p>Or scope a whole <code>NodeStore</code> once and reuse it:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">nb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Context</span>
 <span class="w">           </span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="s">&quot;nb-NO&quot;</span><span class="p">)</span>
@@ -3619,10 +4578,11 @@ only — <strong>never hand it to a request handler</strong>.</p>
    <code>NodeMeta.Empty</code>, <code>[]</code>, <code>new()</code>. On interfaces these are getter-only; the proxy handles it.</li>
 <li><strong>Relations are not foreign keys.</strong> No <code>VenueId</code> property. Declare the relation class and expose
     the nested property types.</li>
-<li><strong>Relation lists are ordered, per side.</strong> <code>Relate</code> appends to the bottom; relating an
-    already-related pair <strong>throws</strong>, as does unrelating a pair that is not related. Change position
-    with <code>MoveRelation…</code> / <code>SetRelationOrder</code>, never by un-relating and re-relating. In a
-    many-to-many relation each side is ordered independently.</li>
+<li><strong>Relation lists are ordered, per side.</strong> <code>AddRelation</code> appends to the bottom; adding an
+    already-related pair <strong>throws</strong>, as does removing a pair that is not related — reach for
+    <code>SetRelation</code> / <code>ClearRelation</code> when you want the idempotent forms, and there is no
+    <code>db.Relate(...)</code>. Change position with <code>MoveRelation…</code> / <code>SetRelationOrder</code>, never by
+    un-relating and re-relating. In a many-to-many relation each side is ordered independently.</li>
 <li><strong>Ordering is not a reason to choose <code>References&lt;T&gt;</code> over a relation.</strong> Relations preserve order
     too, and add reorder operations. Duplicates and the absence of a reverse index are what
     distinguish references. Don't add a <code>SortIndex</code> property either — the relation already has one.</li>
@@ -3893,7 +4853,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": []}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

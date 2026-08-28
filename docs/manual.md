@@ -31,7 +31,7 @@ concept builds on the last.
 9. [Relations — the graph edges](#9-relations--the-graph-edges) · [9.1 ordered relation lists](#91-relation-lists-are-ordered)
 10. [Choosing between relation, reference and embedded](#10-choosing-between-relation-reference-and-embedded)
 11. [The complete example model](#11-the-complete-example-model) · [11.1 with facet interfaces](#111-the-same-model-with-facet-interfaces)
-12. [Registering the model & the admin UI](#12-registering-the-model--the-admin-ui)
+12. [Registering the model & the admin UI](#12-registering-the-model--the-admin-ui) · [12.1 every relatude.db.json setting](#121-every-setting-in-relatudedbjson)
 
 **Part II — Writing data**
 
@@ -85,8 +85,11 @@ namespace and it builds the datamodel from your interfaces and classes.
 ### Interfaces are the model
 
 A node type can be an **interface, a class, a record or a struct** — the engine supports all four.
-But interfaces are the recommended default, and the rest of this manual models almost everything
-with interfaces alone.
+No attribute is needed to opt in: every type in a namespace you point the engine at becomes a node
+type unless it is marked `[Exclude]`. `[Node]` only *tunes* one (see
+[stable type ids](#optional-stable-type-ids) below), which is why almost no type in this manual
+carries it. Interfaces are the recommended default, and the rest of this manual models almost
+everything with interfaces alone.
 
 The headline: **you do not need a class at all.** An interface on its own is a complete node type.
 `store.Create<IVenue>()` hands you a generated proxy that implements it, tracks your changes and
@@ -106,7 +109,7 @@ in the datamodel — shared, queryable facets that cut across your hierarchy. Cl
 The three namespaces you will import in every model file:
 
 ```csharp
-using Relatude.DB.Common;       // FileValue, GeoCoordinate, IdKey
+using Relatude.DB.Common;       // FileValue, GeoCoordinate, NodeKey
 using Relatude.DB.Datamodels;   // NodeMeta, RevisionType
 using Relatude.DB.Nodes;        // attributes, relation bases, Reference, References, EmbeddedMap
 ```
@@ -675,8 +678,15 @@ public interface IVenue {
 }
 ```
 
-`KeyType` defaults to `NodeProperty` when you supply `KeyProperty`. Use `NodeGuidId` to key by the
-embedded value's `Guid Id` instead — which is exactly what `Embedded<T>` is shorthand for.
+Naming a `KeyProperty` is enough — it takes precedence over `KeyType`, so the second line above is
+documentation rather than necessity. `KeyType` is what you set when there is *no* key property:
+`NodeGuidId` keys by the embedded value's `Guid Id` (which is exactly what `Embedded<T>` is
+shorthand for) and `NodeIntegerId` by its int id. With no attribute at all the key type is inferred
+from `TKey`: `Guid` → `NodeGuidId`, `int` → `NodeIntegerId`, anything else is an error telling you
+to name a `KeyProperty`.
+
+The key property has to live on the closest common base of the allowed inner types, and its CLR
+type must equal `TKey` — both are checked at model-build time.
 
 ### Working with an embedded map
 
@@ -691,15 +701,20 @@ db.Insert(venue);
 // only *after* the parent is persisted can you read by key:
 var stored = db.Get<IVenue>(venue.Id);
 var mon    = stored.Hours["mon"];
-int days   = stored.Hours.Count();
+int days   = stored.Hours.Count;                  // a property, not a method
+bool open  = stored.Hours.Contains("mon");        // by key, not by value
 
 foreach (var h in stored.Hours) {                 // EmbeddedMap<TKey,TValue> is IEnumerable<TValue>
     Console.WriteLine($"{h.DayCode}: {h.Opens}–{h.Closes}");
 }
+
+foreach (var (day, h) in stored.Hours.KeysAndValues()) { … }   // when you want the keys too
 ```
 
-> **Gotcha.** Before the parent is inserted, only `Add` is safe. Reading by key on an unpersisted
-> parent will not find anything.
+> **Gotcha.** Before the parent is inserted, only `Add`, `Clear`, `Count` and enumeration are safe.
+> Anything keyed — the indexer, `Contains`, `KeysAndValues()` — throws
+> `InvalidOperationException` until the parent has been persisted, because the keys are evaluated by
+> the store.
 
 ---
 
@@ -919,7 +934,7 @@ of inventing a `SortIndex` property and sorting on it in every query.
 
 Four consequences to design around:
 
-- **`Relate` appends to the bottom.** The most recently related item is last.
+- **`AddRelation` appends to the bottom.** The most recently related item is last.
 - **Enumeration follows the stored order.** `foreach`, `Get()` and preloaded includes all yield it,
   so a curated sequence survives a round trip untouched.
 - **Duplicates are rejected.** Relating a pair that is already related **throws**, as does
@@ -956,7 +971,7 @@ Chained inside a transaction — relate and position in one commit:
 
 ```csharp
 var t = db.CreateTransaction();
-t.Relate<IVenue>(venue, v => v.Events, ev)
+t.AddRelation<IVenue>(venue, v => v.Events, ev)
  .MoveRelationToTop<IVenue>(venue, v => v.Events, ev)
  .Execute();
 ```
@@ -970,7 +985,7 @@ t.Relate<IVenue>(venue, v => v.Events, ev)
 - **`SetRelationOrder` reorders; it does not add or remove.** The ids you supply must be *exactly*
   the currently related ids.
 - **Never reorder by un-relating and re-relating.** Beyond being two writes instead of one, a
-  re-`Relate` lands at the bottom, and re-relating an already-related pair throws.
+  re-`AddRelation` lands at the bottom, and re-relating an already-related pair throws.
 
 #### Overload shapes
 
@@ -1460,11 +1475,13 @@ live in different places without repeating connection details.
 `LocalSettings` is the per-store engine configuration — `PersistedValueIndexEngine` /
 `PersistedTextIndexEngine`, the disk-flush policy, cache sizes, auto-backup retention,
 `EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has a working default;
-leave it out until you need it.
+leave it out until you need it. [§12.1](#121-every-setting-in-relatudedbjson) documents every key in
+the file, object by object, with its default.
 
 `AISettings` configures the container's own AI provider (embeddings and completions) and its
-semantic index. `TypeName` picks the provider, all served dependency-free from the
-`Relatude.DB.Plugins.Providers` package: `AzureAIProvider` (Azure OpenAI, the default) with
+semantic index. `TypeName` picks the provider; all of them are dependency-free implementations that
+ship inside `Relatude.DB.Server` itself (assembly `Relatude.DB.Providers`), so there is nothing extra
+to install: `AzureAIProvider` (Azure OpenAI, the default) with
 `ServiceUrl` as the resource endpoint and deployment names in `CompletionModel`/`EmbeddingModel`;
 `OpenAIProvider` for OpenAI or any OpenAI-compatible endpoint (`ServiceUrl` defaults to
 `https://api.openai.com/v1` — point it at Mistral, Groq, Ollama or similar); and
@@ -1475,6 +1492,268 @@ semantic index. `TypeName` picks the provider, all served dependency-free from t
 graph itself always stays in memory — the budget dials whether the full-precision vectors are
 mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded
 for per-hop disk reads.
+
+### 12.1 Every setting in relatude.db.json
+
+The file is one JSON object, deserialised into `RelatudeDBServerSettings` with case-insensitive
+property names, enums written as names (`"LocalDisk"`, `"Native"`) and `//` comments allowed on read.
+Every field has a working default; omit what you are not changing. The tables below list all of them,
+grouped by the object they sit on, with the default the engine uses when the key is absent.
+
+Two conventions run through the whole file. **Objects are wired together by `Id`**: a container names
+its storage backends and file stores by their Guid rather than repeating connection details, which is
+what lets the log, the index files and the file bytes live in three different places. And **relative
+paths resolve against the root data folder** (`ServerOptions.DefaultDataFolderPath` against the
+content root — the content root itself unless you change it), never against the current directory.
+
+#### Server level
+
+```jsonc
+{
+  "Id": "3f9c...",
+  "Name": "Relatude.DB Server",
+  "MasterUserName": "admin",
+  "MasterPassword": "…",
+  "TokenEncryptionSecret": "…",
+  "DefaultStoreId": "8f6b…",
+  "ContainerSettings": [ /* one entry per database */ ]
+}
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `Id` | new Guid on first write | Identifies this server. Only meaningful when several servers share settings; changing it re-identifies the server rather than reconfiguring it. |
+| `Name`, `Description` | `"Relatude.DB Server"`, null | Labels, shown in the admin UI. |
+| `DefaultStoreId` | the single container | Which container `RelatudeDBContext.Database` (and therefore `ctx.Database`) resolves to. Set it as soon as you have more than one. |
+| `ContainerSettings` | one demo container | The databases. One server hosts N of them; each is independent — its own datamodel, storage, indexes and files. |
+
+**Authentication.** These govern the admin UI only; they have nothing to do with your application's
+own users.
+
+| Key | Default | What it does |
+|---|---|---|
+| `MasterUserName` | null | The single admin user name. **Store it lowercase** — the login lowercases the input before comparing. Null means no one can log in ("No master user configured on the server."). |
+| `MasterPassword` | null | Compared verbatim, stored in plain text. Supply it through the `RelatudeDB` configuration section, not this file. |
+| `TokenEncryptionSecret` | null | Key the session cookie is encrypted with. Without it the server generates a random key per process, so every restart invalidates every session. Set it to a long random string, unique per installation. |
+| `NoLoginRequiredForLocalhost` | `true` | A request from localhost reaches the admin UI with no login at all. This is why it just works in development. |
+| `AllowMasterLoginOutsideLocalhost` | `false` | Until this is `true`, both the login endpoint and any existing session cookie are refused from a remote address. Turn it on deliberately, over HTTPS, after setting credentials. |
+| `TokenCookieName` | `"RelatudeDBToken"` | Name of the session cookie. Change it when two apps share a host name. |
+| `TokenCookieMaxAgeInSec` | `864000` (10 days) | Lifetime of a "remember me" cookie, and the age at which any token is rejected. |
+| `TokenCookieSecure` | `true` | `Secure` flag on the cookie. |
+| `TokenCookieSameSite` | `true` | `true` → `SameSite=Strict`, `false` → `None`. |
+| `TokenLockedToIP` | `false` | Bind the token to the IP that created it. Safer, but it logs people out whenever their address changes. |
+| `DBAdminUIUrlPath` | null → `/relatude.db` | Overrides the path passed to `UseRelatudeDB()`. The routes are mapped once at startup, so changing it later only takes effect after a full process restart — the startup log says so when that happens. |
+| `DBSettingsFilePath` | null | Present in the settings object but not read by the current build; the settings file path comes from `ServerOptions`. |
+
+#### Container level
+
+```jsonc
+{
+  "Id": "8f6b…",
+  "Name": "MyDatabase",
+  "AutoOpen": true,
+  "WaitUntilOpen": false,
+  "IOSettings": [ … ],
+  "IoDatabase": "1a2b…",
+  "FileStoreSettings": [ … ],
+  "DatamodelSources": [ … ],
+  "AISettings": null,
+  "LocalSettings": { … }
+}
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `Id` | – | The container's identity. `DefaultStoreId` points at it, and it survives renames. |
+| `Name`, `Description` | null | Labels. `Name` is what the CLI's `--store` matches and what the admin UI shows. |
+| `AutoOpen` | `false` | Open this database when the host starts. Without it the database exists but stays closed until something opens it — usually the admin UI. |
+| `WaitUntilOpen` | `false` | Block startup until the open completes. Off by default, so the app starts immediately and requests arriving during the open get the 503 progress page instead. Turn it on when a failed open should fail the boot. |
+| `IOSettings` | one local-disk entry | The storage backends this container may use. See below. |
+| `IoDatabase` | that entry | Where the append-only transaction log lives — **the source of truth**. Required (or `IoLog`). |
+| `IoDatabaseSecondary` | null | A second log, on other storage. With `LocalSettings.SecondaryBackupLog` it keeps the history a log rewrite would otherwise compact away — which is what `FindOlderVersions` ([§16](#16-older-versions-of-a-node)) reads. |
+| `IoIndexes` | falls back to `IoDatabase` | Where the persisted index engines write. Point it at fast local disk when the log lives on blob storage. |
+| `IoBackup` | same entry | Where backups are written. |
+| `IoLog` | falls back to `IoDatabase` | Where the system/activity log is written. |
+| `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
+| `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
+| `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
+| `LocalSettings` | all defaults | The engine knobs. See below. |
+
+#### `IOSettings` — a storage backend
+
+```jsonc
+{ "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.db" }
+{ "Id": "9d8c…", "Name": "Azure",      "IOType": "AzureBlobStorage",
+  "BlobConnectionString": "…", "BlobContainerName": "mydb", "LockBlob": true }
+{ "Id": "0000…", "Name": "In memory",  "IOType": "Memory" }
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `Id` | – | What the `Io…` fields and `FileStoreSettings.IoProviderId` refer to. |
+| `Name` | null | Label. |
+| `IOType` | `Memory` | `Memory` (nothing survives a restart — tests and demos), `LocalDisk`, or `AzureBlobStorage`. |
+| `Path` | `"~"` | `LocalDisk` only. A leading `~` or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. `relatude.db` is the conventional value. |
+| `BlobConnectionString` | null | `AzureBlobStorage` only, required. |
+| `BlobContainerName` | null | `AzureBlobStorage` only, required. |
+| `LockBlob` | `false` | Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap. |
+
+Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `bkup/`, `log/` and
+an index folder with one subfolder per engine — so several roles can share one backend without
+colliding.
+
+#### `FileStoreSettings` — where file bytes live
+
+```jsonc
+{ "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2 }
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `Id` | – | The id you paste into `[FileProperty(FileStorageProviderId = "…")]`, and what `LocalSettings.DefaultFileStore` names. |
+| `IoProviderId` | – | Which `IOSettings` entry holds the bytes. Must exist, or the open throws. |
+| `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
+| `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
+
+Leave the array empty and the store creates an implicit default store on `IoDatabase`, shaped by
+`LocalSettings.DefaultFileStoreEngine`.
+
+#### `AISettings` — embeddings, completions and the vector index
+
+```jsonc
+"AISettings": {
+  "TypeName": "AzureAIProvider",
+  "ServiceUrl": "https://my-resource.openai.azure.com",
+  "ApiKey": "…",
+  "EmbeddingModel": "text-embedding-3-small",
+  "CompletionModel": "gpt-4o-mini",
+  "IndexType": "HNSW",
+  "IndexCacheSizeInMb": 512
+}
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own `IAIProvider`. All the built-ins ship inside `Relatude.DB.Server`. |
+| `Name` | null | Label. |
+| `ServiceUrl` | provider default | Azure: the resource endpoint. OpenAI: defaults to `https://api.openai.com/v1`, so point it at Mistral, Groq, Ollama or any other OpenAI-compatible endpoint. |
+| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. |
+| `ApiVersion` | provider default | Overrides the `api-version` query parameter, for Azure OpenAI. |
+| `EmbeddingModel` | provider default | Model (Azure: deployment) name used for embeddings. |
+| `EmbeddingServiceUrl`, `EmbeddingApiKey` | fall back to `ServiceUrl` / `ApiKey` | A separate embeddings endpoint. **Required for Anthropic**, which has no embeddings API — point them at an OpenAI-compatible endpoint. |
+| `CompletionModel` | provider default | Model used for completions. |
+| `CompletionModelsByKey` | null | Named alternatives, addressed by `GetCompletionAsync(prompt, modelKey)` — a cheap model and a strong one side by side. |
+| `MaxOutputTokens` | provider default (Anthropic: 4096) | Sent when set. Anthropic requires the parameter, so it is defaulted there. |
+| `ModelDimensions` | model default | The embedding length. It has to match the vectors already in the index: a wrong length is coerced to a placeholder rather than throwing, which shows up as uniformly poor similarity rather than as an error. |
+| `DefaultSemanticRatio` | engine default | The `semanticRatio` used when a query does not name one. `0` pure BM25, `1` pure vector. |
+| `DefaultMinimumSimilarity` | engine default | Similarity floor below which a vector hit is dropped. |
+| `MaxCharsInBatch` | 50 000 | Batching limits for the embeddings API: characters per request, |
+| `MaxCountInBatch` | 500 | paragraphs per request, and |
+| `MaxCharsOfEach` | 20 000 | the point at which a single paragraph is truncated. |
+| `CacheType` | `Native` | Where computed embeddings are cached so a reindex does not pay for them twice: `Native` (a local KV file), `Sqlite`, `Memory`, or `None`. |
+| `IndexType` | `Memory` | The vector index engine: `Memory` (everything resident, rebuilt on open), `IVS` or `HNSW` (both disk-backed). Measured against each other in the [vector index benchmarks](vector-matrix.html). |
+| `IndexCacheSizeInMb` | engine default | Memory budget for the disk engines. For `HNSW` the graph itself is always resident and the budget dials whether the full-precision vectors are mirrored beside it; a budget smaller than the graph is exceeded with a log warning rather than traded for per-hop disk reads. |
+| `FilePath` | the index folder | Folder for the provider's own files (the embedding cache). Relative paths resolve against the root data folder. |
+
+#### `LocalSettings` — the engine
+
+Every key here has a working default. The groups below are ordered by how often you actually touch
+them.
+
+**Indexing.** What gets indexed at all, and by which engine.
+
+| Key | Default | What it does |
+|---|---|---|
+| `EnableTextIndexByDefault` | `false` | Include every node type in the BM25 index unless it opts out. Off means only types with `[Node(TextIndex = BoolValue.True)]` and properties with `IndexedByWords = true` are searchable. Turning it on is the usual first change to this file. |
+| `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Costs an embedding call per node, so opt in per property unless you mean it. |
+| `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of queueing it. A node is searchable the instant the write returns, at the cost of write latency. |
+| `PersistedTextIndexEngine` | `Native` | `Native` (the built-in disk index), `Lucene` (needs `Relatude.DB.Plugins.Lucene`), `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`), or `Memory`. |
+| `PersistedValueIndexEngine` | `Native` | Engine for the value indexes (`Indexed = true`): `Native`, `Sqlite` or `Memory`. |
+| `UsePersistedTextIndexesByDefault` | `true` | Whether a text index that does not state a storage type is persisted or memory-only. |
+| `UsePersistedValueIndexesByDefault` | `true` | The same for value indexes. Memory-only indexes are rebuilt from the log on every open — fine for small databases, slow for large ones. |
+| `PersistedValueIndexFolderPath` | beside the index IO provider | Where the persisted index engines write. Each engine claims its own subfolder, so they can share one path. |
+
+**Culture, access and files.**
+
+| Key | Default | What it does |
+|---|---|---|
+| `DefaultCultureCode` | null | Culture assumed when a node or query names none. Null means culture is not in play. |
+| `DefaultReadAccess` | `Everyone` | ACL group applied to a node whose `ReadAccess` is unset and whose type does not name one: `Everyone`, `Member` or `Admins`. |
+| `DefaultWriteAccess` | `Everyone` | Present in the settings object; not read by the current build — write access comes from the type and the node's metadata. |
+| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. |
+| `DefaultFileStoreEngine` | `MultiFile` | The engine used for the implicit default store when `FileStoreSettings` is empty. |
+| `ImageDefaultFormat` | `Jpeg` | Format an adaptive image variant resolves to (`FileFormat.Image`, the default `RequestedFormat`): `Jpeg`, `WebP` or `Png`. A site-wide switch to WebP is this one key — see [§18.1](#181-asset-urls-files-variants-and-deeplinks). |
+| `ImageDefaultQuality` | 85 | Quality used when the request does not name one. |
+| `UrlOptions` | flat `DefaultUrlManager` | The URL manager's configuration — [§18](#18-urls-and-the-url-manager). |
+
+**Durability.** How eagerly writes reach the disk. The defaults trade a sub-second window for
+throughput; nothing here risks *corruption*, only the last fraction of a second of writes.
+
+| Key | Default | What it does |
+|---|---|---|
+| `FlushDiskOnEveryTransactionByDefault` | `false` | Make every write behave as if `flushToDisk: true` had been passed. Full durability per transaction, at roughly two fsyncs per commit. |
+| `AutoFlushDiskInBackground` | `true` | Flush on a timer instead. |
+| `AutoFlushDiskIntervalInSeconds` | 1 | The timer. This is the size of the window a crash can lose. |
+| `DelayAutoDiskFlushIfBusy` | `true` | Skip a scheduled flush while the store is busy, so a burst of writes is not interrupted by fsyncs. |
+| `MaxDelayAutoDiskFlushIfBusyInSeconds` | 15 | The cap on that postponement — a sustained load cannot defer the flush forever. |
+| `ForceDiskFlushAfterActionCountLimit` | 10 000 | Flush regardless once this many actions are unflushed, which bounds the memory the pending writes hold. |
+| `DeepFlushDisk` | `false` | Ask the OS to flush its own write cache too, not just the file handle. Slower, and only meaningful where that cache is not battery-backed. |
+| `BusyThresholdActivitiesLast10Sec` | 100 | What counts as "busy" for the delay above: writes in the last 10 seconds, |
+| `BusyThresholdQueriesLast10Sec` | 1 000 | and queries in the last 10 seconds. |
+| `ThrowOnBadLogFile` | `false` | Fail the open when the transaction log ends mid-record (the normal aftermath of a crash) instead of replaying up to the last good record. Turn it on in tests, never in production. |
+| `ThrowOnBadStateFile` | `false` | The same for a corrupt state snapshot, which is otherwise discarded and rebuilt from the log. |
+
+**State snapshots.** How fast the next start is. A snapshot lets the engine skip replaying the log
+from the beginning; without one, opening is a full replay.
+
+| Key | Default | What it does |
+|---|---|---|
+| `AutoSaveIndexStates` | `true` | Write index state snapshots in the background. |
+| `AutoSaveIndexStatesIntervalInMinutes` | 120 | How often, at most. |
+| `AutoSaveIndexStatesActionCountLowerLimit` | 50 000 | Do not bother below this many actions since the last snapshot — snapshotting would cost more than the replay it saves. |
+| `AutoSaveIndexStatesActionCountUpperLimit` | 200 000 | Above this many, snapshot regardless of the interval. |
+
+**Backups.** Off by default; the admin UI has a one-click backup either way.
+
+| Key | Default | What it does |
+|---|---|---|
+| `AutoBackUp` | `false` | Take backups on a schedule. |
+| `NoHourlyBackUps` | 10 | How many of each generation to keep. Older members of a generation are pruned as newer ones arrive, so the set thins out with age instead of being a flat cap. |
+| `NoDailyBackUps` | 10 | |
+| `NoWeeklyBackUps` | 4 | |
+| `NoMontlyBackUps` | 12 | Spelled without the `h` in the settings object — the key really is `NoMontlyBackUps`. |
+| `NoYearlyBackUps` | 10 | |
+| `TruncateBackups` | `false` | Compact the log to current state when backing up. Much smaller backups, but they carry no version history — see [§16](#16-older-versions-of-a-node). |
+| `SecondaryBackupLog` | `false` | Also append every transaction to `IoDatabaseSecondary`. The secondary log survives rewrites, so this is what keeps deep history available to `FindOlderVersions`. |
+
+**Log truncation.** The transaction log grows forever unless something compacts it.
+
+| Key | Default | What it does |
+|---|---|---|
+| `AutoTruncate` | `false` | Rewrite the log to current state on a schedule. Reclaims space; discards version history. |
+| `AutoTruncateIntervalInMinutes` | 240 | How often, at most. |
+| `AutoTruncateActionCountLowerLimit` | 100 000 | Do not bother below this many actions. |
+| `AutoTruncateDeleteOldFileOnSuccess` | `false` | Delete the pre-rewrite log once the rewrite has succeeded. Off means it stays until you delete it yourself. |
+
+**Caches.** Sized in gigabytes, and both are upper bounds rather than reservations.
+
+| Key | Default | What it does |
+|---|---|---|
+| `NodeCacheSizeGb` | 1 | Budget for cached node data. The single biggest lever on read latency for a database larger than memory. |
+| `SetCacheSizeGb` | 1 | Budget for cached result sets — the id sets behind `Where`, facet counts and relation lookups. This is what makes a repeated faceted query sub-millisecond. |
+| `AutoPurgeCache` | `true` | Trim the caches in the background rather than only under pressure. |
+| `AutoPurgeCacheIntervalInMinutes` | 5 | How often. |
+| `AutoPurgeCacheLowerSizeLimitInMb` | 1 | Leave the caches alone below this size. |
+
+**Background tasks and diagnostics.**
+
+| Key | Default | What it does |
+|---|---|---|
+| `AutoDequeTasks` | `true` | Run the task queue — text indexing, embeddings, file conversion. With it off the work is still queued, but nothing processes it. The CLI turns it off for its own runs. |
+| `PersistedQueueStoreEngine` | `Native` | Where the task queue is persisted: `Native`, `Sqlite` or `Memory`. `Memory` loses queued work on restart. |
+| `PersistedQueueStoreFolderPath` | beside the index folder | Where the persisted queue writes. |
+| `WriteSystemLogConsole` | `true` | Echo the engine's system log to the console. |
+| `DoNotCacheMapperFile` | `false` | Present in the settings object; not read by the current build. |
 
 ### Overriding settings from configuration
 
@@ -1584,11 +1863,13 @@ deployments of the same binary:
 ```jsonc
 "DatamodelSources": [
   {
-    "Id": "...",
+    "Id": "8a3f...",                   // required, and unique across the sources
     "Name": "VenueApp",
-    "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+    "Type": "AssemblyNameReference",   // see the table below
     "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
     "Reference": "VenueApp",           // assembly name; null means the entry assembly
+    "Filepath": null,                  // file or folder, for the file-based types
+    "FileIO": null,                    // legacy: read a JsonFile through an IO provider instead
     "AutoDeduceRelations": false
   }
 ]
@@ -1596,10 +1877,15 @@ deployments of the same binary:
 
 | `Type` | What it does |
 |---|---|
-| `AssemblyNameReference` | loads the assembly (or the entry assembly) and adds every type in `Namespace` |
-| `TypeNameReference` | adds the type named by `Reference`, plus everything it references |
-| `JsonFile` | reads a serialised `Datamodel` from `Reference` through the IO provider in `FileIO` |
-| `AssemblyFileReference`, `TypeNameFileReference`, `CSharpCodeFile` | declared, but throw `NotImplementedException` in the current build |
+| `AssemblyNameReference` | loads the assembly named by `Reference` (or the entry assembly when it is null) and adds every type in `Namespace`. `Namespace` is required. |
+| `TypeNameReference` | adds the single type named by `Reference`, plus everything it references. Assembly-qualify it (`"MyApp.Models.Person, MyApp"`) unless it is in the entry assembly. |
+| `JsonFile` | reads serialised `Datamodel` JSON. `Filepath` may name a file or a folder (searched recursively); with neither `Filepath` nor `Reference` it reads `Models/Json`. Each node type still needs a backing CLR class at runtime for the mapper to compile against. |
+| `CSharpCodeFile` | compiles `.cs` files in memory and adds the types. Same path resolution, defaulting to `Models/CSharp`; with no `Namespace` every non-nested, non-enum top-level type in the compilation is added. |
+| `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
+
+Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
+`Id` — it is what tags each type with its provenance, which is how the admin UI knows which source a
+type came from and which sources it may edit.
 
 **From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe,
 and it fails at compile time rather than at boot:
@@ -1641,13 +1927,23 @@ your way around it early.
 app.UseRelatudeDB("/admin/db");
 ```
 
-It has its own authentication, and **nothing creates an admin user for you**. `MasterUserName` and
-`MasterPassword` are null until you set them — in `relatude.db.json`, or better, in the `RelatudeDB`
-configuration section (user secrets, environment variables) — and until then logging in throws "No
-master user configured on the server." Three details cost people time: the stored user name must be **lowercase** (the check
+It has its own authentication, and **nothing creates an admin user for you** — but locally you do
+not need one. `NoLoginRequiredForLocalhost` defaults to `true`, so a request from localhost reaches
+the admin UI without logging in at all; that is why it just works in development.
+
+Away from localhost it is the opposite: `AllowMasterLoginOutsideLocalhost` defaults to **`false`**,
+which refuses both the login and any existing session cookie from a remote address. Turn it on
+deliberately, over HTTPS, and only after setting credentials. Set `MasterUserName` and
+`MasterPassword` in `relatude.db.json`, or better, in the `RelatudeDB` configuration section (user
+secrets, environment variables); until they are set, logging in throws "No master user configured on
+the server."
+
+Three more details cost people time: the stored user name must be **lowercase** (the check
 lowercases the input before comparing), the password is compared verbatim and stored in plain text,
 and without `TokenEncryptionSecret` the server uses a random per-process key, so every restart
-invalidates every session cookie.
+invalidates every session cookie. Failed logins are rate-limited per IP and every attempt is
+answered after a randomised 300–400 ms delay, so a wrong password and an unknown user name are
+indistinguishable by timing.
 
 What you do in it:
 
@@ -1807,30 +2103,54 @@ cascading inserts — useful when you have already inserted the related nodes yo
 
 ## 14. Relating nodes
 
+There is no `Relate` / `UnRelate`. The verbs are `AddRelation`, `SetRelation`, `RemoveRelation`,
+`ClearRelation`, `ClearRelations` and `ClearAndSetRelation`, all of them on both `NodeStore` (where
+they return `TransactionResult` and take `flushToDisk: bool = false`) and `Transaction` (where they
+return the `Transaction` so calls chain).
+
 ```csharp
 // By expression — readable and type-checked. Preferred.
-db.Relate<IVenue>(venue, v => v.Events, ev);
+db.AddRelation<IVenue>(venue, v => v.Events, ev);
 
 // By ids
-db.Relate<IVenue>(venueId, v => v.Events, eventId);
-db.Relate<IVenue>(venueId, v => v.Events, new[] { eventId1, eventId2 });
+db.AddRelation<IVenue>(venueId, v => v.Events, eventId);
+db.AddRelation<IVenue>(venueId, v => v.Events, new[] { eventId1, eventId2 });
 
 // Symmetric relations only need to be stated once
-db.Relate<IAttendee>(alice, a => a.Friends, bob);   // bob.Friends now contains alice
+db.AddRelation<IAttendee>(alice, a => a.Friends, bob);   // bob.Friends now contains alice
 
 // Remove
-db.UnRelate<IVenue>(venue, v => v.Events, ev);
+db.RemoveRelation<IVenue>(venue, v => v.Events, ev);
 
 // Probe
 bool related = db.RelationExists<IVenue>(venueId, v => v.Events, eventId);
 ```
 
 Because relations are bidirectional, it does not matter which side you relate from —
-`db.Relate<IEvent>(ev, e => e.Venue, venue)` has exactly the same effect as the first line above.
+`db.AddRelation<IEvent>(ev, e => e.Venue, venue)` has exactly the same effect as the first line
+above.
 
-Two behaviours to keep in mind: **`Relate` appends to the bottom** of the target's list, and
-**relating a pair that is already related throws** (as does unrelating a pair that is not). To change
-an item's position, use the `MoveRelation…` family from [§9.1](#91-relation-lists-are-ordered) rather
+### Which verb
+
+The six differ only in what they do when the relation is already there, or when the cardinality
+leaves no room:
+
+| Verb | Already related | "One" side already occupied | Not related |
+|---|---|---|---|
+| `AddRelation` | **throws** | **throws** | adds, at the bottom |
+| `SetRelation` | no-op | removes what is in the way, then adds | adds |
+| `RemoveRelation` | removes | – | **throws** |
+| `ClearRelation` | removes | – | no-op |
+| `ClearRelations(from, expr)` | removes every relation on that side | – | no-op |
+| `ClearAndSetRelation` | clears the side, then sets exactly the given ids | – | – |
+
+So `AddRelation` is the strict one, `SetRelation` is the idempotent one — and on a `One` /
+`OneFrom` / `OneTo` side `SetRelation` is what reads as an assignment, because it evicts the
+previous target for you. `ClearRelation` is `RemoveRelation` without the throw.
+
+Two more behaviours to keep in mind: **`AddRelation` appends to the bottom** of the target's list,
+and adding a pair that already exists throws (as does removing a pair that does not). To change an
+item's position, use the `MoveRelation…` family from [§9.1](#91-relation-lists-are-ordered) rather
 than un-relating and re-relating:
 
 ```csharp
@@ -1851,8 +2171,8 @@ var t = db.CreateTransaction();
 
 t.Insert(venue);
 t.Insert(ev);
-t.Relate<IVenue>(venue, v => v.Events, ev);
-t.Relate<IEvent>(ev, e => e.Host, organizer);
+t.AddRelation<IVenue>(venue, v => v.Events, ev);
+t.SetRelation<IEvent>(ev, e => e.Host, organizer);
 t.Update(organizer);
 
 TransactionResult result = t.Execute();
@@ -2050,16 +2370,28 @@ var adjustment = new FileAdjustmentImage {
     Quality = 80
 };
 
-var url = db.Datastore.GetUrl(path, adjustment);
+var url = db.GetUrl(path, adjustment);
 
-bool ready = db.Datastore.IsFileReady(path, adjustment, requestIfNot: true);
+bool ready = db.IsFileReady(path, adjustment, requestIfNot: true);
 
-if (db.Datastore.TryGetConversionInfo(path, adjustment, true, out var progress)) { … }
+if (db.TryGetConversionInfo(path, adjustment, true, out var progress)) { … }
 ```
 
-`FileAdjustmentVideo` is the equivalent for video, with `TargetBitRateInMbps`,
-`RequestedFormat = FileFormat.Mp4`, and so on. `FileAdjustmentMeta` asks for the conversion status
-and extracted metadata as JSON instead of a converted file.
+Every option on `FileAdjustmentImage` is nullable, and only the ones you set take part in the
+conversion key — so two requests that differ in nothing produce one conversion:
+
+| Group | Options |
+|---|---|
+| Canvas | `Width`, `Height`, `CropMode` (`Fill`, `Fit`, `Stretch`, `Auto`), `BackgroundColor` (`"#RRGGBB"` / `"#RRGGBBAA"`, used by the modes that letterbox), `AutoBackgroundColor` (pick it from the image's edges) |
+| Framing | `Zoom` (percent; 100 is 1:1), `FocusX` / `FocusY`, `OffsetX` / `OffsetY`, `Rotation` (degrees) |
+| Tone | `Brightness`, `Contrast`, `Saturation` (−100…100), `HueShift` (−180…180), `Sharpness` (0…100) |
+| Light/dark | `InvertLuminance`, `AutoLightDarkMode` — below |
+| Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
+| Video source | `TimeOffsetMs` or `TimeOffsetPercentage` — which frame of a video to grab the still from |
+
+`FileAdjustmentVideo` is the equivalent for video: `Width`, `Height`, `TargetBitRateInMbps`,
+`CropNotZoom`, `RequestedFormat = FileFormat.Mp4`. `FileAdjustmentMeta` asks for the conversion
+status and extracted metadata as JSON instead of a converted file.
 
 Naming `RequestedFormat` is optional for images: it defaults to the adaptive `FileFormat.Image`,
 which resolves per file against the store defaults — the original untouched when nothing is
@@ -2089,7 +2421,7 @@ var darkVariant = new FileAdjustmentImage {
     RequestedFormat = FileFormat.Png
 };
 
-var url = db.Datastore.GetUrl(venue.Diagram.PropertyPath!, darkVariant);
+var url = db.GetUrl(venue.Diagram.PropertyPath!, darkVariant);
 ```
 
 ![A bar chart on a white background beside the same chart after InvertLuminance, now on black](invert-luminance.png)
@@ -2154,8 +2486,8 @@ string pageUrl = db.GetUrl(article);
 string fileUrl = db.GetUrl(article.Photo, new FileAdjustmentImage { Width = 400 });
 
 // the reverse: what does this URL point at?
-if (db.TryParseUrl(url, out UrlKeys keys)) { … }        // node, file, variant or deeplink
-if (db.Datastore.TryParseUrlForContent(url, out var c)) { … }   // …resolved all the way to content
+if (db.TryParseUrl(url, out UrlKeys keys)) { … }         // node, file, variant or deeplink
+if (db.TryParseUrlForContent(url, out var content)) { … } // …resolved all the way to content
 
 // may this node have this address? (editor-side validation)
 bool ok = db.WillAddressResultInUniqueUrl(new NodeKey(article.Id), "contact-us");
@@ -2516,13 +2848,19 @@ IQueryOfNodes<object, object> Query(QueryContext? ctx = null);     // all nodes,
 IQueryOfNodes<T, T> Query<T>(QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(Guid id, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null);
-IQueryOfNodes<T, T> Query<T>(IdKey id, QueryContext? ctx = null);
+IQueryOfNodes<T, T> Query<T>(NodeKey id, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null);
+IQueryOfNodes<T, T> Query<T>(T node, QueryContext? ctx = null);          // rooted at one node
+
+IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null);
+IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null);
+IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null);
 ```
 
 `Query<T>()` with no predicate matches every instance of `T` **and its subtypes**. Use `WhereTypes`
-to narrow that.
+to narrow that. The `QueryType` pair is the untyped door in, for tooling that only has a type name
+or id.
 
 ### Executing
 
@@ -2956,7 +3294,8 @@ var page = db.Query<IEvent>()
              .Execute();
 
 Console.WriteLine($"Showing {page.Count} of {page.TotalCount} " +
-                  $"(page {page.PageIndexUsed}, size {page.PageSizeUsed}) in {page.DurationMs:0.0}ms");
+                  $"(page {page.PageIndex + 1} of {page.PageCount}, size {page.PageSize}) " +
+                  $"in {page.DurationMs:0.0}ms");
 ```
 
 ### `ResultSet<T>`
@@ -2967,8 +3306,12 @@ Console.WriteLine($"Showing {page.Count} of {page.TotalCount} " +
 |---|---|
 | `Count` | rows returned on this page |
 | `TotalCount` | total matching rows across the whole query |
-| `PageIndexUsed`, `PageSizeUsed` | echo of the paging that was applied |
-| `DurationMs` | server-side execution time |
+| `PageIndex`, `PageSize`, `PageCount` | echo of the paging that was applied, and how many pages there are |
+| `IsAll` | true when this result is the whole match set, not a page of it |
+| `IsLastPage` | true when there is nothing after this page |
+| `Capped` | true when the engine stopped short of counting everything |
+| `DurationMs`, `InnerDurationMs` | total server-side time, and the inner (index) part of it |
+| `Values`, `ToArray()`, `ToList()` | the rows |
 
 ---
 
@@ -2984,7 +3327,8 @@ decimal revenue = db.Query<IEvent>()
 ```
 
 `Count()` on the builder is answered from the index and never materialises nodes — much cheaper
-than `Execute().Count()`.
+than `Execute().Count()`. It returns `int`; `db.Count()` and `db.Count<T>()`, the whole-store
+counters, return `long`.
 
 ---
 
@@ -3070,8 +3414,12 @@ db.Query<IEvent>()
   .WhereHidden(false)
   .Execute();
 
-db.Query<IEvent>(QueryContext.Culture("nb-NO")).Execute();
+db.Query<IEvent>(QueryContext.Default.Culture("nb-NO")).Execute();
 ```
+
+`QueryContext` is built by chaining off one of its static starting points — `Default`, `Anonymous`,
+`MasterAdmin` — not off the type itself: `Culture`, `User`, `Admin` and friends are instance methods
+that return a new context.
 
 Or scope a whole `NodeStore` once and reuse it:
 
@@ -3117,10 +3465,11 @@ A checklist of the things that actually bite people.
    `NodeMeta.Empty`, `[]`, `new()`. On interfaces these are getter-only; the proxy handles it.
 10. **Relations are not foreign keys.** No `VenueId` property. Declare the relation class and expose
     the nested property types.
-11. **Relation lists are ordered, per side.** `Relate` appends to the bottom; relating an
-    already-related pair **throws**, as does unrelating a pair that is not related. Change position
-    with `MoveRelation…` / `SetRelationOrder`, never by un-relating and re-relating. In a
-    many-to-many relation each side is ordered independently.
+11. **Relation lists are ordered, per side.** `AddRelation` appends to the bottom; adding an
+    already-related pair **throws**, as does removing a pair that is not related — reach for
+    `SetRelation` / `ClearRelation` when you want the idempotent forms, and there is no
+    `db.Relate(...)`. Change position with `MoveRelation…` / `SetRelationOrder`, never by
+    un-relating and re-relating. In a many-to-many relation each side is ordered independently.
 12. **Ordering is not a reason to choose `References<T>` over a relation.** Relations preserve order
     too, and add reorder operations. Duplicates and the absence of a reverse index are what
     distinguish references. Don't add a `SortIndex` property either — the relation already has one.

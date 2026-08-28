@@ -32,8 +32,9 @@ schema to create up front — the database is a folder next to your app.
 
 ## 2. Modelling — just write classes
 
-A node type is any class, record, struct **or interface** marked `[Node]`. Plain properties map
-automatically by their CLR type; attributes only *tune* things.
+A node type is any class, record, struct **or interface** in a namespace you point the engine at.
+No attribute is needed to opt in — `[Node]` only *tunes* a type, and `[Exclude]` opts one out. Plain
+properties map automatically by their CLR type; property attributes likewise only tune things.
 
 ```csharp
 [Node(TextIndex = BoolValue.True)]          // whole node is free-text searchable
@@ -117,8 +118,8 @@ public interface IContent {
     [StringProperty(Indexed = true)] string Title { get; set; }
 }
 
-[Node] public class Article : IContent { public Guid Id { get; set; } public string Title { get; set; } = ""; }
-[Node] public class Video   : IContent { public Guid Id { get; set; } public string Title { get; set; } = ""; }
+public class Article : IContent { public Guid Id { get; set; } public string Title { get; set; } = ""; }
+public class Video   : IContent { public Guid Id { get; set; } public string Title { get; set; } = ""; }
 
 db.Query<IContent>().Where(c => c.Title.StartsWith("Hello")).Execute();  // returns both
 ```
@@ -278,7 +279,8 @@ db.Delete(p);
 var art = db.CreateAndInsert<IArticle>(a => a.Title = "Hello");
 
 // relations
-db.SetRelation<Page>(parent, x => x.Children, child);
+db.AddRelation<Page>(parent, x => x.Children, child);   // append; throws if already related
+db.SetRelation<Page>(parent, x => x.Children, child);   // idempotent; replaces on a "one" side
 db.RemoveRelation<Page>(parent, x => x.Children, child);
 
 // batch several changes into one atomic transaction
@@ -288,12 +290,15 @@ t.Update(other);
 t.Execute();
 
 // files: upload into a FileValue slot, get a resized/converted URL back
-await db.FileUploadAsync(art.File, stream, "hero.jpg");
+await db.FileUploadAsync<IArticle>(art, a => a.File, stream, "hero.jpg");
 var url = db.GetUrl(art.File, new FileAdjustmentImage { Width = 400, Height = 300 });
 ```
 
-One naming trap to avoid: relation mutation is `SetRelation` / `RemoveRelation` / `ClearRelations`
-on `NodeStore`. `Relate<R>(from, to)` exists on `Transaction`, not as `db.Relate(...)`.
+One naming trap to avoid: the relation verbs are `AddRelation` / `SetRelation` / `RemoveRelation` /
+`ClearRelation` / `ClearRelations`. There is no `db.Relate(...)` or `db.UnRelate(...)`.
+`AddRelation` appends and throws if the pair is already related; `SetRelation` is the idempotent
+one — it also drops whatever it has to on a "one" side to make room, which is why it reads as an
+assignment.
 
 ---
 
@@ -304,6 +309,8 @@ on `NodeStore`. `Relate<R>(from, to)` exists on `Transaction`, not as `db.Relate
 - **Search** — BM25 free text, prefix/infix, fuzzy, plus semantic vector search on the same index.
 - **Facets** — value and range facets with drill-sideways counts off any indexed property or relation.
 - **Files** — local disk or Azure blob, on-demand image and video conversion, CDN-friendly URLs.
+  Conversion needs a converter registered at startup — `Relatude.DB.Plugins.Skia` for images,
+  `Relatude.DB.Plugins.FFMpeg` for video.
 - **Geo** — coordinate properties with radius filters and sort-by-distance.
 - **Extras** — cultures and fallbacks, revisions, per-property read/write access, transaction plugins,
   and a GraphQL **read** endpoint generated from your model
