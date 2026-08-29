@@ -1,0 +1,23 @@
+{
+  "name": "relatude.db.ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "~5.9.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.46.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

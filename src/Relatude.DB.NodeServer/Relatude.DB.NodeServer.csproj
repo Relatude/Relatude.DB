@@ -12,6 +12,7 @@
 	<ItemGroup>
 	  <None Remove="NodeServer\ClientUI\Images\favicon.ico" />
 	  <None Remove="NodeServer\ClientUI\start.html" />
+	  <None Remove="NodeServer\ClientUI2\**" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
@@ -27,5 +28,6 @@
 		<EmbeddedResource Include="NodeServer\ClientUI\index.5246294a.css" />
 		<EmbeddedResource Include="NodeServer\ClientUI\index.html" />
 		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
+		<EmbeddedResource Include="NodeServer\ClientUI2\**" />
 	</ItemGroup>
 </Project>

@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "relatude-db-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "src/Relatude.DB.UI"],
+      "port": 5173
+    },
+    {
       "name": "website-simple",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5052"],

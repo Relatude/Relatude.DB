@@ -9,6 +9,7 @@ using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.EventHub;
 using Relatude.DB.NodeServer.EventTriggers;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.NodeServer.UI;
 using Relatude.DB.Tasks;
 using Relatude.DB.Web;
 using System.Diagnostics;
@@ -486,7 +487,10 @@ public partial class RelatudeDBServer {
         if (_api != null) throw new Exception("API already mapped.");
         _api = new ServerAPIMapper(this);
         _api.MapSimpleAPI(app);
+        UI = new UIServer(this);
+        UI.Map(app);
     }
+    public UIServer? UI { get; private set; }
 }
 public class ServerOptions {
     public static string DefaultFileRootUrl => "/files";
