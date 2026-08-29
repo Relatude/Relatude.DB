@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Header } from "./components/Header";
 import { Login } from "./components/Login";
+import { Overview } from "./components/Overview";
 import { Sidebar } from "./components/Sidebar";
 import { sections } from "./navigation";
 import { isLoggedIn, logout } from "./server/auth";
@@ -109,9 +110,13 @@ export function App() {
         />
         <main className="content">
           <h2>{section.label}</h2>
-          <div className="placeholder">
-            <span>{section.label} — not implemented yet</span>
-          </div>
+          {activeSectionId === "server-overview" ? (
+            <Overview />
+          ) : (
+            <div className="placeholder">
+              <span>{section.label} — not implemented yet</span>
+            </div>
+          )}
         </main>
       </div>
     </div>

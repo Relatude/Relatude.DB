@@ -102,5 +102,79 @@ public sealed class UIServer {
             UpTimeMs = _server.UpTime.TotalMilliseconds,
             Containers = buildContainers(),
         });
+        Commands.Register("server-overview", ctx => {
+            var containers = _server.GetContainers();
+            var restart = _server.GetRestartCapabilities();
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            return (object?)new {
+                ServerName = _server.Settings.Name,
+                Version = typeof(UIServer).Assembly.GetName().Version?.ToString(),
+                UpTimeMs = _server.UpTime.TotalMilliseconds,
+                Machine = Environment.MachineName,
+                Os = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                ProcessorCount = Environment.ProcessorCount,
+                ProcessMemoryBytes = process.WorkingSet64,
+                ManagedMemoryBytes = GC.GetTotalMemory(false),
+                AdminPath = _server.ApiUrlRoot,
+                SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
+                DefaultDatabase = containers.FirstOrDefault(c => c.Settings.Id == _server.Settings.DefaultStoreId)?.Settings.Name,
+                Restart = new { restart.CanSoftRestart, restart.CanStopHost },
+                Containers = containers.Select(c => {
+                    long? nodeCount = null;
+                    if (c.IsOpen()) {
+                        try { nodeCount = c.Store!.Count(); } catch { }
+                    }
+                    var io = c.Settings.IOSettings?.FirstOrDefault(io => io.Id == c.Settings.IoDatabase);
+                    return new {
+                        c.Settings.Id,
+                        Name = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name,
+                        State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+                        NodeCount = nodeCount,
+                        Provider = io == null ? null : string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name,
+                    };
+                }),
+                ServerLog = _server.GetStartUpLog().TakeLast(100).Select(e => new { TimeUtc = e.Item1, Message = e.Item2 }),
+                StartupExceptions = containers.Where(c => c.StartUpException != null).Select(c => new {
+                    Container = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name,
+                    Message = c.StartUpException!.Message,
+                    TimeUtc = c.StartUpExceptionDateTimeUTC,
+                }),
+            };
+        });
+        Commands.Register("collect-garbage", ctx => {
+            static string mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N1") + " MB";
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var managedBefore = GC.GetTotalMemory(false);
+            // the deepest collection available: aggressive reclaims as much as possible (all generations,
+            // compacts large object heap, returns memory to the OS), finalizers run, then a second
+            // compacting pass picks up what finalization released
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            var managedAfter = GC.GetTotalMemory(false);
+            watch.Stop();
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            return (object?)new {
+                Started = true,
+                Message = $"Collected in {watch.ElapsedMilliseconds:N0} ms. Managed {mb(managedBefore)} → {mb(managedAfter)}, working set {mb(process.WorkingSet64)}.",
+            };
+        });
+        Commands.Register("soft-restart", ctx => {
+            if (!_server.GetRestartCapabilities().CanSoftRestart) throw new Exception("Soft restart is not allowed on this server. ");
+            if (_server.IsRestarting) return (object?)new { Started = false, Message = "A restart is already running." };
+            // closing and rebuilding every database takes far longer than a request should, so this only
+            // starts it: the UI watches the stream drop and reconnect
+            _ = Task.Run(async () => {
+                try { await _server.SoftRestartAsync(); } catch { } // SoftRestartAsync has already logged it
+            });
+            return (object?)new { Started = true, Message = "Soft restart started." };
+        });
+        Commands.Register("stop-host", ctx => {
+            if (!_server.GetRestartCapabilities().CanStopHost) throw new Exception("Stopping the host is not allowed on this server. ");
+            var started = _server.StopHost();
+            return (object?)new { Started = started, Message = started ? "The host is stopping." : "This host cannot be stopped from here." };
+        });
     }
 }
