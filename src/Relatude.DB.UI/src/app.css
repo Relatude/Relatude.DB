@@ -386,13 +386,30 @@ button {
 
 .content {
   min-width: 0;
-  padding: 24px 28px;
+  padding: 26px 32px;
   overflow-y: auto;
 }
 
+/* the page head identifies the section without shouting: a muted scope kicker in the same
+   voice as the rail's group labels, then a medium-weight title one step above body text */
+.page-head {
+  margin-bottom: 22px;
+}
+
+.page-kicker {
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .content h2 {
-  margin: 0 0 6px;
-  font-size: 19px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .content .placeholder {
@@ -400,7 +417,6 @@ button {
   align-items: center;
   justify-content: center;
   height: 260px;
-  margin-top: 18px;
   border: 1px dashed var(--border);
   border-radius: 10px;
   color: var(--text-muted);

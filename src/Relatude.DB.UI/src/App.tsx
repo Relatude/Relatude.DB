@@ -109,7 +109,10 @@ export function App() {
           onSelectSection={setActiveSectionId}
         />
         <main className="content">
-          <h2>{section.label}</h2>
+          <div className="page-head">
+            <div className="page-kicker">{section.scope === "server" ? "Server" : (activeDb?.name ?? "Database")}</div>
+            <h2>{section.label}</h2>
+          </div>
           {activeSectionId === "server-overview" ? (
             <Overview />
           ) : (
