@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { DialogHost } from "./components/DialogHost";
+import { FilesSection } from "./components/FilesSection";
 import { Header } from "./components/Header";
 import { Login } from "./components/Login";
 import { Overview } from "./components/Overview";
@@ -96,25 +98,24 @@ export function App() {
         activeSectionId={activeSectionId}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
-        navOpen={navOpen}
-        onToggleNav={() => setNavOpen(!navOpen)}
         onLogout={handleLogout}
+        navCollapsed={!navOpen}
+        onToggleNav={() => setNavOpen(!navOpen)}
       />
       <div className="shell-body">
         <Sidebar
           collapsed={!navOpen}
+          onToggleCollapsed={() => setNavOpen(!navOpen)}
           databases={databases}
           activeDbName={activeDb?.name ?? null}
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
         />
         <main className="content">
-          <div className="page-head">
-            <div className="page-kicker">{section.scope === "server" ? "Server" : (activeDb?.name ?? "Database")}</div>
-            <h2>{section.label}</h2>
-          </div>
           {activeSectionId === "server-overview" ? (
             <Overview />
+          ) : activeSectionId === "files" && activeDb ? (
+            <FilesSection key={activeDb.id} db={activeDb} />
           ) : (
             <div className="placeholder">
               <span>{section.label} — not implemented yet</span>
@@ -122,6 +123,7 @@ export function App() {
           )}
         </main>
       </div>
+      <DialogHost />
     </div>
   );
 }

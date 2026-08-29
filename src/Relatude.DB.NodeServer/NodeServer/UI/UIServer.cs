@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.Json;
 using System.Text.Json;
@@ -60,6 +61,27 @@ public sealed class UIServer {
         var path = _server.ApiUrlRoot + "/ui/";
         app.MapGet(path + "stream", Events.Connect);
         app.MapPost(path + "command", (Delegate)Commands.Execute); // Delegate overload, so the returned IResult is written to the response
+        // file uploads stream the raw request body straight into the IO provider (binary, so not a command)
+        app.MapPost(path + "upload", async (HttpContext ctx, Guid ioId, string key) => {
+            var sizeFeature = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+            if (sizeFeature != null && !sizeFeature.IsReadOnly) sizeFeature.MaxRequestBodySize = null; // database files exceed the default limit
+            var fileKey = key.SplitKey();
+            if (fileKey.Length == 0 || fileKey.Any(segment => !FileKeyUtility.IsFileKeyValid(segment))) {
+                return Results.BadRequest(new { error = "Invalid file key. " });
+            }
+            if (FileKeyUtility.StateFileKey.IsSameKey(fileKey)) return Results.BadRequest(new { error = "Uploading the state file is not allowed. " });
+            var io = _server.GetIO(ioId);
+            io.DeleteFileIfItExists(fileKey);
+            try {
+                using var ioStream = io.OpenAppend(fileKey);
+                using var writeStream = new WriteStreamWrapper(ioStream);
+                await ctx.Request.Body.CopyToAsync(writeStream, ctx.RequestAborted);
+            } catch (OperationCanceledException) {
+                io.DeleteFileIfItExists(fileKey); // no half files from a cancelled upload
+                throw;
+            }
+            return Results.Ok();
+        });
         mapStaticUI(app);
     }
     void mapStaticUI(WebApplication app) {
@@ -95,6 +117,7 @@ public sealed class UIServer {
             return css;
         });
     }
+    static string[] splitFolderPath(string? folderPath) => folderPath?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
     void registerBuiltInCommands() {
         Commands.Register("ping", ctx => new { Pong = true, ServerTimeUtc = DateTime.UtcNow });
         Commands.Register("server-info", ctx => new {
@@ -142,6 +165,57 @@ public sealed class UIServer {
                 }),
             };
         });
+        // the IO providers of one database container, for the files & storage section
+        Commands.Register("io-list", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            if (!_server.Containers.TryGetValue(p.StoreId, out var c)) throw new Exception("Container not found. ");
+            return (object?)(c.Settings.IOSettings ?? []).Select(io => new {
+                io.Id,
+                Name = string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name,
+                Type = io.IOType.ToString(),
+            });
+        });
+        // the given folder ("" = the storage root): its files and subfolder stubs, or the whole
+        // tree below it when recursive (used to plan folder downloads)
+        Commands.Register("io-folder", async ctx => {
+            var p = ctx.Payload<IoFolderPayload>();
+            return (object?)await _server.GetIO(p.IoId).GetFolderAsync(splitFolderPath(p.Path), p.Recursive, true);
+        });
+        // recursive size and counts, on demand: walking a big tree can take a while
+        Commands.Register("io-folder-size", async ctx => {
+            var p = ctx.Payload<IoFolderPayload>();
+            var folder = await _server.GetIO(p.IoId).GetFolderAsync(splitFolderPath(p.Path), true, true);
+            long size = 0, fileCount = 0, folderCount = 0;
+            void sum(FolderMeta f) {
+                foreach (var file in f.Files) { size += file.Size; fileCount++; }
+                foreach (var sub in f.SubFolders) { folderCount++; sum(sub); }
+            }
+            sum(folder);
+            return (object?)new { Size = size, FileCount = fileCount, FolderCount = folderCount };
+        });
+        // removes the (by then empty) folder itself; the UI deletes the files first, for progress
+        Commands.Register("io-delete-folder", ctx => {
+            var p = ctx.Payload<IoFolderPayload>();
+            var folderPath = splitFolderPath(p.Path);
+            if (folderPath.Length == 0) throw new Exception("The storage root cannot be deleted. ");
+            _server.GetIO(p.IoId).DeleteFolderIfItExists(folderPath);
+            return (object?)new { Deleted = true };
+        });
+        Commands.Register("io-delete-files", ctx => {
+            var p = ctx.Payload<IoDeleteFilesPayload>();
+            var io = _server.GetIO(p.IoId);
+            var deleted = 0;
+            var errors = new List<string>();
+            foreach (var key in p.Keys) {
+                try {
+                    io.DeleteFileIfItExists(key.SplitKey());
+                    deleted++;
+                } catch (Exception error) {
+                    errors.Add(key + ": " + error.Message);
+                }
+            }
+            return (object?)new { Deleted = deleted, Errors = errors };
+        });
         Commands.Register("collect-garbage", ctx => {
             static string mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N1") + " MB";
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -178,3 +252,6 @@ public sealed class UIServer {
         });
     }
 }
+sealed record IoListPayload(Guid StoreId);
+sealed record IoFolderPayload(Guid IoId, string? Path, bool Recursive = false);
+sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);

@@ -1,19 +1,9 @@
 import { useState } from "react";
-import {
-  IconChevronDown,
-  IconDotsVertical,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconLogout,
-  IconMoon,
-  IconSearch,
-  IconSun,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconDotsVertical, IconLogout, IconMoon, IconSun } from "@tabler/icons-react";
 import { sections } from "../navigation";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { Theme } from "../theme";
-import { useConnectionState } from "../server/hooks";
-import { Logo } from "./Logo";
+import { Logo, LogoMark } from "./Logo";
 
 interface HeaderProps {
   databases: DatabaseInfo[];
@@ -22,46 +12,38 @@ interface HeaderProps {
   activeSectionId: string;
   theme: Theme;
   onToggleTheme: () => void;
-  navOpen: boolean;
-  onToggleNav: () => void;
   onLogout: () => void;
+  navCollapsed: boolean;
+  onToggleNav: () => void;
 }
 
 export function Header(p: HeaderProps) {
-  const connection = useConnectionState();
   const section = sections.find((s) => s.id === p.activeSectionId);
   const isServerScope = section?.scope === "server";
   return (
     <header className="header">
-      <div className="logo" title="Relatude.DB">
-        <Logo height={40} />
-      </div>
-      <button className="icon-button" onClick={p.onToggleNav} title={p.navOpen ? "Collapse menu" : "Expand menu"}>
-        {p.navOpen ? <IconLayoutSidebarLeftCollapse size={18} stroke={1.8} /> : <IconLayoutSidebarLeftExpand size={18} stroke={1.8} />}
+      {/* sized like the rail (and animated with it) so its right border and the rail border form one line */}
+      <button
+        className={"header-brand" + (p.navCollapsed ? " collapsed" : "")}
+        onClick={p.onToggleNav}
+        title={p.navCollapsed ? "Expand menu" : "Collapse menu"}
+      >
+        <span className="logo-full">
+          <Logo height={40} />
+        </span>
+        <span className="logo-mark">
+          <LogoMark height={13} />
+        </span>
       </button>
-      <div className="header-divider" />
-      <DbSwitcher databases={p.databases} activeDb={p.activeDb} onSelectDb={p.onSelectDb} />
-      <nav className="breadcrumb" aria-label="Breadcrumb">
-        <span className="crumb">{isServerScope ? "Server" : "Database"}</span>
-        {!isServerScope && p.activeDb && (
-          <>
-            <span className="crumb">/</span>
-            <span className="crumb">{p.activeDb.name}</span>
-          </>
-        )}
-        <span className="crumb">/</span>
-        <span className="current">{section?.label}</span>
-      </nav>
-      <div className="header-spacer" />
-      <div className="search-box">
-        <IconSearch size={15} stroke={1.8} />
-        <span>Search / jump to</span>
-        <kbd>Ctrl K</kbd>
+      <div className="header-title">
+        <div className="page-kicker">{isServerScope ? "Server" : (p.activeDb?.name ?? "Database")}</div>
+        <h2>{section?.label}</h2>
       </div>
-      <span className={"stream-dot" + (connection === "open" ? " open" : "")} title={"stream: " + connection} />
+      <div className="header-spacer" />
       <button className="icon-button" onClick={p.onToggleTheme} title={p.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
         {p.theme === "dark" ? <IconSun size={18} stroke={1.8} /> : <IconMoon size={18} stroke={1.8} />}
       </button>
+      <DbSwitcher databases={p.databases} activeDb={p.activeDb} onSelectDb={p.onSelectDb} />
       <MoreMenu onLogout={p.onLogout} />
     </header>
   );

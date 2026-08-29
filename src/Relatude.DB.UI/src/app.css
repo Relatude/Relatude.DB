@@ -8,6 +8,7 @@
   --accent-soft: rgba(9, 96, 178, 0.1);
   --accent-contrast: #ffffff;
   --hover: rgba(0, 0, 0, 0.045);
+  --text-faint: #a6a39d;
   --danger: #b3261e;
   --danger-soft: rgba(179, 38, 30, 0.12);
   --ok: #2f7a44;
@@ -24,6 +25,7 @@
   --accent-soft: rgba(109, 179, 245, 0.14);
   --accent-contrast: #15181d;
   --hover: rgba(255, 255, 255, 0.06);
+  --text-faint: #767370;
   --danger: #f2887f;
   --danger-soft: rgba(242, 136, 127, 0.14);
   --ok: #6fbf85;
@@ -77,19 +79,61 @@ button {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 16px;
+  padding: 0 16px 0 0;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
-.logo {
+/* the brand box is sized and animated exactly like the rail below it, so its right border
+   and the rail border read as one continuous line in both states */
+.header-brand {
+  position: relative;
   display: flex;
   align-items: center;
+  flex: none;
+  width: 212px;
+  height: 100%;
+  padding: 0 16px 0 22px;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
   color: var(--text);
+  transition: width 0.18s ease;
 }
 
-.logo svg {
+.header-brand svg {
   display: block;
+}
+
+.header-brand .logo-full {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.header-brand .logo-mark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.6);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.header-brand.collapsed {
+  width: 56px;
+  padding: 0;
+}
+
+.header-brand.collapsed .logo-full {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.header-brand.collapsed .logo-mark {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
 }
 
 /* same rhythm as the original SMIL chain in ServerUI: 1s on, 200ms fade out, 500ms off, 200ms fade in */
@@ -113,47 +157,22 @@ button {
   }
 }
 
-.header-divider {
-  width: 1px;
-  height: 26px;
-  background: var(--border);
+/* the active section, in the same voice as the old page head: muted scope kicker over the title */
+.header-title {
+  min-width: 0;
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.breadcrumb .current {
-  color: var(--text);
+.header-title h2 {
+  margin: 0;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .header-spacer {
   flex: 1;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 220px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text-muted);
-}
-
-.search-box kbd {
-  margin-left: auto;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 11px;
 }
 
 .icon-button {
@@ -171,15 +190,23 @@ button {
   color: var(--text);
 }
 
-.stream-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-.stream-dot.open {
-  background: var(--ok);
+.icon-button:disabled:hover {
+  background: none;
+  color: var(--text-muted);
+}
+
+.icon-button.danger:hover {
+  color: var(--danger);
+}
+
+.icon-button.armed {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* ---- database switcher ---- */
@@ -243,7 +270,7 @@ button {
 .db-menu {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  right: 0;
   z-index: 20;
   width: 280px;
   padding: 4px;
@@ -288,23 +315,50 @@ button {
 }
 
 .more-menu-list {
-  right: 0;
-  left: auto;
   width: 170px;
 }
 
 /* ---- sidebar ---- */
 
+.sidebar-wrap {
+  position: relative;
+  min-height: 0;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
   width: 212px;
+  height: 100%;
   padding: 14px 10px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
   transition: width 0.18s ease;
+}
+
+/* round collapse handle riding the sidebar border, near the bottom */
+.nav-toggle {
+  position: absolute;
+  right: -12px;
+  bottom: 52px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.nav-toggle:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
 }
 
 .nav-group-label {
@@ -386,30 +440,17 @@ button {
 
 .content {
   min-width: 0;
-  padding: 26px 32px;
+  padding: 16px; /* same rhythm as the 16px gap between panels */
   overflow-y: auto;
 }
 
-/* the page head identifies the section without shouting: a muted scope kicker in the same
-   voice as the rail's group labels, then a medium-weight title one step above body text */
-.page-head {
-  margin-bottom: 22px;
-}
-
 .page-kicker {
-  margin-bottom: 3px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-.content h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .content .placeholder {
@@ -525,7 +566,7 @@ button {
   display: grid;
   grid-template-columns: 1fr 340px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch; /* panels sharing a row share its height */
 }
 
 .overview-columns:last-child {
@@ -562,11 +603,11 @@ button {
 }
 
 .fact-k {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .fact-v {
@@ -628,11 +669,11 @@ button {
 .db-table-row.db-table-head {
   border-top: none;
   padding-top: 0;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .db-table-row .num {
@@ -678,6 +719,339 @@ button {
 
 .startup-exception-head {
   font-weight: 600;
+}
+
+/* ---- files & storage ---- */
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.files-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* aligned with the tree column below it */
+.files-toolbar .select {
+  width: 260px;
+}
+
+.select {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.text-input {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  width: 200px;
+}
+
+.text-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.files-message {
+  font-size: 12px;
+}
+
+.files-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.files-tree {
+  overflow-y: auto;
+  padding: 10px 8px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.tree-row:hover {
+  background: var(--hover);
+}
+
+.tree-row.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tree-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 4px 1px;
+  color: var(--text-faint);
+}
+
+.tree-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 4px;
+  font-size: 13px;
+  color: inherit;
+  text-align: left;
+}
+
+.tree-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-label svg {
+  flex: none;
+}
+
+/* the size column: a compute icon until clicked, then the recursive size */
+.tree-size {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.tree-size:hover {
+  color: var(--text);
+}
+
+.tree-size.computed {
+  position: relative;
+  color: var(--text-muted);
+}
+
+/* instant tooltip with the file and folder counts behind the computed size */
+.tree-size.computed::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease 0.15s;
+}
+
+.tree-size.computed:hover::after {
+  opacity: 1;
+}
+
+.files-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-table {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 24px 1.6fr 1fr 90px 150px 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.file-row.selected {
+  background: var(--accent-soft);
+}
+
+.file-row.file-head {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  border-top: none;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.file-row .num {
+  text-align: right;
+}
+
+.file-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-name svg {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.file-row .icon-button {
+  width: 24px;
+  height: 24px;
+}
+
+.files-empty {
+  padding: 14px 4px;
+}
+
+.files-footer {
+  padding-top: 8px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- dialogs ---- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.dialog {
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.dialog h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.dialog-title-error {
+  color: var(--danger);
+}
+
+.dialog-body {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.dialog-details {
+  max-height: 180px;
+  margin-bottom: 4px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.dialog-label {
+  min-height: 15px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--badge-bg);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+.progress-bar.error .progress-fill {
+  background: var(--danger);
+}
+
+.progress-bar.indeterminate .progress-fill {
+  width: 40% !important;
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0% {
+    margin-left: -40%;
+  }
+
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.dialog-row {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.dialog-meta {
+  font-size: 12px;
 }
 
 /* ---- collapsed rail (toggled from the header, animated via the width above) ---- */

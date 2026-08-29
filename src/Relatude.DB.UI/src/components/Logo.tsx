@@ -1,3 +1,15 @@
+// The node glyph alone (the circle with its connector line), used when the menu is collapsed.
+// Same geometry as the start of the full wordmark, but drawn with strokes so it can be a
+// touch thinner than the filled original when scaled up to icon size.
+export function LogoMark({ height = 13 }: { height?: number | string }) {
+  return (
+    <svg viewBox="34 55 32 17" height={height} aria-label="Relatude">
+      <circle cx="42.5" cy="63.5" r="5.8" fill="none" stroke="currentColor" strokeWidth="2" />
+      <line x1="48.7" y1="63.7" x2="64.2" y2="63.7" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
 // The Relatude wordmark, copied from Relatude.DB.ServerUI (sections/main/logoBig.tsx).
 // Renders in currentColor so it follows the theme. The blinking cursor is driven by the
 // .logo-cursor CSS animation (app.css) with the same rhythm as the original SMIL chain.
