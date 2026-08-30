@@ -194,6 +194,32 @@ public class RelationFacetTests {
     }
 
     [TestMethod]
+    public void RelationFacet_TooManyRelatedNodes_SkippedWhenAutomatic() {
+        // buckets are the related nodes themselves, so a relation to many distinct nodes is exactly
+        // the case the automatic facet limit exists for (Property.MaxAutomaticFacetValues)
+        var dm = new Datamodel();
+        dm.Add<RelFacetProduct>(autoDeduceRelations: true);
+        dm.Add<RelFacetBrand>(autoDeduceRelations: true);
+        dm.Add<RelFacetSupplier>(autoDeduceRelations: true);
+        var store = new NodeStore(DataStoreLocal.Open(dm));
+        var brands = new List<RelFacetBrand>();
+        var products = new List<RelFacetProduct>();
+        for (var i = 1; i <= 120; i++) {
+            brands.Add(new RelFacetBrand { Id = Guid.NewGuid(), Name = "B" + i });
+            products.Add(new RelFacetProduct { PId = Guid.NewGuid(), Category = _categories[i % 3] });
+        }
+        store.Insert(brands);
+        store.Insert(products);
+        for (var i = 0; i < products.Count; i++) store.AddRelation(products[i], p => p.Brand, brands[i]); // one brand each
+        var res = store.Query<RelFacetProduct>().Facets().Execute();
+        Assert.IsFalse(res.Facets.Any(f => f.CodeName == "Brand"), "120 distinct related nodes is above the automatic facet limit");
+        Assert.IsTrue(res.Facets.Any(f => f.CodeName == "Category"));
+        var res2 = store.Query<RelFacetProduct>().Facets().AddValueFacet("Brand").Execute(); // explicit is never skipped
+        Assert.AreEqual(120, FacetOf(res2, "Brand").Values.Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
     public void RelationFacet_UnparsableSelection_MatchesNothing() {
         // an unparsable selection must filter to an empty result, not silently drop the filter
         var store = openStore(out _, out _, out _);

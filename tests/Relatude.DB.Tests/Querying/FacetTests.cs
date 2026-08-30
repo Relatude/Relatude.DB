@@ -1015,3 +1015,112 @@ public class FacetAttributeSettingsTests {
         store.Dispose();
     }
 }
+
+#region high cardinality facet test datamodel
+[Node]
+public class Ticket {
+    [InternalIdProperty]
+    public int Id { get; set; }
+    [StringProperty(Indexed = true)]
+    public string Code { get; set; } = ""; // one distinct value per node
+    [StringProperty(Indexed = true)]
+    public string Status { get; set; } = ""; // a handful of distinct values
+    [StringProperty(Indexed = true)]
+    public string Group { get; set; } = ""; // exactly at the limit
+    [IntegerProperty(Indexed = true)]
+    public int Number { get; set; } // one distinct value per node, but bucketed into ranges
+    [StringArrayProperty(Indexed = true)]
+    public string[] Labels { get; set; } = []; // one distinct element per node
+    [GuidArrayProperty(Indexed = true)]
+    public Guid[] LabelIds { get; set; } = [];
+}
+#endregion
+
+// Automatic facets (a .Facets() query that names no property) drop properties whose buckets are one
+// per unique value once there are too many of them - a facet with thousands of string or guid
+// buckets is useless in a UI and expensive to build. Range bucketed and explicitly named facets are
+// never dropped.
+[TestClass]
+public class AutomaticFacetCardinalityTests {
+
+    const int _limit = 100; // Property.MaxAutomaticFacetValues (internal to the store assembly)
+
+    static Guid labelId(int i) => Guid.Parse("00000000-0000-0000-0000-" + i.ToString("D12"));
+
+    static NodeStore openTicketStore(int count) {
+        var dm = new Datamodel();
+        dm.Add<Ticket>();
+        var store = new NodeStore(DataStoreLocal.Open(dm));
+        var all = new List<Ticket>();
+        for (var i = 1; i <= count; i++) {
+            all.Add(new Ticket {
+                Code = "C" + i,
+                Status = "S" + (i % 3),
+                Group = "G" + (i % _limit),
+                Number = i,
+                Labels = ["L" + i],
+                LabelIds = [labelId(i)],
+            });
+        }
+        store.Insert(all);
+        return store;
+    }
+    static Facets FacetOf<T>(ResultSetFacets<T> res, string codeName)
+        => res.Facets.First(f => f.CodeName == codeName);
+
+    [TestMethod]
+    public void AutomaticFacets_SkipPropertiesWithTooManyValues() {
+        var store = openTicketStore(_limit + 50);
+        var names = store.Query<Ticket>().Facets().Execute().Facets.Select(f => f.CodeName).ToList();
+        Assert.IsFalse(names.Contains("Code"), "A string property with one value per node must not be an automatic facet");
+        Assert.IsFalse(names.Contains("Labels"), "A string array property with one element per node must not be an automatic facet");
+        Assert.IsFalse(names.Contains("LabelIds"), "A guid array property with one element per node must not be an automatic facet");
+        Assert.IsTrue(names.Contains("Status"));
+        Assert.IsTrue(names.Contains("Group"), "Exactly at the limit is still a facet");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void AutomaticFacets_KeepRangeBucketedProperties() {
+        // the limit is about one bucket per unique value; a range facet has as many buckets as it
+        // was asked for, whatever the cardinality of the property
+        var store = openTicketStore(_limit + 50);
+        var res = store.Query<Ticket>().Facets().Execute();
+        var number = FacetOf(res, "Number");
+        Assert.IsTrue(number.IsRangeFacet == true);
+        Assert.IsTrue(number.Values.Count <= _limit);
+        Assert.AreEqual(_limit + 50, number.Values.Sum(v => v.Count));
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void AutomaticFacets_KeepPropertiesAtTheLimit() {
+        var store = openTicketStore(_limit); // every property now holds exactly the limit
+        var res = store.Query<Ticket>().Facets().Execute();
+        var names = res.Facets.Select(f => f.CodeName).ToList();
+        Assert.IsTrue(names.Contains("Code"));
+        Assert.IsTrue(names.Contains("Labels"));
+        Assert.IsTrue(names.Contains("LabelIds"));
+        Assert.AreEqual(_limit, FacetOf(res, "Code").Values.Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void ExplicitFacets_AreNeverSkipped() {
+        var store = openTicketStore(_limit + 50);
+        var res = store.Query<Ticket>().Facets()
+            .AddValueFacet("Code")
+            .AddFacet("Labels")
+            .Execute();
+        Assert.AreEqual(_limit + 50, FacetOf(res, "Code").Values.Count);
+        Assert.AreEqual(_limit + 50, FacetOf(res, "Labels").Values.Count);
+        Assert.AreEqual(2, res.Facets.Count()); // naming any facet turns the automatic selection off
+        // and a selection on such a facet still filters:
+        var filtered = store.Query<Ticket>().Facets()
+            .AddValueFacet("Code")
+            .SetFacetValue("Code", "C7")
+            .Execute();
+        Assert.AreEqual(1, filtered.Count());
+        store.Dispose();
+    }
+}

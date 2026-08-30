@@ -8,7 +8,7 @@ namespace Relatude.DB.Query.Data {
         public Datamodel Datamodel { get => _def.Datamodel; }
         public Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx) {
             var ids = _ids;
-            var relevantProps = findRelevantProperties(givenById, true, _def, ids).ToList();
+            var relevantProps = findRelevantProperties(givenById, true, _def, ids, ctx).ToList();
             var result = new Dictionary<Guid, Facets>();
             var innerSet = ids;
             var specialSetsForSelectedFacets = new Dictionary<Guid, IdSet>();
@@ -86,11 +86,15 @@ namespace Relatude.DB.Query.Data {
             }
             return result;
         }
-        IEnumerable<Property> findRelevantProperties(Dictionary<Guid, Facets> givenById, bool addAllFacets, Definition def, IdSet nodeIds) {
+        IEnumerable<Property> findRelevantProperties(Dictionary<Guid, Facets> givenById, bool addAllFacets, Definition def, IdSet nodeIds, QueryContext ctx) {
             if (givenById.Count > 0 || !addAllFacets) { // if any given, only look at these:
                 return givenById.Keys.Where(def.Properties.ContainsKey).Select(pId => def.Properties[pId]).Where(p => p.CanBeFacet());
             } else if (addAllFacets) {
-                return def.GetFacetPropertiesForSet(nodeIds);
+                // nothing was asked for by name, so high cardinality value facets are dropped here
+                // rather than returned with thousands of buckets (see Property.CanBeAutomaticFacet).
+                // The cardinality depends on index state, not on the set, so this cannot be part of
+                // the set-keyed cache inside GetFacetPropertiesForSet:
+                return def.GetFacetPropertiesForSet(nodeIds).Where(p => p.CanBeAutomaticFacet(ctx));
             } else {
                 return [];
             }

@@ -20,7 +20,6 @@
   --badge-bg: rgba(0, 0, 0, 0.07);
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
-  --landscape-opacity: 0.16;
 }
 
 [data-theme="dark"] {
@@ -43,7 +42,6 @@
   --badge-bg: rgba(255, 255, 255, 0.09);
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
-  --landscape-opacity: 0.2;
 }
 
 * {
@@ -101,19 +99,6 @@ a {
    --backdrop-opacity folded into every alpha it draws rather than applied here, so the
    viewport-sized layer never needs blending on top of the page */
 .backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  width: 100%;
-  height: 100%;
-  color: var(--backdrop-ink);
-  pointer-events: none;
-}
-
-/* the flowing landscape behind the login form (Landscape.tsx paints it). Placed and coloured
-   exactly like .backdrop above, but on its own veil: contour lines at the dot field's opacity
-   read a good deal heavier than the dots do. */
-.landscape {
   position: fixed;
   inset: 0;
   z-index: -1;
@@ -2597,4 +2582,748 @@ a.action-button {
   align-items: center;
   margin-bottom: 10px;
   font-size: 12px;
+}
+
+/* ---- query ---- */
+
+/* the page scrolls in two places, not one: the facet rail and the hit list each keep their own
+   position, so narrowing a search does not throw away where you were in the other one */
+.query {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.query-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.query-toolbar .select {
+  max-width: 320px;
+}
+
+.query-spacer {
+  flex: 1;
+}
+
+.query-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+}
+
+.query-search:focus-within {
+  border-color: var(--accent);
+}
+
+.query-search .text-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding-left: 0;
+  padding-right: 0;
+  background: none;
+  border: none;
+}
+
+.query-search .text-input:focus {
+  outline: none;
+}
+
+.query-sliders {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.query-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.query-slider.disabled {
+  opacity: 0.5;
+}
+
+.query-slider-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.query-slider input[type="range"] {
+  width: 160px;
+}
+
+.query-slider-value {
+  width: 34px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.query-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* the query string this page sends, for anyone who wants to run it themselves */
+.query-string {
+  padding: 8px 12px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.query-error {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: 8px;
+}
+
+.query-body {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* the editor opens as a third column so the list stays where it was; below the width where all
+   three still read, the facet rail is the one that gives way - the selection it made is already
+   applied, and the list and the form are what clicking through a set of nodes needs */
+.query-body.with-editor {
+  grid-template-columns: 210px minmax(0, 1fr) minmax(340px, 38%);
+}
+
+@media (max-width: 1240px) {
+  .query-body.with-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 44%);
+  }
+  .query-body.with-editor .query-facets {
+    display: none;
+  }
+}
+
+/* the rail is closed by default, and then the results simply have the width */
+.query-body.no-facets {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.query-body.no-facets.with-editor {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 38%);
+}
+
+.query-editor {
+  display: flex;
+  min-height: 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+
+/* the header buttons are sized for a full-width page; in this column they take their text's width */
+.query-editor .action-button {
+  min-width: 0;
+}
+
+.query-facets {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.query-facets-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.query-facet + .query-facet {
+  margin-top: 14px;
+}
+
+.query-facet h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.query-facet-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.query-facet-value:hover {
+  background: var(--hover);
+}
+
+.query-facet-value.selected {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* drawn rather than an input element: the whole row is the control, and a real checkbox inside a
+   button would take the click for itself */
+.query-facet-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.query-facet-value.selected .query-facet-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+
+.query-facet-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-facet-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.query-empty {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.query-results {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0; /* a grid column sizes to its content unless told not to, and a long hit line is wide */
+}
+
+.query-results-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* list / table, one control with two states rather than two buttons that look independent */
+.query-view {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.query-view button {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+
+.query-view button:hover {
+  background: var(--hover);
+}
+
+.query-view button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.select.compact {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+/* an icon button that is a switch rather than an action, in its on state */
+.icon-button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* what the closed facet rail is still filtering by */
+.query-filters {
+  display: flex;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.query-paging {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.query-hits {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  transition: opacity 0.12s ease;
+}
+
+/* A search in flight fades the list it is about to replace, so the page does not flash empty -
+   but only once it has been running long enough to be worth saying so. Searches now run on every
+   keystroke and most of them land well inside the delay, so the list simply does not flicker.
+   The delay is on the loading rule alone: coming back is immediate. */
+.query-hits.loading {
+  opacity: 0.55;
+  transition-delay: 0.35s;
+}
+
+.query-hit {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.query-hit:hover {
+  background: var(--hover);
+}
+
+.query-hit.selected {
+  background: var(--accent-soft);
+}
+
+.query-hit.selected .query-hit-name {
+  color: var(--accent);
+}
+
+.query-hit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.query-hit-name {
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-hit-type {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 4px;
+}
+
+.query-hit-time {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.query-hit-summary {
+  display: flex;
+  gap: 14px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+}
+
+.query-hit-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-hit-summary em {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+/* ---- the table view ---- */
+
+/* a column per property is wider than any pane, so the table scrolls in both directions inside
+   its own box and the header stays put while it does */
+.query-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  transition: opacity 0.12s ease;
+}
+
+.query-table-wrap.loading {
+  opacity: 0.55;
+  transition-delay: 0.35s;
+}
+
+.query-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.query-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.query-table td {
+  max-width: 320px;
+  padding: 5px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+}
+
+.query-table tbody tr {
+  cursor: pointer;
+}
+
+.query-table tbody tr:hover {
+  background: var(--hover);
+}
+
+.query-table tbody tr.selected {
+  background: var(--accent-soft);
+}
+
+.query-table tbody tr.selected td:first-child {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- node editor ---- */
+
+.node-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.node-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.node-editor-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node-editor-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.node-editor-title .muted {
+  font-size: 11px;
+}
+
+.node-fields {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  container-type: inline-size; /* the fields lay out for the pane they are in, not for the window */
+}
+
+.node-field {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  align-items: start;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.node-field.edited {
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+
+.node-field.readonly .node-field-control {
+  color: var(--text-muted);
+}
+
+.node-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 5px;
+}
+
+.node-field-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.node-field-type {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.node-field-owner {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.node-field-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.node-field-control .text-input.wide {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.node-field-control .text-input.number {
+  width: 160px;
+}
+
+.node-field-control textarea.text-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.text-input.mono,
+.text-input.code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.node-checks {
+  display: flex;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+}
+
+.node-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.node-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.node-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.node-geo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.node-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.node-inner-node {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.node-inner-node em {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.node-inner-type {
+  font-weight: 600;
+}
+
+.node-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.node-picker-targets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  background: var(--badge-bg);
+  border-radius: 12px;
+}
+
+.node-chip em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.node-chip .icon-button {
+  width: 18px;
+  height: 18px;
+}
+
+.node-picker-search {
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.node-picker-results {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  margin-top: 6px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.node-picker-result {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.node-picker-result:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.node-picker-result:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.node-picker-result em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* in a side pane there is no room for a label column: the label goes above its control */
+@container (max-width: 620px) {
+  .node-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 10px 8px;
+  }
+  .node-field-label {
+    padding-top: 0;
+  }
+  .node-field-control {
+    flex-wrap: wrap;
+  }
 }

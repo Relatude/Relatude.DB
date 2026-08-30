@@ -7,6 +7,7 @@ import { Header } from "./components/Header";
 import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
 import { Overview } from "./components/Overview";
+import { QuerySection } from "./components/QuerySection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
@@ -130,6 +131,8 @@ export function App() {
             <LogsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "conversions" && activeDb ? (
             <ConversionsSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "query" && activeDb ? (
+            <QuerySection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "files" && activeDb ? (
             <FilesSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "storage" && activeDb ? (

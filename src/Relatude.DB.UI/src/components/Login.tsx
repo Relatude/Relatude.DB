@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { AnimatedLogo } from "./AnimatedLogo";
-import { Landscape } from "./Landscape";
 import { haveUsers, login } from "../server/auth";
 import type { Theme } from "../theme";
 
@@ -39,11 +38,10 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
       setBusy(false);
     }
   }
-  // The animated background is Landscape.tsx. Backdrop.tsx, the dot / node-graph / starfield
-  // field that used to sit here, is still in the tree and still works: swap the element below.
+  // No animated background here any more. Backdrop.tsx is still in the tree and still works;
+  // rendering <Backdrop /> as the first child below brings it back.
   return (
     <div className="login">
-      <Landscape />
       <button
         type="button"
         className="icon-button login-theme"

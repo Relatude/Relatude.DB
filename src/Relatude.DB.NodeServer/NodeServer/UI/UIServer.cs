@@ -18,6 +18,7 @@ public sealed class UIServer {
     const int containerWatchIntervalMs = 1000;
     readonly RelatudeDBServer _server;
     readonly Timer _containerWatch;
+    readonly UIQuery _query;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -28,6 +29,8 @@ public sealed class UIServer {
         new UISettings(server).Register(Commands);
         new UILogs(server).Register(Commands);
         new UIDashboard(server).Register(Commands);
+        _query = new UIQuery(server);
+        _query.Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),
@@ -95,6 +98,18 @@ public sealed class UIServer {
                 throw;
             }
             return Results.Ok();
+        });
+        // the query page's csv export (a file download, so not a command): the same search payload
+        // the page runs, streamed back as rows instead of counted into facets
+        app.MapPost(path + "query-csv", async (HttpContext ctx, UIQuery.SearchPayload payload) => {
+            try {
+                await _query.WriteCsv(ctx, payload);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                // everything that can fail (the store, the query) happens before the first row is
+                // written, so until then the client can still be told what went wrong
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+            return Results.Empty;
         });
         // zip downloads (binary, so not commands): GET zips a whole folder (also the url behind
         // dragging a folder out to the desktop), POST zips a set of selected files
